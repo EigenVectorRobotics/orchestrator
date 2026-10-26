@@ -1,0 +1,17 @@
+name: say
+kind: action
+device: orin
+description: Speak a sentence
+interface:
+  transport: topic
+  name: /unitree_interface/tts
+  ros_type: std_msgs/msg/String
+inputs:
+- name: text
+  type: string
+  field: data
+resources:
+- voice
+timeout_s: 10
+maturity: wip
+source: unitree_interface/unitree_interface/src/unitree_interface.cpp

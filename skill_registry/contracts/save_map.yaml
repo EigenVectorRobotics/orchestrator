@@ -1,0 +1,13 @@
+name: save_map
+kind: action
+device: nuc
+description: Write the current SLAM map to disk
+interface:
+  transport: service
+  name: /slam_elevatorlio/save_map
+  ros_type: navigation_interfaces/srv/SaveMap
+inputs:
+  - {name: path, type: string, description: absolute path; parent folder must exist}
+timeout_s: 30
+maturity: wip
+source: navigation_stack_lio/slam_elevatorlio/slam_elevatorlio/slam_elevatorlio_node.py

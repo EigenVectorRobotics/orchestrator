@@ -1,0 +1,30 @@
+name: navigate_to
+kind: action
+device: nuc
+description: Walk to a pose in the map frame on the prior-map route graph
+interface:
+  transport: topic
+  name: /route_goal
+  ros_type: geometry_msgs/msg/PoseStamped
+  success_when:
+    topic: /route_planner/status
+    ros_type: std_msgs/msg/String
+    json: true
+    field: state
+    equals: arrived
+    latched: true
+inputs:
+- name: goal
+  type: pose
+  description: map-frame goal pose
+  field: .
+pre:
+- localized
+resources:
+- base
+timeout_s: 120
+fallback:
+- cancel_nav
+maturity: wip
+source: navigation_stack_lio/route_planner/route_planner/route_planner_node.py
+notes: status state is routing | arrived | blocked. Treat blocked for longer than a set time as failure.

@@ -1,0 +1,15 @@
+name: localized
+kind: condition
+device: nuc
+description: SLAM is in localization mode on a prior map
+interface:
+  transport: watch
+  success_when:
+    topic: /slam_elevatorlio/status
+    ros_type: std_msgs/msg/String
+    json: true
+    field: localized
+    equals: true
+    latched: true
+maturity: wip
+source: navigation_stack_lio/slam_elevatorlio/slam_elevatorlio/slam_elevatorlio_node.py

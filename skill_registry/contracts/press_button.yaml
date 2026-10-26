@@ -1,0 +1,19 @@
+name: press_button
+kind: action
+device: nuc
+description: Find a button by text, reach it along its contact normal, and press it
+interface:
+  transport: action
+  name: humanoid_arm_visual_servoing
+  ros_type: humanoid_manipulation_interfaces/action/VisualServoingArm
+inputs:
+  - {name: target_description, type: string, description: 'text query, e.g. elevator up button'}
+  - {name: left_arm, type: bool, required: false, default: false}
+outputs:
+  - {name: final_distance, type: float}
+check: button_lit
+resources: [arms, tracker]
+timeout_s: 30
+maturity: wip
+source: manipulation_stack/humanoid_arm_skills/humanoid_arm_skills/humanoid_arm_visual_servoing.py
+notes: Publishes /keyboard_input itself, so it owns the tracker. Branch planner/roadmap-tiered-replan.

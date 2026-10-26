@@ -1,0 +1,134 @@
+from pathlib import Path
+
+import pytest
+
+from skill_registry import ContractError, Registry, TreeValidator, ValidatorConfig, parse_contract
+
+
+PACKAGE   = Path(__file__).resolve().parent.parent
+CONTRACTS = PACKAGE / 'contracts'
+
+
+def _tree(body: str) -> str:
+    return f'<root BTCPP_format="4"><BehaviorTree ID="main">{body}</BehaviorTree></root>'
+
+
+def _errors(body: str, **config) -> list[str]:
+    validator = TreeValidator(Registry.from_directory(CONTRACTS), ValidatorConfig(**config))
+
+    return [issue.message for issue in validator.validate(_tree(body)) if issue.level == 'error']
+
+
+def test_seed_contracts_load():
+    registry = Registry.from_directory(CONTRACTS)
+
+    assert 'navigate_to' in registry
+    assert len(registry) == len(list(CONTRACTS.glob('*.yaml')))
+
+
+def test_example_tree_is_valid_blind():
+    registry  = Registry.from_directory(CONTRACTS)
+    validator = TreeValidator(registry, ValidatorConfig(blind=True))
+
+    assert validator.is_valid((PACKAGE / 'trees' / 'call_elevator.xml').read_text())
+
+
+def test_unknown_skill():
+    assert _errors('<fly_to/>') == ['unknown skill fly_to']
+
+
+def test_missing_and_unknown_ports():
+    errors = _errors('<navigate_to speed="2"/>')
+
+    assert 'navigate_to: missing input goal' in errors
+    assert 'navigate_to: unknown port speed' in errors
+
+
+def test_enum_literal_checked_but_blackboard_passes():
+    assert _errors('<set_profile profile="fast"/>')
+    assert not _errors('<set_profile profile="{profile}"/>')
+
+
+def test_thor_skill_needs_fallback():
+    assert _errors('<door_open/>')
+    assert _errors('<Fallback><AlwaysSuccess/><door_open/></Fallback>')                  # last child: no recovery after it
+    assert not _errors('<Fallback><door_open/><AlwaysSuccess/></Fallback>')
+
+
+def test_thor_skill_is_fine_when_thor_is_essential():
+    assert not _errors('<door_open/>', essential_devices={'nuc', 'orin', 'thor'})
+
+
+def test_parallel_resource_conflict():
+    errors = _errors('<Parallel><track query="button"/><press_button target_description="button"/></Parallel>')
+
+    assert any('resource tracker' in error for error in errors)
+
+
+def test_parallel_without_conflict():
+    assert not _errors('<Parallel><navigate_to goal="{goal}"/><say text="hello"/></Parallel>')
+
+
+def test_blind_rejects_cloud_skill():
+    registry = Registry.from_directory(CONTRACTS)
+    registry.add(
+        parse_contract({
+            'name':        'plan_with_claude',
+            'kind':        'action',
+            'device':      'nuc',
+            'interface':   {'transport': 'service', 'name': '/planner/plan', 'ros_type': 'std_srvs/srv/Trigger'},
+            'timeout_s':   30,
+            'needs_cloud': True,
+        })
+    )
+    validator = TreeValidator(registry, ValidatorConfig(blind=True))
+
+    assert not validator.is_valid(_tree('<plan_with_claude/>'))
+
+
+def test_liveness():
+    assert _errors('<say text="hi"/>', live_skills={'navigate_to'}) == ['say is not live now']
+
+
+def test_condition_must_only_read():
+    with pytest.raises(ContractError):
+        parse_contract({
+            'name':      'bad',
+            'kind':      'condition',
+            'device':    'nuc',
+            'interface': {'transport': 'topic', 'name': '/x'},
+        })
+
+
+def test_enum_choices_come_from_values():
+    contract = parse_contract({
+        'name':      'pick',
+        'kind':      'action',
+        'device':    'nuc',
+        'interface': {'transport': 'service', 'name': '/pick', 'ros_type': 'std_srvs/srv/Trigger'},
+        'timeout_s': 1,
+        'inputs':    [{'name': 'mode', 'type': 'enum', 'values': {'slow': 0, 'fast': 1}}],
+    })
+
+    assert contract.input('mode').choices == ['slow', 'fast']
+
+
+def test_announce_adds_new_skill_and_expires():
+    registry = Registry.from_directory(CONTRACTS)
+    raw      = {
+        'name':      'open_door',
+        'kind':      'composite',
+        'device':    'nuc',
+        'interface': {'transport': 'tree', 'name': 'open_door'},
+    }
+
+    registry.announce(raw, now=100.0)
+
+    assert 'open_door' in registry
+    assert [contract.name for contract in registry.live(max_age_s=5, now=103.0)] == ['open_door']
+    assert registry.live(max_age_s=5, now=110.0) == []
+
+
+def test_number_attributes_must_be_integers():
+    assert _errors('<Timeout msec="5000.0"><say text="hi"/></Timeout>') == ['Timeout msec must be an integer, not 5000.0']
+    assert not _errors('<RetryUntilSuccessful num_attempts="-1"><say text="hi"/></RetryUntilSuccessful>')

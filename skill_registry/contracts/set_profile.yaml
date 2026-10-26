@@ -1,0 +1,24 @@
+name: set_profile
+kind: action
+device: orin
+description: Set the joint gain profile
+interface:
+  transport: service
+  name: /unitree_interface/set_profile
+  ros_type: unitree_interface_msgs/srv/SetProfile
+inputs:
+- name: profile
+  type: enum
+  field: requested_profile
+  values:
+    default: 0
+    damp: 1
+    visual_servo: 2
+    whole_body_control: 3
+    effort_only: 4
+resources:
+- arms
+timeout_s: 3
+maturity: wip
+source: unitree_interface/unitree_interface_msgs/msg/Profile.msg
+notes: Mode changes (ChangeControlMode) are not a skill. The planner must not change the control mode.

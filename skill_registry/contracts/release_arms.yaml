@@ -1,0 +1,12 @@
+name: release_arms
+kind: action
+device: orin
+description: Give arm control back to the locomotion controller
+interface:
+  transport: service
+  name: /unitree_interface/release_arms
+  ros_type: std_srvs/srv/Trigger
+resources: [arms]
+timeout_s: 5
+maturity: wip
+source: unitree_interface/unitree_interface/src/unitree_interface.cpp

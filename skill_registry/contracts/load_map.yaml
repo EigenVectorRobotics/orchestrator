@@ -1,0 +1,19 @@
+name: load_map
+kind: action
+device: nuc
+description: Load a prior map and relocalize in it
+interface:
+  transport: service
+  name: /slam_elevatorlio/load_map
+  ros_type: navigation_interfaces/srv/LoadMap
+  fixed:
+    use_initial_pose: false
+inputs:
+- name: path
+  type: string
+effects:
+- localized
+timeout_s: 30
+maturity: wip
+source: navigation_stack_lio/slam_elevatorlio/slam_elevatorlio/slam_elevatorlio_node.py
+notes: 'initial_pose is not an input yet: it is a PoseWithCovarianceStamped. The backend init params give the prior.'

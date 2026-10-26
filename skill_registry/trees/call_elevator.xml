@@ -1,0 +1,25 @@
+<root BTCPP_format="4">
+  <!-- Walk to the call panel, press up, wait for the door. Must run blind. -->
+  <BehaviorTree ID="call_elevator">
+    <Sequence>
+      <navigate_to goal="{call_panel}"/>
+      <Fallback>
+        <Sequence>
+          <press_button target_description="elevator up call button"/>
+          <button_lit target_description="elevator up call button"/>
+        </Sequence>
+        <say text="Please press the up button for me."/>
+      </Fallback>
+      <Fallback>
+        <RetryUntilSuccessful num_attempts="60">
+          <Delay delay_msec="1000">
+            <door_open/>
+          </Delay>
+        </RetryUntilSuccessful>
+        <ForceFailure>
+          <say text="The elevator door did not open."/>
+        </ForceFailure>
+      </Fallback>
+    </Sequence>
+  </BehaviorTree>
+</root>

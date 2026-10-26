@@ -1,0 +1,42 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch_ros.substitutions import FindPackageShare
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    fake         = LaunchConfiguration('fake')
+    vlm_base_url = LaunchConfiguration('vlm_base_url')
+    places_file  = LaunchConfiguration('places_file')
+    backend      = LaunchConfiguration('planner_backend')
+    model        = LaunchConfiguration('planner_model')
+    vlm_url      = PythonExpression(["'http://127.0.0.1:8090/v1' if '", fake, "' == 'true' else '", vlm_base_url, "'"])
+
+    return LaunchDescription([
+        DeclareLaunchArgument('fake', default_value='false', description='start the fake robot and its VLM server'),
+        DeclareLaunchArgument('vlm_base_url', default_value='http://vector-thor:8090/v1'),
+        DeclareLaunchArgument(
+            'places_file',
+            default_value=PathJoinSubstitution([FindPackageShare('orchestrator'), 'config', 'places.yaml']),
+            description='named map poses; for the elevator sim use its ros2/places.yaml'
+        ),
+        DeclareLaunchArgument('planner_backend', default_value='claude', description='claude | openai_compatible | scripted'),
+        DeclareLaunchArgument('planner_model', default_value='claude-opus-5'),
+
+        Node(package='skill_registry', executable='registry_node', output='screen', parameters=[{'vlm_base_url': vlm_url}]),
+        Node(
+            package='orchestrator',
+            executable='executor_node',
+            output='screen',
+            parameters=[{'vlm_base_url': vlm_url, 'places_file': places_file}]
+        ),
+        Node(
+            package='orchestrator',
+            executable='planner_node',
+            output='screen',
+            parameters=[{'backend': backend, 'model': model, 'places_file': places_file}]
+        ),
+        Node(package='orchestrator', executable='fake_robot', output='screen', condition=IfCondition(fake)),
+    ])

@@ -1,0 +1,13 @@
+name: in_elevator
+kind: condition
+device: nuc
+description: Elevator-LIO says the robot is in the cabin
+interface:
+  transport: watch
+  success_when:
+    topic: /LIO/in_elevator
+    ros_type: std_msgs/msg/Bool
+    field: data
+    equals: true
+maturity: wip
+source: navigation_stack_lio/elevator_lio/README_en.md

@@ -1,0 +1,22 @@
+name: cancel_nav
+kind: action
+device: nuc
+description: Stop the current route goal
+interface:
+  transport: topic
+  name: /cancel_goal
+  ros_type: std_msgs/msg/Bool
+  fixed:
+    data: true
+  success_when:
+    topic: /route_planner/status
+    ros_type: std_msgs/msg/String
+    json: true
+    field: state
+    equals: idle
+    latched: true
+resources:
+- base
+timeout_s: 3
+maturity: wip
+source: navigation_stack_lio/route_planner/route_planner/route_planner_node.py

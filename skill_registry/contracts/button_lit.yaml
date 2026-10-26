@@ -1,0 +1,18 @@
+name: button_lit
+kind: condition
+device: thor
+description: The pressed button shows its light (asked of the local VLM)
+interface:
+  transport: vlm
+  question: Is the {target_description} lit up?
+  choices:
+  - lit
+  - not_lit
+  - unsure
+  success_answer: lit
+inputs:
+- name: target_description
+  type: string
+  required: true
+maturity: untested
+notes: Built on ask_vlm.

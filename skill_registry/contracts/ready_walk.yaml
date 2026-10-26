@@ -1,0 +1,13 @@
+name: ready_walk
+kind: action
+device: orin
+description: Put the robot in a state to walk (Unitree locomotion)
+interface:
+  transport: service
+  name: /unitree_interface/ready_locomotion
+  ros_type: std_srvs/srv/Trigger
+resources: [base]
+timeout_s: 5
+maturity: wip
+source: unitree_interface/unitree_interface/src/unitree_interface.cpp
+notes: Changes if locomotion moves to SONIC.
