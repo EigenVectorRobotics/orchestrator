@@ -218,7 +218,7 @@ def test_example_tree_builds_and_runs():
     )
 
     assert _run(tree, clock) == Status.SUCCESS
-    assert [name for name, _ in runner.calls] == ['navigate_to', 'press_button', 'say', 'door_open']
+    assert [name for name, _ in runner.calls] == ['navigate_to', 'press_button', 'navigate_to', 'press_button', 'say', 'door_open']
 
 
 def test_example_tree_fails_when_door_stays_closed():
@@ -260,3 +260,15 @@ def test_force_failure_and_parallel_counts():
     tree   = _tree('<Parallel success_count="1"><navigate_to goal="0 0 0"/><say text="hi"/></Parallel>', runner)
 
     assert _run(tree) == Status.SUCCESS
+
+
+def test_example_tree_fails_when_the_walk_fails():
+    runner = FakeRunner({'navigate_to': [Status.FAILURE]})
+    tree   = BehaviorTree(
+        (TREES / 'call_elevator.xml').read_text(),
+        make_leaf_factory(Registry.from_directory(CONTRACTS), runner),
+        Context(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=FakeClock())
+    )
+
+    assert _run(tree) == Status.FAILURE
+    assert [name for name, _ in runner.calls] == ['navigate_to']

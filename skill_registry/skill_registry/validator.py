@@ -74,16 +74,19 @@ class TreeValidator:
         if not self._trees:
             return [Issue('error', '', 'no <BehaviorTree> found')]
 
-        issues = []
-
         for tree_id, tree in self._trees.items():
-            children = list(tree)
+            if len(tree) != 1:
+                return [Issue('error', tree_id, 'a BehaviorTree needs exactly one root node')]
 
-            if len(children) != 1:
-                issues.append(Issue('error', tree_id, 'a BehaviorTree needs exactly one root node'))
-                continue
+        # Walk from the main tree and expand each SubTree where it is called, so a subtree's skills
+        # are judged with their real ancestors (a Fallback around the call protects them).
+        main_id     = root.get('main_tree_to_execute') or next(iter(self._trees))
+        self._used  = {main_id}
+        main_root   = self._trees[main_id][0]
+        issues      = self._walk(_Frame(main_root, f'{main_id}/{main_root.tag}', []))
 
-            issues += self._walk(_Frame(children[0], f'{tree_id}/{children[0].tag}', []))
+        for tree_id in self._trees.keys() - self._used:
+            issues.append(Issue('warning', tree_id, f'tree {tree_id} is never called', 'unused'))
 
         return issues
 
@@ -128,10 +131,18 @@ class TreeValidator:
             issues.append(Issue('error', frame.path, f'skill {tag} cannot have children'))
 
         if tag == 'SubTree':
-            if element.get('ID') not in self._trees:
-                issues.append(Issue('error', frame.path, f'unknown SubTree {element.get("ID")}'))
+            tree_id = element.get('ID')
 
-            return issues
+            if tree_id not in self._trees:
+                return [Issue('error', frame.path, f'unknown SubTree {tree_id}')]
+
+            if any(parent.element.tag == 'SubTree' and parent.element.get('ID') == tree_id for parent in frame.parents):
+                return [Issue('error', frame.path, f'SubTree {tree_id} calls itself')]
+
+            self._used.add(tree_id)
+            subtree_root = self._trees[tree_id][0]
+
+            return self._walk(_Frame(subtree_root, f'{frame.path}:{tree_id}/{subtree_root.tag}', [*frame.parents, frame]))
 
         skill_name = element.get('ID') if tag in GENERIC_LEAVES else tag
 

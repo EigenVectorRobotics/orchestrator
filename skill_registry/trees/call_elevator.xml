@@ -1,14 +1,19 @@
 <root BTCPP_format="4">
-  <!-- Walk to the call panel, press up, wait for the door. Must run blind. -->
+  <!-- Walk to the call panel, press up, wait for the door. Must run blind.
+       A press that fails (out of reach, not facing) gets one more try after walking to the panel again.
+       A walk that fails ends the task: asking for help only makes sense at the panel. -->
   <BehaviorTree ID="call_elevator">
     <Sequence>
       <navigate_to goal="{call_panel}"/>
       <Fallback>
+        <SubTree ID="press_up"/>
         <Sequence>
-          <press_button target_description="elevator up call button"/>
-          <button_lit target_description="elevator up call button"/>
+          <navigate_to goal="{call_panel}"/>
+          <Fallback>
+            <SubTree ID="press_up"/>
+            <say text="Please press the up button for me."/>
+          </Fallback>
         </Sequence>
-        <say text="Please press the up button for me."/>
       </Fallback>
       <Fallback>
         <RetryUntilSuccessful num_attempts="60">
@@ -20,6 +25,13 @@
           <say text="The elevator door did not open."/>
         </ForceFailure>
       </Fallback>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="press_up">
+    <Sequence>
+      <press_button target_description="elevator up call button"/>
+      <button_lit target_description="elevator up call button"/>
     </Sequence>
   </BehaviorTree>
 </root>

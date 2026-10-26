@@ -6,7 +6,9 @@ interface:
   transport: service
   name: /unitree_interface/release_arms
   ros_type: std_srvs/srv/Trigger
-resources: [arms]
+resources:
+- arms
 timeout_s: 5
 maturity: wip
 source: unitree_interface/unitree_interface/src/unitree_interface.cpp
+notes: Refused in low-level mode, so it fails while SONIC drives the robot (sim and real).

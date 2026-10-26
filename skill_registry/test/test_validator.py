@@ -132,3 +132,18 @@ def test_announce_adds_new_skill_and_expires():
 def test_number_attributes_must_be_integers():
     assert _errors('<Timeout msec="5000.0"><say text="hi"/></Timeout>') == ['Timeout msec must be an integer, not 5000.0']
     assert not _errors('<RetryUntilSuccessful num_attempts="-1"><say text="hi"/></RetryUntilSuccessful>')
+
+
+def test_subtree_is_judged_where_it_is_called():
+    called_in_fallback = (
+        '<root BTCPP_format="4">'
+        '<BehaviorTree ID="main"><Fallback><SubTree ID="check"/><say text="help"/></Fallback></BehaviorTree>'
+        '<BehaviorTree ID="check"><door_open/></BehaviorTree>'
+        '</root>'
+    )
+    called_bare = called_in_fallback.replace('<Fallback><SubTree ID="check"/><say text="help"/></Fallback>', '<SubTree ID="check"/>')
+    validator   = TreeValidator(Registry.from_directory(CONTRACTS))
+
+    assert validator.is_valid(called_in_fallback)
+    assert not validator.is_valid(called_bare)
+    assert not validator.is_valid(called_in_fallback.replace('<door_open/>', '<SubTree ID="check"/>'))
