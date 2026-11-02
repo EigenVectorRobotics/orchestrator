@@ -166,3 +166,16 @@ def test_vlm_question_fields_must_be_inputs():
         parse_contract(raw)
 
     assert parse_contract({**raw, 'inputs': [{'name': 'target', 'type': 'string'}]})
+
+
+def test_blackboard_keys_must_be_places_or_written():
+    places = {'call_panel'}
+
+    assert not _errors('<navigate_to goal="{call_panel}"/>', known_keys=places)
+    assert _errors('<navigate_to goal="{nowhere}"/>', known_keys=places) == [
+        'navigate_to: goal={nowhere} reads a key that is not a named place and that the tree never writes'
+    ]
+    assert not _errors('<Sequence><SetBlackboard value="1 2 0" output_key="spot"/><navigate_to goal="{spot}"/></Sequence>', known_keys=places)
+    assert not _errors('<Sequence><ask_vlm question="where?" choices="a;b" answer="{where}"/><say text="{where}"/></Sequence>',
+                       known_keys=places, essential_devices={'nuc', 'orin', 'thor'})
+    assert not _errors('<navigate_to goal="{nowhere}"/>')                                  # no known_keys: not checked

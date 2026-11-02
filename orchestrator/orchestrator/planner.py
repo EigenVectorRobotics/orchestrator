@@ -170,7 +170,12 @@ class Planner:
     def plan(self, task: str, places: dict | None = None, live_skills: set[str] | None = None, blind: bool = False) -> PlanResult:
         validator = TreeValidator(
             self.registry,
-            ValidatorConfig(essential_devices=self.essential_devices, blind=blind, live_skills=live_skills)
+            ValidatorConfig(
+                essential_devices=self.essential_devices,
+                blind=blind,
+                live_skills=live_skills,
+                known_keys=None if places is None else set(places)
+            )
         )
         messages = [{'role': 'user', 'content': build_task_message(task, places or {}, live_skills, blind)}]
 

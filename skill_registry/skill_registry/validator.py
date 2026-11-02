@@ -44,6 +44,7 @@ class ValidatorConfig:
     essential_devices: set[str] = field(default_factory=lambda: set(DEFAULT_ESSENTIAL_DEVICES))
     blind:             bool = False         # true: the tree must run with no cloud link
     live_skills:       set[str] | None = None   # None: do not check liveness
+    known_keys:        set[str] | None = None   # on the blackboard before the tree runs (the places); None: do not check
 
 
 @dataclass
@@ -77,6 +78,8 @@ class TreeValidator:
         for tree_id, tree in self._trees.items():
             if len(tree) != 1:
                 return [Issue('error', tree_id, 'a BehaviorTree needs exactly one root node')]
+
+        self._written = self._written_keys()
 
         # Walk from the main tree and expand each SubTree where it is called, so a subtree's skills
         # are judged with their real ancestors (a Fallback around the call protects them).
@@ -169,7 +172,10 @@ class TreeValidator:
                 continue
 
             port        = contract.input(port_name)
-            is_variable = value.startswith('{') and value.endswith('}')   # blackboard entry, checked at run time
+            is_variable = value.startswith('{') and value.endswith('}')   # blackboard entry, its type checked at run time
+
+            if port and is_variable and not self._is_known_key(value[1:-1]):
+                issues.append(Issue('error', frame.path, f'{skill_name}: {port_name}={value} reads a key that is not a named place and that the tree never writes'))
 
             if port and port.type == 'enum' and not is_variable and value not in port.choices:
                 issues.append(Issue('error', frame.path, f'{skill_name}: {port_name}={value} is not one of {port.choices}'))
@@ -189,6 +195,29 @@ class TreeValidator:
         return issues
 
     # ========== Rules ==========
+
+    def _is_known_key(self, key: str) -> bool:
+        return self.config.known_keys is None or key in self.config.known_keys or key in self._written
+
+    def _written_keys(self) -> set[str]:
+        """Blackboard keys some node in any tree writes: SetBlackboard, or a skill output port (order is not checked)"""
+        written = set()
+
+        for tree in self._trees.values():
+            for element in tree.iter():
+                if element.tag == 'SetBlackboard':
+                    written.add(element.get('output_key', '').strip('{}'))
+                    continue
+
+                contract = self.registry.get(element.get('ID') if element.tag in GENERIC_LEAVES else element.tag)
+
+                for port in contract.outputs if contract else []:
+                    value = element.get(port.name, '')
+
+                    if value.startswith('{') and value.endswith('}'):
+                        written.add(value[1:-1])
+
+        return written
 
     def _is_protected(self, frame: _Frame) -> bool:
         """True if some Fallback ancestor has a recovery child after the branch that holds this node"""

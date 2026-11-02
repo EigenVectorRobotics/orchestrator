@@ -143,7 +143,7 @@ class ExecutorNode(Node):
     def run(self, xml_text: str, blind: bool) -> bool:
         validator = TreeValidator(
             self.registry,
-            ValidatorConfig(essential_devices=self.essential_devices, blind=blind)
+            ValidatorConfig(essential_devices=self.essential_devices, blind=blind, known_keys=set(self.places))
         )
         issues = validator.validate(xml_text)
         errors = [issue for issue in issues if issue.level == 'error']

@@ -87,3 +87,11 @@ def test_system_prompt_is_stable_and_lists_skills():
 def test_extract_tree():
     assert extract_tree('text <tree>\n<root/>\n</tree> more') == '<root/>'
     assert extract_tree('no tree') is None
+
+
+def test_unknown_place_goes_back_to_the_model():
+    planner, backend = _planner([f'<tree>{GOOD_TREE.replace("{call_panel}", "{lobby}")}</tree>', f'<tree>{GOOD_TREE}</tree>'])
+    result           = planner.plan('call the elevator', PLACES, blind=True)
+
+    assert result.ok
+    assert 'goal={lobby} reads a key that is not a named place' in backend.calls[1]
