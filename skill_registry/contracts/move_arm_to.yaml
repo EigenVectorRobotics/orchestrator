@@ -11,7 +11,7 @@ inputs:
   - {name: left_arm, type: bool, required: false, default: false}
 outputs:
   - {name: final_error, type: float}
-resources: [arms]
+resources: [arms, base]            # base: the robot stands still while the arm moves
 timeout_s: 20
 maturity: wip
 source: manipulation_stack/g1_pilot/src/move_to_pose.cpp

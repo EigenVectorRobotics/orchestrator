@@ -23,7 +23,7 @@ outputs:
   - {name: final_distance, type: float}
   - {name: orientation_error_deg, type: float}
 check: button_lit
-resources: [arms, tracker]
+resources: [arms, tracker, base]   # base: the robot stands still while the arm moves
 timeout_s: 60
 maturity: wip
 source: manipulation_stack/humanoid_arm_skills/humanoid_arm_skills/humanoid_arm_visual_servoing.py

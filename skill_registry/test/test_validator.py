@@ -179,3 +179,9 @@ def test_blackboard_keys_must_be_places_or_written():
     assert not _errors('<Sequence><ask_vlm question="where?" choices="a;b" answer="{where}"/><say text="{where}"/></Sequence>',
                        known_keys=places, essential_devices={'nuc', 'orin', 'thor'})
     assert not _errors('<navigate_to goal="{nowhere}"/>')                                  # no known_keys: not checked
+
+
+def test_no_walking_while_an_arm_moves():
+    errors = _errors('<Parallel><navigate_to goal="{goal}"/><press_button target_description="elevator up call button"/></Parallel>')
+
+    assert any('resource base' in error for error in errors)
