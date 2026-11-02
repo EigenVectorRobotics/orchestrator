@@ -24,7 +24,7 @@ outputs:
   - {name: orientation_error_deg, type: float}
 check: button_lit
 resources: [arms, tracker]
-timeout_s: 30
+timeout_s: 60
 maturity: wip
 source: manipulation_stack/humanoid_arm_skills/humanoid_arm_skills/humanoid_arm_visual_servoing.py
-notes: Publishes /keyboard_input itself, so it owns the tracker. Branch planner/roadmap-tiered-replan.
+notes: Publishes /keyboard_input itself, so it owns the tracker. Branch planner/roadmap-tiered-replan. On manipulation_stack a5c9cb3 a press takes 17-25 s (pre-grasp pause, slow final 10 cm, 1 s hold, retreat); elevator_sim allows 60 s.
