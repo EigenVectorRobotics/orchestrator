@@ -147,3 +147,8 @@ def test_subtree_is_judged_where_it_is_called():
     assert validator.is_valid(called_in_fallback)
     assert not validator.is_valid(called_bare)
     assert not validator.is_valid(called_in_fallback.replace('<door_open/>', '<SubTree ID="check"/>'))
+
+
+def test_empty_contracts_directory_is_an_error(tmp_path):
+    with pytest.raises(ContractError, match='no contracts'):
+        Registry.from_directory(tmp_path)

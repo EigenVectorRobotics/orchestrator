@@ -20,6 +20,9 @@ class Registry:
     def from_directory(cls, directory: Path) -> 'Registry':
         paths = sorted(Path(directory).glob('*.yaml'))
 
+        if not paths:
+            raise ContractError(f'no contracts (*.yaml) in {directory}')
+
         registry = cls([load_contract(path) for path in paths])
         registry.check_references()
 
