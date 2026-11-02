@@ -48,6 +48,9 @@ SYSTEM_PROMPT = '''You plan tasks for a Unitree G1 humanoid robot. You write the
 - Two branches of a Parallel must not use the same resource.
 - Put a Delay of at least 1000 ms between attempts of a VLM skill; each question takes about a second.
 - If the goal is not reached, the tree must end in failure. Do not hide a failure behind a Fallback that always succeeds; use ForceFailure on the recovery when the task did not happen.
+- Recover by escalating, not by repeating. A retry with the same inputs helps only with a transient failure, so retry a step that way at most once. Then redo the step before it (walk to the place again, then try again). Then try another way if one exists, such as the other arm (left_arm) or another place. If that also fails, let the tree fail.
+- The robot must stand still while an arm moves. Put a Sleep of at least 1000 ms between navigate_to and an arm skill, so the robot has stopped swaying.
+- Name the exact target in a text input, such as "elevator up call button", not "the button".
 - Asking a person for help with the say skill is a good recovery.
 - A tree for "blind" mode runs with no internet. It cannot use skills that need the cloud.
 
