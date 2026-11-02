@@ -152,3 +152,17 @@ def test_subtree_is_judged_where_it_is_called():
 def test_empty_contracts_directory_is_an_error(tmp_path):
     with pytest.raises(ContractError, match='no contracts'):
         Registry.from_directory(tmp_path)
+
+
+def test_vlm_question_fields_must_be_inputs():
+    raw = {
+        'name':      'lit',
+        'kind':      'condition',
+        'device':    'thor',
+        'interface': {'transport': 'vlm', 'question': 'Is the {target} lit?', 'choices': ['yes', 'no']},
+    }
+
+    with pytest.raises(ContractError, match='target'):
+        parse_contract(raw)
+
+    assert parse_contract({**raw, 'inputs': [{'name': 'target', 'type': 'string'}]})

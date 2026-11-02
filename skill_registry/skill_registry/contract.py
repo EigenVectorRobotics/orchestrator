@@ -1,3 +1,4 @@
+from string import Formatter
 from pathlib import Path
 from dataclasses import dataclass, field
 
@@ -177,10 +178,22 @@ def parse_contract(raw: dict) -> Contract:
     if interface.transport == 'compare' and {'value', 'equals'} - {port.name for port in contract.inputs}:
         raise ContractError(f'{name}: a compare skill needs the inputs value and equals')
 
+    for field_name in _format_fields(interface.question):
+        if contract.input(field_name) is None:
+            raise ContractError(f'{name}: the question uses {{{field_name}}}, which is not an input')
+
     if interface.success_answer and interface.choices and interface.success_answer not in interface.choices:
         raise ContractError(f'{name}: success_answer {interface.success_answer} is not one of {interface.choices}')
 
     return contract
+
+
+def _format_fields(text: str) -> set[str]:
+    """The {name} fields in a str.format template"""
+    try:
+        return {field_name.split('.')[0].split('[')[0] for _, field_name, _, _ in Formatter().parse(text) if field_name}
+    except ValueError as error:
+        raise ContractError(f'bad question template {text!r}: {error}') from error
 
 
 def load_contract(path: Path) -> Contract:
