@@ -21,18 +21,47 @@ class TreeError(ValueError):
     pass
 
 
+MAX_HISTORY = 50                    # records kept per tree; the oldest go first
+
+
 class Context:
-    """What every node of one tree shares"""
+    """What every node of one tree shares: the blackboard, the clock, and the record of what ran"""
 
     def __init__(
         self,
         blackboard: dict | None = None,
         clock: Callable[[], float] = time.monotonic,
-        on_event: Callable[['TreeNode', dict], None] | None = None
+        on_event: Callable[['TreeNode', dict], None] | None = None,
+        on_record: Callable[[dict], None] | None = None
     ):
-        self.blackboard = {} if blackboard is None else blackboard
-        self.clock      = clock
-        self.on_event   = on_event or (lambda node, event: None)
+        self.blackboard   = {} if blackboard is None else blackboard
+        self.clock        = clock
+        self.on_event     = on_event or (lambda node, event: None)
+        self.on_record    = on_record or (lambda record: None)
+        self.history      = []      # finished calls and agent decisions, oldest first, without feedback
+        self.last_call    = None    # the last finished action call, with its feedback
+        self.last_failure = None    # the last failed action call or failed check, with its feedback
+        self.abort_reason = ''
+
+    def record(self, summary: dict, full: dict | None = None):
+        """Keep a finished call: the summary in the history, the full record (feedback included) as the last call,
+        and as the last failure when it failed"""
+        self.history.append(summary)
+        del self.history[:-MAX_HISTORY]
+
+        full = full or summary
+
+        if summary.get('kind') == 'action':
+            self.last_call = full
+
+        if summary.get('status') == Status.FAILURE.value:
+            self.last_failure = full
+
+        self.on_record(full)
+
+    def abort(self, reason: str):
+        """End the whole tree in failure at the end of this tick"""
+        self.abort_reason = reason or 'aborted'
 
 
 class TreeNode:
@@ -503,7 +532,13 @@ class BehaviorTree:
         self.root = self._build_tree(main_tree, main_tree, ())
 
     def tick(self) -> Status:
-        return self.root.tick()
+        status = self.root.tick()
+
+        if self.context.abort_reason:
+            self.root.halt()
+            return Status.FAILURE
+
+        return status
 
     def halt(self):
         self.root.halt()

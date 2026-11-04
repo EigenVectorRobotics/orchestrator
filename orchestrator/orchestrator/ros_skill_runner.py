@@ -12,7 +12,7 @@ from rclpy.action import ActionClient
 from action_msgs.msg import GoalStatus
 from sensor_msgs.msg import CompressedImage
 from geometry_msgs.msg import PoseStamped
-from rosidl_runtime_py import set_message_fields
+from rosidl_runtime_py import message_to_ordereddict, set_message_fields
 from rosidl_runtime_py.utilities import get_action, get_message, get_service
 
 from skill_registry import Contract, Registry
@@ -21,6 +21,8 @@ from skill_registry.contract import WHOLE_MESSAGE, Watch
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
 
+
+MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
 
 # The fake robot and the elevator_sim bridge use the same profiles; keep them in step.
 COMMAND_QOS = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
@@ -184,6 +186,8 @@ class _ServerHandle(_Handle):
 
 
 class _ActionHandle(_ServerHandle):
+    """An action goal; its feedback is kept as samples {t: seconds since sent, ...the feedback fields}"""
+
     def __init__(self, client: ActionClient, goal, contract: Contract, server_wait_s: float):
         super().__init__(contract, server_wait_s)
 
@@ -191,12 +195,23 @@ class _ActionHandle(_ServerHandle):
         self.goal        = goal
         self.goal_handle = None
         self.cancelled   = False
+        self.feedback    = []
+        self.sent_time   = 0.0
 
     def _server_ready(self) -> bool:
         return self.client.server_is_ready()
 
     def _send(self):
-        self.client.send_goal_async(self.goal).add_done_callback(self._on_goal_response)
+        self.sent_time = time.monotonic()
+        self.client.send_goal_async(self.goal, feedback_callback=self._on_feedback).add_done_callback(self._on_goal_response)
+
+    def _on_feedback(self, message):
+        sample = {'t': round(time.monotonic() - self.sent_time, 2), **message_to_ordereddict(message.feedback)}
+
+        self.feedback.append(sample)
+
+        if len(self.feedback) > MAX_FEEDBACK:
+            self.feedback = self.feedback[::2]
 
     def cancel(self):
         self.cancelled = True
@@ -382,6 +397,10 @@ class RosSkillRunner:
 
             if interface.transport == 'vlm':
                 return self._ask_vlm(contract, inputs)
+
+            if interface.transport == 'compare':
+                value, equals = str(inputs['value']), str(inputs['equals'])
+                return _DoneHandle(value == equals, f'{value} {"==" if value == equals else "!="} {equals}')
         except (AttributeError, ValueError, TypeError, KeyError, ModuleNotFoundError) as error:
             return _DoneHandle(False, f'cannot call {contract.name}: {error}')
 
@@ -389,6 +408,10 @@ class RosSkillRunner:
 
     def shutdown(self):
         self._vlm_pool.shutdown(wait=False, cancel_futures=True)
+
+    def latest_image(self) -> CompressedImage | None:
+        """The last camera frame, as the VLM sees it"""
+        return self._image
 
     def _check_watch(self, spec: Watch):
         watch = self._watch(spec)

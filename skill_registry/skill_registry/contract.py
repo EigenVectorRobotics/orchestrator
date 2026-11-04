@@ -5,8 +5,10 @@ import yaml
 
 
 KINDS         = ('action', 'condition', 'composite')
-TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree')   # watch: read a topic, never publish
-READ_ONLY     = ('watch', 'vlm')                                         # the transports a condition may use
+TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare')
+READ_ONLY     = ('watch', 'vlm', 'compare')                              # the transports a condition may use
+# watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
+# compare: the input value equals the input equals; nothing leaves the executor.
 MATURITIES    = ('tested', 'wip', 'untested')
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
@@ -58,6 +60,7 @@ class Interface:
     question:        str = ''               # vlm: may hold {input} fields
     choices:         list[str] = field(default_factory=list)   # vlm: the only answers; empty means the 'choices' input
     success_answer:  str = ''               # vlm: the answer that means success; empty means any answer
+    skill:           str = ''               # agent: the agent skill document, agent_skills/<skill>.md
 
 
 @dataclass
@@ -158,6 +161,12 @@ def parse_contract(raw: dict) -> Contract:
 
     if interface.transport == 'vlm' and not interface.question:
         raise ContractError(f'{name}: a vlm skill needs a question')
+
+    if interface.transport == 'agent' and not interface.skill:
+        raise ContractError(f'{name}: an agent skill needs the skill document it follows')
+
+    if interface.transport == 'compare' and {'value', 'equals'} - {port.name for port in contract.inputs}:
+        raise ContractError(f'{name}: a compare skill needs the inputs value and equals')
 
     if interface.success_answer and interface.choices and interface.success_answer not in interface.choices:
         raise ContractError(f'{name}: success_answer {interface.success_answer} is not one of {interface.choices}')

@@ -40,6 +40,7 @@ class FakeRobot(Node):
         self.nav_time_s    = self.declare_parameter('nav_time_s', 2.0).value
         self.press_time_s  = self.declare_parameter('press_time_s', 2.0).value
         self.press_success = self.declare_parameter('press_success', True).value
+        self.press_fails   = self.declare_parameter('press_fail_count', 0).value     # the first N presses miss, as out of reach
         self.vlm_port      = self.declare_parameter('vlm_port', 8090).value
         self.vlm_answers   = dict(                                                           # 'door=closed,lit=not_lit'
             pair.split('=', 1) for pair in self.declare_parameter('vlm_answers', '').value.split(',') if '=' in pair
@@ -184,22 +185,39 @@ class FakeRobot(Node):
         )
 
     def _press(self, goal_handle):
-        self.get_logger().info(f'press: {goal_handle.request.target_description}')
-        deadline = time.monotonic() + self.press_time_s
+        """Feedback at 2 Hz like the servo node. A miss stalls 0.13 m short of the goal, as an arm out of reach does"""
+        out_of_reach = self.press_fails > 0
+        self.press_fails -= 1 if out_of_reach else 0
+        success      = self.press_success and not out_of_reach
+        start        = time.monotonic()
+        deadline     = start + self.press_time_s
+        feedback     = self._action_type.Feedback()
+
+        feedback.current_goal.header.frame_id = 'foot_world'
+        feedback.current_goal.pose.position.x = 0.62
+        feedback.current_goal.pose.position.y = -0.18
+        feedback.current_goal.pose.position.z = 1.05
+        self.get_logger().info(f'press: {goal_handle.request.target_description}' + (' (out of reach)' if out_of_reach else ''))
 
         while time.monotonic() < deadline:
             if goal_handle.is_cancel_requested:
                 goal_handle.canceled()
-                return self._action_type.Result(success=False, message='cancelled')
+                return self._action_type.Result(success=False, message='Cancelled')
 
-            time.sleep(0.05)
+            progress                   = min(1.0, (time.monotonic() - start) / (self.press_time_s * 0.6))
+            floor                      = 0.13 if out_of_reach else 0.0
+            feedback.elapsed_time      = time.monotonic() - start
+            feedback.distance_to_goal  = floor + (0.45 - floor) * (1.0 - progress)
+            goal_handle.publish_feedback(feedback)
+            time.sleep(0.5)
 
-        result = self._action_type.Result(success=self.press_success, message='fake press')
+        result = self._action_type.Result(success=success, message='Controller reached target')
+        result.final_distance = 0.13 if out_of_reach else 0.004
 
-        if self.press_success:
+        if success:
             goal_handle.succeed()
         else:
-            result.message = 'fake press missed'
+            result.message = 'Planning failed: empty trajectory' if out_of_reach else 'fake press missed'
             goal_handle.abort()
 
         return result

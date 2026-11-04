@@ -122,4 +122,7 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport == 'vlm':
         return vlm_up
 
+    if interface.transport in ('agent', 'compare'):
+        return True                 # they run inside the executor
+
     return False                    # trees are live only when announced

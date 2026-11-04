@@ -13,6 +13,7 @@ setup(
         (f'share/{PACKAGE_NAME}', ['package.xml']),
         (f'share/{PACKAGE_NAME}/contracts', glob('contracts/*.yaml')),
         (f'share/{PACKAGE_NAME}/trees', glob('trees/*.xml')),
+        (f'share/{PACKAGE_NAME}/agent_skills', glob('agent_skills/*.md')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

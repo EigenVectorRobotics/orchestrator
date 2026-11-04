@@ -27,6 +27,7 @@ setup(
             'planner_node = orchestrator.planner_node:main',
             'fake_robot = orchestrator.fake_robot:main',
             'send_tree = orchestrator.send_tree:main',
+            'agent_cli = orchestrator.agent_cli:main',
         ],
     },
 )
