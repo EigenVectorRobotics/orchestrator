@@ -19,7 +19,7 @@ Blind mode (`/orchestrator/tree_blind`, or `"blind": true`): the tree cannot use
 
 ## Add a skill
 
-Write one YAML file in `skill_registry/contracts/`. No code is necessary if the skill is an action, service, topic or VLM question. See `navigate_to.yaml` (topic), `press_button.yaml` (action), `set_profile.yaml` (service with an enum), and `door_open.yaml` (VLM).
+Write one YAML file in `skill_registry/contracts/`. No code is necessary if the skill is an action, service, topic or VLM question. See `cancel_nav.yaml` (topic), `navigate_to.yaml` and `press_button.yaml` (action), `set_profile.yaml` (service with an enum), and `door_open.yaml` (VLM).
 
 ## Run on a laptop, with no robot
 
@@ -29,7 +29,7 @@ ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the 
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-`fake_robot` has the same topics, services, arm action and VLM server as the robot. Parameters: `press_success:=false`, `vlm_answers:=door=closed`, `nav_time_s:=5.0`.
+`fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `vlm_answers:=door=closed`, `nav_time_s:=5.0`.
 
 Run one tree with no planner:
 

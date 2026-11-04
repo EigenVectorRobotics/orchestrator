@@ -18,7 +18,6 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import Trigger
 from sensor_msgs.msg import CompressedImage
-from geometry_msgs.msg import PoseStamped
 
 from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS
 
@@ -46,10 +45,10 @@ class FakeRobot(Node):
             pair.split('=', 1) for pair in self.declare_parameter('vlm_answers', '').value.split(',') if '=' in pair
         )
 
-        self.group       = ReentrantCallbackGroup()
-        self.nav_goal    = None
-        self.nav_start   = 0.0
-        self.is_tracking = False
+        self.group         = ReentrantCallbackGroup()
+        self.nav_cancelled = False
+        self.nav_payload   = None             # the last status sent; route_planner sends only changes
+        self.is_tracking   = False
 
         self._status    = self.create_publisher(String, '/route_planner/status', LATCHED_QOS)
         self._slam      = self.create_publisher(String, '/slam_elevatorlio/status', LATCHED_QOS)
@@ -57,7 +56,6 @@ class FakeRobot(Node):
         self._elevator  = self.create_publisher(Bool, '/LIO/in_elevator', COMMAND_QOS)
         self._camera    = self.create_publisher(CompressedImage, '/camera/camera/color/image_raw/compressed', 1)
 
-        self.create_subscription(PoseStamped, '/route_goal', self._on_route_goal, COMMAND_QOS)
         self.create_subscription(Bool, '/cancel_goal', self._on_cancel, COMMAND_QOS)
         self.create_subscription(String, '/keyboard_input', self._on_query, COMMAND_QOS)
         self.create_subscription(Empty, '/track_3d/reset', self._on_reset, COMMAND_QOS)
@@ -66,6 +64,7 @@ class FakeRobot(Node):
         for name in ['ready_locomotion', 'release_arms']:
             self.create_service(Trigger, f'/unitree_interface/{name}', self._on_trigger)
 
+        self._make_nav_action()
         self._make_arm_action()
         self._start_vlm_server()
 
@@ -77,24 +76,68 @@ class FakeRobot(Node):
 
     # ========== Navigation ==========
 
-    def _on_route_goal(self, message: PoseStamped):
-        self.nav_goal  = message
-        self.nav_start = time.monotonic()
-        self.get_logger().info(f'route goal ({message.pose.position.x:.1f}, {message.pose.position.y:.1f})')
+    def _make_nav_action(self):
+        try:
+            from navigation_interfaces.action import NavigateToGoal
+        except ImportError:
+            self.get_logger().warn('navigation_interfaces not built: no fake navigate_to')
+            return
+
+        self._nav_type   = NavigateToGoal
+        self._nav_server = ActionServer(
+            self,
+            NavigateToGoal,
+            '/route_planner/navigate_to_goal',
+            self._navigate,
+            cancel_callback=lambda goal: CancelResponse.ACCEPT,
+            callback_group=self.group
+        )
+
+    def _navigate(self, goal_handle):
+        """Like route_planner: routing, then arrived on the status once the goal is near, then idle when it ends"""
+        position = goal_handle.request.goal.pose.position
+        deadline = time.monotonic() + self.nav_time_s
+        result   = self._nav_type.Result()
+
+        self.get_logger().info(f'route goal ({position.x:.1f}, {position.y:.1f})')
+        self.nav_cancelled = False
         self._publish_nav('routing')
 
+        while time.monotonic() < deadline:
+            if goal_handle.is_cancel_requested or self.nav_cancelled:
+                self._publish_nav('idle')
+                result.reason = 'cancelled'
+
+                if goal_handle.is_cancel_requested:
+                    goal_handle.canceled()
+                else:
+                    goal_handle.abort()
+
+                return result
+
+            if deadline - time.monotonic() < self.nav_time_s / 2:
+                self._publish_nav('arrived')
+
+            time.sleep(0.05)
+
+        self._publish_nav('idle')
+        result.success, result.reason = True, 'arrived'
+        goal_handle.succeed()
+
+        return result
+
     def _on_cancel(self, message: Bool):
-        self.nav_goal = None
+        self.nav_cancelled = True
         self._publish_nav('idle')
 
     def _publish_nav(self, state: str):
-        self._status.publish(String(data=json.dumps({'state': state, 'map_id': 'fake', 'dist_to_goal': None})))
+        payload = json.dumps({'state': state, 'map_id': 'fake', 'dist_to_goal': None})
+
+        if payload != self.nav_payload:
+            self.nav_payload = payload
+            self._status.publish(String(data=payload))
 
     def _on_timer(self):
-        if self.nav_goal is not None and time.monotonic() - self.nav_start > self.nav_time_s:
-            self.nav_goal = None
-            self._publish_nav('arrived')
-
         self._tracking.publish(Bool(data=self.is_tracking))
         self._elevator.publish(Bool(data=False))
 

@@ -3,21 +3,14 @@ kind: action
 device: nuc
 description: Walk to a pose in the map frame on the prior-map route graph
 interface:
-  transport: topic
-  name: /route_goal
-  ros_type: geometry_msgs/msg/PoseStamped
-  success_when:
-    topic: /route_planner/status
-    ros_type: std_msgs/msg/String
-    json: true
-    field: state
-    equals: arrived
-    latched: true
+  transport: action
+  name: /route_planner/navigate_to_goal
+  ros_type: navigation_interfaces/action/NavigateToGoal
 inputs:
 - name: goal
   type: pose
   description: map-frame goal pose
-  field: .
+  field: goal
 pre:
 - localized
 resources:
@@ -26,5 +19,8 @@ timeout_s: 120
 fallback:
 - cancel_nav
 maturity: wip
-source: navigation_stack_lio/route_planner/route_planner/route_planner_node.py
-notes: status state is routing | arrived | blocked. Treat blocked for longer than a set time as failure.
+source: navigation_stack/route_planner/route_planner/route_planner_node.py
+notes: >-
+  Succeeds only on arrival: local_planner's /goal_reached with the robot within 0.5 m of the goal.
+  The status state "arrived" comes earlier, when the goal is within lookahead along the route, so it is not the end.
+  The result's reason says why a goal ended, e.g. arrived, cancelled, replaced by a new goal, autonomy off.

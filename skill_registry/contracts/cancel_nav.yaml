@@ -19,4 +19,4 @@ resources:
 - base
 timeout_s: 3
 maturity: wip
-source: navigation_stack_lio/route_planner/route_planner/route_planner_node.py
+source: navigation_stack/route_planner/route_planner/route_planner_node.py

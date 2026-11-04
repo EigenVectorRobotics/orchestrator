@@ -223,7 +223,9 @@ class _ActionHandle(_ServerHandle):
         success  = response.status == GoalStatus.STATUS_SUCCEEDED and getattr(result, 'success', True)
 
         self.outputs = extract_outputs(self.contract, result)
-        self._finish(success, getattr(result, 'message', '') or f'goal status {response.status}')
+        text     = getattr(result, 'message', '') or getattr(result, 'reason', '')     # NavigateToGoal says reason
+
+        self._finish(success, text or f'goal status {response.status}')
 
 
 class _ServiceHandle(_ServerHandle):
