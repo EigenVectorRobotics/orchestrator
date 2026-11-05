@@ -1,6 +1,6 @@
 # Skill structure and a shared skill node (design, not built)
 
-Status: draft for review, 2026-11-05. Related: `docs/skill-packages.md` (packages, announce, graduation), `docs/knowledge.md` (facts), `docs/recorder.md` (evidence).
+Status: draft for review, 2026-11-05. Related: `docs/skill-packages.md` (the package, live skills, graduation), `docs/knowledge.md` (facts), `docs/recorder.md` (evidence).
 
 ## Problem
 
@@ -19,7 +19,7 @@ Status: draft for review, 2026-11-05. Related: `docs/skill-packages.md` (package
 ## Proposed structure of a skill
 
 ```
-<device>_skills/<skill>/
+skill_registry/skills/<skill>/
   contract.yaml        level 1 and the machine part
   procedure.md         level 2: how to do it and how to decide, ≤ ~600 words
   reference/*.md       level 3: tools, topics, conventions, file locations; linked from procedure.md
@@ -44,7 +44,7 @@ Facts are not written in the skill documents. They come from the knowledge store
 What every skill node needs, whatever it does:
 
 - **One action shape:** goal (the contract inputs); feedback (`phase`, `progress`, the evidence fields); result (`success`, one declared `failure` code, `message`, the evidence).
-- **Announce:** its own contract on `/skills/announce`, as `docs/skill-packages.md`.
+- **Live:** its interface is on the ROS graph, so the registry finds it (`docs/skill-packages.md`); no announcement needed.
 - **Conditions:** checks `hold` at every tick and fails with the declared code when one stops holding.
 - **Resources:** claims its resources (arms, base, tracker) and refuses a goal when another skill holds them.
 - **Cancel:** stops in a safe state and reports `CANCELLED`.
