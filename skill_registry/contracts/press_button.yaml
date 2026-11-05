@@ -6,6 +6,16 @@ interface:
   transport: action
   name: humanoid_arm_visual_servoing
   ros_type: humanoid_manipulation_interfaces/action/VisualServoingArm
+  capture:                                # three frames for button_lit: see orchestrator/press_capture.py
+    kind: press
+    right_pose_topic: /right_ee_pose
+    left_pose_topic: /left_ee_pose
+    approach_offset_m: 0.10
+    press_delay_s: 0.005
+    release_delay_s: 0.5
+    box_topic: /track_3d/detections_2d       # the button's box per frame, for the crop
+    target_topic: /track_3d/selected_target_3d
+    crop_scale: 2.5                          # crop sides as a multiple of the box's
 inputs:
   - {name: target_description, type: string, description: 'text query, e.g. elevator up button'}
   - {name: left_arm, type: bool, required: false, default: false}

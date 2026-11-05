@@ -126,11 +126,12 @@ def tool_specs(phase: str) -> list[dict]:
         },
         {
             'name':         'get_image',
-            'description':  'The latest image. camera: the color camera. overlay: track_anything\'s overlay with the '
-                            'tracked mask and the tracker state.',
+            'description':  'An image. camera: the latest color frame. overlay: track_anything\'s overlay with the '
+                            'tracked mask and the tracker state. press_baseline, press_press, press_release: the frames '
+                            'the last press kept for button_lit (at the pre-grasp, at the deepest push, after the release).',
             'input_schema': {
                 'type':       'object',
-                'properties': {'source': {'type': 'string', 'enum': ['camera', 'overlay']}},
+                'properties': {'source': {'type': 'string', 'enum': ['camera', 'overlay', 'press_baseline', 'press_press', 'press_release']}},
                 'required':   ['source'],
             },
         },

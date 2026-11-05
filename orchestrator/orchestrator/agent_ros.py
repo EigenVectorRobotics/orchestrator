@@ -126,9 +126,11 @@ def image_to_rgb(message: Image) -> np.ndarray:
 
 
 class RosReader:
-    def __init__(self, node: Node, latest_camera_image: Callable[[], CompressedImage | None]):
+    def __init__(self, node: Node, latest_camera_image: Callable[[], CompressedImage | None],
+                 capture_frames: Callable[[], dict] = dict):
         self.node                = node
         self.latest_camera_image = latest_camera_image
+        self.capture_frames      = capture_frames       # the last press's kept frames, by name
         self._tf_buffer          = None
         self._tf_listener        = None
         self._lock               = threading.Lock()
@@ -246,5 +248,13 @@ class RosReader:
 
         if source == 'overlay':
             return encode_rgb(image_to_rgb(self._once(OVERLAY_TOPIC, Image, 3.0)))
+
+        if source.startswith('press_'):
+            frame = self.capture_frames().get(source[len('press_'):])
+
+            if frame is None:
+                raise RosReadError(f'the last press kept no {source[len("press_"):]} frame')
+
+            return frame, 'image/jpeg'
 
         raise RosReadError(f'unknown image source {source}')

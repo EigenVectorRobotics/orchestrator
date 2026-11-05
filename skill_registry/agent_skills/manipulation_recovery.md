@@ -56,7 +56,7 @@ The executor publishes each call on `/orchestrator/agent/request` and waits for 
 |---|---|
 | `get_failure`, `get_history` | `agent_cli show --full`: the failure with every feedback sample, and the history. `agent_cli show` alone gives the summary |
 | `ros_read` | `agent_cli tf TARGET SOURCE`, `agent_cli topic TOPIC`, `agent_cli topics` |
-| `get_image` | `agent_cli image camera OUT.jpg` or `agent_cli image overlay OUT.jpg`; copy the file to where you can view it |
+| `get_image` | `agent_cli image camera OUT.jpg` or `agent_cli image overlay OUT.jpg`; the frames a press kept are files on the executor's computer, at the paths in the check's `outputs.frames`. Copy them to where you can view them |
 | `run_python` | write the code to a file, then `agent_cli python FILE`: the same sandbox, with pinocchio and coal |
 | `read_file` | read the files directly (`cat`, `sed -n`), read-only |
 | `decide` | `agent_cli decide DECISION --reason "..." [--dx --dy --dyaw] [--left-arm or --right-arm]` shows what would be sent; add `--send` to send it |
@@ -79,7 +79,7 @@ When you run inside the executor (`orchestrator/agent.py`), these are your tools
 | `get_history()` | Every finished action call of this tree (without feedback) and your earlier decisions with their reasons and offsets, oldest first |
 | `read_file(path, offset, limit)` | Reads a text file or lists a directory, only under `/home/vector/eigen_vector_ws`, the agent skills directory and the scratch directory |
 | `ros_read(op, ...)` | `op: tf` with `target_frame`, `source_frame`: the latest transform, i.e. the pose of `source_frame` in `target_frame` (translation, quaternion, roll/pitch/yaw, age). `op: topic_once` with `topic`: the next message (images and point clouds are refused; use `get_image`). `op: topic_list`: topics and types |
-| `get_image(source)` | `camera`: the last color frame the executor has (`/camera/camera/color/image_raw/compressed`) [TODO: check that the Orin publishes this compressed topic]. `overlay`: the next frame of `/track_3d/tracked_overlay`, with the tracked mask and the tracker state text; it is published on every frame, also while nothing is tracked |
+| `get_image(source)` | `camera`: the last color frame the executor has (`/camera/camera/color/image_raw/compressed`) [TODO: check that the Orin publishes this compressed topic]. `overlay`: the next frame of `/track_3d/tracked_overlay`, with the tracked mask and the tracker state text; it is published on every frame, also while nothing is tracked. `press_baseline`, `press_press`, `press_release`: the frames the last press kept for `button_lit` |
 | `run_python(code)` | Runs Python 3.12 with `numpy`, `scipy`, `pinocchio` 4.1.0 and `coal`; returns stdout, stderr and the exit code. Pass data from the other tools in as literals. It runs in the scratch directory, which is also on `sys.path`: save helpers there and import them in later calls. Limits: 60 s, 4 GB, nice 19 |
 | `decide(decision, reason, dx, dy, dyaw, use_left_arm)` | Ends your turn; see "Your decision" |
 
@@ -167,7 +167,7 @@ The result message tells you which stage stopped, but often not why. Use the fee
 | `Preempted by a newer goal` / `Cancelled` / `Cancelled while planning` | move_to_pose | Another goal or a cancel ended it |
 | `Action timed out` | servo node | `action_timeout` of 600 s |
 | `goal rejected` (orchestrator) | servo node | Another servo goal was active, or the call came within `post_goal_cooldown` 1.0 s of the last success |
-| (a failed check) `button_lit` after `press_button` succeeded | the VLM check after the press | The arm reported `Controller reached target`, but the VLM did not see the button lit: its message holds the answer (`not_lit`, `unsure`) or a VLM error. The arm reached its goal, so the button was within reach of that goal: look at where the goal was (`checked_call`'s `current_goal` and `final_distance`) and at the camera image before blaming reach |
+| (a failed check) `button_lit` after `press_button` succeeded | the VLM check after the press | The arm reported `Controller reached target`, but the VLM saw the button lit in neither the press frame nor the release frame. The check's `outputs` hold the answers per frame (`not_lit`, `unsure`), the saved frames (`frames`: baseline at the pre-grasp, press at the deepest push, release 0.5 s after the retreat began; `*_crop` are the crops around the button box that the VLM was shown) and the times and boxes (`capture`: `pregrasp_t`, `deepest_t`, `release_t`, `max_depth_m`, `boxes`). A frame with no box of its own was cropped with the baseline's box; no box at all means whole frames were asked, which the message says. The arm reached its goal, so the button was within reach of that goal: look at the frames (`get_image press_baseline`, `press_press`, `press_release`), at where the goal was (`checked_call`'s `current_goal`), and at `max_depth_m` (about 0 means the push reached the goal) before blaming reach. A missing frame (no `pregrasp_t`, or no `deepest_t`) means the phase was not seen |
 
 **When the orchestrator times out first.** `press_button` has `timeout_s: 30`, so the orchestrator cancels the action at 30 s, the leaf message is `timeout after 30 s`, and the action's own message is lost. Several failures end this way:
 

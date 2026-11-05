@@ -61,6 +61,9 @@ class Interface:
     choices:         list[str] = field(default_factory=list)   # vlm: the only answers; empty means the 'choices' input
     success_answer:  str = ''               # vlm: the answer that means success; empty means any answer
     skill:           str = ''               # agent: the agent skill document, agent_skills/<skill>.md
+    capture:         dict = field(default_factory=dict)       # action: frames to keep around the call, e.g. {kind: press}
+    frames:          str = ''               # vlm: judge the frames a capture kept (press_capture) instead of the latest one
+    compare_question: str = ''              # vlm with frames: asked of [baseline | later frame] side by side
 
 
 @dataclass
@@ -161,6 +164,12 @@ def parse_contract(raw: dict) -> Contract:
 
     if interface.transport == 'vlm' and not interface.question:
         raise ContractError(f'{name}: a vlm skill needs a question')
+
+    if interface.capture and interface.capture.get('kind') != 'press':
+        raise ContractError(f'{name}: capture kind must be press')
+
+    if interface.frames and (interface.frames != 'press_capture' or interface.transport != 'vlm'):
+        raise ContractError(f'{name}: frames must be press_capture, on a vlm skill')
 
     if interface.transport == 'agent' and not interface.skill:
         raise ContractError(f'{name}: an agent skill needs the skill document it follows')

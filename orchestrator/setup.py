@@ -28,6 +28,7 @@ setup(
             'fake_robot = orchestrator.fake_robot:main',
             'send_tree = orchestrator.send_tree:main',
             'agent_cli = orchestrator.agent_cli:main',
+            'cosmos_vlm_server = orchestrator.cosmos_vlm_server:main',
         ],
     },
 )

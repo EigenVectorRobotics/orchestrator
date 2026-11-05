@@ -41,13 +41,16 @@ class ExecutorNode(Node):
         self.image_topic  = self.declare_parameter('image_topic', '/camera/camera/color/image_raw/compressed').value
         self.vlm_base_url = self.declare_parameter('vlm_base_url', 'http://vector-thor:8090/v1').value
         self.vlm_model    = self.declare_parameter('vlm_model', 'local').value
+        self.vlm_timeout  = self.declare_parameter('vlm_timeout_s', 40.0).value    # Cosmos on the Thor: one request at a time
+        self.capture_dir  = self.declare_parameter('capture_dir', str(Path.home() / '.ros' / 'orchestrator_captures')).value
 
         self.tracer   = Tracer(self, 'executor')
         self.runner   = RosSkillRunner(
             self,
             self.registry,
-            VlmClient(VlmClientConfig(base_url=self.vlm_base_url, model=self.vlm_model)),
-            self.image_topic
+            VlmClient(VlmClientConfig(base_url=self.vlm_base_url, model=self.vlm_model, timeout_s=self.vlm_timeout)),
+            self.image_topic,
+            capture_dir=self.capture_dir
         )
 
         self.agent = self._make_agent()
@@ -93,7 +96,7 @@ class ExecutorNode(Node):
             sandbox=SandboxConfig(scratch_dir=scratch_dir, timeout_s=python_timeout)
         )
 
-        return Agent(backend, config, RosReader(self, self.runner.latest_image), on_event=self._on_agent_event)
+        return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames), on_event=self._on_agent_event)
 
     def _make_agent_backend(self, name: str, model: str, base_url: str, api_key_env: str, script: str):
         if name == 'external':

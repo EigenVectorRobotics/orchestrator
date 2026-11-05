@@ -4,6 +4,7 @@ import json
 import math
 import time
 
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from rclpy.node import Node
@@ -20,6 +21,7 @@ from skill_registry.contract import WHOLE_MESSAGE, Watch
 
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
+from .press_capture import BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
 
 
 MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
@@ -186,9 +188,13 @@ class _ServerHandle(_Handle):
 
 
 class _ActionHandle(_ServerHandle):
-    """An action goal; its feedback is kept as samples {t: seconds since sent, ...the feedback fields}"""
+    """An action goal; its feedback is kept as samples {t: seconds since sent, ...the feedback fields}.
 
-    def __init__(self, client: ActionClient, goal, contract: Contract, server_wait_s: float):
+    With a capture, the feedback's current_goal is passed on to it, and the end of the call is told to it.
+    """
+
+    def __init__(self, client: ActionClient, goal, contract: Contract, server_wait_s: float,
+                 capture: PressCapture | None = None, now=None):
         super().__init__(contract, server_wait_s)
 
         self.client      = client
@@ -197,6 +203,8 @@ class _ActionHandle(_ServerHandle):
         self.cancelled   = False
         self.feedback    = []
         self.sent_time   = 0.0
+        self.capture     = capture
+        self.now         = now
 
     def _server_ready(self) -> bool:
         return self.client.server_is_ready()
@@ -212,6 +220,18 @@ class _ActionHandle(_ServerHandle):
 
         if len(self.feedback) > MAX_FEEDBACK:
             self.feedback = self.feedback[::2]
+
+        goal = getattr(message.feedback, 'current_goal', None)
+
+        if self.capture is not None and goal is not None and goal.header.frame_id:
+            position, rotation = goal.pose.position, goal.pose.orientation
+            self.capture.on_goal((position.x, position.y, position.z), (rotation.x, rotation.y, rotation.z, rotation.w))
+
+    def _finish(self, success: bool, message: str = ''):
+        super()._finish(success, message)
+
+        if self.capture is not None:
+            self.capture.on_action_end(self.now())
 
     def cancel(self):
         self.cancelled = True
@@ -325,6 +345,49 @@ class _VlmHandle(_Handle):
         return self.status
 
 
+class _PressCheckHandle(_Handle):
+    """A VLM check on the frames a press kept: waits until they are chosen, then asks about each later frame
+    beside the baseline. Lit in either is success"""
+
+    def __init__(self, runner: 'RosSkillRunner', capture: PressCapture, contract: Contract, inputs: dict):
+        super().__init__()
+
+        self.runner   = runner
+        self.capture  = capture
+        self.contract = contract
+        self.inputs   = inputs
+        self.future   = None
+
+    def poll(self) -> Status:
+        if self.status != Status.RUNNING:
+            return self.status
+
+        if self.future is None:
+            if self.capture.ready(self.runner.now()):
+                self.future = self.runner._vlm_pool.submit(self._judge)
+
+            return self.status
+
+        if not self.future.done():
+            return self.status
+
+        try:
+            success, message, self.outputs = self.future.result()
+        except VlmClientError as error:
+            self.outputs = {'capture': self.capture.events(), 'frames': self.capture.saved}
+            success, message = False, str(error)
+
+        self._finish(success, message)
+
+        return self.status
+
+    def _judge(self) -> tuple[bool, str, dict]:
+        latest = self.runner.latest_image()
+
+        return judge_press(self.capture, self.contract.interface, self.inputs, self.runner.vlm_client.ask,
+                           bytes(latest.data) if latest is not None else None, self.runner.capture_dir)
+
+
 # ========== Runner ==========
 
 class RosSkillRunner:
@@ -334,11 +397,19 @@ class RosSkillRunner:
         registry: Registry,
         vlm_client: VlmClient | None = None,
         image_topic: str = '/camera/camera/color/image_raw/compressed',
-        server_wait_s: float = 3.0
+        server_wait_s: float = 3.0,
+        capture_dir: str = str(Path.home() / '.ros' / 'orchestrator_captures')
     ):
         self.node          = node
         self.vlm_client    = vlm_client or VlmClient()
         self.server_wait_s = server_wait_s
+        self.capture_dir   = capture_dir
+        self.frames        = FrameBuffer()
+        self.boxes         = BoxBuffer()    # the target button's box per frame, from track_anything
+        self.last_capture  = None           # the frames of the last press, for its check and the agent
+        self._pose_topics  = set()
+        self._box_topics   = set()
+        self._target_id    = None
 
         self._action_clients:  dict[str, ActionClient] = {}
         self._service_clients: dict[str, object]       = {}
@@ -360,6 +431,16 @@ class RosSkillRunner:
         if interface.success_when is not None:
             self._watch(interface.success_when)
 
+        for arm in ('right', 'left'):
+            topic = interface.capture.get(f'{arm}_pose_topic')
+
+            if topic and topic not in self._pose_topics:
+                self._pose_topics.add(topic)
+                self.node.create_subscription(PoseStamped, topic, lambda message, arm=arm: self._on_ee_pose(arm, message), COMMAND_QOS)
+
+        if interface.capture.get('box_topic') and interface.capture['box_topic'] not in self._box_topics:
+            self._subscribe_boxes(interface.capture['box_topic'], interface.capture.get('target_topic', ''))
+
         try:
             if interface.transport == 'action':
                 self._action_client(interface.name, get_action(interface.ros_type))
@@ -378,7 +459,14 @@ class RosSkillRunner:
                 action_type = get_action(interface.ros_type)
                 goal        = build_message(action_type.Goal, contract, inputs, self.node)
 
-                return _ActionHandle(self._action_client(interface.name, action_type), goal, contract, self.server_wait_s)
+                capture = None
+
+                if interface.capture:
+                    capture           = PressCapture(CaptureConfig.from_contract(interface.capture), self.frames,
+                                                     bool(inputs.get('left_arm', False)), self.boxes)
+                    self.last_capture = capture
+
+                return _ActionHandle(self._action_client(interface.name, action_type), goal, contract, self.server_wait_s, capture, self.now)
 
             if interface.transport == 'service':
                 service_type = get_service(interface.ros_type)
@@ -421,8 +509,18 @@ class RosSkillRunner:
 
         return _DoneHandle(watch.matches(spec), f'{spec.field} = {watch.read(spec)}')
 
+    def now(self) -> float:
+        return self.node.get_clock().now().nanoseconds * 1e-9
+
+    def capture_frames(self) -> dict:
+        """The frames the last press kept, by name"""
+        return {name: data for name, (_, data) in self.last_capture.frames.items()} if self.last_capture else {}
+
     def _ask_vlm(self, contract: Contract, inputs: dict):
         interface = contract.interface
+
+        if interface.frames == 'press_capture' and self.last_capture is not None:
+            return _PressCheckHandle(self, self.last_capture, contract, inputs)
 
         if self._image is None:
             return _DoneHandle(False, f'no camera image on {self._image_topic}')
@@ -439,6 +537,43 @@ class RosSkillRunner:
 
     def _on_image(self, message: CompressedImage):
         self._image = message
+        stamp       = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        self.frames.add(stamp or self.now(), bytes(message.data))
+
+    def _subscribe_boxes(self, box_topic: str, target_topic: str):
+        """track_anything's 2D boxes (stamped as their camera frame) and the id of the target it selected"""
+        try:
+            from vision_msgs.msg import Detection2DArray, Detection3D
+        except ImportError as error:
+            self.node.get_logger().warn(f'no vision_msgs ({error}): button_lit judges whole frames')
+            return
+
+        self._box_topics.add(box_topic)
+        self.node.create_subscription(Detection2DArray, box_topic, self._on_boxes, COMMAND_QOS)
+
+        if target_topic:
+            self.node.create_subscription(Detection3D, target_topic, lambda message: setattr(self, '_target_id', message.id), COMMAND_QOS)
+
+    def _on_boxes(self, message):
+        if not message.detections:
+            return
+
+        detection = next((item for item in message.detections if item.id == self._target_id), message.detections[0])
+        centre, box = detection.bbox.center.position, detection.bbox
+        stamp       = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+
+        self.boxes.add(stamp or self.now(), (centre.x - box.size_x / 2, centre.y - box.size_y / 2,
+                                             centre.x + box.size_x / 2, centre.y + box.size_y / 2))
+
+    def _on_ee_pose(self, arm: str, message: PoseStamped):
+        capture = self.last_capture
+
+        if capture is None or capture.left_arm != (arm == 'left') or capture.ended_t is not None:
+            return
+
+        stamp    = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        position = message.pose.position
+        capture.on_pose(stamp or self.now(), (position.x, position.y, position.z))
 
     def _watch(self, spec: Watch) -> TopicWatch:
         key = (spec.topic, spec.latched)
