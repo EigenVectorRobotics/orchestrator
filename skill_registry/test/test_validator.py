@@ -185,3 +185,18 @@ def test_no_walking_while_an_arm_moves():
     errors = _errors('<Parallel><navigate_to goal="{goal}"/><press_button target_description="elevator up call button"/></Parallel>')
 
     assert any('resource base' in error for error in errors)
+
+
+def test_a_compare_question_may_use_only_inputs():
+    raw = {
+        'name':      'lit',
+        'kind':      'condition',
+        'device':    'thor',
+        'interface': {'transport': 'vlm', 'question': 'Is the {target_description} lit?', 'frames': 'press_capture',
+                      'compare_question': 'Is the {button} lit in the right photo?', 'choices': ['lit', 'not_lit'],
+                      'success_answer': 'lit'},
+        'inputs':    [{'name': 'target_description', 'type': 'string'}],
+    }
+
+    with pytest.raises(ContractError, match='button'):
+        parse_contract(raw)

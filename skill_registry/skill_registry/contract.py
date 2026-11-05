@@ -178,7 +178,7 @@ def parse_contract(raw: dict) -> Contract:
     if interface.transport == 'compare' and {'value', 'equals'} - {port.name for port in contract.inputs}:
         raise ContractError(f'{name}: a compare skill needs the inputs value and equals')
 
-    for field_name in _format_fields(interface.question):
+    for field_name in _format_fields(interface.question) | _format_fields(interface.compare_question):
         if contract.input(field_name) is None:
             raise ContractError(f'{name}: the question uses {{{field_name}}}, which is not an input')
 
