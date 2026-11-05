@@ -13,7 +13,7 @@ Status: 2026-11-05. Built: `orchestrator/recording.py`, `orchestrator/run_record
 - `/orchestrator/trace`: JSON events (`started` with the tree XML, `node`, `record`, `agent_start`, `agent_tool`, `agent_say`, `agent_decision`, `finished`, `halted`, `rejected`, `validation`, `error`, and the planner's `sent`).
 - `record` events carry the full record of each finished call, with the action feedback over time.
 - Agent calls go out on `/orchestrator/agent/request` and come back on `/orchestrator/agent/decision`.
-- Press frames go to `capture_dir` (`~/.ros/orchestrator_captures`), and the agent's sandbox files to `agent_scratch_dir`.
+- Press frames go to `capture_dir` (`~/.ros/orchestrator_captures`), and the agent's sandbox files to `agent_scratch_dir/<run_id>/` (default `~/orch_knowledge/scratch`).
 - Nothing puts these together, and nothing records which code, contracts and parameters ran.
 
 ## Shape
@@ -31,6 +31,7 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
     agent/<call_id>.json                each agent call: the request (failure, history, press), every tool call and reply, the decision
     planner/<attempt>.json              each planner attempt: the prompt, the reply, the validator errors
     captures/                           the press frames this run made (copied from capture_dir)
+    scratch/                            the agent's notes and checks of this run (moved from agent_scratch_dir/<run_id> at the end of the run)
     bag/                                ros2 bag (MCAP) of the chosen topics, for this task only
     outcome.json                        status, abort reason, duration; written last, atomically
   finalization.json                     open | closed | failed, and why

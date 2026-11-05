@@ -2,7 +2,7 @@
 
 A session folder holds provenance.json, every trace event in events.jsonl and finalization.json. Each tree run
 (the executor's `started` to `finished`, `halted` or `error`) gets runs/<n>-<tree>/ with its tree, its records,
-its agent calls, the press frames it saved, its bag, and outcome.json. Nothing is deleted here: the operator clears
+its agent calls, the press frames it saved, the agent's scratch folder, its bag, and outcome.json. Nothing is deleted here: the operator clears
 old runs by hand (see `largest_runs`).
 
 This module needs no ROS: run_recorder feeds it messages and starts and stops the bag.
@@ -146,6 +146,7 @@ class Recorder:
         self.runs     = 0
         self.task     = None                     # the last task text, for the next run
         self.captures = set()                    # the press frames the open run named
+        self.scratch  = None                     # the agent's scratch folder of the open run
         self.calls    = {}                       # agent call id -> its run's folder, for messages after the run ended
         self.failure  = None
 
@@ -247,7 +248,8 @@ class Recorder:
             'started': event.get('time'),
             'task':    self.task,                 # the planner's last task; none for send_tree
         })
-        self.task = None
+        self.task    = None
+        self.scratch = event.get('scratch')
         self.bag.start(self.run / 'bag')
 
     def _end_run(self, event: dict):
@@ -256,6 +258,7 @@ class Recorder:
 
         self._safely(self.bag.stop)
         self._copy_captures()
+        self._move_scratch()
         self._safely(write_json, self.run / 'outcome.json', {
             'end':      event.get('kind'),
             'status':   event.get('status'),
@@ -283,6 +286,14 @@ class Recorder:
         for source in map(Path, sources):
             if source.is_file():
                 self._safely(shutil.copy2, source, folder / source.name)
+
+    def _move_scratch(self):
+        """The agent's notes and checks of this run, moved in: a rename on one file system, so no bytes are copied in
+        the trace callback, and a write after the run ended fails and does not change the bundle"""
+        source, self.scratch = self.scratch, None
+
+        if source and Path(source).is_dir():
+            self._safely(shutil.move, source, self.run / 'scratch')
 
     def _agent_folder(self, call: str | None) -> Path | None:
         """The agent folder of the run the call opened in; None for a call outside any run"""

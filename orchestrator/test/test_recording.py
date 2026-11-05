@@ -121,6 +121,20 @@ def test_press_frames_named_in_a_run_are_copied_in(tmp_path):
     assert frame.exists()
 
 
+def test_the_agent_scratch_folder_of_a_run_is_moved_in(tmp_path):
+    recorder = make_recorder(tmp_path)
+    scratch  = tmp_path / 'scratch' / 'r1'
+    scratch.mkdir(parents=True)
+    (scratch / 'plan.md').write_text('walk closer')
+
+    recorder.on_event(executor('started', tree_id='t', scratch=str(scratch)))
+    run = recorder.run
+    recorder.on_event(executor('finished', status='success'))
+
+    assert (run / 'scratch' / 'plan.md').read_text() == 'walk closer'
+    assert not scratch.exists()
+
+
 def test_not_ready_below_min_free_gb(tmp_path):
     recorder      = make_recorder(tmp_path, min_free_gb=1e9)
     ready, reason = recorder.ready()

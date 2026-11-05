@@ -83,10 +83,10 @@ class ExecutorNode(Node):
         script         = self.declare_parameter('agent_script', '[]').value              # scripted: JSON, one call list per agent call
         skills_dir     = self.declare_parameter('agent_skills_dir', str(Path(get_package_share_directory('skill_registry')) / 'agent_skills')).value
         read_roots     = self.declare_parameter('agent_read_roots', ['/home/vector/eigen_vector_ws', skills_dir]).value
-        scratch_dir    = self.declare_parameter('agent_scratch_dir', SandboxConfig.scratch_dir).value
         python_timeout = self.declare_parameter('agent_python_timeout_s', 60.0).value
         max_turns      = self.declare_parameter('agent_max_turns', 30).value
         knowledge_dir  = self.declare_parameter('knowledge_dir', str(Path.home() / 'orch_knowledge')).value     # claims.yaml, log.jsonl
+        scratch_dir    = self.declare_parameter('agent_scratch_dir', str(Path(knowledge_dir) / 'scratch')).value  # <run_id>/ in it
 
         if backend_name == 'none':
             return None
@@ -199,11 +199,28 @@ class ExecutorNode(Node):
             self._publish_status('rejected')
             return False
 
-        self.tracer.fields = {'run_id': run_id, 'tree_id': self.tree.id}
-        self.tracer.emit('started', f'running {self.tree.id}' + (' (blind)' if blind else ''), tree=xml_text, blind=blind)
+        context.scratch_dir = scratch = self._run_scratch(run_id)
+        self.tracer.fields  = {'run_id': run_id, 'tree_id': self.tree.id}
+        self.tracer.emit('started', f'running {self.tree.id}' + (' (blind)' if blind else ''), tree=xml_text, blind=blind,
+                         scratch=scratch)
         self._publish_status('running')
 
         return True
+
+    def _run_scratch(self, run_id: str) -> str | None:
+        """The run's scratch folder under the agent's scratch root; the recorder moves it into the run's bundle"""
+        if self.agent is None:
+            return None
+
+        folder = Path(self.agent.config.sandbox.scratch_dir).expanduser() / run_id
+
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as error:                                    # the run goes on; its agent calls get no notes folder
+            self.get_logger().warn(f'no scratch folder for this run: {error}')
+            return None
+
+        return str(folder)
 
     def _on_cancel(self, message: Empty):
         if self.tree is None:

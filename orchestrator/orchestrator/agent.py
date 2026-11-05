@@ -12,7 +12,7 @@ import threading
 
 from typing import Callable, Protocol
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from concurrent.futures import ThreadPoolExecutor
 
 from skill_registry import Contract
@@ -33,6 +33,7 @@ MAX_PRESS_OFFSET_M = 0.03               # an offset_retry corrects millimetres; 
 
 MAX_READ_BYTES = 200_000
 MAX_TOOL_TEXT  = 40_000
+SCRATCH_LISTED = 20                     # file names of a run's scratch folder shown in the task
 MAX_SPEECH     = 200                    # characters said at once
 SPEECH_GAP_S   = 3.0                    # unitree_interface speaks each message at once, so space them out
 
@@ -284,7 +285,8 @@ class AgentSession:
 
     def __init__(self, phase: str, inputs: dict, evidence: dict, ros: RosAccess | None, config: AgentConfig, on_event,
                  speak: Callable[[str], None] | None = None, clock: Callable[[], float] = time.monotonic,
-                 skill: str = '', run_id: str | None = None):
+                 skill: str = '', run_id: str | None = None, scratch_dir: str | None = None):
+        self.sandbox  = replace(config.sandbox, scratch_dir=scratch_dir) if scratch_dir else config.sandbox
         self.skill    = skill
         self.run_id   = run_id
         self.speak    = speak
@@ -297,7 +299,7 @@ class AgentSession:
         self.config   = config
         self.on_event = on_event
         self.decision = None
-        self.roots    = [Path(root).resolve() for root in [*config.read_roots, config.sandbox.scratch_dir]]
+        self.roots    = [Path(root).resolve() for root in [*config.read_roots, self.sandbox.scratch_dir]]
 
     def call(self, name: str, arguments: dict) -> ToolOutput:
         self.on_event('agent_tool', f'{name} {_brief(arguments)}', tool=name, arguments=arguments)
@@ -400,7 +402,7 @@ class AgentSession:
         return ToolOutput(f'said: {text}')
 
     def _tool_run_python(self, code: str) -> ToolOutput:
-        result = run_python(code, self.config.sandbox)
+        result = run_python(code, self.sandbox)
         text   = f'exit code {result["exit_code"]}' + (' (timed out)' if result['timed_out'] else '')
         text  += f'\n--- stdout\n{result["stdout"]}' + (f'\n--- stderr\n{result["stderr"]}' if result['stderr'] else '')
 
@@ -538,10 +540,11 @@ class Agent:
             known   = self.config.knowledge.prompt_section(observations=True) if self.config.knowledge else ''
             system += f'\n\n{known}\n' if known else ''
             session = AgentSession(phase, inputs, evidence, self.ros, self.config, self.on_event, self.speak,
-                                   skill=contract.interface.skill, run_id=context.run_id)
+                                   skill=contract.interface.skill, run_id=context.run_id, scratch_dir=context.scratch_dir)
+            task    = _task(phase, inputs) + (_scratch_note(Path(context.scratch_dir)) if context.scratch_dir else '')
 
             self.on_event('agent_start', f'{contract.name} ({phase}) on {self.backend.name}', phase=phase)
-            self.backend.run(system, _task(phase, inputs), tool_specs(phase), session.call,
+            self.backend.run(system, task, tool_specs(phase), session.call,
                              self.config.max_turns, stop.is_set, self.on_event, skill=contract.interface.skill)
 
             if session.decision is None:
@@ -553,6 +556,16 @@ class Agent:
 
     def shutdown(self):
         self._pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _scratch_note(scratch: Path) -> str:
+    """Tells the agent where its run's scratch folder is, and what earlier calls in this run left there (not the
+    sandbox's own code files, which are hidden)"""
+    names = sorted(path.name + '/' * path.is_dir() for path in scratch.iterdir() if not path.name.startswith('.'))
+    shown = ', '.join(names[:SCRATCH_LISTED]) + (f' and {len(names) - SCRATCH_LISTED} more' if len(names) > SCRATCH_LISTED else '')
+
+    return (f'\n\nYour scratch folder for this run is {scratch}: write notes there (plan, what you checked, what '
+            f'you expect) for later calls in this run. ' + (f'Earlier calls left: {shown}.' if names else 'It is empty.'))
 
 
 def _task(phase: str, inputs: dict) -> str:

@@ -79,8 +79,8 @@ def _run(tree: BehaviorTree, max_ticks: int = 500) -> Status:
     return Status.RUNNING
 
 
-def _tree(xml_text: str, runner: FakeRunner, agent) -> BehaviorTree:
-    context = Context(blackboard={'call_panel': dict(PANEL)})
+def _tree(xml_text: str, runner: FakeRunner, agent, scratch_dir: Path | None = None) -> BehaviorTree:
+    context = Context(blackboard={'call_panel': dict(PANEL)}, scratch_dir=scratch_dir and str(scratch_dir))
 
     return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
 
@@ -200,6 +200,28 @@ def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(t
     assert len(walks) == 2 and walks[1]['y'] == pytest.approx(2.15)
     assert 'Planning failed' in backend.calls[0][2].text                   # the agent saw the recorded failure
     assert [record['decision'] for record in tree.context.history if 'decision' in record] == ['reposition', 'continue']
+
+
+def test_agent_calls_in_one_run_share_its_scratch_folder(tmp_path):
+    class TaskBackend(ScriptedAgentBackend):
+        def run(self, system, task, *arguments, **keywords):
+            self.tasks = [*getattr(self, 'tasks', []), task]
+            return super().run(system, task, *arguments, **keywords)
+
+    backend = TaskBackend([
+        [['run_python', {'code': 'open("plan.md", "w").write("stalled short: walk 0.15 m closer")'}],
+         ['decide', {'decision': 'reposition', 'reason': 'stalled 0.13 m short', 'dx': 0.15, 'dy': 0.0}]],
+        [['decide', {'decision': 'continue', 'reason': 'button in view'}]],
+    ])
+    runner  = FakeRunner([MISS, (True, 'Controller reached target', [])])
+    scratch = tmp_path / 'scratch' / 'r1'
+    scratch.mkdir(parents=True)
+    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)), scratch)
+
+    assert _run(tree) == Status.SUCCESS
+    assert (scratch / 'plan.md').exists()
+    assert 'It is empty' in backend.tasks[0]
+    assert 'Earlier calls left: plan.md.' in backend.tasks[1]              # not the hidden code file of run_python
 
 
 def test_abort_ends_the_tree_at_once(tmp_path):

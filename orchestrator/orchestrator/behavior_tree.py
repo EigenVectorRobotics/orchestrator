@@ -33,9 +33,11 @@ class Context:
         clock: Callable[[], float] = time.monotonic,
         on_event: Callable[['TreeNode', dict], None] | None = None,
         on_record: Callable[[dict], None] | None = None,
-        run_id: str | None = None
+        run_id: str | None = None,
+        scratch_dir: str | None = None
     ):
         self.run_id       = run_id      # the recorder's id for this run of the tree
+        self.scratch_dir  = scratch_dir # this run's notes folder, shared by its agent calls; None: no run folder
         self.blackboard   = {} if blackboard is None else blackboard
         self.clock        = clock
         self.on_event     = on_event or (lambda node, event: None)

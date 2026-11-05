@@ -1,6 +1,6 @@
 # Reasoning areas, knowledge graduation and map annotation (design, not built)
 
-Status: 2026-11-05. Built (on `main`, `a531c21`, and open `about` tags, not committed): `orchestrator/knowledge.py` (claims, tiers, rules, log), the agent's `note` tool and the facts and beliefs in its prompt, the `knowledge` CLI. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, `scratch/<run_id>/`, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
+Status: 2026-11-05. Built (on `main`; `scratch/<run_id>/` for the agent not committed): `orchestrator/knowledge.py` (claims, tiers, rules, log), the agent's `note` tool and the facts and beliefs in its prompt, the `knowledge` CLI. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, scratch for the planner, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
 
 Built rules: observation → belief at 2 runs and 2 sources; a belief is ready for a fact when the Wilson lower bound (z = 1.645) is at least 0.8, that is 11 confirmations with no contradiction; the operator approves it with `knowledge approve`, at a terminal only.
 
@@ -32,7 +32,7 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 | `claims.yaml` | until removed | the store only (through its API) | every observation, belief and fact, with evidence |
 | (prompt text) | each prompt | made from `claims.yaml` in memory (`prompt_section`) | the facts and beliefs, as text, for the prompts |
 
-- The agent's sandbox `scratch_dir` becomes `scratch/<run_id>/`, so its files are kept with the run.
+- The agent's sandbox `scratch_dir` is `scratch/<run_id>/` (built): every agent call in a run shares it, its task names the files that earlier calls left, and the recorder moves it into the run's bundle at the end of the run.
 - The planner and the agent get the facts (and the beliefs, marked as beliefs) in each prompt.
 
 ## Claims

@@ -9,12 +9,13 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 
-GUARD_PATH = Path(__file__).with_name('agent_guard.py')
+GUARD_PATH  = Path(__file__).with_name('agent_guard.py')
+CODE_FOLDER = '.code'
 
 
 @dataclass
 class SandboxConfig:
-    scratch_dir:   str = str(Path.home() / '.ros' / 'orchestrator_agent')
+    scratch_dir:   str = str(Path.home() / 'orch_knowledge' / 'scratch')
     python:        str = '/usr/bin/python3'
     python_paths:  list[str] = field(default_factory=lambda: ['/opt/ros/jazzy/lib/python3.12/site-packages'])  # pinocchio, coal
     library_paths: list[str] = field(default_factory=lambda: ['/opt/ros/jazzy/lib', '/opt/ros/jazzy/lib/x86_64-linux-gnu'])
@@ -38,7 +39,8 @@ def run_python(code: str, config: SandboxConfig) -> dict:
     scratch = Path(config.scratch_dir)
     scratch.mkdir(parents=True, exist_ok=True)
 
-    code_path = scratch / f'run_{os.getpid()}_{next(_run_numbers)}.py'
+    code_path = scratch / CODE_FOLDER / f'run_{os.getpid()}_{next(_run_numbers)}.py'     # hidden from the agent's file list
+    code_path.parent.mkdir(exist_ok=True)
     code_path.write_text(code)
 
     environment = {
