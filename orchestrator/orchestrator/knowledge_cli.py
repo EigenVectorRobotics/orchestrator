@@ -1,8 +1,8 @@
 """The knowledge store from a shell: for the operator, and for an agent session outside the executor.
 
-    knowledge list [--tier belief] [--place NAME] [--ready]
+    knowledge list [--tier belief] [--about KIND=NAME ...] [--ready]
     knowledge show C-0007
-    knowledge note "TEXT" --by agent:press_judge --evidence record:3 [--run ID] [--place P] [--key K --value V]
+    knowledge note "TEXT" --by agent:press_judge --evidence record:3 [--run ID] [--about place=P ...] [--key K --value V]
     knowledge confirm C-0007 --by operator --evidence E-019 [--run ID] [--value V]
     knowledge contradict C-0007 --by operator --evidence ... [--run ID]
     knowledge approve C-0007 [--text "the exact text"]       the operator only, at a terminal
@@ -34,6 +34,22 @@ def _value(text: str | None):
         return text
 
 
+def _tag(text: str) -> tuple[str, str]:
+    if '=' not in text:
+        raise argparse.ArgumentTypeError(f'a tag is kind=name, not {text!r}')
+
+    return tuple(text.split('=', 1))
+
+
+def _about(tags: list[tuple[str, str]]) -> dict:
+    kinds = [kind for kind, _ in tags]
+
+    if len(set(kinds)) != len(kinds):
+        raise KnowledgeError(f'one name per tag kind, not {kinds}')
+
+    return dict(tags)
+
+
 def _sighting(arguments) -> Sighting:
     return Sighting(by=arguments.by, time=time.time(), run=arguments.run, evidence=arguments.evidence, value=_value(arguments.value))
 
@@ -62,7 +78,7 @@ def main(argv: list[str] | None = None):
 
     listing = commands.add_parser('list')
     listing.add_argument('--tier', action='append')
-    listing.add_argument('--place')
+    listing.add_argument('--about', action='append', default=[], type=_tag, help='kind=name, e.g. place=cabin; all must match')
     listing.add_argument('--ready', action='store_true', help='only beliefs the operator can approve')
 
     commands.add_parser('show').add_argument('id')
@@ -76,8 +92,7 @@ def main(argv: list[str] | None = None):
 
     note = commands.add_parser('note')
     note.add_argument('text')
-    note.add_argument('--place')
-    note.add_argument('--skill')
+    note.add_argument('--about', action='append', default=[], type=_tag, help='kind=name, e.g. place=cabin or device=thor')
     note.add_argument('--key')
     note.add_argument('--valid-for-s', type=float)
     sighting_arguments(note)
@@ -102,7 +117,8 @@ def main(argv: list[str] | None = None):
     try:
         if arguments.command == 'list':
             claims = store.claims(tuple(arguments.tier or TIERS))
-            claims = [c for c in claims if (not arguments.place or c.about.get('place') == arguments.place)
+            tags   = about_of(_about(arguments.about)).items()
+            claims = [c for c in claims if tags <= c.about.items()
                       and (not arguments.ready or c.ready_for_fact())]
             print('\n'.join(map(_row, claims)) or 'no claims')
         elif arguments.command == 'show':
@@ -112,7 +128,7 @@ def main(argv: list[str] | None = None):
         elif arguments.command == 'prompt':
             print(store.prompt_section() or 'no facts or beliefs yet')
         elif arguments.command == 'note':
-            claim, change = store.note(arguments.text, _sighting(arguments), about_of(arguments.place, arguments.skill),
+            claim, change = store.note(arguments.text, _sighting(arguments), _about(arguments.about),
                                        arguments.key, arguments.valid_for_s)
             print(f'{claim.id}: {change} ({claim.tier})')
         elif arguments.command in ('confirm', 'contradict'):

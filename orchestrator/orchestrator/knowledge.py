@@ -1,7 +1,8 @@
 """What the robot has learned, as claims that go up in tiers with evidence: observation -> belief -> fact.
 
-A claim is one thing seen or measured, about a place (a map_info name), a skill, or nothing. Every later sighting
-is a confirmation or a contradiction, with its evidence (a run, a record, who saw it). The rules (docs/knowledge.md):
+A claim is one thing seen or measured, about open tags (a place by its map_info name, a skill, a device, ...) or
+nothing. Every later sighting is a confirmation or a contradiction, with its evidence (a run, a record, who saw it).
+The rules (docs/knowledge.md):
 
 - observation -> belief: confirmed in 2 runs or more, by 2 sources or more (a check, an agent skill, the operator)
 - belief -> fact: the Wilson lower bound of confirmations / (confirmations + contradictions) is at least
@@ -17,6 +18,7 @@ sandbox writes only in its scratch folder, so it cannot write claims.yaml or app
 This module needs no ROS.
 """
 
+import re
 import json
 import math
 import time
@@ -34,6 +36,7 @@ WILSON_Z         = 1.645            # one-sided 95 %: with no contradiction, 11 
 MIN_RUNS         = 2
 MIN_SOURCES      = 2
 OPERATOR         = 'operator'
+TAG_KIND         = re.compile(r'[a-z][a-z0-9_]*')
 
 
 class KnowledgeError(ValueError):
@@ -66,12 +69,15 @@ class Claim:
     id:             str
     text:           str
     tier:           str = 'observation'
-    about:          dict = field(default_factory=dict)  # {place: name} | {skill: name} | {}
+    about:          dict = field(default_factory=dict)  # open tags, e.g. {place: name, skill: name}; {} is general
     key:            str | None = None                    # a value claim: compared by key
     valid_for_s:    float | None = None
     confirmations:  list[Sighting] = field(default_factory=list)
     contradictions: list[Sighting] = field(default_factory=list)
     approved_by:    str | None = None
+
+    def __post_init__(self):
+        self.about = _clean(self.about)              # a claim written by hand in claims.yaml too; a bad kind still loads
 
     @property
     def last_seen(self) -> float:
@@ -120,9 +126,22 @@ class Claim:
         return ', '.join(f'{kind} {name}' for kind, name in self.about.items()) or 'general'
 
 
-def about_of(place: str | None = None, skill: str | None = None) -> dict:
-    """The subject of a claim: a place, a skill, both, or neither"""
-    return {kind: name for kind, name in (('place', place), ('skill', skill)) if name}
+def about_of(tags: dict | None = None) -> dict:
+    """The subject of a claim: open tags as {kind: name}; empty tags are dropped, {} is general. The kinds are free
+    (place, skill, device, object, ...); only place names come from map_info"""
+    about = _clean(tags)
+
+    for kind in about:
+        if not TAG_KIND.fullmatch(kind):
+            raise KnowledgeError(f'a tag kind is one snake_case word, not {kind!r}')
+
+    return about
+
+
+def _clean(tags: dict | None) -> dict:
+    """Stripped and sorted, with empty and null names dropped"""
+    about = {str(kind).strip(): str(name).strip() for kind, name in (tags or {}).items() if name is not None}
+    return dict(sorted((kind, name) for kind, name in about.items() if name))
 
 
 def _claim_from(raw: dict) -> Claim:
@@ -151,7 +170,7 @@ class KnowledgeStore:
 
     def find(self, about: dict, key: str) -> Claim | None:
         """The live value claim with this subject and key"""
-        return _match(self._load(), about, key)
+        return _match(self._load(), about_of(about), key)
 
     def prompt_section(self, observations: bool = False) -> str:
         """Facts and beliefs as a prompt section with its heading, for the planner and the agent; beliefs are marked
@@ -181,7 +200,7 @@ class KnowledgeStore:
              valid_for_s: float | None = None) -> tuple[Claim, str]:
         """An observation. A value claim (key) with the same subject that is still live gets a confirmation, or a
         contradiction when its value differs and is not numeric. Returns the claim and what happened"""
-        about = about or {}
+        about = about_of(about)
 
         with self._locked() as claims:
             existing = _match(claims, about, key) if key else None

@@ -81,7 +81,7 @@ What the robot learns is kept as claims in `knowledge_dir` (executor parameter, 
 ```bash
 ros2 run orchestrator knowledge list --ready                  # beliefs that can become facts
 ros2 run orchestrator knowledge show C-0007
-ros2 run orchestrator knowledge note "The call panel does not light." --by agent:press_judge --evidence frame:press --run <run_id> --place freight_elevator_call_panel --key lights_when_pressed --value false
+ros2 run orchestrator knowledge note "The call panel does not light." --by agent:press_judge --evidence frame:press --run <run_id> --about place=freight_elevator_call_panel --key lights_when_pressed --value false
 ros2 run orchestrator knowledge approve C-0007 [--text "the exact text"]
 ```
 

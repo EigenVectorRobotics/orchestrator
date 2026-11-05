@@ -136,7 +136,7 @@ def test_the_agent_note_tool_writes_an_observation_with_its_run(tmp_path):
     session = AgentSession('judge', {}, {}, None, AgentConfig(skills_dir=str(tmp_path), knowledge=store),
                            lambda kind, text, **data: events.append(kind), skill='press_judge', run_id='r7')
 
-    output = session.call('note', {'text': 'The call panel does not light.', 'place': 'freight_elevator_call_panel',
+    output = session.call('note', {'text': 'The call panel does not light.', 'about': PANEL,
                                    'key': 'lights_when_pressed', 'value': False, 'evidence': ['frame:press']})
 
     claim = store.get('C-0001')
@@ -197,3 +197,61 @@ def test_the_agent_confirms_an_observation_by_its_id(tmp_path):
 
     assert 'observation -> belief' in output.text
     assert session.call('note', {'text': 'x', 'claim': 'C-9999', 'evidence': ['e']}).is_error
+
+
+def test_a_claim_can_be_about_any_tags_or_none(tmp_path):
+    store       = KnowledgeStore(tmp_path)
+    thor, _     = store.note('The VLM on Thor is slow after 30 min.', seen(), {'device': 'thor'})
+    general, _  = store.note('The cabin has no network.', seen())
+    door, _     = store.note('The door stays open.', seen(value=8.0), {'object': 'freight_elevator', 'place': 'cabin'}, 'open_s')
+    _, change   = store.note('The door stays open.', seen(run='r2', value=8.5), {'place': 'cabin ', 'object': 'freight_elevator'}, 'open_s')
+
+    assert store.get(thor.id).subject() == 'device thor'
+    assert store.get(general.id).subject() == 'general'
+    assert change.startswith('confirmed') and store.find({'place': 'cabin', 'object': 'freight_elevator'}, 'open_s').id == door.id
+
+    for bad in ({'Device': 'thor'}, {'two words': 'x'}):
+        with pytest.raises(KnowledgeError):
+            store.note('x', seen(), bad)
+
+
+def test_the_cli_lists_claims_by_tags(tmp_path, capsys):
+    store = KnowledgeStore(tmp_path)
+    store.note('The VLM on Thor is slow.', seen(), {'device': 'thor'})
+    store.note('The door stays open.', seen(), {'object': 'freight_elevator', 'place': 'cabin'})
+
+    cli(['--dir', str(tmp_path), 'list', '--about', 'place=cabin'])
+
+    out = capsys.readouterr().out
+    assert 'door' in out and 'Thor' not in out
+
+    for bad in (['thor'], ['place=a', 'place=b']):
+        with pytest.raises(SystemExit):
+            cli(['--dir', str(tmp_path), 'list', *[arg for tag in bad for arg in ('--about', tag)]])
+
+
+def test_a_hand_written_claim_gets_clean_tags_on_load(tmp_path):
+    (tmp_path / 'claims.yaml').write_text('- {id: C-0001, text: Door open., about: {place: "cabin "}, key: open_s,\n'
+                                          '   confirmations: [{by: operator, time: 1.0, run: r1, value: 8.0}]}\n')
+    store     = KnowledgeStore(tmp_path)
+    _, change = store.note('Door open.', seen(value=8.2), {'place': 'cabin'}, 'open_s')
+
+    assert change.startswith('confirmed') and len(store.claims()) == 1
+
+
+def test_a_hand_written_bad_tag_still_loads(tmp_path):
+    (tmp_path / 'claims.yaml').write_text('- {id: C-0001, text: Door open., about: {Place: cabin, skill: null},\n'
+                                          '   confirmations: [{by: operator, time: 1.0, run: r1}]}\n')
+
+    assert KnowledgeStore(tmp_path).get('C-0001').about == {'Place': 'cabin'}
+
+
+def test_the_agent_note_tool_refuses_a_bad_tag(tmp_path):
+    from orchestrator.agent import AgentConfig, AgentSession
+
+    session = AgentSession('judge', {}, {}, None, AgentConfig(skills_dir=str(tmp_path), knowledge=KnowledgeStore(tmp_path)),
+                           lambda kind, text, **data: None, skill='press_judge', run_id='r1')
+
+    output = session.call('note', {'text': 'Slow.', 'about': {'Device X': 'thor'}, 'evidence': ['record:1']})
+
+    assert output.is_error and 'snake_case' in output.text

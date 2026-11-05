@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from skill_registry import Contract
 
 from .behavior_tree import Context, Status
-from .knowledge import KnowledgeStore, Sighting, about_of
+from .knowledge import KnowledgeStore, Sighting
 from .agent_sandbox import SandboxConfig, run_python
 
 
@@ -186,15 +186,17 @@ def _tool_specs(phase: str) -> list[dict]:
                             'It goes up to a belief and a fact only when other runs and sources confirm it, and only the '
                             'operator makes a fact. Note what is true of a place or a skill (e.g. "the call panel does not '
                             'light when pressed", or the press offset that worked), not this call\'s decision. With a key '
-                            'and a value, a later note with the same place or skill and key confirms or contradicts it.',
+                            'and a value, a later note with the same about and key confirms or contradicts it.',
             'input_schema': {
                 'type':       'object',
                 'properties': {
                     'text':        {'type': 'string', 'description': 'one sentence'},
                     'claim':       {'type': 'string', 'description': 'the id of a claim in "What is known" that this confirms or contradicts'},
                     'contradicts': {'type': 'boolean', 'description': 'with claim: true if what you found disagrees with it'},
-                    'place':       {'type': 'string', 'description': 'the place it is about, as the blackboard names it'},
-                    'skill':       {'type': 'string', 'description': 'the skill it is about'},
+                    'about':       {'type': 'object', 'additionalProperties': {'type': 'string'},
+                                    'description': 'what it is about, as kind: name, e.g. {"place": "freight_elevator_call_panel"} '
+                                                   '(the name the blackboard uses), {"skill": "press_button"}, {"device": "thor"}, '
+                                                   '{"object": "freight_elevator"}; leave out for something general'},
                     'key':         {'type': 'string', 'description': 'for a value, e.g. lights_when_pressed or press_offset'},
                     'value':       {'description': 'a number, a list of numbers, true/false, or a word'},
                     'evidence':    {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1,
@@ -404,7 +406,7 @@ class AgentSession:
 
         return ToolOutput(text, is_error=result['exit_code'] != 0)
 
-    def _tool_note(self, text: str, evidence: list, place: str = '', skill: str = '', key: str = '', value=None,
+    def _tool_note(self, text: str, evidence: list, about: dict | None = None, key: str = '', value=None,
                    valid_for_s: float | None = None, claim: str = '', contradicts: bool = False) -> ToolOutput:
         if self.config.knowledge is None:
             return ToolOutput('there is no knowledge store here', is_error=True)
@@ -419,7 +421,7 @@ class AgentSession:
             change = (store.contradict if contradicts else store.confirm)(claim, sighting)
             found  = store.get(claim)
         else:
-            found, change = store.note(text, sighting, about_of(place, skill), key or None, valid_for_s)
+            found, change = store.note(text, sighting, about, key or None, valid_for_s)
 
         self.on_event('knowledge', f'{found.id} {change}: {found.text}', claim=found.id, change=change, tier=found.tier)
 

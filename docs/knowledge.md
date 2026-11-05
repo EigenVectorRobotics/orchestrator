@@ -1,6 +1,6 @@
 # Reasoning areas, knowledge graduation and map annotation (design, not built)
 
-Status: 2026-11-05. Built (branch `feat/knowledge`): `orchestrator/knowledge.py` (claims, tiers, rules, log), the agent's `note` tool and the facts and beliefs in its prompt, the `knowledge` CLI. Not built yet: `{fact:...}` in trees, `scratch/<run_id>/`, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
+Status: 2026-11-05. Built (on `main`, `a531c21`, and open `about` tags, not committed): `orchestrator/knowledge.py` (claims, tiers, rules, log), the agent's `note` tool and the facts and beliefs in its prompt, the `knowledge` CLI. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, `scratch/<run_id>/`, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
 
 Built rules: observation → belief at 2 runs and 2 sources; a belief is ready for a fact when the Wilson lower bound (z = 1.645) is at least 0.8, that is 11 confirmations with no contradiction; the operator approves it with `knowledge approve`, at a terminal only.
 
@@ -8,7 +8,8 @@ Built rules: observation → belief at 2 runs and 2 sources; a belief is ready f
 
 - The planner and the agent have files to reason in, which last across calls and runs.
 - What the robot sees becomes knowledge in steps: **observation → belief → fact**. A step up needs independent confirmations; a contradiction moves it down.
-- Knowledge about a place (a press offset, an arrival overshoot, "this button does not light") is attached to the place in `map_info`.
+- A claim can be about anything: a place, a skill, a device, an object, or nothing. Knowledge about a place (a press offset, an arrival overshoot, "this button does not light") is linked to the place in `map_info`.
+- A contradiction of a belief or a fact that a run uses starts reasoning ("Contradictions").
 - Skills graduate the same way (`docs/skill-packages.md`, "Graduation"), from the same counts.
 
 ## Split of work
@@ -29,17 +30,17 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 |---|---|---|---|
 | `scratch/<run_id>/` | one run | the planner, the agent | notes while it works: plan, expectations, what it checked. Saved into the run folder at the end |
 | `claims.yaml` | until removed | the store only (through its API) | every observation, belief and fact, with evidence |
-| `facts.md` | until a fact goes down | made from `claims.yaml` | the facts, as text, for the prompts |
+| (prompt text) | each prompt | made from `claims.yaml` in memory (`prompt_section`) | the facts and beliefs, as text, for the prompts |
 
 - The agent's sandbox `scratch_dir` becomes `scratch/<run_id>/`, so its files are kept with the run.
-- The planner and the agent read `facts.md` (and the beliefs, marked as beliefs) in each prompt.
+- The planner and the agent get the facts (and the beliefs, marked as beliefs) in each prompt.
 
 ## Claims
 
 ```yaml
 - id: C-0042
   text: The freight elevator call panel does not light when pressed.
-  about: {place: freight_elevator_call_panel}   # a map_info name; or {skill: press_button}; or none
+  about: {place: freight_elevator_call_panel}   # open tags: place, skill, device, object, ...; or {} (general)
   key: lights_when_pressed                       # optional: a value claim, compared by key
   value: false
   tier: fact                                     # observation | belief | fact | retired
@@ -50,6 +51,17 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
   last_seen:  2026-11-05T10:15:40Z
   approved_by: null                              # a person, for the step to fact
 ```
+
+### Subject (`about`)
+
+- `about` is an open set of tags. A place is one kind of tag, not a need. Examples:
+  - `{place: freight_elevator_call_panel}`: "The call panel does not light."
+  - `{device: thor}`: "The VLM on Thor is slow after 30 min."
+  - `{object: freight_elevator}`: "The door stays open for 8 s."
+  - `{skill: press_button}`: "A press needs 2 tries on a dirty panel."
+  - `{}`: "The cabin has no network."
+- A value claim matches an existing claim by the same tags and `key`.
+- Only a `place` tag links to `map_info`, and its name must be a `map_info` name.
 
 ### Where claims come from
 
@@ -77,6 +89,30 @@ The operator approves for now. To let the agent approve later, record every oper
 1. **Shadow:** the agent proposes approve or refuse for each claim; the operator still decides. Count how often they agree.
 2. **Narrow:** when the agreement is high for one kind of claim (for example value claims with ≥ 10 confirmations), the agent approves that kind alone; the operator can undo.
 3. Facts used by a robot skill that moves (press offsets, stand poses) stay with the operator longest.
+
+## Contradictions
+
+A contradiction of a belief or a fact starts reasoning when the current run uses that claim. How critical it is depends on the use, not on the claim: a wrong press offset matters when the arm moves, not when the robot walks.
+
+### What "used" means
+
+- The tree reads it: a contract input that reads a claim (`{fact:...}`) has a mark, for example `press_offset: {fact: freight_elevator_cabin_panel.press_offset, critical: true}`.
+- The planner or the agent got it in its prompt in this run (not critical by default).
+- The executor keeps the list of claims that the current run uses, with the highest mark of each.
+
+### Flow
+
+1. The store records the contradiction. A fact moves down to a belief (as now). The store sends an event with the claim, the new sighting and its evidence.
+2. The executor checks whether the current run uses the claim, and how critical the use is.
+3. When the run uses it, the executor calls the agent skill `knowledge_review` (as `manipulation_recovery`). The agent reads the history of the claim and the evidence in the recorder, and selects one:
+   - **continue**: the new sighting is noise; keep the value;
+   - **use with care**: keep the value and add a check after the step;
+   - **ask the operator**;
+   - **replan**;
+   - **stop safely**.
+4. When the run does not use it, the store only logs it. It goes in the next prompt and in the operator's review list.
+5. Blind mode (no cloud): a fixed rule. A critical use goes to the tree's fallback; a use that is not critical gives a warning and the tree continues.
+6. The recorder keeps each decision with its evidence. Later these teach the agent which contradictions matter.
 
 ## Map annotation
 
@@ -111,4 +147,3 @@ The UI reads files, so it needs no ROS and works on the laptop after an rsync:
 ## Open questions
 
 - One `claims.yaml`, or one file per place?
-- Should a contradiction stop a tree that uses that fact, or only warn?
