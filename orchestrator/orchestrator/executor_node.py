@@ -4,6 +4,7 @@ import json
 import uuid
 
 from pathlib import Path
+from dataclasses import dataclass
 
 import rclpy
 
@@ -35,6 +36,15 @@ STATUS_QOS  = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 COMMAND_QOS = QoSProfile(depth=5)
 
 
+@dataclass
+class Task:
+    """One task: one run for the recorder, one Context (blackboard, history, scratch) for all its steps"""
+    run_id:  str
+    name:    str
+    context: Context
+    steps:   int = 0
+
+
 class ExecutorNode(Node):
     def __init__(self):
         super().__init__('orchestrator_executor')
@@ -60,7 +70,8 @@ class ExecutorNode(Node):
         )
 
         self.agent = self._make_agent()
-        self.tree  = None
+        self.task  = None                           # the open task; until task mode, each tree is a task of one step
+        self.tree  = None                           # the step that runs
 
         self._status_publisher   = self.create_publisher(String, '/orchestrator/status', STATUS_QOS)
         self._tree_subscriptions = [
@@ -185,27 +196,51 @@ class ExecutorNode(Node):
 
         if self.tree is not None:
             self.tree.halt()
-            self.tracer.emit('halted', f'halted {self.tree.id} for a new tree', level='warn')
-            self._clear_tree()
+            self._end_step('halted', f'halted {self.tree.id} for a new tree', 'warn')
+            self._end_task('halted', 'warn')
 
         run_id  = uuid.uuid4().hex[:8]
         context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record, run_id=run_id)
 
         try:
-            self.tree = BehaviorTree(xml_text, make_leaf_factory(self.registry, self.runner, self.agent), context)
+            tree = BehaviorTree(xml_text, make_leaf_factory(self.registry, self.runner, self.agent), context)
         except (TreeError, ValueError) as error:
             self.tracer.emit('rejected', f'tree does not build: {error}', level='error')
-            self.tree = None
             self._publish_status('rejected')
             return False
 
-        context.scratch_dir = scratch = self._run_scratch(run_id)
-        self.tracer.fields  = {'run_id': run_id, 'tree_id': self.tree.id}
-        self.tracer.emit('started', f'running {self.tree.id}' + (' (blind)' if blind else ''), tree=xml_text, blind=blind,
-                         scratch=scratch)
-        self._publish_status('running')
+        self._start_task(run_id, context, tree.id, blind)               # a tree sent alone: a task of one step
+        self._start_step(tree, xml_text, blind)
 
         return True
+
+    # ========== Tasks and steps ==========
+
+    def _start_task(self, run_id: str, context: Context, name: str, blind: bool):
+        context.scratch_dir = scratch = self._run_scratch(run_id)
+        self.task           = Task(run_id, name, context)
+        self.tracer.fields  = {'run_id': run_id}
+        self.tracer.emit('task_started', f'task {run_id}: {name}', name=name, blind=blind, scratch=scratch)
+
+    def _start_step(self, tree: BehaviorTree, xml_text: str, blind: bool):
+        self.task.steps += 1
+        self.tree        = tree
+        self.tracer.fields.update(tree_id=tree.id, step=self.task.steps)
+        self.tracer.emit('started', f'running {tree.id}' + (' (blind)' if blind else ''), tree=xml_text, blind=blind)
+        self._publish_status('running')
+
+    def _end_step(self, kind: str, text: str, level: str, **data):
+        """finished, halted or error; the task stays open"""
+        self.tracer.emit(kind, text, level=level, **data)
+        self.tree          = None
+        self.tracer.fields = {'run_id': self.task.run_id}
+
+    def _end_task(self, end: str, level: str):
+        """How the task ended: success, failure, halted, cancelled or error; then no run_id on later events"""
+        self.tracer.emit('task_finished', f'task {self.task.run_id}: {end}', level=level, end=end, steps=self.task.steps)
+        self._publish_status(end)
+        self.task          = None
+        self.tracer.fields = {}
 
     def _run_scratch(self, run_id: str) -> str | None:
         """The run's scratch folder under the agent's scratch root; the recorder moves it into the run's bundle"""
@@ -227,9 +262,8 @@ class ExecutorNode(Node):
             return
 
         self.tree.halt()
-        self.tracer.emit('halted', f'{self.tree.id} cancelled', level='warn')
-        self._clear_tree()
-        self._publish_status('cancelled')
+        self._end_step('halted', f'{self.tree.id} cancelled', 'warn')
+        self._end_task('cancelled', 'warn')
 
     # ========== Ticks ==========
 
@@ -241,10 +275,9 @@ class ExecutorNode(Node):
             status = self.tree.tick()
         except Exception as error:                      # a skill or runner bug must not take the executor down
             self.tree.halt()
-            self.tracer.emit('error', f'{self.tree.id} stopped by an internal error: {error!r}', level='error')
             self.get_logger().error(f'tick failed: {error!r}')
-            self._publish_status('error')
-            self._clear_tree()
+            self._end_step('error', f'{self.tree.id} stopped by an internal error: {error!r}', 'error')
+            self._end_task('error', 'error')
             return
 
         if status == Status.RUNNING:
@@ -253,14 +286,8 @@ class ExecutorNode(Node):
         level  = 'info' if status == Status.SUCCESS else 'error'
         reason = self.tree.context.abort_reason
         text   = f'{self.tree.id}: {status.value}' + (f' (aborted by {reason})' if reason else '')
-        self.tracer.emit('finished', text, level=level, status=status.value, aborted=reason)
-        self._publish_status(status.value)
-        self._clear_tree()
-
-    def _clear_tree(self):
-        """The run is over: no tree, and no run_id on later events"""
-        self.tree          = None
-        self.tracer.fields = {}
+        self._end_step('finished', text, level, status=status.value, aborted=reason)
+        self._end_task(status.value, level)
 
     def _on_node_event(self, node, event: dict):
         if event['status'] == Status.IDLE.value:
@@ -293,7 +320,8 @@ class ExecutorNode(Node):
         self.tracer.emit('record', text, level=level, record=record)
 
     def _publish_status(self, state: str):
-        payload = {'state': state, 'tree': self.tree.id if self.tree else None}
+        tree    = self.tree.id if self.tree else self.task.name if self.task else None    # at a task's end: its name
+        payload = {'state': state, 'tree': tree}
 
         self._status_publisher.publish(String(data=json.dumps(payload)))
 

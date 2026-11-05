@@ -24,6 +24,17 @@ def executor(kind, **fields):
     return {'source': 'executor', 'kind': kind, 'time': 1.0, 'text': fields.pop('text', kind), **fields}
 
 
+def start_task(recorder, name='t', **fields):
+    """A tree sent alone, as the executor reports it: a task of one step"""
+    recorder.on_event(executor('task_started', name=name, **fields))
+    recorder.on_event(executor('started', tree_id=name, step=1, tree='<root/>'))
+
+
+def end_task(recorder, kind='finished', end='success', **fields):
+    recorder.on_event(executor(kind, **fields))
+    recorder.on_event(executor('task_finished', end=end, steps=1, **fields))
+
+
 def test_a_session_has_provenance_events_and_finalization(tmp_path):
     recorder = make_recorder(tmp_path)
 
@@ -35,41 +46,65 @@ def test_a_session_has_provenance_events_and_finalization(tmp_path):
     assert json.loads((recorder.path / 'finalization.json').read_text())['status'] == 'closed'
 
 
-def test_a_tree_run_gets_its_folder_tree_task_records_and_outcome(tmp_path):
+def test_a_task_gets_its_folder_steps_task_records_and_outcome(tmp_path):
     bag      = FakeBag()
     recorder = make_recorder(tmp_path, bag)
 
     recorder.on_task('Go to the elevator and call it')
-    recorder.on_event(executor('started', run_id='r1', tree_id='call_elevator', tree='<root/>', blind=True))
+    start_task(recorder, 'call_elevator', run_id='r1', blind=True)
     recorder.on_event(executor('record', record={'skill': 'navigate_to', 'status': 'success'}))
-    recorder.on_event(executor('finished', status='success', aborted=''))
+    end_task(recorder, status='success', aborted='')
 
     run  = recorder.path / 'runs' / '001-call_elevator'
     task = json.loads((run / 'task.json').read_text())
+    step = json.loads((run / 'steps.jsonl').read_text())
 
-    assert (run / 'tree.xml').read_text() == '<root/>'
+    assert (run / 'steps' / '001-call_elevator.xml').read_text() == '<root/>'
+    assert step['step'] == 1 and step['end'] == 'finished' and step['status'] == 'success'
     assert task['run_id'] == 'r1' and task['blind'] and task['task']['task'] == 'Go to the elevator and call it'
     assert json.loads((run / 'records.jsonl').read_text())['skill'] == 'navigate_to'
-    assert json.loads((run / 'outcome.json').read_text())['status'] == 'success'
+    assert json.loads((run / 'outcome.json').read_text())['end'] == 'success'
     assert bag.calls == [('start', run / 'bag'), ('stop',)]
     assert recorder.run is None
 
 
-def test_a_new_tree_ends_the_open_run_as_halted(tmp_path):
+def test_a_new_task_ends_the_open_run_and_its_step_as_halted(tmp_path):
     recorder = make_recorder(tmp_path)
 
-    recorder.on_event(executor('started', tree_id='a'))
-    recorder.on_event(executor('halted', text='halted a for a new tree'))
-    recorder.on_event(executor('started', tree_id='b'))
+    start_task(recorder, 'a')
+    start_task(recorder, 'b')
 
-    assert json.loads((recorder.path / 'runs' / '001-a' / 'outcome.json').read_text())['end'] == 'halted'
+    run = recorder.path / 'runs' / '001-a'
+
+    assert json.loads((run / 'outcome.json').read_text())['end'] == 'halted'
+    assert json.loads((run / 'steps.jsonl').read_text())['end'] == 'halted'
     assert recorder.run == recorder.path / 'runs' / '002-b'
+
+
+def test_steps_of_one_task_stay_in_one_run(tmp_path):
+    recorder = make_recorder(tmp_path)
+
+    recorder.on_event(executor('task_started', name='task'))
+    recorder.on_event(executor('started', tree_id='navigate_to', step=1))
+    recorder.on_event(executor('finished', status='success'))
+    recorder.on_event(executor('started', tree_id='press_button', step=2))
+    recorder.on_event(executor('finished', status='failure'))
+    recorder.on_event(executor('task_finished', end='gave_up', steps=2))
+
+    run   = recorder.path / 'runs' / '001-task'
+    steps = [json.loads(line) for line in (run / 'steps.jsonl').read_text().splitlines()]
+
+    assert [step['tree_id'] for step in steps] == ['navigate_to', 'press_button']
+    assert sorted(path.name for path in (run / 'steps').iterdir()) == ['001-navigate_to.xml', '002-press_button.xml']
+    outcome = json.loads((run / 'outcome.json').read_text())
+
+    assert (outcome['end'], outcome['steps']) == ('gave_up', 2)
 
 
 def test_agent_calls_are_kept_closed_over_open_with_their_messages(tmp_path):
     recorder = make_recorder(tmp_path)
 
-    recorder.on_event(executor('started', tree_id='t'))
+    start_task(recorder)
     recorder.on_agent_request({'id': 'c1', 'state': 'open'})
     recorder.on_agent_message('decision', {'id': 'c1', 'decision': 'retry'})
     recorder.on_agent_request({'id': 'c1', 'state': 'closed'})
@@ -83,10 +118,10 @@ def test_agent_calls_are_kept_closed_over_open_with_their_messages(tmp_path):
 def test_agent_messages_after_the_run_ended_stay_with_their_run(tmp_path):
     recorder = make_recorder(tmp_path)
 
-    recorder.on_event(executor('started', tree_id='t'))
+    start_task(recorder)
     run = recorder.run
     recorder.on_agent_request({'id': 'c1', 'state': 'open'})
-    recorder.on_event(executor('halted', text='t cancelled'))
+    end_task(recorder, 'halted', end='cancelled')
     recorder.on_agent_request({'id': 'c1', 'state': 'closed'})
     recorder.on_agent_message('reply', {'id': 'c1', 'accepted': True})
     recorder.on_agent_request({'id': 'c2', 'state': 'open'})          # outside any run: not kept
@@ -100,7 +135,7 @@ def test_a_run_folder_that_cannot_be_made_fails_the_session_and_does_not_raise(t
     recorder = make_recorder(tmp_path)
 
     (recorder.path / 'runs').write_text('a file where the runs folder goes')
-    recorder.on_event(executor('started', tree_id='t'))
+    start_task(recorder)
 
     assert recorder.run is None
     assert not recorder.ready()[0]
@@ -112,10 +147,10 @@ def test_press_frames_named_in_a_run_are_copied_in(tmp_path):
     frame.parent.mkdir()
     frame.write_bytes(b'jpeg')
 
-    recorder.on_event(executor('started', tree_id='t'))
+    start_task(recorder)
     run = recorder.run
     recorder.on_event(executor('record', record={'skill': 'press_button', 'outputs': {'frames': {'press': str(frame)}}}))
-    recorder.on_event(executor('finished', status='failure'))
+    end_task(recorder, status='failure', end='failure')
 
     assert (run / 'captures' / frame.name).read_bytes() == b'jpeg'
     assert frame.exists()
@@ -127,9 +162,9 @@ def test_the_agent_scratch_folder_of_a_run_is_moved_in(tmp_path):
     scratch.mkdir(parents=True)
     (scratch / 'plan.md').write_text('walk closer')
 
-    recorder.on_event(executor('started', tree_id='t', scratch=str(scratch)))
+    start_task(recorder, scratch=str(scratch))
     run = recorder.run
-    recorder.on_event(executor('finished', status='success'))
+    end_task(recorder, status='success')
 
     assert (run / 'scratch' / 'plan.md').read_text() == 'walk closer'
     assert not scratch.exists()
@@ -146,7 +181,7 @@ def test_a_bag_stops_when_the_disk_fills_during_a_run(tmp_path):
     bag      = FakeBag()
     recorder = make_recorder(tmp_path, bag)
 
-    recorder.on_event(executor('started', tree_id='t'))
+    start_task(recorder)
     recorder.config.min_free_gb = 1e9
     recorder.check_bag_space()
 

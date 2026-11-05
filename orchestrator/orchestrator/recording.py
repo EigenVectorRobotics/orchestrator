@@ -1,9 +1,10 @@
-"""Run bundles on the NUC: one folder per recorder session, one per tree run, for review after the runs.
+"""Run bundles on the NUC: one folder per recorder session, one per task, for review after the runs.
 
-A session folder holds provenance.json, every trace event in events.jsonl and finalization.json. Each tree run
-(the executor's `started` to `finished`, `halted` or `error`) gets runs/<n>-<tree>/ with its tree, its records,
-its agent calls, the press frames it saved, the agent's scratch folder, its bag, and outcome.json. Nothing is deleted here: the operator clears
-old runs by hand (see `largest_runs`).
+A session folder holds provenance.json, every trace event in events.jsonl and finalization.json. Each task (the
+executor's `task_started` to `task_finished`) is one run and gets runs/<n>-<name>/ with its steps (each step's tree
+in steps/ and one line per step in steps.jsonl), its records, its agent calls, the press frames it saved, the
+agent's scratch folder, its bag, and outcome.json. Nothing is deleted here: the operator clears old runs by hand
+(see `largest_runs`).
 
 This module needs no ROS: run_recorder feeds it messages and starts and stops the bag.
 """
@@ -23,7 +24,7 @@ from dataclasses import dataclass
 from .press_capture import DEFAULT_CAPTURE_DIR
 
 
-RUN_END_KINDS    = ('finished', 'halted', 'error')
+STEP_END_KINDS   = ('finished', 'halted', 'error')
 MAX_HASHED_BYTES = 5_000_000                   # an untracked file bigger than this is hashed by name and size
 
 
@@ -147,6 +148,7 @@ class Recorder:
         self.task     = None                     # the last task text, for the next run
         self.captures = set()                    # the press frames the open run named
         self.scratch  = None                     # the agent's scratch folder of the open run
+        self.step     = None                     # the open step of the open run: its number, tree and start
         self.calls    = {}                       # agent call id -> its run's folder, for messages after the run ended
         self.failure  = None
 
@@ -200,11 +202,17 @@ class Recorder:
 
         kind = event.get('kind')
 
-        if kind in RUN_END_KINDS:
-            self._end_run(event)
-        elif kind == 'started':
+        if kind == 'task_started':
             self._start_run(event)
-        elif kind == 'record' and self.run is not None:
+        elif kind == 'task_finished':
+            self._end_run(event)
+        elif self.run is None:
+            return
+        elif kind == 'started':
+            self._start_step(event)
+        elif kind in STEP_END_KINDS:
+            self._end_step(event)
+        elif kind == 'record':
             self._append(self.run / 'records.jsonl', event.get('record', {}))
             self._note_captures(event.get('record'))
 
@@ -225,25 +233,24 @@ class Recorder:
             self._append(folder / f'{message["id"]}.messages.jsonl', {'kind': kind, 'time': self.clock(), **message})
 
     def close(self):
-        self._safely(self._end_run, {'kind': 'closed', 'text': 'the recorder stopped during the run'})
+        self._safely(self._end_run, {'end': 'closed', 'text': 'the recorder stopped during the run'})
         self._events.close()
         self._finalize('failed' if self.failure else 'closed')
 
     # ========== Runs ==========
 
     def _start_run(self, event: dict):
-        self._end_run({'kind': 'halted', 'text': 'a new run started before this one ended'})
+        self._end_run({'end': 'halted', 'text': 'a new run started before this one ended'})
 
         self.runs += 1
-        tree   = event.get('tree_id') or 'tree'
-        folder = self.path / 'runs' / f'{self.runs:03d}-{tree}'
-        folder.mkdir(parents=True)
+        name   = event.get('name') or 'task'
+        folder = self.path / 'runs' / f'{self.runs:03d}-{name}'
+        (folder / 'steps').mkdir(parents=True)
         self.run = folder
 
-        (self.run / 'tree.xml').write_text(event.get('tree', ''))
         write_json(self.run / 'task.json', {
             'run_id':  event.get('run_id'),
-            'tree_id': tree,
+            'name':    name,
             'blind':   bool(event.get('blind')),
             'started': event.get('time'),
             'task':    self.task,                 # the planner's last task; none for send_tree
@@ -256,17 +263,33 @@ class Recorder:
         if self.run is None:
             return
 
+        self._end_step({'kind': 'halted', 'text': 'the task ended during the step'})
         self._safely(self.bag.stop)
         self._copy_captures()
         self._move_scratch()
-        self._safely(write_json, self.run / 'outcome.json', {
-            'end':      event.get('kind'),
-            'status':   event.get('status'),
-            'aborted':  event.get('aborted'),
-            'text':     event.get('text'),
-            'finished': event.get('time', self.clock()),
-        })
+        self._safely(write_json, self.run / 'outcome.json', {**self._ending(event, event.get('end')), 'steps': event.get('steps')})
         self.run = None
+
+    def _start_step(self, event: dict):
+        self._end_step({'kind': 'halted', 'text': 'a new step started before this one ended'})
+
+        step      = event.get('step') or 1
+        tree      = event.get('tree_id') or 'tree'
+        self.step = {'step': step, 'tree_id': tree, 'started': event.get('time')}
+
+        (self.run / 'steps' / f'{step:03d}-{tree}.xml').write_text(event.get('tree', ''))
+
+    def _end_step(self, event: dict):
+        if self.step is None:
+            return
+
+        step, self.step = self.step, None
+        self._append(self.run / 'steps.jsonl', {**step, **self._ending(event, event.get('kind')),
+                                                'status': event.get('status'), 'aborted': event.get('aborted')})
+
+    def _ending(self, event: dict, end: str | None) -> dict:
+        """The fields that a step's line and a task's outcome share"""
+        return {'end': end, 'text': event.get('text'), 'finished': event.get('time', self.clock())}
 
     def _note_captures(self, value):
         self.captures |= saved_files(value, str(Path(self.config.capture_dir).expanduser()))

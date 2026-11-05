@@ -10,7 +10,7 @@ Status: 2026-11-05. Built: `orchestrator/recording.py`, `orchestrator/run_record
 
 ## What we have now
 
-- `/orchestrator/trace`: JSON events (`started` with the tree XML, `node`, `record`, `agent_start`, `agent_tool`, `agent_say`, `agent_decision`, `finished`, `halted`, `rejected`, `validation`, `error`, and the planner's `sent`).
+- `/orchestrator/trace`: JSON events (`task_started` and `task_finished` around each task, `started` with the tree XML and the step number, `node`, `record`, `agent_start`, `agent_tool`, `agent_say`, `agent_decision`, `finished`, `halted`, `rejected`, `validation`, `error`, and the planner's `sent`).
 - `record` events carry the full record of each finished call, with the action feedback over time.
 - Agent calls go out on `/orchestrator/agent/request` and come back on `/orchestrator/agent/decision`.
 - Press frames go to `capture_dir` (`~/.ros/orchestrator_captures`), and the agent's sandbox files to `agent_scratch_dir/<run_id>/` (default `~/orch_knowledge/scratch`).
@@ -24,16 +24,17 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 ~/orch_runs/<utc>-<id>/                 one folder per recorder session (one bring-up); small when no task runs
   provenance.json                       written at start
   events.jsonl                          every trace event, append only, one line each
-  runs/<n>-<tree_id>/                   one folder per tree run (started to finished/halted/error)
-    tree.xml                            the tree that ran
-    task.json                           the task text, blind or not, where the tree came from (planner, send_tree)
+  runs/<n>-<name>/                      one folder per task (task_started to task_finished); a tree sent alone is a task of one step
+    task.json                           the task text, blind or not, the run_id
+    steps/<k>-<tree_id>.xml             the tree of each step
+    steps.jsonl                         one line per step: tree, start, end (finished, halted, error), status
     records.jsonl                       the full record of each call (feedback included)
     agent/<call_id>.json                each agent call: the request (failure, history, press), every tool call and reply, the decision
     planner/<attempt>.json              each planner attempt: the prompt, the reply, the validator errors
     captures/                           the press frames this run made (copied from capture_dir)
     scratch/                            the agent's notes and checks of this run (moved from agent_scratch_dir/<run_id> at the end of the run)
     bag/                                ros2 bag (MCAP) of the chosen topics, for this task only
-    outcome.json                        status, abort reason, duration; written last, atomically
+    outcome.json                        how the task ended (success, failure, halted, cancelled, error; later done, gave_up), the step count; written last
   finalization.json                     open | closed | failed, and why
 ```
 
