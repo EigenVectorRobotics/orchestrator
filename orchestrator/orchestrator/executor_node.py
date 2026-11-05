@@ -289,8 +289,7 @@ def main():
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        if node.tree is not None:
-            node.tree.halt()
+        node.tasks.cancel()                             # halt a running step
 
         node.runner.shutdown()
 
