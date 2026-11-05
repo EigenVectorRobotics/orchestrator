@@ -4,6 +4,7 @@ Use it to run the executor and the planner on a laptop, with no hardware.
 """
 
 import json
+import math
 import time
 import threading
 
@@ -36,6 +37,7 @@ class FakeRobot(Node):
         super().__init__('fake_robot')
 
         self.nav_time_s    = self.declare_parameter('nav_time_s', 2.0).value
+        self.nav_blocked   = self.declare_parameter('nav_blocked', False).value     # true: every route ends blocked, until cancelled
         self.press_time_s  = self.declare_parameter('press_time_s', 2.0).value
         self.press_success = self.declare_parameter('press_success', True).value
         self.press_fails   = self.declare_parameter('press_fail_count', 0).value     # the first N presses miss, as out of reach
@@ -95,14 +97,21 @@ class FakeRobot(Node):
         )
 
     def _navigate(self, goal_handle):
-        """Like route_planner: routing, then arrived on the status once the goal is near, then idle when it ends"""
+        """Like route_planner: routing, then arrived on the status and the feedback once the goal is near, then idle
+        when it ends. With nav_blocked, the route turns blocked halfway and stays so until the goal is cancelled"""
         position = goal_handle.request.goal.pose.position
-        deadline = time.monotonic() + self.nav_time_s
+        start    = time.monotonic()
+        deadline = math.inf if self.nav_blocked else start + self.nav_time_s
         result   = self._nav_type.Result()
 
-        self.get_logger().info(f'route goal ({position.x:.1f}, {position.y:.1f})')
+        def set_state(state: str):
+            if self._publish_nav(state):
+                goal_handle.publish_feedback(self._nav_type.Feedback(state=state, dist_to_goal=1.0))
+
+        self.get_logger().info(f'route goal ({position.x:.1f}, {position.y:.1f})' + (' (will block)' if self.nav_blocked else ''))
         self.nav_cancelled = False
-        self._publish_nav('routing')
+        self.nav_payload   = None
+        set_state('routing')
 
         while time.monotonic() < deadline:
             if goal_handle.is_cancel_requested or self.nav_cancelled:
@@ -116,8 +125,8 @@ class FakeRobot(Node):
 
                 return result
 
-            if deadline - time.monotonic() < self.nav_time_s / 2:
-                self._publish_nav('arrived')
+            if time.monotonic() - start > self.nav_time_s / 2:
+                set_state('blocked' if self.nav_blocked else 'arrived')
 
             time.sleep(0.05)
 
@@ -132,11 +141,16 @@ class FakeRobot(Node):
         self._publish_nav('idle')
 
     def _publish_nav(self, state: str):
+        """Publish the status when it changes, as route_planner does; True if it was published"""
         payload = json.dumps({'state': state, 'map_id': 'fake', 'dist_to_goal': None})
 
-        if payload != self.nav_payload:
-            self.nav_payload = payload
-            self._status.publish(String(data=payload))
+        if payload == self.nav_payload:
+            return False
+
+        self.nav_payload = payload
+        self._status.publish(String(data=payload))
+
+        return True
 
     def _on_timer(self):
         self._tracking.publish(Bool(data=self.is_tracking))

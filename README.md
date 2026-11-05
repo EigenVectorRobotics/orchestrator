@@ -50,7 +50,7 @@ ros2 topic echo /orchestrator/trace --field data
 
 All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node.
 
-`fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback), `vlm_answers:=door=closed`, `nav_time_s:=5.0`, `vlm_port`.
+`fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback), `nav_blocked:=true` (every route turns blocked until cancelled; navigate_to fails after 10 s), `vlm_answers:=door=closed`, `nav_time_s:=5.0`, `vlm_port`.
 
 Run one tree with no planner:
 

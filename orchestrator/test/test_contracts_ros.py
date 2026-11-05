@@ -56,6 +56,9 @@ def test_contract_matches_its_ros_types(contract):
     if interface.transport == 'action':
         action_type = _load(get_action, interface.ros_type)
         outgoing, result = action_type.Goal, action_type.Result
+
+        if interface.failure_when is not None:
+            assert _has_field(action_type.Feedback(), interface.failure_when.field), f'{interface.ros_type} feedback has no field {interface.failure_when.field}'
     elif interface.transport == 'service':
         service_type = _load(get_service, interface.ros_type)
         outgoing, result = service_type.Request, service_type.Response

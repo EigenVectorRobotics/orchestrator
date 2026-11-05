@@ -52,11 +52,22 @@ class Watch:
 
 
 @dataclass
+class HeldValue:
+    """An action feedback field that fails the action once it has held one value for hold_s, e.g. a route that
+    stays blocked. A value that can clear by itself needs a hold_s above 0"""
+
+    field:  str                      # dotted path into the action's feedback
+    equals: object
+    hold_s: float = 0.0
+
+
+@dataclass
 class Interface:
     transport:       str                    # how the executor reaches the capability
     name:            str = ''               # ROS name, or tree ID
     ros_type:        str = ''               # e.g. humanoid_manipulation_interfaces/action/VisualServoingArm
     success_when:    Watch | None = None    # topic skills: the end signal (none: done once sent); watch conditions
+    failure_when:    HeldValue | None = None    # action skills: a feedback value that fails the action before its timeout
     fixed:           dict = field(default_factory=dict)        # message fields always sent, e.g. {data: true}
     question:        str = ''               # vlm: may hold {input} fields
     choices:         list[str] = field(default_factory=list)   # vlm: the only answers; empty means the 'choices' input
@@ -122,6 +133,9 @@ def _parse_interface(raw: dict) -> Interface:
     if raw.get('success_when'):
         raw['success_when'] = Watch(**raw['success_when'])
 
+    if raw.get('failure_when'):
+        raw['failure_when'] = HeldValue(**raw['failure_when'])
+
     return Interface(**raw)
 
 
@@ -165,6 +179,9 @@ def parse_contract(raw: dict) -> Contract:
 
     if interface.transport == 'vlm' and not interface.question:
         raise ContractError(f'{name}: a vlm skill needs a question')
+
+    if interface.failure_when is not None and interface.transport != 'action':
+        raise ContractError(f'{name}: failure_when reads action feedback, so it needs an action skill')
 
     if interface.capture and interface.capture.get('kind') != 'press':
         raise ContractError(f'{name}: capture kind must be press')

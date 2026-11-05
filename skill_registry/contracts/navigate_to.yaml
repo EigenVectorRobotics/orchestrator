@@ -6,6 +6,10 @@ interface:
   transport: action
   name: /route_planner/navigate_to_goal
   ros_type: navigation_interfaces/action/NavigateToGoal
+  failure_when:                 # a route that stays blocked: cancel and fail before the 120 s timeout
+    field: state
+    equals: blocked
+    hold_s: 10
 inputs:
 - name: goal
   type: pose
@@ -24,3 +28,5 @@ notes: >-
   Succeeds only on arrival: local_planner's /goal_reached with the robot within 0.5 m of the goal.
   The status state "arrived" comes earlier, when the goal is within lookahead along the route, so it is not the end.
   The result's reason says why a goal ended, e.g. arrived, cancelled, replaced by a new goal, autonomy off.
+  The feedback state is routing | arrived | blocked, sent when it changes. blocked can clear when new terrain frees
+  the route, so it fails the skill only after it has held for hold_s (10 s is a guess; the sim stalls out after 8 s).

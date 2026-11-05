@@ -17,7 +17,7 @@ from rosidl_runtime_py import message_to_ordereddict, set_message_fields
 from rosidl_runtime_py.utilities import get_action, get_message, get_service
 
 from skill_registry import Contract, Registry
-from skill_registry.contract import WHOLE_MESSAGE, Watch
+from skill_registry.contract import WHOLE_MESSAGE, HeldValue, Watch
 
 from .images import ImageError, image_to_jpeg
 from .vlm_client import VlmClient, VlmClientError
@@ -132,6 +132,32 @@ class TopicWatch:
         self.latest, self._parsed, self.receive_time = message, None, time.monotonic()
 
 
+# ========== Held values ==========
+
+def read_field(message, dotted: str):
+    for name in dotted.split('.'):
+        message = message.get(name) if isinstance(message, dict) else getattr(message, name, None)
+
+    return message
+
+
+class HoldTimer:
+    """How long a value has equalled spec.equals without a break; expired once that reaches spec.hold_s"""
+
+    def __init__(self, spec: HeldValue):
+        self.spec  = spec
+        self.since = None
+
+    def update(self, value, now: float):
+        if value == self.spec.equals:
+            self.since = self.since if self.since is not None else now
+        else:
+            self.since = None
+
+    def expired(self, now: float) -> bool:
+        return self.since is not None and now - self.since >= self.spec.hold_s
+
+
 # ========== Handles ==========
 
 class _Handle:
@@ -206,6 +232,7 @@ class _ActionHandle(_ServerHandle):
         self.sent_time   = 0.0
         self.capture     = capture
         self.now         = now
+        self.held        = HoldTimer(contract.interface.failure_when) if contract.interface.failure_when else None
 
     def _server_ready(self) -> bool:
         return self.client.server_is_ready()
@@ -222,13 +249,27 @@ class _ActionHandle(_ServerHandle):
         if len(self.feedback) > MAX_FEEDBACK:
             self.feedback = self.feedback[::2]
 
+        if self.held is not None:
+            self.held.update(read_field(message.feedback, self.held.spec.field), time.monotonic())
+
         goal = getattr(message.feedback, 'current_goal', None)
 
         if self.capture is not None and goal is not None and goal.header.frame_id:
             position, rotation = goal.pose.position, goal.pose.orientation
             self.capture.on_goal((position.x, position.y, position.z), (rotation.x, rotation.y, rotation.z, rotation.w))
 
+    def _poll_sent(self) -> Status:
+        if self.status == Status.RUNNING and self.held is not None and self.held.expired(time.monotonic()):
+            spec = self.held.spec
+            self.cancel()
+            self._finish(False, f'{spec.field} = {spec.equals} for {spec.hold_s:g} s')
+
+        return self.status
+
     def _finish(self, success: bool, message: str = ''):
+        if self.status != Status.RUNNING:
+            return                                      # already ended, e.g. by failure_when; the late result changes nothing
+
         super()._finish(success, message)
 
         if self.capture is not None:

@@ -200,3 +200,21 @@ def test_a_compare_question_may_use_only_inputs():
 
     with pytest.raises(ContractError, match='button'):
         parse_contract(raw)
+
+
+def test_failure_when_reads_action_feedback_only():
+    raw = {
+        'name':      'go',
+        'kind':      'action',
+        'device':    'nuc',
+        'timeout_s': 10,
+        'interface': {'transport': 'topic', 'name': '/goal', 'ros_type': 'std_msgs/msg/String',
+                      'failure_when': {'field': 'state', 'equals': 'blocked', 'hold_s': 2}},
+    }
+
+    with pytest.raises(ContractError, match='failure_when'):
+        parse_contract(raw)
+
+    held = Registry.from_directory(CONTRACTS).get('navigate_to').interface.failure_when
+
+    assert (held.field, held.equals, held.hold_s) == ('state', 'blocked', 10)
