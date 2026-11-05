@@ -276,6 +276,17 @@ class AgentLeaf(SkillLeaf):
             'left_arm': outputs.get('left_arm'),
         })
 
+        checked = self.context.last_call
+
+        if (self.inputs.get('phase') == 'judge' and status == Status.FAILURE and checked is not None
+                and checked.get('status') == Status.SUCCESS.value):
+            # as a failed button_lit: manipulation_recovery then sees the press as checked_call
+            record = {'time': self.context.clock(), 'kind': 'condition', 'skill': self.contract.name,
+                      'path': self.path, 'status': status.value, 'inputs': self.inputs, 'message': self.message,
+                      'outputs': dict(outputs), 'elapsed_s': round(self.context.clock() - self.start_time, 2),
+                      'checks': checked['skill']}
+            self.context.record(record, {**record, 'checked_call': checked})
+
         if decision == 'abort':
             self.context.abort(f'{self.contract.name}: {outputs.get("reason", "")}')
 

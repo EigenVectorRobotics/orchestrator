@@ -25,8 +25,9 @@ from .agent_sandbox import SandboxConfig, run_python
 PHASE_DECISIONS = {
     'diagnose':   ('reposition', 'switch_arm', 'retry', 'ask_help', 'abort'),
     'view_check': ('continue', 'abort'),
+    'judge':      ('pressed', 'not_pressed'),
 }
-GOING_ON = {'reposition', 'switch_arm', 'retry', 'continue'}
+GOING_ON = {'reposition', 'switch_arm', 'retry', 'continue', 'pressed'}
 
 MAX_READ_BYTES = 200_000
 MAX_TOOL_TEXT  = 40_000
@@ -84,6 +85,22 @@ class AgentConfig:
 
 def tool_specs(phase: str) -> list[dict]:
     """The tools in a neutral form: name, description, JSON schema. decide lists only this phase's decisions"""
+    specs = _tool_specs(phase)
+
+    if phase == 'judge':
+        specs.insert(0, {
+            'name':         'get_press',
+            'description':  'The last press, as the executor kept it: the saved frames (baseline at the pre-grasp, press '
+                            'at the fingertip\'s closest point to the button, release 0.5 s after the retreat began, and '
+                            'their crops around the button), the phase times, the deepest point along the button normal '
+                            'and the sideways distance there, and the arm.',
+            'input_schema': {'type': 'object', 'properties': {}},
+        })
+
+    return specs
+
+
+def _tool_specs(phase: str) -> list[dict]:
     return [
         {
             'name':         'get_failure',
@@ -271,6 +288,11 @@ class AgentSession:
 
         return ToolOutput(_json(failure) if failure else 'no action has failed in this tree')
 
+    def _tool_get_press(self) -> ToolOutput:
+        press = self.evidence.get('press')
+
+        return ToolOutput(_json(press) if press else 'no press frames were kept')
+
     def _tool_get_history(self) -> ToolOutput:
         return ToolOutput(_json(self.evidence.get('history', [])))
 
@@ -424,7 +446,8 @@ class Agent:
     """Runs agent skills for the executor: one call at a time, each in a thread"""
 
     def __init__(self, backend: AgentBackend, config: AgentConfig, ros: RosAccess | None = None, on_event=None,
-                 speak: Callable[[str], None] | None = None):
+                 speak: Callable[[str], None] | None = None, press_evidence: Callable[[], dict | None] | None = None):
+        self.press_evidence = press_evidence    # the last press's saved frames and numbers, for the judge phase
         self.backend  = backend
         self.config   = config
         self.ros      = ros
@@ -437,6 +460,9 @@ class Agent:
         evidence = json.loads(json.dumps({'last_failure': context.last_failure, 'history': context.history}, default=str))
 
         def work(stop: threading.Event) -> dict:
+            if phase == 'judge':                # waits until the press's frames are chosen, then saves them
+                evidence['press'] = self.press_evidence() if self.press_evidence else None
+
             system  = (Path(self.config.skills_dir) / f'{contract.interface.skill}.md').read_text()
             session = AgentSession(phase, inputs, evidence, self.ros, self.config, self.on_event, self.speak)
 
@@ -458,7 +484,11 @@ class Agent:
 def _task(phase: str, inputs: dict) -> str:
     lines = [f'Phase: {phase}.']
 
-    if phase == 'diagnose':
+    if phase == 'judge':
+        lines.append('press_button reported success. Look at the frames of the press (get_press; the press frame is '
+                     'the fingertip at its closest point to the button) and judge whether the button was pressed, '
+                     'following the skill document, and end with decide: pressed or not_pressed.')
+    elif phase == 'diagnose':
         lines.append('The press did not work: press_button failed, or it succeeded and its check (button_lit) failed; '
                      'get_failure says which. Work out why, following "How to work", and end with decide.')
     else:

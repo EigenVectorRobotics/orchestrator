@@ -100,7 +100,7 @@ class ExecutorNode(Node):
         speak   = lambda text: speaker.publish(String(data=text))
 
         return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames),
-                     on_event=self._on_agent_event, speak=speak)
+                     on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
 
     def _make_agent_backend(self, name: str, model: str, base_url: str, api_key_env: str, script: str):
         if name == 'external':

@@ -589,6 +589,28 @@ class RosSkillRunner:
     def now(self) -> float:
         return self.node.get_clock().now().nanoseconds * 1e-9
 
+    def press_evidence(self, wait_s: float = 8.0) -> dict | None:
+        """The last press for the agent's judge phase: once its frames are chosen (or wait_s has passed), save them
+        and return their paths with the phase times, depth and sideways distance"""
+        capture = self.last_capture
+
+        if capture is None:
+            return None
+
+        deadline = time.monotonic() + wait_s
+
+        while not capture.ready(self.now()) and time.monotonic() < deadline:
+            time.sleep(0.1)
+
+        tracker = capture.tracker
+
+        return {
+            'left_arm': capture.left_arm,
+            'goal':     None if tracker.goal is None else [round(float(value), 4) for value in tracker.goal],
+            'capture':  capture.events(),
+            'frames':   capture.save(self.capture_dir),
+        }
+
     def capture_frames(self) -> dict:
         """The frames the last press kept, by name"""
         return {name: data for name, (_, data) in self.last_capture.frames.items()} if self.last_capture else {}

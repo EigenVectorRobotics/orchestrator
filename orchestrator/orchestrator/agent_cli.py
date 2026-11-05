@@ -91,6 +91,16 @@ def _summary(request: dict, full: bool) -> str:
 
     lines.append(f'history: {len(request.get("history") or [])} records')
 
+    press = request.get('press')
+
+    if press:
+        capture = press.get('capture') or {}
+        lines.append(f'press: {"left" if press.get("left_arm") else "right"} arm, deepest {capture.get("max_depth_m")} m along '
+                     f'the button normal, {capture.get("lateral_at_max_m")} m sideways there')
+        lines += [f'  frame {name}: {path}' for name, path in sorted((press.get('frames') or {}).items())]
+    elif 'press' in request:
+        lines.append('press: no frames were kept')
+
     if full:
         lines += ['--- failure', json.dumps(failure, indent=1), '--- history', json.dumps(request.get('history'), indent=1)]
 

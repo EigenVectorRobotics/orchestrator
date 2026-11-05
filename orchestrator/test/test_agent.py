@@ -310,3 +310,70 @@ def test_say_speaks_short_sentences_spaced_out(tmp_path):
     assert spoken == ['Checking the reach.', 'Stepping back 20 centimetres.']
 
     assert AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None).call('say', {'text': 'hi'}).is_error
+
+
+# ========== press_judge: the check after a press, with an agent in the loop ==========
+
+JUDGE_TREE = '''<root BTCPP_format="4"><BehaviorTree ID="t"><Sequence>
+  <press_button target_description="floor 1"/>
+  <Fallback>
+    <press_judge target_description="floor 1"/>
+    <manipulation_recovery phase="diagnose" target_description="floor 1" base_goal="{call_panel}" decision="{decision}"/>
+  </Fallback>
+</Sequence></BehaviorTree></root>'''
+PRESS_EVIDENCE = {'left_arm': False, 'goal': [0.4, -0.1, 1.0],
+                  'capture': {'max_depth_m': -0.003, 'lateral_at_max_m': 0.004},
+                  'frames': {'press': '/tmp/press_1.000_press.jpg', 'baseline': '/tmp/press_0.500_baseline.jpg'}}
+
+
+def _wait_request(tree, requests, count: int):
+    for _ in range(400):
+        tree.tick()
+
+        if len([request for request in requests if request['state'] == 'open']) >= count:
+            return [request for request in requests if request['state'] == 'open'][-1]
+
+        time.sleep(0.005)
+
+    raise AssertionError('no request')
+
+
+def test_press_judge_sends_the_press_frames_and_pressed_goes_on(tmp_path):
+    requests, replies = [], []
+    backend = ExternalAgentBackend(requests.append, replies.append)
+    agent   = Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE)
+    runner  = FakeRunner([(True, 'Controller reached target', [])])
+    tree    = _tree(JUDGE_TREE, runner, agent)
+
+    request = _wait_request(tree, requests, 1)
+
+    assert request['skill'] == 'press_judge'
+    assert request['decisions'] == ['pressed', 'not_pressed']
+    assert request['press']['frames']['press'].endswith('_press.jpg')
+
+    backend.deliver({'id': request['id'], 'decision': 'pressed', 'reason': 'the fingertip covers the button'})
+
+    assert _run(tree) == Status.SUCCESS
+    assert not [r for r in requests if r['skill'] == 'manipulation_recovery']
+
+
+def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path):
+    requests, replies = [], []
+    backend = ExternalAgentBackend(requests.append, replies.append)
+    agent   = Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE)
+    runner  = FakeRunner([(True, 'Controller reached target', [{'t': 0.5, 'distance_to_goal': 0.01}])])
+    tree    = _tree(JUDGE_TREE, runner, agent)
+
+    judge = _wait_request(tree, requests, 1)
+    backend.deliver({'id': judge['id'], 'decision': 'not_pressed', 'reason': 'the finger sits beside the button'})
+
+    recovery = _wait_request(tree, requests, 2)
+
+    assert recovery['skill'] == 'manipulation_recovery'
+    assert recovery['failure']['skill'] == 'press_judge' and recovery['failure']['checks'] == 'press_button'
+    assert recovery['failure']['checked_call']['skill'] == 'press_button'
+    assert recovery['failure']['checked_call']['feedback']
+    assert {'elapsed_s', 'status', 'message'} <= set(recovery['failure'])      # the executor's trace formats these
+
+    backend.deliver({'id': recovery['id'], 'decision': 'ask_help', 'reason': 'r'})
+    assert _run(tree) == Status.FAILURE
