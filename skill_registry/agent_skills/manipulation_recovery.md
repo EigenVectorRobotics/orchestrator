@@ -1,12 +1,12 @@
 ---
-name: press_recovery
+name: manipulation_recovery
 description: press_button failed. Work out why from the evidence, decide whether the target was out of the arm's reach, and if so where the robot should stand instead.
 runs_when: [press_button failed, the reposition walk arrived]
 runs_on: a Claude Code session through agent_cli (default), or a model inside the executor on the NUC
 decisions: [reposition, switch_arm, retry, ask_help, abort, continue]
 ---
 
-# Press recovery
+# Manipulation recovery
 
 The behavior tree calls you at two moments: after `press_button` has failed (the diagnosis), and after the walk to a new stance that you chose has arrived (the view check). Each time the tree waits, up to 600 s, for your decision. You cannot move the robot: you gather evidence with read-only tools, build whatever checks you need in Python, and end with one decision. The tree then carries out your decision with its own skills (`navigate_to`, `press_button`, `say`).
 
@@ -38,7 +38,7 @@ When `navigate_to` to your new stance has arrived, the tree calls you again (pha
 
 ## Using the experience file
 
-`press_recovery.experience.md`, in the same directory as this file, records what the team has seen: symptoms, causes, what helped, each with a status (confirmed n times, reported, suspected) and the conditions it was seen in. Read it with `read_file` (in a session, read it directly).
+`manipulation_recovery.experience.md`, in the same directory as this file, records what the team has seen: symptoms, causes, what helped, each with a status (confirmed n times, reported, suspected) and the conditions it was seen in. Read it with `read_file` (in a session, read it directly).
 
 - **It is a prior, not proof.** Use a matching entry to choose what to check first; conclude only from this failure's evidence. An entry seen under other conditions (another panel, stance, software version) may not apply. Weigh confirmed entries above reported ones, and reported above suspected.
 - **Cite what you used.** Name the entry ids in your reason, and say whether this failure fits them or contradicts them.
@@ -228,4 +228,4 @@ The facts above were read from these versions; update this file when they change
 - track_anything `main` @ `f5a1f47` (`trt` is merged into it): `track_anything/track_3d.py`, `track_anything/pointcloud_utils.py`, `track_anything/transform_utils.py`, `track_anything/track_3d_parameters.yaml`, `launch/track_3d.launch.py`, `README.md`
 - NUC `/home/vector/eigen_vector_ws`: `src/bringup/launch/nuc.launch.py`, `src/bringup/README.md`, `src/navigation_stack` main @ `6242b3e` (`route_planner/route_planner/{route_planner_node,planner}.py`, `route_planner/route_planner/route_planner_parameters.yaml`, `local_planner/src/local_planner.cpp`, `local_planner/src/local_planner_params.yaml`, `local_planner/config/unitree_g1.yaml`, `route_planner/config/unitree_g1.yaml`); Python packages under `/opt/ros/jazzy/lib/python3.12/site-packages`
 - orchestrator: `skill_registry/contracts/{press_button,navigate_to}.yaml`
-- Observations, with their own sources: `press_recovery.experience.md`
+- Observations, with their own sources: `manipulation_recovery.experience.md`

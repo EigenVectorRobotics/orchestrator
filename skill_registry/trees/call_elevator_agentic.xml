@@ -1,5 +1,5 @@
 <root BTCPP_format="4">
-  <!-- Walk to the call panel and press up. A press that fails goes to the press_recovery agent, which finds out why
+  <!-- Walk to the call panel and press up. A press that fails goes to the manipulation_recovery agent, which finds out why
        and decides: reposition (walk to a new stance, check the button is in view, press), switch_arm or retry (press
        again), ask_help (no more agent rounds), or abort (the whole tree fails at once with the agent's reason).
        At most three rounds; then a person is asked. Online only: the agent needs the cloud. -->
@@ -35,15 +35,15 @@
 
   <BehaviorTree ID="recover_press">
     <Sequence>
-      <press_recovery phase="diagnose" target_description="elevator up call button" base_goal="{call_panel}"
-                      decision="{decision}" goal="{recovery_goal}" left_arm="{recovery_left_arm}"/>
+      <manipulation_recovery phase="diagnose" target_description="elevator up call button" base_goal="{call_panel}"
+                             decision="{decision}" goal="{recovery_goal}" left_arm="{recovery_left_arm}"/>
       <Fallback>
         <Inverter>
           <decision_is value="{decision}" equals="reposition"/>
         </Inverter>
         <Sequence>
           <navigate_to goal="{recovery_goal}"/>
-          <press_recovery phase="view_check" target_description="elevator up call button"/>
+          <manipulation_recovery phase="view_check" target_description="elevator up call button"/>
         </Sequence>
       </Fallback>
       <press_button target_description="elevator up call button" left_arm="{recovery_left_arm}"/>

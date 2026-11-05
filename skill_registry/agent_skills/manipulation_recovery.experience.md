@@ -1,8 +1,8 @@
-# Press recovery: experience
+# Manipulation recovery: experience
 
-What the team has seen on the robot and in tests about press failures, their causes, and what helped. `press_recovery.md` says how to use this file; read that first.
+What the team has seen on the robot and in tests about press failures, their causes, and what helped. `manipulation_recovery.md` says how to use this file; read that first.
 
-Facts that hold by construction (code, configs, the URDF) belong in `press_recovery.md`. This file holds what was observed: it can depend on conditions, and an entry can be wrong.
+Facts that hold by construction (code, configs, the URDF) belong in `manipulation_recovery.md`. This file holds what was observed: it can depend on conditions, and an entry can be wrong.
 
 ## How an entry is written
 
@@ -20,7 +20,7 @@ Facts that hold by construction (code, configs, the URDF) belong in `press_recov
 - **reported**: stated by a teammate or written in a repository, not yet checked in a recorded run.
 - **suspected**: a cause someone proposed from one run; not checked.
 
-**Who writes.** A person, or an agent that drafts an entry and has a person approve the exact text before it goes in. An agent never adds or edits entries on its own. An entry that turns out to hold by construction moves to `press_recovery.md` as a fact and leaves this file.
+**Who writes.** A person, or an agent that drafts an entry and has a person approve the exact text before it goes in. An agent never adds or edits entries on its own. An entry that turns out to hold by construction moves to `manipulation_recovery.md` as a fact and leaves this file.
 
 ## Entries
 

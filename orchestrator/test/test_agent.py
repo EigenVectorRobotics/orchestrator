@@ -121,7 +121,7 @@ def test_decide_checks_the_phase_and_the_fields(tmp_path):
 def test_read_file_stays_inside_its_roots(tmp_path):
     session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
 
-    assert '1\t---' in session.call('read_file', {'path': str(SKILLS_DIR / 'press_recovery.md'), 'limit': 1}).text
+    assert '1\t---' in session.call('read_file', {'path': str(SKILLS_DIR / 'manipulation_recovery.md'), 'limit': 1}).text
     assert session.call('read_file', {'path': '/etc/passwd'}).is_error
 
 
@@ -227,7 +227,7 @@ def test_the_round_budget_stops_the_agent(tmp_path):
     backend = ScriptedAgentBackend([retry])
     runner  = FakeRunner([MISS, MISS])
     body    = ('<root BTCPP_format="4"><BehaviorTree ID="t"><RetryUntilSuccessful num_attempts="3"><Sequence>'
-               '<press_recovery max_rounds="2" base_goal="{call_panel}"/><press_button target_description="up"/>'
+               '<manipulation_recovery max_rounds="2" base_goal="{call_panel}"/><press_button target_description="up"/>'
                '</Sequence></RetryUntilSuccessful></BehaviorTree></root>')
     tree    = _tree(body, runner, Agent(backend, _config(tmp_path)))
     tree.context.last_failure = {'inputs': {}}
@@ -284,7 +284,7 @@ def test_external_backend_waits_checks_and_closes_the_call(tmp_path):
 
     request = requests[-1]
 
-    assert request['state'] == 'open' and request['skill'] == 'press_recovery'
+    assert request['state'] == 'open' and request['skill'] == 'manipulation_recovery'
     assert request['failure']['message'] == 'Planning failed: empty trajectory' and request['failure']['feedback']
     assert 'continue' not in request['decisions']
 

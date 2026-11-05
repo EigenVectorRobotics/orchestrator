@@ -1,4 +1,4 @@
-name: press_recovery
+name: manipulation_recovery
 kind: action
 device: nuc
 description: >-
@@ -8,7 +8,7 @@ description: >-
   continue; fails on ask_help; abort fails the whole tree at once.
 interface:
   transport: agent
-  skill: press_recovery
+  skill: manipulation_recovery
 inputs:
 - name: phase
   type: enum
