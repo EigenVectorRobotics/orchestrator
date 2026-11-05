@@ -237,3 +237,22 @@ def test_the_check_asks_about_crops_and_a_hidden_button_borrows_the_baseline_box
     assert not success and 'no button box' not in message
     assert vlm.asked[0][0] == (2 * round(100 * 448 / 50), 448)                     # two 100x50 crops, side by side
     assert len(list(tmp_path.glob('press_*_crop.jpg'))) == 3
+
+
+def test_the_swing_up_beside_the_goal_is_not_taken_for_the_push():
+    """On the robot the hand rises from its rest pose about 20 cm below the button, at nearly the goal's depth, then
+    backs off to the pre-grasp and pushes. Only the push after the pre-grasp counts."""
+    tracker = PhaseTracker(CaptureConfig())
+    tracker.set_goal(GOAL, (0, 0, 0, 1))
+    path = [(0.0, -0.30, -0.25), (0.15, -0.02, -0.23), (0.3, -0.10, -0.02), (0.4, -0.10, 0.0),   # (phase, depth, z)
+            (0.7, 0.0, 0.0), (0.75, 0.0, 0.0), (1.0, -0.10, 0.0)]
+
+    for step in range(301):
+        t = step / 100
+        depth, z = (float(np.interp(t / DURATION, [p[0] for p in path], [p[i] for p in path])) for i in (1, 2))
+        tracker.update(t, (GOAL[0] + depth, GOAL[1], GOAL[2] + z))
+
+    assert tracker.pregrasp_t > 0.15 * DURATION
+    assert tracker.max_depth == pytest.approx(0.0, abs=0.002)
+    assert tracker.lateral_at_max == pytest.approx(0.0, abs=0.002)
+    assert tracker.deepest_t == pytest.approx(0.7 * DURATION, abs=0.02)
