@@ -4,7 +4,6 @@ import json
 import uuid
 
 from pathlib import Path
-from dataclasses import dataclass
 
 import rclpy
 
@@ -13,8 +12,6 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
 from ament_index_python.packages import get_package_share_directory
-
-from skill_registry import TreeValidator, ValidatorConfig
 
 from .agent import Agent, AgentConfig
 from .agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
@@ -26,7 +23,8 @@ from .knowledge import KnowledgeStore
 from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
-from .behavior_tree import BehaviorTree, Context, Status, TreeError
+from .tasks import Tasks
+from .behavior_tree import Context, Status
 from .ros_skill_runner import RosSkillRunner
 from .press_capture import DEFAULT_CAPTURE_DIR
 from .run_recorder import STATUS_TOPIC as RECORDER_TOPIC
@@ -34,15 +32,6 @@ from .run_recorder import STATUS_TOPIC as RECORDER_TOPIC
 
 STATUS_QOS  = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 COMMAND_QOS = QoSProfile(depth=5)
-
-
-@dataclass
-class Task:
-    """One task: one run for the recorder, one Context (blackboard, history, scratch) for all its steps"""
-    run_id:  str
-    name:    str
-    context: Context
-    steps:   int = 0
 
 
 class ExecutorNode(Node):
@@ -70,8 +59,9 @@ class ExecutorNode(Node):
         )
 
         self.agent = self._make_agent()
-        self.task  = None                           # the open task; until task mode, each tree is a task of one step
-        self.tree  = None                           # the step that runs
+        self.tasks = Tasks(self.registry, make_leaf_factory(self.registry, self.runner, self.agent), self.tracer,
+                           self._publish_status, self.essential_devices, make_scratch=self._run_scratch,
+                           on_error=self.get_logger().error)
 
         self._status_publisher   = self.create_publisher(String, '/orchestrator/status', STATUS_QOS)
         self._tree_subscriptions = [
@@ -172,75 +162,12 @@ class ExecutorNode(Node):
 
         if self.require_recorder and not (recorder_up and self.recorder_status.get('ready')):
             reason = self.recorder_status.get('reason') if recorder_up else 'run_recorder is not running'
-            self.tracer.emit('rejected', f'tree refused: the recorder is not ready ({reason})', level='error')
-            self._publish_status('rejected')
-            return False
-
-        validator = TreeValidator(
-            self.registry,
-            ValidatorConfig(essential_devices=self.essential_devices, blind=blind, known_keys=set(self.places))
-        )
-        issues = validator.validate(xml_text)
-        errors = [issue for issue in issues if issue.level == 'error']
-
-        for issue in issues:
-            if issue.code == 'maturity':
-                continue                                # every skill is wip for now: not worth a trace line
-
-            self.tracer.emit('validation', f'{issue.path}: {issue.message}', level='error' if issue.level == 'error' else 'warn')
-
-        if errors:
-            self.tracer.emit('rejected', f'tree rejected: {len(errors)} errors', level='error')
-            self._publish_status('rejected')
-            return False
-
-        if self.tree is not None:
-            self.tree.halt()
-            self._end_step('halted', f'halted {self.tree.id} for a new tree', 'warn')
-            self._end_task('halted', 'warn')
+            return self.tasks.reject(f'tree refused: the recorder is not ready ({reason})')
 
         run_id  = uuid.uuid4().hex[:8]
         context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record, run_id=run_id)
 
-        try:
-            tree = BehaviorTree(xml_text, make_leaf_factory(self.registry, self.runner, self.agent), context)
-        except (TreeError, ValueError) as error:
-            self.tracer.emit('rejected', f'tree does not build: {error}', level='error')
-            self._publish_status('rejected')
-            return False
-
-        self._start_task(run_id, context, tree.id, blind)               # a tree sent alone: a task of one step
-        self._start_step(tree, xml_text, blind)
-
-        return True
-
-    # ========== Tasks and steps ==========
-
-    def _start_task(self, run_id: str, context: Context, name: str, blind: bool):
-        context.scratch_dir = scratch = self._run_scratch(run_id)
-        self.task           = Task(run_id, name, context)
-        self.tracer.fields  = {'run_id': run_id}
-        self.tracer.emit('task_started', f'task {run_id}: {name}', name=name, blind=blind, scratch=scratch)
-
-    def _start_step(self, tree: BehaviorTree, xml_text: str, blind: bool):
-        self.task.steps += 1
-        self.tree        = tree
-        self.tracer.fields.update(tree_id=tree.id, step=self.task.steps)
-        self.tracer.emit('started', f'running {tree.id}' + (' (blind)' if blind else ''), tree=xml_text, blind=blind)
-        self._publish_status('running')
-
-    def _end_step(self, kind: str, text: str, level: str, **data):
-        """finished, halted or error; the task stays open"""
-        self.tracer.emit(kind, text, level=level, **data)
-        self.tree          = None
-        self.tracer.fields = {'run_id': self.task.run_id}
-
-    def _end_task(self, end: str, level: str):
-        """How the task ended: success, failure, halted, cancelled or error; then no run_id on later events"""
-        self.tracer.emit('task_finished', f'task {self.task.run_id}: {end}', level=level, end=end, steps=self.task.steps)
-        self._publish_status(end)
-        self.task          = None
-        self.tracer.fields = {}
+        return self.tasks.run_tree(xml_text, context, blind)
 
     def _run_scratch(self, run_id: str) -> str | None:
         """The run's scratch folder under the agent's scratch root; the recorder moves it into the run's bundle"""
@@ -258,36 +185,10 @@ class ExecutorNode(Node):
         return str(folder)
 
     def _on_cancel(self, message: Empty):
-        if self.tree is None:
-            return
-
-        self.tree.halt()
-        self._end_step('halted', f'{self.tree.id} cancelled', 'warn')
-        self._end_task('cancelled', 'warn')
-
-    # ========== Ticks ==========
+        self.tasks.cancel()
 
     def _tick(self):
-        if self.tree is None:
-            return
-
-        try:
-            status = self.tree.tick()
-        except Exception as error:                      # a skill or runner bug must not take the executor down
-            self.tree.halt()
-            self.get_logger().error(f'tick failed: {error!r}')
-            self._end_step('error', f'{self.tree.id} stopped by an internal error: {error!r}', 'error')
-            self._end_task('error', 'error')
-            return
-
-        if status == Status.RUNNING:
-            return
-
-        level  = 'info' if status == Status.SUCCESS else 'error'
-        reason = self.tree.context.abort_reason
-        text   = f'{self.tree.id}: {status.value}' + (f' (aborted by {reason})' if reason else '')
-        self._end_step('finished', text, level, status=status.value, aborted=reason)
-        self._end_task(status.value, level)
+        self.tasks.tick()
 
     def _on_node_event(self, node, event: dict):
         if event['status'] == Status.IDLE.value:
@@ -319,8 +220,7 @@ class ExecutorNode(Node):
         level = 'warn' if record.get('status') == Status.FAILURE.value else 'info'
         self.tracer.emit('record', text, level=level, record=record)
 
-    def _publish_status(self, state: str):
-        tree    = self.tree.id if self.tree else self.task.name if self.task else None    # at a task's end: its name
+    def _publish_status(self, state: str, tree: str | None = None):
         payload = {'state': state, 'tree': tree}
 
         self._status_publisher.publish(String(data=json.dumps(payload)))

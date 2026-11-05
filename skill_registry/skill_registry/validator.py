@@ -45,6 +45,7 @@ class ValidatorConfig:
     blind:             bool = False         # true: the tree must run with no cloud link
     live_skills:       set[str] | None = None   # None: do not check liveness
     known_keys:        set[str] | None = None   # on the blackboard before the tree runs (the places); None: do not check
+    require_fallback:  bool = True          # false: something outside the tree recovers (the task agent, for one step)
 
 
 @dataclass
@@ -183,7 +184,7 @@ class TreeValidator:
         if self.config.blind and contract.needs_cloud:
             issues.append(Issue('error', frame.path, f'{skill_name} needs the cloud, but this tree must run blind'))
 
-        if contract.device not in self.config.essential_devices and not self._is_protected(frame):
+        if self.config.require_fallback and contract.device not in self.config.essential_devices and not self._is_protected(frame):
             issues.append(Issue('error', frame.path, f'{skill_name} runs on {contract.device}, which can drop out; put it in a Fallback with a recovery after it'))
 
         if self.config.live_skills is not None and skill_name not in self.config.live_skills:

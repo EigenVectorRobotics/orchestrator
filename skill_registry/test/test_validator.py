@@ -54,6 +54,7 @@ def test_thor_skill_needs_fallback():
     assert _errors('<Fallback><AlwaysSuccess/><door_open/></Fallback>')                  # last child: no recovery after it
     assert not _errors('<Fallback><door_open/><AlwaysSuccess/></Fallback>')
     assert not _errors('<door_open/>', essential_devices={'nuc', 'orin', 'thor'})      # unless Thor is essential
+    assert not _errors('<door_open/>', require_fallback=False)                          # or the task agent recovers
 
 
 def test_parallel_resource_conflict():

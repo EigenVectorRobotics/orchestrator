@@ -23,7 +23,7 @@ Status: draft for review, 2026-11-05. Related: `docs/skill-packages.md` ("Compos
 - A new agent skill, `task`, runs on the agent's tool loop and backends. It is the planner in task mode.
 - It runs in the executor, so one task has one `Context`: the blackboard and the history go from one step to the next (for example, a pose from one skill is an input of the next).
 - Its tools:
-  - `run_skill(name, inputs)`: the executor builds a one-leaf tree, validates it (the same validator: contracts, live skills, the `rt/*` ban, maturity on the robot), ticks it, and returns the result: status, outputs, the failure and its feedback. A graduated tree is a skill, so it runs the same way.
+  - `run_skill(name, inputs)`: the executor builds a one-leaf tree, validates it (the same validator: contracts, live skills, the `rt/*` ban, maturity on the robot; no fallback is needed, because the agent recovers), ticks it, and returns the result: status, outputs, the failure and its feedback. A graduated tree is a skill, so it runs the same way. Inputs and outputs that go by the blackboard get the key `step<n>_<port>`, so a later step can use `{step1_detections}`. An abort ends only that step. Built in `orchestrator/tasks.py` (2026-11-05); `/orchestrator/status` is `waiting` between steps.
   - the read tools of the agent now: `read_file`, `ros_read`, `get_image`, `run_python`, `note`, `say`;
   - `done(summary)` and `give_up(reason)`: they end the task.
 - The facts and beliefs and the run's scratch folder go into its prompt, as for the agent now.
