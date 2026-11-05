@@ -29,7 +29,7 @@ This document gives you facts about the robot and its software, and where to fin
    - The requested button is out of frame, or a different button was tracked: `reposition` so that it comes into view (E-003).
    - `ask_help` only when these did not work, or none of them applies.
 7. **Check that the button is still in view.** Look at the camera image, and project the target position into the camera with the camera intrinsics and TF. If the button is not in view from the current stance, or would leave the view from the stance you are about to choose, say so: a press cannot work on a button the camera cannot see.
-8. **Call `decide` once.** If the evidence is missing or contradictory, say so and choose `ask_help`. Do not guess a reposition. If the button is out of view and no stance within reason brings it back, choose `abort`.
+8. **Say it, then call `decide` once.** If the evidence is missing or contradictory, say so and choose `ask_help`. Do not guess a reposition. If the button is out of view and no stance within reason brings it back, choose `abort`.
 
 ### After the reposition walk
 
@@ -39,6 +39,15 @@ When `navigate_to` to your new stance has arrived, the tree calls you again (pha
 2. Look at the camera image (`get_image("camera")`) for the button you were asked to press.
 3. Project the target position you computed in the diagnosis into the camera from the current pose, using TF and `/camera/camera/color/camera_info`, and check that it falls inside the image with depth in front of the camera.
 4. Call `decide` with `continue` if the button is in view, or `abort` if it is not. When the image and the projection disagree, say so in your reason and trust the image.
+
+## Say what you are doing
+
+Speak your process out loud the whole time you work, so the people around the robot know what it is about to do: what you are checking, what you found, what problem you hit, what you will try next. Use the `say` tool (in a session, `agent_cli say "..."`).
+
+- **One short sentence each time**, like thinking aloud: "The press stopped 13 centimetres short; checking reach." Not the full reasoning, numbers rounded, no file names or topic names.
+- **When:** at the start of each call; at each step of "How to work"; whenever something fails or surprises you; before each decision you propose or send ("I propose to step back 20 centimetres; waiting for your go." in a session).
+- **Space them out:** the speaker says each message at once and does not wait for the last one, so leave at least 3 s between messages (the tool refuses sooner ones), and keep each under 200 characters.
+- **Speak English.**
 
 ## Using the experience file
 
@@ -63,11 +72,12 @@ The executor publishes each call on `/orchestrator/agent/request` and waits for 
 | `get_image` | `agent_cli image camera OUT.jpg` or `agent_cli image overlay OUT.jpg`; the frames a press kept are files on the executor's computer, at the paths in the check's `outputs.frames`. Copy them to where you can view them |
 | `run_python` | write the code to a file, then `agent_cli python FILE`: the same sandbox, with pinocchio and coal |
 | `read_file` | read the files directly (`cat`, `sed -n`), read-only |
+| `say` | `agent_cli say "..."`: one short sentence through the robot's speaker (`/speak`) |
 | `decide` | `agent_cli decide DECISION --reason "..." [--dx --dy --dyaw] [--left-arm or --right-arm]` shows what would be sent; add `--send` to send it |
 
 **Rules for a session.** Nothing enforces these for you, unlike the tools inside the executor, so keep them yourself:
 
-- `agent_cli decide --send` is the only thing you publish. Do not publish topics, call services, send action goals, start, stop or restart nodes, or change files, parameters or configs on any robot computer.
+- `agent_cli decide --send` and `agent_cli say` are the only things you publish. Do not publish topics, call services, send action goals, start, stop or restart nodes, or change files, parameters or configs on any robot computer.
 - **Get the user's go before you send.** Show the user the decision, the reason, and the evidence it rests on (the feedback shape, the target position in `pelvis`, what your check computed); run `--send` only after the user says go. Edits to the decision: show it again. [This becomes automatic when the team says so.]
 - Watch the clock: `agent_cli show` says how long the call has been open. At 600 s the tree stops waiting and goes to its fallback, a request for help. Tell the user when time is short.
 - After a `reposition`, the tree walks, then calls you again for the view check: run `agent_cli wait` again.
@@ -75,7 +85,7 @@ The executor publishes each call on `/orchestrator/agent/request` and waits for 
 
 ## Tools
 
-When you run inside the executor (`orchestrator/agent.py`), these are your tools. None of them publishes or moves the robot.
+When you run inside the executor (`orchestrator/agent.py`), these are your tools. None of them moves the robot; only `say` publishes, and only speech.
 
 | Tool | What it does |
 |---|---|
@@ -84,6 +94,7 @@ When you run inside the executor (`orchestrator/agent.py`), these are your tools
 | `read_file(path, offset, limit)` | Reads a text file or lists a directory, only under `/home/vector/eigen_vector_ws`, the agent skills directory and the scratch directory |
 | `ros_read(op, ...)` | `op: tf` with `target_frame`, `source_frame`: the latest transform, i.e. the pose of `source_frame` in `target_frame` (translation, quaternion, roll/pitch/yaw, age). `op: topic_once` with `topic`: the next message (images and point clouds are refused; use `get_image`). `op: topic_list`: topics and types |
 | `get_image(source)` | `camera`: the last color frame the executor has (`/camera/camera/color/image_raw`, raw RGB8 1280x720 at 6 fps, encoded to JPEG by the executor). `overlay`: the next frame of `/track_3d/tracked_overlay`, with the tracked mask and the tracker state text; it is published on every frame, also while nothing is tracked. `press_baseline`, `press_press`, `press_release`: the frames the last press kept for `button_lit` |
+| `say(text)` | One short sentence through the robot's speaker (`/speak`); at most 200 characters, at least 3 s after the last |
 | `run_python(code)` | Runs Python 3.12 with `numpy`, `scipy`, `pinocchio` 4.1.0 and `coal`; returns stdout, stderr and the exit code. Pass data from the other tools in as literals. It runs in the scratch directory, which is also on `sys.path`: save helpers there and import them in later calls. Limits: 60 s, 4 GB, nice 19 |
 | `decide(decision, reason, dx, dy, dyaw, use_left_arm)` | Ends your turn; see "Your decision" |
 

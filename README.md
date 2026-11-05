@@ -32,6 +32,15 @@ An agent skill is an LLM with read-only tools that decides how a tree recovers. 
 - **agent_cli.** `wait`, `show [--full]`, `tf TARGET SOURCE`, `topic TOPIC`, `topics`, `image camera|overlay OUT`, `python FILE` (the sandbox), `decide DECISION --reason R [--dx --dy --dyaw] [--left-arm|--right-arm] [--send]`. Run it in the executor's ROS environment.
 - **Executor parameters.** `agent_backend`, `agent_read_roots`, `agent_scratch_dir`, `agent_python_timeout_s`, `agent_max_turns`, and the backend ones above.
 
+### The agent says what it is doing, all the time
+
+Whatever is the agent (a Claude Code session or a model in the executor), it speaks its process out loud the whole time it works: what it is checking, what it found, what problem it hit, what it is trying next. Each message is one short English sentence, like thinking aloud, not the full reasoning.
+
+- **Where:** a `std_msgs/String` on `/speak`. unitree_interface subscribes `~/tts`, and its launch file remaps `/unitree_interface/tts` to `/speak`; it hands each message to the Unitree TTS (`TtsMaker`) at once, with no queue.
+- **How:** in a session, `agent_cli say "Checking whether the arm can reach the button."`; inside the executor, the agent's `say` tool. Both refuse empty text and more than 200 characters; the tool also waits 3 s between messages, since a new message does not wait for the last one to finish.
+- **When:** at the start of each call; at each step of the diagnosis (reading the failure, checking reach, looking at the frame); whenever something fails or surprises it; before each decision it proposes or sends, and while it waits for the operator's go.
+- **Examples:** "The press stopped 13 centimetres short; checking reach." "The right arm cannot reach; trying the left." "The button is out of view; I will step back." "I propose to step back 20 centimetres; waiting for your go."
+
 ## Checking a press
 
 `press_button` keeps three camera frames (`interface.capture` in its contract; `orchestrator/press_capture.py`): a baseline when the end effector reaches the pre-grasp, the first frame at least 5 ms after the deepest point of the push, and the first frame at least 0.5 s after the retreat began. The phases come from `/right_ee_pose` or `/left_ee_pose` (100 Hz, `foot_world`) against the action feedback's `current_goal`. `button_lit` then asks the VLM about the press frame and the release frame, each beside the baseline in one image; lit in either is success. Each frame is cropped to the area around the button: track_anything's box for that frame (`/track_3d/detections_2d`, the target id from `/track_3d/selected_target_3d`; the box with the frame's stamp, or the latest before it within 1.5 s), grown 2.5 times about its centre (`crop_scale`). A frame without a box of its own, as when the hand covers the button, uses the baseline's box; with no box at all, whole frames are asked. The frames and their crops (`*_crop.jpg`) are saved under `capture_dir` (executor parameter, default `~/.ros/orchestrator_captures`).

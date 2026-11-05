@@ -4,7 +4,7 @@ device: orin
 description: Speak a sentence
 interface:
   transport: topic
-  name: /unitree_interface/tts
+  name: /speak                  # unitree_interface subscribes ~/tts; its launch remaps /unitree_interface/tts to /speak
   ros_type: std_msgs/msg/String
 inputs:
 - name: text

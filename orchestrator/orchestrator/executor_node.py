@@ -96,7 +96,11 @@ class ExecutorNode(Node):
             sandbox=SandboxConfig(scratch_dir=scratch_dir, timeout_s=python_timeout)
         )
 
-        return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames), on_event=self._on_agent_event)
+        speaker = self.create_publisher(String, '/speak', 10)                  # unitree_interface's TTS (remapped ~/tts)
+        speak   = lambda text: speaker.publish(String(data=text))
+
+        return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames),
+                     on_event=self._on_agent_event, speak=speak)
 
     def _make_agent_backend(self, name: str, model: str, base_url: str, api_key_env: str, script: str):
         if name == 'external':

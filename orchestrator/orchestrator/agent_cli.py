@@ -9,8 +9,9 @@
   agent_cli python FILE                 run FILE in the agent sandbox (numpy, scipy, pinocchio, coal)
   agent_cli decide DECISION --reason R [--dx --dy --dyaw] [--left-arm | --right-arm] [--send]
                                         without --send, only show what would be sent
+  agent_cli say TEXT                    speak TEXT through the robot's speaker (/speak)
 
-Run it in the same ROS environment as the executor. It publishes nothing but a decision with --send.
+Run it in the same ROS environment as the executor. It publishes nothing but speech (say) and a decision (--send).
 """
 
 import sys
@@ -38,6 +39,8 @@ from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
 LATCHED      = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 COMMAND      = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
 CAMERA_TOPIC = '/camera/camera/color/image_raw'
+SPEAK_TOPIC  = '/speak'                 # unitree_interface's TTS, remapped by its launch file
+MAX_SPEECH   = 200                      # characters: one or two short sentences
 
 
 def _spin_until(node, done, timeout_s: float) -> bool:
@@ -140,6 +143,27 @@ def _decide(node, arguments) -> int:
     return 0 if reply['accepted'] else 1
 
 
+def _say(node, text: str) -> int:
+    """One sentence to the robot's speaker; unitree_interface speaks every message at once, so keep them short and few"""
+    text = ' '.join(text.split())
+
+    if not text or len(text) > MAX_SPEECH:
+        print(f'say needs 1 to {MAX_SPEECH} characters, not {len(text)}', file=sys.stderr)
+        return 1
+
+    publisher = node.create_publisher(String, SPEAK_TOPIC, COMMAND)
+
+    if not _spin_until(node, lambda: publisher.get_subscription_count() > 0, 3.0):
+        print(f'nobody subscribes to {SPEAK_TOPIC}', file=sys.stderr)
+        return 1
+
+    publisher.publish(String(data=text))
+    _spin_until(node, lambda: False, 0.2)              # let it go out before the node ends
+    print(f'said: {text}')
+
+    return 0
+
+
 def main():
     parser   = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -169,6 +193,7 @@ def main():
     arm.add_argument('--left-arm', dest='left_arm', action='store_true', default=None)
     arm.add_argument('--right-arm', dest='left_arm', action='store_false')
     decide.add_argument('--send', action='store_true', help='publish the decision; without it, only print it')
+    commands.add_parser('say').add_argument('text')
     arguments = parser.parse_args()
 
     if arguments.command == 'python':                   # no ROS needed
@@ -193,6 +218,9 @@ def main():
 def _run(node, arguments) -> int:
     if arguments.command == 'decide':
         return _decide(node, arguments)
+
+    if arguments.command == 'say':
+        return _say(node, arguments.text)
 
     if arguments.command in ('wait', 'show'):
         holder = []

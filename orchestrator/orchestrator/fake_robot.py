@@ -62,7 +62,7 @@ class FakeRobot(Node):
         self.create_subscription(Bool, '/cancel_goal', self._on_cancel, COMMAND_QOS)
         self.create_subscription(String, '/keyboard_input', self._on_query, COMMAND_QOS)
         self.create_subscription(Empty, '/track_3d/reset', self._on_reset, COMMAND_QOS)
-        self.create_subscription(String, '/unitree_interface/tts', self._on_tts, COMMAND_QOS)
+        self.create_subscription(String, '/speak', self._on_tts, COMMAND_QOS)
 
         for name in ['ready_locomotion', 'release_arms']:
             self.create_service(Trigger, f'/unitree_interface/{name}', self._on_trigger)

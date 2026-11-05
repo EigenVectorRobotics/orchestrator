@@ -7,6 +7,7 @@ to decide. It never publishes and never moves the robot: the tree acts on the de
 
 import json
 import math
+import time
 import threading
 
 from typing import Callable, Protocol
@@ -29,6 +30,8 @@ GOING_ON = {'reposition', 'switch_arm', 'retry', 'continue'}
 
 MAX_READ_BYTES = 200_000
 MAX_TOOL_TEXT  = 40_000
+MAX_SPEECH     = 200                    # characters said at once
+SPEECH_GAP_S   = 3.0                    # unitree_interface speaks each message at once, so space them out
 
 
 class AgentError(RuntimeError):
@@ -136,6 +139,17 @@ def tool_specs(phase: str) -> list[dict]:
             },
         },
         {
+            'name':         'say',
+            'description':  'Say one short sentence through the robot\'s speaker, so the people around know what you '
+                            'are doing: what you check, what you found, what you will try. At most 200 characters, '
+                            'and at least 3 s after the last one.',
+            'input_schema': {
+                'type':       'object',
+                'properties': {'text': {'type': 'string'}},
+                'required':   ['text'],
+            },
+        },
+        {
             'name':         'run_python',
             'description':  'Run Python 3 with numpy, scipy, pinocchio and coal; returns stdout, stderr and the exit '
                             'code. No ROS, no network, no new processes; files can be written only in the scratch '
@@ -211,7 +225,11 @@ def _json(value) -> str:
 class AgentSession:
     """One agent call: the evidence it was given, its tools, and its decision once made"""
 
-    def __init__(self, phase: str, inputs: dict, evidence: dict, ros: RosAccess | None, config: AgentConfig, on_event):
+    def __init__(self, phase: str, inputs: dict, evidence: dict, ros: RosAccess | None, config: AgentConfig, on_event,
+                 speak: Callable[[str], None] | None = None, clock: Callable[[], float] = time.monotonic):
+        self.speak    = speak
+        self.clock    = clock
+        self.spoke_at = -math.inf
         self.phase    = phase
         self.inputs   = inputs
         self.evidence = evidence
@@ -295,6 +313,26 @@ class AgentSession:
         data, media_type = self.ros.image(source)
 
         return ToolOutput(f'{source} image, {len(data)} bytes', image=data, media_type=media_type)
+
+    def _tool_say(self, text: str) -> ToolOutput:
+        text = ' '.join(text.split())
+
+        if self.speak is None:
+            return ToolOutput('there is no speaker here', is_error=True)
+
+        if not text or len(text) > MAX_SPEECH:
+            return ToolOutput(f'say 1 to {MAX_SPEECH} characters, not {len(text)}', is_error=True)
+
+        waited = self.clock() - self.spoke_at
+
+        if waited < SPEECH_GAP_S:
+            return ToolOutput(f'you spoke {waited:.1f} s ago; wait {SPEECH_GAP_S - waited:.1f} s', is_error=True)
+
+        self.speak(text)
+        self.spoke_at = self.clock()
+        self.on_event('agent_say', text)
+
+        return ToolOutput(f'said: {text}')
 
     def _tool_run_python(self, code: str) -> ToolOutput:
         result = run_python(code, self.config.sandbox)
@@ -380,10 +418,12 @@ class AgentHandle:
 class Agent:
     """Runs agent skills for the executor: one call at a time, each in a thread"""
 
-    def __init__(self, backend: AgentBackend, config: AgentConfig, ros: RosAccess | None = None, on_event=None):
+    def __init__(self, backend: AgentBackend, config: AgentConfig, ros: RosAccess | None = None, on_event=None,
+                 speak: Callable[[str], None] | None = None):
         self.backend  = backend
         self.config   = config
         self.ros      = ros
+        self.speak    = speak
         self.on_event = on_event or (lambda kind, text, **data: None)
         self._pool    = ThreadPoolExecutor(max_workers=1)
 
@@ -393,7 +433,7 @@ class Agent:
 
         def work(stop: threading.Event) -> dict:
             system  = (Path(self.config.skills_dir) / f'{contract.interface.skill}.md').read_text()
-            session = AgentSession(phase, inputs, evidence, self.ros, self.config, self.on_event)
+            session = AgentSession(phase, inputs, evidence, self.ros, self.config, self.on_event, self.speak)
 
             self.on_event('agent_start', f'{contract.name} ({phase}) on {self.backend.name}', phase=phase)
             self.backend.run(system, _task(phase, inputs), tool_specs(phase), session.call,

@@ -296,3 +296,17 @@ def test_external_backend_waits_checks_and_closes_the_call(tmp_path):
     assert [reply['accepted'] for reply in replies] == [False, False, True]
     assert requests[-1]['state'] == 'closed'
     assert 'say' in [name for name, _ in runner.calls]
+
+
+def test_say_speaks_short_sentences_spaced_out(tmp_path):
+    spoken, now = [], [0.0]
+    session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None, spoken.append, lambda: now[0])
+
+    assert not session.call('say', {'text': 'Checking   the  reach.'}).is_error
+    assert session.call('say', {'text': 'Too soon.'}).is_error                 # under 3 s after the last one
+    now[0] = 3.5
+    assert session.call('say', {'text': 'x' * 201}).is_error                   # too long
+    assert not session.call('say', {'text': 'Stepping back 20 centimetres.'}).is_error
+    assert spoken == ['Checking the reach.', 'Stepping back 20 centimetres.']
+
+    assert AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None).call('say', {'text': 'hi'}).is_error
