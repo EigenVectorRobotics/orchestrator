@@ -5,6 +5,13 @@ How to run the walk-and-press test at the freight elevator, judge each press, an
 ## Setup
 
 - **Machines:** the NUC runs the robot interface, arm control, body EKF and navigation. The Orin runs the camera, `seed_bbox` and `track_3d`. The Thor runs Cosmos grounding.
+- **Access and workspaces** (seen 2026-11-04). Each machine holds several workspaces; the one in the table is the one its running nodes come from. Passwords are not kept in this file: ask the team.
+
+  | Machine | SSH | OS, ROS | Workspace in use | Notes |
+  |---|---|---|---|---|
+  | NUC | `ssh vector@vector-nuc` (`192.168.123.5` on the robot wire) | Ubuntu 24.04, Jazzy | `~/eigen_vector_ws` | `env.sh` there is written by `deploy.sh`. Other workspaces (`eigen_vector_ws_lio`, `eigen_vector_ws_apt`, `manip_test*`, `vector_robotics`) are not in use |
+  | Orin | `ssh unitree@unitree-g1-nx` | Ubuntu 22.04, Humble | `~/eigen_vector_ws` | `seed_bbox` and `track_3d` run from its install; the camera is the apt `realsense2_camera`, raw RGB8 only (no compressed transport installed) |
+  | Thor | `ssh vector@vector-thor` | Ubuntu 24.04, Jazzy | `~/eigen_vector_ws_bringup` | `ground_server` runs from it (vlm `main` @ `3ca4861`), not from `~/eigen_vector_ws`. The Cosmos daemon runs in the docker container `edgellm` |
 - **Launch:** from the laptop, `utils_ws/src/eigen_vector/scripts/deploy.sh launch nuc map:=/home/vector/maps/two_floor_clean.pcd localization:=true`. Use `SSH_HOST=192.168.123.5` when the laptop is on the robot wire.
 - **Check localization first:** `/slam_elevatorlio/status` must say `"mode": "localization"` and `"localized": true`. A stack in mapping mode has no terrain graph, and every nav goal aborts.
 - **Places:** `~/maps/two_floor_clean.places.yaml` on the NUC. The inside place sits 10 cm back from the panel (x 3.428, y -0.263, yaw 152.8 deg).
