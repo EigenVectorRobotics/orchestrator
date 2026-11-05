@@ -33,6 +33,9 @@ outputs:
 - {name: reason, type: string}
 - {name: goal, type: pose, description: 'base_goal moved by the reposition, or base_goal'}
 - {name: left_arm, type: bool, description: 'the arm for the next press'}
+- {name: offset_x, type: float, description: 'offset_retry: the press offset along the button normal, m (set_press_offset x)'}
+- {name: offset_y, type: float, description: 'offset_retry: sideways, m, positive left'}
+- {name: offset_z, type: float, description: 'offset_retry: up, m'}
 needs_cloud: true
 timeout_s: 600
 maturity: untested

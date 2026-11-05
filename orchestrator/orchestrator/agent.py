@@ -23,11 +23,12 @@ from .agent_sandbox import SandboxConfig, run_python
 
 # The decisions each phase may end with, and the ones that let the tree go on
 PHASE_DECISIONS = {
-    'diagnose':   ('reposition', 'switch_arm', 'retry', 'ask_help', 'abort'),
+    'diagnose':   ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help', 'abort'),
     'view_check': ('continue', 'abort'),
     'judge':      ('pressed', 'not_pressed'),
 }
-GOING_ON = {'reposition', 'switch_arm', 'retry', 'continue', 'pressed'}
+GOING_ON = {'reposition', 'switch_arm', 'offset_retry', 'retry', 'continue', 'pressed'}
+MAX_PRESS_OFFSET_M = 0.03               # an offset_retry corrects millimetres; a larger miss needs another decision
 
 MAX_READ_BYTES = 200_000
 MAX_TOOL_TEXT  = 40_000
@@ -189,6 +190,9 @@ def _tool_specs(phase: str) -> list[dict]:
                     'dy':           {'type': 'number', 'description': 'reposition: metres to the left of the base goal'},
                     'dyaw':         {'type': 'number', 'description': 'reposition: radians, counterclockwise'},
                     'use_left_arm': {'type': 'boolean', 'description': 'switch_arm: the arm for the next press'},
+                    'ox':           {'type': 'number', 'description': 'offset_retry: the whole press offset to use, metres along the button normal (positive deeper)'},
+                    'oy':           {'type': 'number', 'description': 'offset_retry: metres sideways in the button frame (positive left)'},
+                    'oz':           {'type': 'number', 'description': 'offset_retry: metres up'},
                 },
                 'required':   ['decision', 'reason'],
             },
@@ -235,13 +239,16 @@ def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None) ->
     if decision['decision'] == 'switch_arm':
         outputs['left_arm'] = bool(decision['use_left_arm'])
 
+    if decision['decision'] == 'offset_retry':
+        outputs.update({f'offset_{axis}': float(decision[f'o{axis}']) for axis in 'xyz'})
+
     return outputs
 
 
-def _json(value) -> str:
+def _json(value, whole: bool = False) -> str:
     text = json.dumps(value, indent=1, default=str)
 
-    return text if len(text) <= MAX_TOOL_TEXT else text[:MAX_TOOL_TEXT] + f'\n... [{len(text) - MAX_TOOL_TEXT} characters cut]'
+    return text if whole or len(text) <= MAX_TOOL_TEXT else text[:MAX_TOOL_TEXT] + f'\n... [{len(text) - MAX_TOOL_TEXT} characters cut]'
 
 
 class AgentSession:
@@ -283,18 +290,18 @@ class AgentSession:
 
     # ----- the tools -----
 
-    def _tool_get_failure(self) -> ToolOutput:
+    def _tool_get_failure(self, whole: bool = False) -> ToolOutput:
         failure = self.evidence.get('last_failure')
 
-        return ToolOutput(_json(failure) if failure else 'no action has failed in this tree')
+        return ToolOutput(_json(failure, whole) if failure else 'no action has failed in this tree')
 
-    def _tool_get_press(self) -> ToolOutput:
+    def _tool_get_press(self, whole: bool = False) -> ToolOutput:
         press = self.evidence.get('press')
 
-        return ToolOutput(_json(press) if press else 'no press frames were kept')
+        return ToolOutput(_json(press, whole) if press else 'no press frames were kept')
 
-    def _tool_get_history(self) -> ToolOutput:
-        return ToolOutput(_json(self.evidence.get('history', [])))
+    def _tool_get_history(self, whole: bool = False) -> ToolOutput:
+        return ToolOutput(_json(self.evidence.get('history', []), whole))
 
     def _tool_read_file(self, path: str, offset: int = 1, limit: int | None = None) -> ToolOutput:
         real = Path(path).resolve()
@@ -369,7 +376,8 @@ class AgentSession:
         return ToolOutput(text, is_error=result['exit_code'] != 0)
 
     def _tool_decide(self, decision: str, reason: str, dx: float | None = None, dy: float | None = None,
-                     dyaw: float | None = None, use_left_arm: bool | None = None) -> ToolOutput:
+                     dyaw: float | None = None, use_left_arm: bool | None = None, ox: float | None = None,
+                     oy: float | None = None, oz: float | None = None) -> ToolOutput:
         if self.decision is not None:
             return ToolOutput('you have already decided', is_error=True)
 
@@ -391,6 +399,14 @@ class AgentSession:
         if decision == 'switch_arm' and use_left_arm is None:
             return ToolOutput('switch_arm needs use_left_arm', is_error=True)
 
+        if decision == 'offset_retry':
+            if ox is None or oy is None or oz is None:
+                return ToolOutput('offset_retry needs ox, oy and oz: the whole press offset to use, in metres', is_error=True)
+
+            if max(abs(ox), abs(oy), abs(oz)) > MAX_PRESS_OFFSET_M:
+                return ToolOutput(f'offset_retry corrects at most {MAX_PRESS_OFFSET_M * 1000:g} mm per axis; a larger '
+                                  'miss is a wrong target or a wrong stance: choose another decision', is_error=True)
+
         self.decision = {
             'decision':     decision,
             'reason':       reason.strip(),
@@ -398,6 +414,9 @@ class AgentSession:
             'dy':           dy or 0.0,
             'dyaw':         dyaw or 0.0,
             'use_left_arm': use_left_arm,
+            'ox':           ox,
+            'oy':           oy,
+            'oz':           oz,
         }
         self.on_event('agent_decision', f'{decision}: {reason.strip()}', decision=self.decision)
 

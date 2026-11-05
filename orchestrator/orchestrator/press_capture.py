@@ -64,6 +64,7 @@ class PhaseTracker:
         self.release_t  = None
         self.max_depth  = -math.inf
         self.lateral_at_max = None    # sideways distance from the goal at the deepest point
+        self.offset_at_max  = None    # end effector minus goal at the deepest point, in map-like axes (foot_world)
         self._max_t     = None
 
     def set_goal(self, position, quaternion_xyzw):
@@ -88,7 +89,7 @@ class PhaseTracker:
             return
 
         if depth > self.max_depth:
-            self.max_depth, self._max_t, self.lateral_at_max = depth, t, lateral
+            self.max_depth, self._max_t, self.lateral_at_max, self.offset_at_max = depth, t, lateral, offset
 
         pushed = self.max_depth > -self.config.approach_offset_m / 2
 
@@ -224,6 +225,21 @@ class PressCapture:
 
         return dict(self.saved)
 
+    def residual(self) -> list | None:
+        """End effector minus goal at the deepest point, in the goal's frame as move_to_pose applies the press offset:
+        x along the goal's +X (into the panel), z up, y = z cross x (to the left). The negative is the correction"""
+        tracker = self.tracker
+
+        if tracker.offset_at_max is None:
+            return None
+
+        x = np.array([tracker.axis[0], tracker.axis[1], 0.0])
+        x = x / (np.linalg.norm(x) or 1.0)
+        z = np.array([0.0, 0.0, 1.0])
+        y = np.cross(z, x)
+
+        return [round(float(tracker.offset_at_max @ axis), 4) for axis in (x, y, z)]
+
     def events(self) -> dict:
         tracker = self.tracker
 
@@ -233,6 +249,7 @@ class PressCapture:
             'release_t':  tracker.release_t,
             'max_depth_m': None if math.isinf(tracker.max_depth) else round(tracker.max_depth, 4),
             'lateral_at_max_m': None if tracker.lateral_at_max is None else round(tracker.lateral_at_max, 4),
+            'residual_m': self.residual(),
             'frames':     {name: round(t, 3) for name, (t, _) in self.frames.items()},
             'boxes':      {name: [round(value, 1) for value in box] for name, box in self.boxes.items()},
         }

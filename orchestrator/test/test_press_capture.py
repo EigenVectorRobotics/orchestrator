@@ -256,3 +256,33 @@ def test_the_swing_up_beside_the_goal_is_not_taken_for_the_push():
     assert tracker.max_depth == pytest.approx(0.0, abs=0.002)
     assert tracker.lateral_at_max == pytest.approx(0.0, abs=0.002)
     assert tracker.deepest_t == pytest.approx(0.7 * DURATION, abs=0.02)
+
+
+
+def test_the_residual_is_in_the_goal_frame_x_in_y_left_z_up():
+    """A goal facing +y (yaw 90 deg): its x is map +y, its left (y) is map -x"""
+    capture = PressCapture(CaptureConfig(), FrameBuffer(), left_arm=False)
+    yaw_90  = (0.0, 0.0, 0.7071068, 0.7071068)
+    capture.on_goal(GOAL, yaw_90)
+
+    for step in range(301):
+        t     = step / 100
+        depth = float(np.interp(t / DURATION, [p[0] for p in PRESS], [p[1] for p in PRESS]))
+        # 5 mm short at the deepest point, 8 mm to the goal's right (map +x), 3 mm low
+        capture.on_pose(t, (GOAL[0] + 0.008, GOAL[1] + depth - 0.005, GOAL[2] - 0.003))
+
+    assert capture.residual() == pytest.approx([-0.005, -0.008, -0.003], abs=1e-4)
+
+
+
+def test_a_service_field_path_can_index_a_sequence():
+    from rcl_interfaces.srv import SetParameters
+    from orchestrator.ros_skill_runner import build_message
+
+    contract = Registry.from_directory(CONTRACTS).get('set_press_offset')
+    build_message(SetParameters.Request, contract, {'x': 0.0, 'y': 0.0, 'z': 0.0}, None)      # the contract stays reusable
+    request  = build_message(SetParameters.Request, contract, {'x': 0.005, 'y': -0.0075, 'z': 0.0034}, None)
+
+    assert [parameter.name for parameter in request.parameters] == ['arm_safety_distance_x', 'arm_safety_distance_y', 'arm_safety_distance_z']
+    assert [parameter.value.type for parameter in request.parameters] == [3, 3, 3]
+    assert [parameter.value.double_value for parameter in request.parameters] == [0.005, -0.0075, 0.0034]

@@ -7,7 +7,7 @@
   agent_cli topics                      the topic list
   agent_cli image camera|overlay OUT    save the latest image to OUT
   agent_cli python FILE                 run FILE in the agent sandbox (numpy, scipy, pinocchio, coal)
-  agent_cli decide DECISION --reason R [--dx --dy --dyaw] [--left-arm | --right-arm] [--send]
+  agent_cli decide DECISION --reason R [--dx --dy --dyaw] [--ox --oy --oz] [--left-arm | --right-arm] [--send]
                                         without --send, only show what would be sent
   agent_cli say TEXT                    speak TEXT through the robot's speaker (/speak)
 
@@ -96,7 +96,8 @@ def _summary(request: dict, full: bool) -> str:
     if press:
         capture = press.get('capture') or {}
         lines.append(f'press: {"left" if press.get("left_arm") else "right"} arm, deepest {capture.get("max_depth_m")} m along '
-                     f'the button normal, {capture.get("lateral_at_max_m")} m sideways there')
+                     f'the button normal, {capture.get("lateral_at_max_m")} m sideways there, '
+                     f'residual (x in, y left, z up) {capture.get("residual_m")} m')
         lines += [f'  frame {name}: {path}' for name, path in sorted((press.get('frames') or {}).items())]
     elif 'press' in request:
         lines.append('press: no frames were kept')
@@ -120,7 +121,7 @@ def _decide(node, arguments) -> int:
 
     decision = {'id': request['id'], 'decision': arguments.decision, 'reason': arguments.reason}
 
-    for key in ('dx', 'dy', 'dyaw'):
+    for key in ('dx', 'dy', 'dyaw', 'ox', 'oy', 'oz'):
         if getattr(arguments, key) is not None:
             decision[key] = getattr(arguments, key)
 
@@ -199,6 +200,8 @@ def main():
     decide.add_argument('--dx', type=float)
     decide.add_argument('--dy', type=float)
     decide.add_argument('--dyaw', type=float)
+    for axis in 'xyz':
+        decide.add_argument(f'--o{axis}', type=float, help=f'offset_retry: the press offset in {axis}, metres')
     arm = decide.add_mutually_exclusive_group()
     arm.add_argument('--left-arm', dest='left_arm', action='store_true', default=None)
     arm.add_argument('--right-arm', dest='left_arm', action='store_false')

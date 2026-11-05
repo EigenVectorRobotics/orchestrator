@@ -41,15 +41,20 @@ class InputError(ValueError):
 
 
 def parse_pose(text: str) -> dict:
-    """'x y yaw' or 'x,y,yaw', in metres and radians, in the map frame"""
+    """'x y yaw' or 'x y z yaw' (commas allowed), in metres and radians, in the map frame. z is the storey on a
+    multi-storey map: without it the route planner takes the lowest storey"""
     numbers = text.replace(',', ' ').split()
 
-    if len(numbers) != 3:
-        raise InputError(f'a pose is "x y yaw", not "{text}"')
+    if len(numbers) not in (3, 4):
+        raise InputError(f'a pose is "x y yaw" or "x y z yaw", not "{text}"')
 
-    x, y, yaw = (float(number) for number in numbers)
+    values = [float(number) for number in numbers]
+    pose   = {'x': values[0], 'y': values[1], 'yaw': values[-1], 'frame': 'map'}
 
-    return {'x': x, 'y': y, 'yaw': yaw, 'frame': 'map'}
+    if len(values) == 4:
+        pose['z'] = values[2]
+
+    return pose
 
 
 def _convert(value, port_type: str, port_name: str):

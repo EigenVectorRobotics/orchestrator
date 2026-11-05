@@ -1,5 +1,6 @@
 """Run any skill from its contract over ROS 2: actions, services, topics, topic watches, and the local VLM"""
 
+import copy
 import json
 import math
 import time
@@ -54,8 +55,8 @@ def build_message(message_type, contract: Contract, inputs: dict, node: Node):
     """A goal, request or topic message with the fixed fields, then the input ports"""
     message = message_type()
 
-    if contract.interface.fixed:
-        set_message_fields(message, contract.interface.fixed)
+    if contract.interface.fixed:      # a copy: set_message_fields turns a list of dicts into messages in place
+        set_message_fields(message, copy.deepcopy(contract.interface.fixed))
 
     for port in contract.inputs:
         if port.name not in inputs:
@@ -77,8 +78,8 @@ def build_message(message_type, contract: Contract, inputs: dict, node: Node):
         *parents, leaf = port.message_field.split('.')
         target          = message
 
-        for parent in parents:
-            target = getattr(target, parent)
+        for parent in parents:             # a number is an index into a sequence, e.g. parameters.0.value
+            target = target[int(parent)] if parent.isdigit() else getattr(target, parent)
 
         setattr(target, leaf, value)
 
@@ -324,7 +325,13 @@ class _ServiceHandle(_ServerHandle):
         if self.future.done():
             response     = self.future.result()
             self.outputs = extract_outputs(self.contract, response)
-            self._finish(getattr(response, 'success', True), getattr(response, 'message', ''))
+            results      = getattr(response, 'results', None)          # rcl_interfaces SetParameters: one per parameter
+
+            if results is not None and all(hasattr(result, 'successful') for result in results):
+                failed = [result.reason for result in results if not result.successful]
+                self._finish(not failed, '; '.join(failed) or f'{len(results)} parameters set')
+            else:
+                self._finish(getattr(response, 'success', True), getattr(response, 'message', ''))
 
         return self.status
 

@@ -377,3 +377,85 @@ def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path)
 
     backend.deliver({'id': recovery['id'], 'decision': 'ask_help', 'reason': 'r'})
     assert _run(tree) == Status.FAILURE
+
+
+
+# ========== offset_retry ==========
+
+def test_offset_retry_needs_the_whole_offset_within_30_mm(tmp_path):
+    session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
+
+    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.005}).is_error
+    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.05, 'oy': 0.0, 'oz': 0.0}).is_error
+    assert not session.call('decide', {'decision': 'offset_retry', 'reason': 'rim', 'ox': 0.005, 'oy': 0.0075, 'oz': 0.0034}).is_error
+
+    outputs = decision_outputs(session.decision, {}, {'inputs': {'left_arm': False}})
+
+    assert (outputs['offset_x'], outputs['offset_y'], outputs['offset_z']) == (0.005, 0.0075, 0.0034)
+    assert outputs['left_arm'] is False
+
+
+
+OFFSET_TREE = '''<root BTCPP_format="4"><BehaviorTree ID="t"><Fallback>
+  <Sequence>
+    <press_button target_description="floor 1"/>
+    <press_judge target_description="floor 1"/>
+  </Sequence>
+  <Sequence>
+    <manipulation_recovery phase="diagnose" target_description="floor 1" base_goal="{call_panel}" decision="{decision}"
+                           offset_x="{offset_x}" offset_y="{offset_y}" offset_z="{offset_z}"/>
+    <Fallback>
+      <Inverter><decision_is value="{decision}" equals="offset_retry"/></Inverter>
+      <set_press_offset x="{offset_x}" y="{offset_y}" z="{offset_z}"/>
+    </Fallback>
+    <press_button target_description="floor 1"/>
+    <press_judge target_description="floor 1"/>
+  </Sequence>
+</Fallback></BehaviorTree></root>'''
+
+
+def test_offset_retry_sets_the_offset_and_presses_again(tmp_path):
+    requests, replies = [], []
+    backend = ExternalAgentBackend(requests.append, replies.append)
+    agent   = Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE)
+    runner  = FakeRunner([(True, 'Controller reached target', [{'t': 0.5}]), (True, 'Controller reached target', [])])
+    tree    = _tree(OFFSET_TREE, runner, agent)
+
+    judge = _wait_request(tree, requests, 1)
+    backend.deliver({'id': judge['id'], 'decision': 'not_pressed', 'reason': 'on the rim'})
+    recovery = _wait_request(tree, requests, 2)
+    assert 'offset_retry' in recovery['decisions']
+    backend.deliver({'id': recovery['id'], 'decision': 'offset_retry', 'reason': 'rim', 'ox': 0.005, 'oy': 0.0075, 'oz': 0.0034})
+    again = _wait_request(tree, requests, 3)
+    backend.deliver({'id': again['id'], 'decision': 'pressed', 'reason': 'lit'})
+
+    assert _run(tree) == Status.SUCCESS
+    offsets = [inputs for name, inputs in runner.calls if name == 'set_press_offset']
+    assert offsets == [{'x': 0.005, 'y': 0.0075, 'z': 0.0034}]
+    assert [name for name, _ in runner.calls].count('press_button') == 2
+
+
+
+def test_the_session_gets_a_long_failure_whole(tmp_path):
+    """A 60 s press keeps 120 feedback samples, over the 40 kB a model's tool output is cut to"""
+    requests, replies = [], []
+    backend  = ExternalAgentBackend(requests.append, replies.append)
+    goal     = {'header': {'frame_id': 'foot_world'}, 'pose': {'position': {'x': 0.4, 'y': -0.1, 'z': 1.0}}}
+    feedback = [{'t': 0.5 * index, 'distance_to_goal': float('inf'), 'tracking_lost': False, 'current_goal': goal,
+                 'padding': 'x' * 300} for index in range(120)]
+    runner   = FakeRunner([(False, 'timeout after 60 s', feedback)])
+    tree     = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
+
+    request = _wait_request(tree, requests, 1)
+
+    assert request['failure'] is not None and len(request['failure']['feedback']) == 120
+    backend.deliver({'id': request['id'], 'decision': 'ask_help', 'reason': 'r'})
+    _run(tree)
+
+
+
+def test_a_literal_pose_can_carry_the_storey():
+    from orchestrator.skill_leaf import parse_pose
+
+    assert parse_pose('3.74 -0.422 2.67') == {'x': 3.74, 'y': -0.422, 'yaw': 2.67, 'frame': 'map'}
+    assert parse_pose('3.74, -0.422, -0.435, 2.67')['z'] == -0.435

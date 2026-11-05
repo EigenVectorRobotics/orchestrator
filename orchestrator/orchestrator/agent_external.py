@@ -21,7 +21,7 @@ from .agent import AgentError, ToolOutput
 REQUEST_TOPIC   = '/orchestrator/agent/request'
 DECISION_TOPIC  = '/orchestrator/agent/decision'
 REPLY_TOPIC     = '/orchestrator/agent/reply'
-DECISION_FIELDS = ('decision', 'reason', 'dx', 'dy', 'dyaw', 'use_left_arm')
+DECISION_FIELDS = ('decision', 'reason', 'dx', 'dy', 'dyaw', 'use_left_arm', 'ox', 'oy', 'oz')
 
 
 class AgentStopped(AgentError):
@@ -29,7 +29,7 @@ class AgentStopped(AgentError):
 
 
 def _evidence(call_tool: Callable[[str, dict], ToolOutput], name: str):
-    output = call_tool(name, {})
+    output = call_tool(name, {'whole': True})        # the session gets all of it: a 60 s press is over 40 kB
 
     try:
         return json.loads(output.text)
