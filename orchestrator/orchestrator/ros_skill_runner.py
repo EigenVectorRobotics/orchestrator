@@ -5,7 +5,6 @@ import json
 import math
 import time
 
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from rclpy.node import Node
@@ -23,7 +22,7 @@ from skill_registry.contract import WHOLE_MESSAGE, HeldValue, Watch
 from .images import ImageError, image_to_jpeg
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
-from .press_capture import BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
+from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
 
 
 MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
@@ -448,7 +447,7 @@ class RosSkillRunner:
         vlm_client: VlmClient | None = None,
         image_topic: str = '/camera/camera/color/image_raw',
         server_wait_s: float = 3.0,
-        capture_dir: str = str(Path.home() / '.ros' / 'orchestrator_captures')
+        capture_dir: str = DEFAULT_CAPTURE_DIR
     ):
         self.node          = node
         self.vlm_client    = vlm_client or VlmClient()

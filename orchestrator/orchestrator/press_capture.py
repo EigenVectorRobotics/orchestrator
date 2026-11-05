@@ -18,12 +18,14 @@ import io
 import math
 import threading
 
+from pathlib import Path
 from dataclasses import dataclass, field
 
 import numpy as np
 
 
 FRAMES = ('baseline', 'press', 'release')
+DEFAULT_CAPTURE_DIR = str(Path.home() / '.ros' / 'orchestrator_captures')   # where a press saves its frames
 
 
 @dataclass

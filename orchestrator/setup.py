@@ -29,6 +29,7 @@ setup(
             'send_tree = orchestrator.send_tree:main',
             'agent_cli = orchestrator.agent_cli:main',
             'cosmos_vlm_server = orchestrator.cosmos_vlm_server:main',
+            'run_recorder = orchestrator.run_recorder:main',
         ],
     },
 )

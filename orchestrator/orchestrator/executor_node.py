@@ -1,6 +1,7 @@
 """Validate a behavior tree, then tick it on the NUC; every step goes to the trace"""
 
 import json
+import uuid
 
 from pathlib import Path
 
@@ -25,6 +26,8 @@ from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
 from .ros_skill_runner import RosSkillRunner
+from .press_capture import DEFAULT_CAPTURE_DIR
+from .run_recorder import STATUS_TOPIC as RECORDER_TOPIC
 
 
 STATUS_QOS  = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -42,7 +45,9 @@ class ExecutorNode(Node):
         self.vlm_base_url = self.declare_parameter('vlm_base_url', 'http://vector-thor:8090/v1').value
         self.vlm_model    = self.declare_parameter('vlm_model', 'local').value
         self.vlm_timeout  = self.declare_parameter('vlm_timeout_s', 40.0).value    # Cosmos on the Thor: one request at a time
-        self.capture_dir  = self.declare_parameter('capture_dir', str(Path.home() / '.ros' / 'orchestrator_captures')).value
+        self.capture_dir  = self.declare_parameter('capture_dir', DEFAULT_CAPTURE_DIR).value
+        self.require_recorder = self.declare_parameter('require_recorder', False).value   # true: no tree runs unrecorded
+        self.recorder_status  = {'ready': False, 'reason': 'no status from run_recorder yet'}
 
         self.tracer   = Tracer(self, 'executor')
         self.runner   = RosSkillRunner(
@@ -61,6 +66,7 @@ class ExecutorNode(Node):
             self.create_subscription(String, '/orchestrator/tree', self._on_tree, 10),
             self.create_subscription(String, '/orchestrator/tree_blind', self._on_blind_tree, 10),
             self.create_subscription(Empty, '/orchestrator/cancel', self._on_cancel, 10),
+            self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, STATUS_QOS),
         ]
         self._tick_timer         = self.create_timer(1.0 / self.tick_hz, self._tick)
 
@@ -144,7 +150,18 @@ class ExecutorNode(Node):
     def _on_blind_tree(self, message: String):
         self.run(message.data, blind=True)
 
+    def _on_recorder_status(self, message: String):
+        self.recorder_status = json.loads(message.data)
+
     def run(self, xml_text: str, blind: bool) -> bool:
+        recorder_up = self.count_publishers(RECORDER_TOPIC) > 0         # a latched ready outlives a recorder that died
+
+        if self.require_recorder and not (recorder_up and self.recorder_status.get('ready')):
+            reason = self.recorder_status.get('reason') if recorder_up else 'run_recorder is not running'
+            self.tracer.emit('rejected', f'tree refused: the recorder is not ready ({reason})', level='error')
+            self._publish_status('rejected')
+            return False
+
         validator = TreeValidator(
             self.registry,
             ValidatorConfig(essential_devices=self.essential_devices, blind=blind, known_keys=set(self.places))
@@ -166,6 +183,7 @@ class ExecutorNode(Node):
         if self.tree is not None:
             self.tree.halt()
             self.tracer.emit('halted', f'halted {self.tree.id} for a new tree', level='warn')
+            self._clear_tree()
 
         context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record)
 
@@ -177,7 +195,8 @@ class ExecutorNode(Node):
             self._publish_status('rejected')
             return False
 
-        self.tracer.emit('started', f'running {self.tree.id}' + (' (blind)' if blind else ''), tree=xml_text)
+        self.tracer.fields = {'run_id': uuid.uuid4().hex[:8], 'tree_id': self.tree.id}
+        self.tracer.emit('started', f'running {self.tree.id}' + (' (blind)' if blind else ''), tree=xml_text, blind=blind)
         self._publish_status('running')
 
         return True
@@ -188,7 +207,7 @@ class ExecutorNode(Node):
 
         self.tree.halt()
         self.tracer.emit('halted', f'{self.tree.id} cancelled', level='warn')
-        self.tree = None
+        self._clear_tree()
         self._publish_status('cancelled')
 
     # ========== Ticks ==========
@@ -204,7 +223,7 @@ class ExecutorNode(Node):
             self.tracer.emit('error', f'{self.tree.id} stopped by an internal error: {error!r}', level='error')
             self.get_logger().error(f'tick failed: {error!r}')
             self._publish_status('error')
-            self.tree = None
+            self._clear_tree()
             return
 
         if status == Status.RUNNING:
@@ -215,7 +234,12 @@ class ExecutorNode(Node):
         text   = f'{self.tree.id}: {status.value}' + (f' (aborted by {reason})' if reason else '')
         self.tracer.emit('finished', text, level=level, status=status.value, aborted=reason)
         self._publish_status(status.value)
-        self.tree = None
+        self._clear_tree()
+
+    def _clear_tree(self):
+        """The run is over: no tree, and no run_id on later events"""
+        self.tree          = None
+        self.tracer.fields = {}
 
     def _on_node_event(self, node, event: dict):
         if event['status'] == Status.IDLE.value:
