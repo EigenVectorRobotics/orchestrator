@@ -59,6 +59,20 @@ A skill goes up in maturity as it is used more and is reliable.
 - **Where the counts live:** one stats file in the package (`stats.yaml`: name, version, sim and robot counts), written by the executor. `/skills/live` carries the maturity.
 - The current maturity values (`tested`, `wip`, `untested`) map to this table, with `untested` renamed `experimental`, and a new `deprecated`.
 
+### Compositions: behavior trees that graduate
+
+A behavior tree is not the planner's normal output. It is a composition that the agent makes from steps that worked, and it graduates like any other skill.
+
+- **One task is one run.** For a new task, the agent works step by step: it calls a skill, looks at the result, and selects the next one. It can call many skills in one task. The executor runs each call, so the contracts, the validator, the recorder and the `rt/*` ban still apply. The recorder makes one bundle (one bag) per task, not per tree.
+- **The agent makes the tree.** When the same steps work in more than one run for one kind of task, the agent writes them as a BT (with the checks and fallbacks it saw were necessary) and a contract for it, from the run bundles. The tree is then a compound skill, at `experimental`.
+- **It graduates with the same rules** as the table above: the same counts, the same `check`, the same human gate before the first robot use.
+- **The planner calls a graduated tree as one skill**, for example `call_elevator`.
+- **Blind segments need a tree.** In the cabin there is no cloud, so the agent cannot work step by step there. Only a tree at `wip` or `tested` can run a blind segment.
+
+Experiment: can the agent find the compositions alone? For the test, the agent must not see the trees that people wrote (`skill_registry/trees/`). Hide them from the planner's catalog and from `agent_read_roots`, and check what else gives the steps away (for example the procedure and the experience log in `manipulation_recovery.md`). Keep them outside the agent's view, to compare with what the agent makes.
+
+Not built yet: the step-by-step mode of the planner, the run boundary per task (now `started` per tree), a contract for a tree, and the agent's tool to write a tree from run bundles.
+
 ### Similar work
 
 - **Voyager** (Minecraft, LLM agent): a skill library of code. A skill goes into the library only after a self-check that the task is done. Without the self-check, results were 73 % worse.
