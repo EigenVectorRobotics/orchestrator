@@ -83,7 +83,7 @@ When you run inside the executor (`orchestrator/agent.py`), these are your tools
 | `get_history()` | Every finished action call of this tree (without feedback) and your earlier decisions with their reasons and offsets, oldest first |
 | `read_file(path, offset, limit)` | Reads a text file or lists a directory, only under `/home/vector/eigen_vector_ws`, the agent skills directory and the scratch directory |
 | `ros_read(op, ...)` | `op: tf` with `target_frame`, `source_frame`: the latest transform, i.e. the pose of `source_frame` in `target_frame` (translation, quaternion, roll/pitch/yaw, age). `op: topic_once` with `topic`: the next message (images and point clouds are refused; use `get_image`). `op: topic_list`: topics and types |
-| `get_image(source)` | `camera`: the last color frame the executor has (`/camera/camera/color/image_raw/compressed`) [TODO: check that the Orin publishes this compressed topic]. `overlay`: the next frame of `/track_3d/tracked_overlay`, with the tracked mask and the tracker state text; it is published on every frame, also while nothing is tracked. `press_baseline`, `press_press`, `press_release`: the frames the last press kept for `button_lit` |
+| `get_image(source)` | `camera`: the last color frame the executor has (`/camera/camera/color/image_raw`, raw RGB8 1280x720 at 6 fps, encoded to JPEG by the executor). `overlay`: the next frame of `/track_3d/tracked_overlay`, with the tracked mask and the tracker state text; it is published on every frame, also while nothing is tracked. `press_baseline`, `press_press`, `press_release`: the frames the last press kept for `button_lit` |
 | `run_python(code)` | Runs Python 3.12 with `numpy`, `scipy`, `pinocchio` 4.1.0 and `coal`; returns stdout, stderr and the exit code. Pass data from the other tools in as literals. It runs in the scratch directory, which is also on `sys.path`: save helpers there and import them in later calls. Limits: 60 s, 4 GB, nice 19 |
 | `decide(decision, reason, dx, dy, dyaw, use_left_arm)` | Ends your turn; see "Your decision" |
 
@@ -121,7 +121,7 @@ track_anything does not run on the NUC; it runs on the Orin with the RealSense c
 | `/route_planner/status` | JSON: `state` (`routing`, `arrived`, `blocked`), `dist_to_goal` |
 | TF `pelvis`, `torso_link`, `foot_world` | Body frames; `foot_world` is published by `body_ekf` |
 | TF `left_tcp`, `right_tcp` | The end-effector points: `*_wrist_yaw_link` plus 0.1847585 m along X (`nuc.launch.py`) |
-| TF `camera_link` | Fixed on `torso_link` (from the `_ros` URDF). [TODO: check that the camera driver's color optical frame is a child of it] |
+| TF `camera_link` | Fixed on `torso_link` (from the `_ros` URDF). The RealSense driver on the Orin runs with `publish_tf: true` and `base_frame_id: link`, so it should hang its frames, the color optical frame among them, below `camera_link` [TODO: confirm by reading the TF tree] |
 | TF `base_link` | Navigation base; `sensor` to `base_link` is a static −0.35 m in z (`nuc.launch.py`) |
 
 **The target may be gone by the time you look.** The servo node resets track_anything (`/track_3d/reset`) when the goal is cancelled, times out, fails to seed, or succeeds. The orchestrator's 30 s timeout cancels it, so after a timeout the live topics usually hold nothing. After a motion failure (`Planning failed: ...`) there is no reset and the tracker may still publish. The failure record's `current_goal` is the reliable source.

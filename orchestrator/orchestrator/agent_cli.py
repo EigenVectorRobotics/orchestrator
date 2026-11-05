@@ -26,9 +26,10 @@ import rclpy
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.executors import SingleThreadedExecutor
 from std_msgs.msg import String
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import Image
 from ament_index_python.packages import get_package_share_directory
 
+from .images import ImageError, image_to_jpeg
 from .agent_ros import RosReader, RosReadError
 from .agent_sandbox import SandboxConfig, run_python
 from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
@@ -36,7 +37,7 @@ from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
 
 LATCHED      = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 COMMAND      = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
-CAMERA_TOPIC = '/camera/camera/color/image_raw/compressed'
+CAMERA_TOPIC = '/camera/camera/color/image_raw'
 
 
 def _spin_until(node, done, timeout_s: float) -> bool:
@@ -181,7 +182,7 @@ def main():
 
     try:
         sys.exit(_run(node, arguments))
-    except RosReadError as error:
+    except (RosReadError, ImageError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)
     finally:
@@ -219,7 +220,7 @@ def _run(node, arguments) -> int:
     spinner.start()
 
     try:
-        reader = RosReader(node, lambda: reader._once(CAMERA_TOPIC, CompressedImage, 3.0))
+        reader = RosReader(node, lambda: image_to_jpeg(reader._once(CAMERA_TOPIC, Image, 3.0)))
         time.sleep(0.5)                                 # discovery
 
         if arguments.command == 'tf':

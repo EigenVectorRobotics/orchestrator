@@ -3,7 +3,6 @@
 Use it to run the executor and the planner on a laptop, with no hardware.
 """
 
-import io
 import json
 import time
 import threading
@@ -19,21 +18,10 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import Trigger
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped
 
 from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS
-
-
-# The smallest valid JPEG: one grey pixel
-TINY_JPEG = bytes.fromhex(
-    'ffd8ffe000104a46494600010100000100010000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c'
-    '20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc4001f0000010501010101010100'
-    '000000000000000102030405060708090a0bffc400b5100002010303020403050504040000017d010203000411051221314106135161072271'
-    '14328191a1082342b1c11552d1f02433627282090a161718191a25262728292a3435363738393a434445464748494a535455565758595a6364'
-    '65666768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9'
-    'cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffda0008010100003f00fbd3ffd9'
-)
 
 
 BUTTON_BOX = (300, 220, 340, 260)       # where the fake camera draws the button, x_min y_min x_max y_max
@@ -65,7 +53,7 @@ class FakeRobot(Node):
         self._slam      = self.create_publisher(String, '/slam_elevatorlio/status', LATCHED_QOS)
         self._tracking  = self.create_publisher(Bool, '/track_3d/is_tracking', COMMAND_QOS)
         self._elevator  = self.create_publisher(Bool, '/LIO/in_elevator', COMMAND_QOS)
-        self._camera    = self.create_publisher(CompressedImage, '/camera/camera/color/image_raw/compressed', 1)
+        self._camera    = self.create_publisher(Image, '/camera/camera/color/image_raw', 1)     # raw, as on the Orin
         self._ee        = {arm: self.create_publisher(PoseStamped, f'/{arm}_ee_pose', COMMAND_QOS) for arm in ('right', 'left')}
         self._make_camera()
 
@@ -154,27 +142,25 @@ class FakeRobot(Node):
         self._tracking.publish(Bool(data=self.is_tracking))
         self._elevator.publish(Bool(data=False))
 
-        image              = CompressedImage()
-        image.header.stamp = self.get_clock().now().to_msg()
-        image.format       = 'jpeg'
-        image.data         = self._frame
+        image                     = Image()
+        image.header.stamp        = self.get_clock().now().to_msg()
+        image.header.frame_id     = 'camera_color_optical_frame'
+        image.height, image.width = self._frame.shape[:2]
+        image.encoding            = 'rgb8'
+        image.step                = image.width * 3
+        image.data                = self._frame.tobytes()
         self._camera.publish(image)
 
         if self.is_tracking and self._boxes is not None:     # track_anything stamps its boxes as their frame
             self._publish_box(image.header)
 
     def _make_camera(self):
-        """A 640x480 frame with a grey button in the middle, and track_anything's box topics if vision_msgs is there"""
-        try:
-            from PIL import Image, ImageDraw
-
-            canvas = Image.new('RGB', (640, 480), (90, 90, 95))
-            ImageDraw.Draw(canvas).ellipse(BUTTON_BOX, fill=(200, 200, 200))
-            buffer = io.BytesIO()
-            canvas.save(buffer, format='JPEG')
-            self._frame = buffer.getvalue()
-        except ImportError:
-            self._frame = TINY_JPEG
+        """A 640x480 RGB frame with a grey button in the middle, and track_anything's box topics if vision_msgs is there"""
+        x_min, y_min, x_max, y_max = BUTTON_BOX
+        rows, columns = np.mgrid[0:480, 0:640]
+        inside        = ((columns - (x_min + x_max) / 2) / ((x_max - x_min) / 2)) ** 2 + ((rows - (y_min + y_max) / 2) / ((y_max - y_min) / 2)) ** 2 <= 1
+        self._frame   = np.full((480, 640, 3), (90, 90, 95), dtype=np.uint8)
+        self._frame[inside] = (200, 200, 200)
 
         try:
             from vision_msgs.msg import Detection2DArray, Detection3D

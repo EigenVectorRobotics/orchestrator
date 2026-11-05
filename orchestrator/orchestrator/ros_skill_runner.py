@@ -11,7 +11,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.action import ActionClient
 from action_msgs.msg import GoalStatus
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped
 from rosidl_runtime_py import message_to_ordereddict, set_message_fields
 from rosidl_runtime_py.utilities import get_action, get_message, get_service
@@ -19,6 +19,7 @@ from rosidl_runtime_py.utilities import get_action, get_message, get_service
 from skill_registry import Contract, Registry
 from skill_registry.contract import WHOLE_MESSAGE, Watch
 
+from .images import ImageError, image_to_jpeg
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
 from .press_capture import BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
@@ -385,7 +386,7 @@ class _PressCheckHandle(_Handle):
         latest = self.runner.latest_image()
 
         return judge_press(self.capture, self.contract.interface, self.inputs, self.runner.vlm_client.ask,
-                           bytes(latest.data) if latest is not None else None, self.runner.capture_dir)
+                           latest, self.runner.capture_dir)
 
 
 # ========== Runner ==========
@@ -396,7 +397,7 @@ class RosSkillRunner:
         node: Node,
         registry: Registry,
         vlm_client: VlmClient | None = None,
-        image_topic: str = '/camera/camera/color/image_raw/compressed',
+        image_topic: str = '/camera/camera/color/image_raw',
         server_wait_s: float = 3.0,
         capture_dir: str = str(Path.home() / '.ros' / 'orchestrator_captures')
     ):
@@ -416,13 +417,13 @@ class RosSkillRunner:
         self._publishers:      dict[str, object]       = {}
         self._watches:         dict[tuple, TopicWatch] = {}
         self._vlm_pool    = ThreadPoolExecutor(max_workers=2)
-        self._image       = None
+        self._image       = None             # the last camera frame, as JPEG
         self._image_topic = image_topic
 
         for contract in registry:
             self.prepare(contract)
 
-        node.create_subscription(CompressedImage, image_topic, self._on_image, SENSOR_QOS)
+        node.create_subscription(Image, image_topic, self._on_image, SENSOR_QOS)
 
     def prepare(self, contract: Contract):
         """Make clients and subscriptions early: discovery is done, and watches have a value, when a tree first asks"""
@@ -497,8 +498,8 @@ class RosSkillRunner:
     def shutdown(self):
         self._vlm_pool.shutdown(wait=False, cancel_futures=True)
 
-    def latest_image(self) -> CompressedImage | None:
-        """The last camera frame, as the VLM sees it"""
+    def latest_image(self) -> bytes | None:
+        """The last camera frame, as JPEG: what the VLM sees"""
         return self._image
 
     def _check_watch(self, spec: Watch):
@@ -531,14 +532,21 @@ class RosSkillRunner:
         if not choices:
             return _DoneHandle(False, 'a VLM question needs choices')
 
-        future = self._vlm_pool.submit(self.vlm_client.ask, bytes(self._image.data), question, choices)
+        future = self._vlm_pool.submit(self.vlm_client.ask, self._image, question, choices)
 
         return _VlmHandle(future, question, interface.success_answer)
 
-    def _on_image(self, message: CompressedImage):
-        self._image = message
+    def _on_image(self, message: Image):
+        """Raw frames from the RealSense, encoded here: the Orin publishes no compressed transport"""
+        try:
+            jpeg = image_to_jpeg(message)
+        except ImageError as error:
+            self.node.get_logger().warn(f'camera frame dropped: {error}', throttle_duration_sec=10.0)
+            return
+
         stamp       = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
-        self.frames.add(stamp or self.now(), bytes(message.data))
+        self._image = jpeg
+        self.frames.add(stamp or self.now(), jpeg)
 
     def _subscribe_boxes(self, box_topic: str, target_topic: str):
         """track_anything's 2D boxes (stamped as their camera frame) and the id of the target it selected"""

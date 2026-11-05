@@ -38,7 +38,7 @@ class ExecutorNode(Node):
         self.registry, self.places, self.essential_devices = load_skills(self)
 
         self.tick_hz      = self.declare_parameter('tick_hz', 10.0).value
-        self.image_topic  = self.declare_parameter('image_topic', '/camera/camera/color/image_raw/compressed').value
+        self.image_topic  = self.declare_parameter('image_topic', '/camera/camera/color/image_raw').value
         self.vlm_base_url = self.declare_parameter('vlm_base_url', 'http://vector-thor:8090/v1').value
         self.vlm_model    = self.declare_parameter('vlm_model', 'local').value
         self.vlm_timeout  = self.declare_parameter('vlm_timeout_s', 40.0).value    # Cosmos on the Thor: one request at a time

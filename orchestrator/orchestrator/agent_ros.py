@@ -4,15 +4,10 @@ Called from the agent's thread while the executor spins its node in the main thr
 and a TF listener, and never a publisher.
 """
 
-import io
 import math
-import zlib
-import struct
 import threading
 
 from typing import Callable
-
-import numpy as np
 
 from rclpy.node import Node
 from rclpy.time import Time
@@ -20,7 +15,9 @@ from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rosidl_runtime_py import message_to_ordereddict
 from rosidl_runtime_py.utilities import get_message
-from sensor_msgs.msg import CompressedImage, Image
+from sensor_msgs.msg import Image
+
+from .images import encode_rgb, image_to_rgb
 
 
 # Topics too big to read whole into the conversation; images go through image()
@@ -67,69 +64,11 @@ def _quaternion_to_rpy(x: float, y: float, z: float, w: float) -> list[float]:
     return [round(roll, 6), round(pitch, 6), round(yaw, 6)]
 
 
-def _png(rgb: np.ndarray) -> bytes:
-    """A minimal PNG writer, for when neither Pillow nor OpenCV is there"""
-    height, width, _ = rgb.shape
-    raw              = b''.join(b'\0' + rgb[row].tobytes() for row in range(height))
-
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
-
-    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
-            + chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b''))
-
-
-def encode_rgb(rgb: np.ndarray) -> tuple[bytes, str]:
-    """JPEG through Pillow or OpenCV, else PNG; the long side cut to MAX_IMAGE_SIDE by striding"""
-    step = max(1, math.ceil(max(rgb.shape[:2]) / MAX_IMAGE_SIDE))
-    rgb  = np.ascontiguousarray(rgb[::step, ::step])
-
-    try:
-        from PIL import Image as PilImage
-
-        buffer = io.BytesIO()
-        PilImage.fromarray(rgb).save(buffer, format='JPEG', quality=85)
-
-        return buffer.getvalue(), 'image/jpeg'
-    except ImportError:
-        pass
-
-    try:
-        import cv2
-
-        ok, encoded = cv2.imencode('.jpg', rgb[:, :, ::-1], [cv2.IMWRITE_JPEG_QUALITY, 85])
-
-        if ok:
-            return encoded.tobytes(), 'image/jpeg'
-    except ImportError:
-        pass
-
-    return _png(rgb), 'image/png'
-
-
-def image_to_rgb(message: Image) -> np.ndarray:
-    channels = {'rgb8': 3, 'bgr8': 3, 'rgba8': 4, 'bgra8': 4, 'mono8': 1}.get(message.encoding)
-
-    if channels is None:
-        raise RosReadError(f'image encoding {message.encoding} is not supported')
-
-    pixels = np.frombuffer(bytes(message.data), dtype=np.uint8).reshape(message.height, message.step)
-    pixels = pixels[:, :message.width * channels].reshape(message.height, message.width, channels)
-
-    if message.encoding == 'mono8':
-        return np.repeat(pixels, 3, axis=2)
-
-    if message.encoding.startswith('bgr'):
-        pixels = pixels[:, :, 2::-1]
-
-    return pixels[:, :, :3]
-
-
 class RosReader:
-    def __init__(self, node: Node, latest_camera_image: Callable[[], CompressedImage | None],
+    def __init__(self, node: Node, latest_camera_image: Callable[[], bytes | None],
                  capture_frames: Callable[[], dict] = dict):
         self.node                = node
-        self.latest_camera_image = latest_camera_image
+        self.latest_camera_image = latest_camera_image     # the last camera frame, as JPEG
         self.capture_frames      = capture_frames       # the last press's kept frames, by name
         self._tf_buffer          = None
         self._tf_listener        = None
@@ -242,12 +181,10 @@ class RosReader:
             if frame is None:
                 raise RosReadError('no camera frame yet')
 
-            media_type = 'image/png' if 'png' in frame.format.lower() else 'image/jpeg'
-
-            return bytes(frame.data), media_type
+            return frame, 'image/jpeg'
 
         if source == 'overlay':
-            return encode_rgb(image_to_rgb(self._once(OVERLAY_TOPIC, Image, 3.0)))
+            return encode_rgb(image_to_rgb(self._once(OVERLAY_TOPIC, Image, 3.0)), max_side=MAX_IMAGE_SIDE)
 
         if source.startswith('press_'):
             frame = self.capture_frames().get(source[len('press_'):])
