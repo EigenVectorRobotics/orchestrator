@@ -183,12 +183,17 @@ def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
     """base moved by (dx, dy) in its own frame (x along its yaw) and turned by dyaw"""
     yaw = float(base.get('yaw', 0.0))
 
-    return {
+    goal = {
         'x':     float(base['x']) + math.cos(yaw) * dx - math.sin(yaw) * dy,
         'y':     float(base['y']) + math.sin(yaw) * dx + math.cos(yaw) * dy,
         'yaw':   math.atan2(math.sin(yaw + dyaw), math.cos(yaw + dyaw)),
         'frame': base.get('frame', 'map'),
     }
+
+    if 'z' in base:                     # the same storey as the base goal
+        goal['z'] = float(base['z'])
+
+    return goal
 
 
 def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None) -> dict:

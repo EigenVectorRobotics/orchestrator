@@ -28,14 +28,14 @@
 
   <BehaviorTree ID="press_up">
     <Sequence>
-      <press_button target_description="elevator up call button"/>
-      <button_lit target_description="elevator up call button"/>
+      <press_button target_description="up button"/>
+      <button_lit target_description="up button"/>
     </Sequence>
   </BehaviorTree>
 
   <BehaviorTree ID="recover_press">
     <Sequence>
-      <manipulation_recovery phase="diagnose" target_description="elevator up call button" base_goal="{call_panel}"
+      <manipulation_recovery phase="diagnose" target_description="up button" base_goal="{call_panel}"
                              decision="{decision}" goal="{recovery_goal}" left_arm="{recovery_left_arm}"/>
       <Fallback>
         <Inverter>
@@ -43,11 +43,11 @@
         </Inverter>
         <Sequence>
           <navigate_to goal="{recovery_goal}"/>
-          <manipulation_recovery phase="view_check" target_description="elevator up call button"/>
+          <manipulation_recovery phase="view_check" target_description="up button"/>
         </Sequence>
       </Fallback>
-      <press_button target_description="elevator up call button" left_arm="{recovery_left_arm}"/>
-      <button_lit target_description="elevator up call button"/>
+      <press_button target_description="up button" left_arm="{recovery_left_arm}"/>
+      <button_lit target_description="up button"/>
     </Sequence>
   </BehaviorTree>
 </root>

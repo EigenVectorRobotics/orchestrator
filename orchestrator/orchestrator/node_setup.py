@@ -9,16 +9,16 @@ from ament_index_python.packages import get_package_share_directory
 
 from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry
 
+from .places import parse_places
+
 
 def load_places(path: str) -> dict:
-    """Named map-frame poses, put on the blackboard by name"""
+    """Named map-frame poses, put on the blackboard by name; either places format (see places.py)"""
     if not path or not Path(path).exists():
         return {}
 
     with open(path) as file:
-        raw = yaml.safe_load(file) or {}
-
-    return {name: {'frame': 'map', **pose} for name, pose in raw.items()}
+        return parse_places(yaml.safe_load(file))
 
 
 def load_skills(node: Node) -> tuple[Registry, dict, set[str]]:

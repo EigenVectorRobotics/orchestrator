@@ -30,8 +30,8 @@
 
   <BehaviorTree ID="press_up">
     <Sequence>
-      <press_button target_description="elevator up call button"/>
-      <button_lit target_description="elevator up call button"/>
+      <press_button target_description="up button"/>
+      <button_lit target_description="up button"/>
     </Sequence>
   </BehaviorTree>
 </root>

@@ -6,10 +6,11 @@ import yaml
 
 
 KINDS         = ('action', 'condition', 'composite')
-TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare')
-READ_ONLY     = ('watch', 'vlm', 'compare')                              # the transports a condition may use
+TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip')
+READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip')         # the transports a condition may use
 # watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
+# graph: each listed topic has at most its allowed publishers. press_tip: where the end effector got to in the last press.
 MATURITIES    = ('tested', 'wip', 'untested')
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
@@ -76,6 +77,8 @@ class Interface:
     capture:         dict = field(default_factory=dict)       # action: frames to keep around the call, e.g. {kind: press}
     frames:          str = ''               # vlm: judge the frames a capture kept (press_capture) instead of the latest one
     compare_question: str = ''              # vlm with frames: asked of [baseline | later frame] side by side
+    topics:          dict = field(default_factory=dict)       # graph: topic -> the most publishers it may have
+    limits:          dict = field(default_factory=dict)       # press_tip: max_lateral_m, min_depth_m
 
 
 @dataclass

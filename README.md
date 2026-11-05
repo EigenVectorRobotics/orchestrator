@@ -19,7 +19,7 @@ Blind mode (`/orchestrator/tree_blind`, or `"blind": true`): the tree cannot use
 
 ## Add a skill
 
-Write one YAML file in `skill_registry/contracts/`. No code is necessary if the skill is an action, service, topic or VLM question. See `cancel_nav.yaml` (topic), `navigate_to.yaml` and `press_button.yaml` (action), `set_profile.yaml` (service with an enum), and `door_open.yaml` (VLM).
+Write one YAML file in `skill_registry/contracts/`. No code is necessary if the skill is an action, service, topic or VLM question. See `cancel_nav.yaml` (topic), `navigate_to.yaml` and `press_button.yaml` (action), `set_profile.yaml` (service with an enum), and `door_open.yaml` (VLM). Two read-only transports run inside the executor: `graph` checks that each listed topic has at most its allowed publishers, not counting the executor's own (`no_stale_publishers.yaml`), and `press_tip` judges where the end effector got to in the last press (`press_reached.yaml`).
 
 ## Agent skills
 
@@ -46,6 +46,7 @@ Whatever is the agent (a Claude Code session or a model in the executor), it spe
 `press_button` keeps three camera frames (`interface.capture` in its contract; `orchestrator/press_capture.py`): a baseline when the end effector reaches the pre-grasp, the first frame at least 5 ms after the deepest point of the push, and the first frame at least 0.5 s after the retreat began. The phases come from `/right_ee_pose` or `/left_ee_pose` (100 Hz, `foot_world`) against the action feedback's `current_goal`. `button_lit` then asks the VLM about the press frame and the release frame, each beside the baseline in one image; lit in either is success. Each frame is cropped to the area around the button: track_anything's box for that frame (`/track_3d/detections_2d`, the target id from `/track_3d/selected_target_3d`; the box with the frame's stamp, or the latest before it within 1.5 s), grown 2.5 times about its centre (`crop_scale`). A frame without a box of its own, as when the hand covers the button, uses the baseline's box; with no box at all, whole frames are asked. The frames and their crops (`*_crop.jpg`) are saved under `capture_dir` (executor parameter, default `~/.ros/orchestrator_captures`).
 
 - The camera runs at 6 fps (1280x720x6, raw RGB8 on the Orin), so a chosen frame can be up to about 0.17 s after its moment.
+- **Where the button does not light** (the freight elevator call panel), use `press_reached` instead of `button_lit`. It reads the same capture: the deepest point of the push along the goal's +X, and the sideways distance from the goal there. It succeeds when the depth is at least `min_depth_m` (-0.012) and the sideways distance at most `max_lateral_m` (0.008), from the contract's `limits`. The trace gives both numbers. The poses are forward kinematics in `foot_world`, so a drifting body EKF moves the goal, not the measure: a correct press check can still follow a press that went to the wrong place.
 - Frame times are the camera's header stamps and pose times the NUC's: the Orin's and the NUC's clocks must agree.
 - **The VLM on the Thor.** The executor's VLM conditions post to `vlm_base_url` (default `http://vector-thor:8090/v1`), but the Thor now runs only the Cosmos daemon and `ground_server`. Start `ros2 run orchestrator cosmos_vlm_server --port 8090` on the Thor, in the environment that runs `ground_server`: it answers with the Cosmos daemon, one request at a time, and waits while `ground_server` uses it. `vlm_timeout_s` (executor, default 40 s) covers that wait.
 
@@ -57,7 +58,7 @@ ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the 
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node.
+All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, e.g. `~/maps/two_floor_clean.places.yaml`), whose names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}`. On the robot, run `trees/freight_call_elevator_agentic.xml` with that file; `docs/RUNBOOK.md` has the bring-up. `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node.
 
 `fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback), `nav_blocked:=true` (every route turns blocked until cancelled; navigate_to fails after 10 s), `vlm_answers:=door=closed`, `nav_time_s:=5.0`, `vlm_port`.
 
@@ -83,5 +84,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - The service names under `/unitree_interface/` and `/slam_elevatorlio/` come from the `~/` names in the code. Check them on the robot.
 - `ground`, `set_profile`, `set_hand`, `save_map` and `load_map` need their interface packages on the NUC.
 - `reset_tracker` ends only when `/track_3d/is_tracking` changes. If it is already false, it times out.
+- `body_ekf` has no reset service, so no tree can reset it at the panel; the team runs `~/ekf_reset.sh` on the NUC by hand right before a press. A `~/reset` service in `body_ekf` and a `reset_ekf` skill would close this (docs/RUNBOOK.md, "foot_world drifts after a walk").
+- A failed `press_reached` does not reach `manipulation_recovery`: `get_failure` records only failed actions and failed `button_lit` checks, so the agent sees `failure: none recorded`. Record any failed check that follows a press, with that press as `checked_call`.
 - The executor reads the raw camera topic (`image_topic`, default `/camera/camera/color/image_raw`), because the Orin has no compressed image transport installed, and encodes the frames it keeps to JPEG. That brings the raw stream to the NUC: about 2.8 MB a frame, about 17 MB/s at 6 fps.
 - On hold: in blind mode, every action skill must have a fallback.

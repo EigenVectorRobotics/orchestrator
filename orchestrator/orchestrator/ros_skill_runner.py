@@ -43,6 +43,7 @@ def to_pose_stamped(pose: dict, node: Node) -> PoseStamped:
     message.header.stamp        = node.get_clock().now().to_msg()
     message.pose.position.x     = float(pose['x'])
     message.pose.position.y     = float(pose['y'])
+    message.pose.position.z     = float(pose.get('z', 0.0))     # the storey on a multi-storey map; 0 = the lowest
     message.pose.orientation.z  = math.sin(yaw / 2)
     message.pose.orientation.w  = math.cos(yaw / 2)
 
@@ -525,6 +526,12 @@ class RosSkillRunner:
 
                 return _TopicHandle(self._publisher(interface.name, interface.ros_type), message, contract, watch, self.server_wait_s)
 
+            if interface.transport == 'graph':
+                return self._check_graph(interface.topics)
+
+            if interface.transport == 'press_tip':
+                return self._check_press_tip(interface.limits)
+
             if interface.transport == 'vlm':
                 return self._ask_vlm(contract, inputs)
 
@@ -535,6 +542,34 @@ class RosSkillRunner:
             return _DoneHandle(False, f'cannot call {contract.name}: {error}')
 
         return _DoneHandle(False, f'transport {interface.transport} is not supported by this runner')
+
+    def _check_graph(self, topics: dict):
+        """Each topic has no more publishers than allowed, not counting the executor's own: a leftover process would fight the stack's"""
+        extra = []
+
+        for topic, allowed in topics.items():
+            own   = (self.node.get_name(), self.node.get_namespace())
+            names = [f'{info.node_namespace.rstrip("/")}/{info.node_name}' for info in self.node.get_publishers_info_by_topic(topic)
+                     if (info.node_name, info.node_namespace) != own]
+
+            if len(names) > int(allowed):
+                extra.append(f'{topic}: {len(names)} publishers {sorted(names)}')
+
+        return _DoneHandle(not extra, '; '.join(extra) if extra else f'{len(topics)} topics with their own publishers only')
+
+    def _check_press_tip(self, limits: dict):
+        """Where the end effector got to in the last press: deep enough, and close enough to the goal sideways"""
+        capture = self.last_capture
+
+        if capture is None or capture.tracker.lateral_at_max is None:
+            return _DoneHandle(False, 'no press with end-effector poses to judge')
+
+        depth, lateral = capture.tracker.max_depth, capture.tracker.lateral_at_max
+        min_depth, max_lateral = float(limits.get('min_depth_m', -0.012)), float(limits.get('max_lateral_m', 0.008))
+        reached = depth >= min_depth and lateral <= max_lateral
+
+        return _DoneHandle(reached, f'deepest {depth * 1000:+.1f} mm along the button normal (needs >= {min_depth * 1000:+.1f}), '
+                                    f'{lateral * 1000:.1f} mm sideways there (needs <= {max_lateral * 1000:.1f})')
 
     def shutdown(self):
         self._vlm_pool.shutdown(wait=False, cancel_futures=True)

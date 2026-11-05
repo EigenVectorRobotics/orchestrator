@@ -1,0 +1,25 @@
+name: set_mode
+kind: action
+device: nuc
+description: Change the Unitree control mode (Idle or HighLevel); walking needs HighLevel
+interface:
+  transport: service
+  name: /unitree_interface/change_mode
+  ros_type: unitree_interface_msgs/srv/ChangeControlMode
+inputs:
+- name: mode
+  type: enum
+  field: requested_mode
+  values:                       # unitree_interface_msgs/msg/ControlMode
+    idle: 1
+    high_level: 2
+resources:
+- base
+timeout_s: 20
+maturity: wip
+source: unitree_interface/unitree_interface/src/mode_transitions.cpp
+notes: >-
+  The field test (nav_call.sh, down_once_right.sh on the NUC) walks and presses in high_level, and goes back to idle
+  afterwards. Not ready_locomotion: that damps the robot and stands it up again, which a standing robot must not do.
+  Low-level and emergency modes are left out on purpose. The planner must not change the control mode.
+  A transition to the mode the robot is already in fails ("Mode transition failed"): check in_high_level first.

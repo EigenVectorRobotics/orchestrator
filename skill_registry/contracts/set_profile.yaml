@@ -21,4 +21,4 @@ resources:
 timeout_s: 3
 maturity: wip
 source: unitree_interface/unitree_interface_msgs/msg/Profile.msg
-notes: Mode changes (ChangeControlMode) are not a skill. The planner must not change the control mode.
+notes: Mode changes (ChangeControlMode) are the set_mode skill, for hand-written trees. The planner must not change the control mode.

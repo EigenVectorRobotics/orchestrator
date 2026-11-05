@@ -63,6 +63,7 @@ class PhaseTracker:
         self.deepest_t  = None
         self.release_t  = None
         self.max_depth  = -math.inf
+        self.lateral_at_max = None    # sideways distance from the goal at the deepest point
         self._max_t     = None
 
     def set_goal(self, position, quaternion_xyzw):
@@ -81,7 +82,7 @@ class PhaseTracker:
             self.pregrasp_t = t
 
         if depth > self.max_depth:
-            self.max_depth, self._max_t = depth, t
+            self.max_depth, self._max_t, self.lateral_at_max = depth, t, lateral
 
         pushed = self.max_depth > -self.config.approach_offset_m / 2
 
@@ -225,6 +226,7 @@ class PressCapture:
             'deepest_t':  tracker.deepest_t,
             'release_t':  tracker.release_t,
             'max_depth_m': None if math.isinf(tracker.max_depth) else round(tracker.max_depth, 4),
+            'lateral_at_max_m': None if tracker.lateral_at_max is None else round(tracker.lateral_at_max, 4),
             'frames':     {name: round(t, 3) for name, (t, _) in self.frames.items()},
             'boxes':      {name: [round(value, 1) for value in box] for name, box in self.boxes.items()},
         }
