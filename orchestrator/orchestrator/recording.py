@@ -212,6 +212,9 @@ class Recorder:
             self._start_step(event)
         elif kind in STEP_END_KINDS:
             self._end_step(event)
+        elif kind == 'plan':
+            self._append(self.run / 'plans.jsonl', {'version': event.get('version'), 'subgoals': event.get('subgoals'),
+                                                    'time': event.get('time')})
         elif kind == 'record':
             self._append(self.run / 'records.jsonl', event.get('record', {}))
             self._note_captures(event.get('record'))
@@ -275,7 +278,7 @@ class Recorder:
 
         step      = event.get('step') or 1
         tree      = event.get('tree_id') or 'tree'
-        self.step = {'step': step, 'tree_id': tree, 'started': event.get('time')}
+        self.step = {'step': step, 'tree_id': tree, 'subgoal': event.get('subgoal'), 'started': event.get('time')}
 
         (self.run / 'steps' / f'{step:03d}-{tree}.xml').write_text(event.get('tree', ''))
 

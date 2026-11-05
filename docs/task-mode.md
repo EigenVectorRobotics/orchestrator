@@ -28,7 +28,10 @@ Status: draft for review, 2026-11-05. Related: `docs/skill-packages.md` ("Compos
   - `done(summary)` and `give_up(reason)`: they end the task.
 - The facts and beliefs and the run's scratch folder go into its prompt, as for the agent now.
 - **The backend is a choice, per run**: Claude, Astra, Kimi, a local model, and others. The task agent uses only the neutral tool loop, so a new provider is one backend class. Now there are `external` (a Claude Code session), `openai_compatible` (Kimi and most local servers) and `scripted`; a Claude API backend is still to be built.
-- `planner_node` stays for the tree mode (`send_tree`, and the tests), until task mode works.
+- **Two modes** (launch argument `mode`, decided 2026-11-05):
+  - `task` (the default): the executor takes the task sentence on `/orchestrator/task` and starts the task agent; `planner_node` does not start.
+  - `tree`: as before. `planner_node` writes one full tree for the sentence, and the executor runs it. `send_tree` works in both modes.
+- **Plan first.** The agent first writes a task plan: a short list of subgoals (for example: walk to the call panel, call the elevator, walk in, press floor 1, ride, walk out). A tool `plan(subgoals)` saves it; it goes in the trace, the run bundle and `plan.md` in the scratch folder. Each `run_skill` names its subgoal. When a step fails or the situation changes, the agent calls `plan` again; the recorder keeps each version. The plan is text, not a tree: the subgoals with the steps that worked for them are the material for compositions later.
 
 ### One task is one run
 

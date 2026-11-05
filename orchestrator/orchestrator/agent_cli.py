@@ -11,12 +11,25 @@
                                         without --send, only show what would be sent
   agent_cli say TEXT                    speak TEXT through the robot's speaker (/speak)
 
+Task mode (docs/task-mode.md): the session does a task step by step.
+  agent_cli task wait [--timeout S]     block until a task is open; print it (the sentence, places, what is known)
+  agent_cli task show                   the open task, or how the last one ended
+  agent_cli skills [--dir DIR]          the skills that run_skill can run, with their inputs and outputs
+  agent_cli plan SUBGOAL [SUBGOAL ...]  save the task plan (again, to change it)
+  agent_cli run SKILL [KEY=VALUE ...] --subgoal S
+                                        run one skill as the next step; wait for its end and print the result.
+                                        A value is read as JSON when it can be ({"x": 1, ...}, 3, true), else as
+                                        text; {key} is a blackboard key, e.g. {call_panel} or {step1_detections}
+  agent_cli done --reason R             the task is done
+  agent_cli give-up --reason R          the task cannot be done
+
 Run it in the same ROS environment as the executor. It publishes nothing but speech (say) and a decision (--send).
 """
 
 import sys
 import json
 import time
+import uuid
 import argparse
 import threading
 
@@ -34,6 +47,7 @@ from .images import ImageError, image_to_jpeg
 from .agent_ros import RosReader, RosReadError
 from .agent_sandbox import SandboxConfig, run_python
 from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
+from .task_agent import COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC
 
 
 LATCHED      = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -52,12 +66,34 @@ def _spin_until(node, done, timeout_s: float) -> bool:
     return done()
 
 
-def _latest_request(node, timeout_s: float) -> dict | None:
+def _latest(node, topic: str, timeout_s: float, wait_open: bool = False) -> dict | None:
+    """The latest latched message on topic (a call or a task); with wait_open, wait until it is open"""
     holder = []
-    node.create_subscription(String, REQUEST_TOPIC, lambda message: holder.append(json.loads(message.data)), LATCHED)
-    _spin_until(node, lambda: bool(holder), timeout_s)
+    node.create_subscription(String, topic, lambda message: holder.append(json.loads(message.data)), LATCHED)
+    _spin_until(node, lambda: bool(holder) and (not wait_open or holder[-1]['state'] == 'open'), timeout_s)
 
     return holder[-1] if holder else None
+
+
+def _request_reply(node, topic: str, reply_topic: str, message: dict, timeout_s: float) -> dict | None:
+    """Publish message on topic; return the reply with its id, or None (the reason is printed)"""
+    replies      = []
+    publisher    = node.create_publisher(String, topic, COMMAND)
+    subscription = node.create_subscription(String, reply_topic, lambda reply: replies.append(json.loads(reply.data)), COMMAND)
+
+    # the reply is volatile: it is lost if it comes before this node is matched to the reply publisher
+    if not _spin_until(node, lambda: publisher.get_subscription_count() > 0 and subscription.get_publisher_count() > 0, 3.0):
+        print(f'no executor listens on {topic} and answers on {reply_topic}', file=sys.stderr)
+        return None
+
+    publisher.publish(String(data=json.dumps(message)))
+    matching = lambda: next((reply for reply in replies if reply.get('id') == message['id']), None)
+
+    if not _spin_until(node, lambda: matching() is not None, timeout_s):
+        print(f'sent, but no reply from the executor within {timeout_s:.0f} s', file=sys.stderr)
+        return None
+
+    return matching()
 
 
 def _summary(request: dict, full: bool) -> str:
@@ -109,7 +145,7 @@ def _summary(request: dict, full: bool) -> str:
 
 
 def _decide(node, arguments) -> int:
-    request = _latest_request(node, 3.0)
+    request = _latest(node, REQUEST_TOPIC, 3.0)
 
     if request is None or request['state'] != 'open':
         print('no open call', file=sys.stderr)
@@ -134,21 +170,11 @@ def _decide(node, arguments) -> int:
         print('not sent: add --send once the decision is approved')
         return 0
 
-    replies   = []
-    publisher = node.create_publisher(String, DECISION_TOPIC, COMMAND)
-    node.create_subscription(String, REPLY_TOPIC, lambda message: replies.append(json.loads(message.data)), COMMAND)
+    reply = _request_reply(node, DECISION_TOPIC, REPLY_TOPIC, decision, 5.0)
 
-    if not _spin_until(node, lambda: publisher.get_subscription_count() > 0, 3.0):
-        print('no executor listens on ' + DECISION_TOPIC, file=sys.stderr)
+    if reply is None:
         return 1
 
-    publisher.publish(String(data=json.dumps(decision)))
-
-    if not _spin_until(node, lambda: any(reply.get('id') == request['id'] for reply in replies), 5.0):
-        print('sent, but no reply from the executor within 5 s', file=sys.stderr)
-        return 1
-
-    reply = next(reply for reply in replies if reply.get('id') == request['id'])
     print(('accepted: ' if reply['accepted'] else 'rejected: ') + reply['message'])
 
     return 0 if reply['accepted'] else 1
@@ -171,6 +197,56 @@ def _say(node, text: str) -> int:
     publisher.publish(String(data=text))
     _spin_until(node, lambda: False, 0.2)              # let it go out before the node ends
     print(f'said: {text}')
+
+    return 0
+
+
+def _task_summary(task: dict) -> str:
+    if task['state'] != 'open':
+        return f'no open task; the last one ({task["run_id"]}) ended: {task.get("end")}'
+
+    lines = [
+        f'task {task["run_id"]}' + (' (blind)' if task.get('blind') else '') + f': {task["task"]}',
+        f'places on the blackboard: {", ".join(task.get("places") or []) or "none"}',
+        f'scratch folder: {task.get("scratch")}',
+        f'limits: {task.get("limits")}',
+    ]
+
+    return '\n'.join(lines + ([task['known']] if task.get('known') else []))
+
+
+def _value(text: str):
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
+def _task_command(node, command: dict, timeout_s: float) -> int:
+    """One command for the open task; prints the executor's reply"""
+    task = _latest(node, OPEN_TOPIC, 3.0)
+
+    if task is None or task['state'] != 'open':
+        print('no open task; run agent_cli task wait', file=sys.stderr)
+        return 1
+
+    command = {'id': uuid.uuid4().hex[:8], 'run_id': task['run_id'], **command}
+    reply   = _request_reply(node, COMMAND_TOPIC, TASK_REPLY_TOPIC, command, timeout_s)
+
+    if reply is None:
+        return 1
+
+    print(json.dumps({key: value for key, value in reply.items() if key != 'id'}, indent=1, default=str))
+
+    return 0 if reply.get('ok') else 1
+
+
+def _skills(directory: Path | None) -> int:
+    from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry
+    from .planner import describe_catalog
+
+    directory = directory or Path(get_package_share_directory('skill_registry')) / 'contracts'
+    print(describe_catalog(Registry.from_directory(directory), set(DEFAULT_ESSENTIAL_DEVICES)))
 
     return 0
 
@@ -207,7 +283,23 @@ def main():
     arm.add_argument('--right-arm', dest='left_arm', action='store_false')
     decide.add_argument('--send', action='store_true', help='publish the decision; without it, only print it')
     commands.add_parser('say').add_argument('text')
+    task = commands.add_parser('task')
+    task.add_argument('action', choices=['wait', 'show'])
+    task.add_argument('--timeout', type=float, default=3600.0)
+    skills = commands.add_parser('skills')
+    skills.add_argument('--dir', type=Path)
+    commands.add_parser('plan').add_argument('subgoals', nargs='+')
+    run = commands.add_parser('run')
+    run.add_argument('skill')
+    run.add_argument('inputs', nargs='*', help='KEY=VALUE')
+    run.add_argument('--subgoal', required=True)
+    run.add_argument('--timeout', type=float, default=900.0)
+    for name in ('done', 'give-up'):
+        commands.add_parser(name).add_argument('--reason', required=True)
     arguments = parser.parse_args()
+
+    if arguments.command == 'skills':                   # no ROS needed
+        sys.exit(_skills(arguments.dir))
 
     if arguments.command == 'python':                   # no ROS needed
         result = run_python(arguments.file.read_text(), SandboxConfig(scratch_dir=arguments.scratch, timeout_s=arguments.timeout))
@@ -235,24 +327,31 @@ def _run(node, arguments) -> int:
     if arguments.command == 'say':
         return _say(node, arguments.text)
 
-    if arguments.command in ('wait', 'show'):
-        holder = []
-        node.create_subscription(String, REQUEST_TOPIC, lambda message: holder.append(json.loads(message.data)), LATCHED)
-        is_open = lambda: bool(holder) and holder[-1]['state'] == 'open'
+    if arguments.command in ('task', 'wait', 'show'):         # task wait|show, or wait|show for a call
+        is_task = arguments.command == 'task'
+        wait    = (arguments.action if is_task else arguments.command) == 'wait'
+        latest  = _latest(node, OPEN_TOPIC if is_task else REQUEST_TOPIC, arguments.timeout if wait else 3.0, wait_open=wait)
 
-        if arguments.command == 'wait':
-            if not _spin_until(node, is_open, arguments.timeout):
-                print('no call opened', file=sys.stderr)
-                return 1
-        else:
-            _spin_until(node, lambda: bool(holder), 3.0)
+        if latest is None or (wait and latest['state'] != 'open'):
+            print(f'no {"task" if is_task else "call"} opened', file=sys.stderr)
+            return 1
 
-            if not holder:
-                print('no call yet', file=sys.stderr)
-                return 1
-
-        print(_summary(holder[-1], getattr(arguments, 'full', False)))
+        print(_task_summary(latest) if is_task else _summary(latest, getattr(arguments, 'full', False)))
         return 0
+
+    if arguments.command == 'plan':
+        return _task_command(node, {'op': 'plan', 'subgoals': arguments.subgoals}, 10.0)
+
+    if arguments.command == 'run':
+        if not all('=' in pair for pair in arguments.inputs):
+            print('inputs are KEY=VALUE', file=sys.stderr)
+            return 1
+
+        inputs = {key: _value(value) for key, value in (pair.split('=', 1) for pair in arguments.inputs)}
+        return _task_command(node, {'op': 'run', 'skill': arguments.skill, 'inputs': inputs, 'subgoal': arguments.subgoal}, arguments.timeout)
+
+    if arguments.command in ('done', 'give-up'):
+        return _task_command(node, {'op': arguments.command.replace('-', '_'), 'reason': arguments.reason}, 10.0)
 
     # Reads wait in this thread while an executor spins the node in another, as in the executor node
     executor = SingleThreadedExecutor()

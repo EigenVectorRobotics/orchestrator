@@ -5,10 +5,11 @@ open between steps, and run_skill runs one skill as a step from another thread (
 executor's timer ticks it. Steps share the task's blackboard and history, so an output of one step can be an input
 of the next.
 
-The trace events: task_started and task_finished(end, steps) around the steps; started (with the step number) and
+The trace events: task_started and task_finished(end, steps, reason) around the steps; started (with the step number) and
 finished, halted or error for each step. This module needs no ROS.
 """
 
+import json
 import threading
 
 from typing import Callable
@@ -18,6 +19,15 @@ from dataclasses import dataclass, field
 from skill_registry import Registry, TreeValidator, ValidatorConfig
 
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
+
+
+def parse_task_request(text: str) -> tuple[str, bool]:
+    """A message on /orchestrator/task: a plain sentence, or JSON {"task": "...", "blind": true}"""
+    try:
+        request = json.loads(text)
+        return str(request['task']), bool(request.get('blind', False))
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return text, False
 
 
 @dataclass
@@ -44,6 +54,7 @@ class _Step:
     tree:    BehaviorTree
     xml:     str
     outputs: list[str] = field(default_factory=list)   # run_skill: the blackboard keys of its outputs
+    subgoal: str = ''                                  # run_skill: the subgoal of the task plan it is for
     done:    threading.Event = field(default_factory=threading.Event)
     result:  StepResult | None = None
     failure: object = None                        # the task's last failure before the step, to see a new one
@@ -94,7 +105,7 @@ class Tasks:
 
         return task
 
-    def run_skill(self, name: str, inputs: dict, should_stop: Callable[[], bool] = lambda: False) -> StepResult:
+    def run_skill(self, name: str, inputs: dict, should_stop: Callable[[], bool] = lambda: False, subgoal: str = '') -> StepResult:
         """Task mode, from the task agent's thread: run one skill as the next step, and wait for its end. A string
         input goes into the tree as written (a literal, or {key} for the blackboard); any other value goes on the
         blackboard first. Inputs and outputs that go by the blackboard get the key step<n>_<port>"""
@@ -134,7 +145,7 @@ class Tasks:
 
         try:
             step = _Step(BehaviorTree(xml_text, self.leaf_factory, task.context), xml_text, list(outputs.values()),
-                         failure=task.context.last_failure)
+                         subgoal, failure=task.context.last_failure)
         except (TreeError, ValueError) as error:
             return StepResult('error', f'the step does not build: {error}')
 
@@ -150,12 +161,12 @@ class Tasks:
 
         return step.result
 
-    def end_task(self, task: Task, end: str):
+    def end_task(self, task: Task, end: str, reason: str = ''):
         """Task mode: done or gave_up, from the task agent; a running step is halted first. Nothing if this task
         is no longer open (a tree sent alone replaced it)"""
         with self._lock:
             if self.task is task:
-                self._stop(end, f'the task ended ({end}) during the step')
+                self._stop(end, f'the task ended ({end}) during the step', reason)
 
     def cancel(self):
         with self._lock:
@@ -216,7 +227,7 @@ class Tasks:
         self.step        = step
         self.tracer.fields.update(tree_id=step.tree.id, step=self.task.steps)
         self.tracer.emit('started', f'running {step.tree.id}' + (' (blind)' if self.task.blind else ''),
-                         tree=step.xml, blind=self.task.blind)
+                         tree=step.xml, blind=self.task.blind, subgoal=step.subgoal)
         self.publish_status('running', step.tree.id)
 
     def _end_step(self, kind: str, text: str, level: str, result: StepResult, **data):
@@ -235,14 +246,15 @@ class Tasks:
         if self.task.single:
             self._end_task(end, level)
 
-    def _end_task(self, end: str, level: str):
+    def _end_task(self, end: str, level: str, reason: str = ''):
         """How the task ended: success, failure, halted, cancelled, error, done or gave_up"""
         task, self.task = self.task, None
-        self.tracer.emit('task_finished', f'task {task.run_id}: {end}', level=level, end=end, steps=task.steps)
+        self.tracer.emit('task_finished', f'task {task.run_id}: {end}' + (f': {reason}' if reason else ''), level=level,
+                         end=end, steps=task.steps, reason=reason)
         self.tracer.fields = {}
         self.publish_status(end, task.name)
 
-    def _stop(self, end: str, text: str):
+    def _stop(self, end: str, text: str, reason: str = ''):
         """Halt the running step, if any, and end the open task, if any, as end"""
         if self.task is None:
             return
@@ -251,7 +263,7 @@ class Tasks:
             self.step.tree.halt()
             self._end_step('halted', f'{self.step.tree.id}: {text}', 'warn', StepResult('halted', text))
 
-        self._end_task(end, 'warn' if end in ('halted', 'cancelled') else 'info')
+        self._end_task(end, 'warn' if end in ('halted', 'cancelled') else 'info', reason)
 
     def _validate(self, xml_text: str, config: ValidatorConfig, what: str) -> bool:
         issues = TreeValidator(self.registry, config).validate(xml_text)

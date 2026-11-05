@@ -115,14 +115,16 @@ def describe_contract(contract: Contract, essential_devices: set[str]) -> str:
     return '\n'.join(line for line in lines if line)
 
 
-def build_system_prompt(registry: Registry, essential_devices: set[str]) -> str:
-    """The same text for the same registry, so the provider can cache it"""
-    catalog = '\n\n'.join(
+def describe_catalog(registry: Registry, essential_devices: set[str]) -> str:
+    return '\n\n'.join(
         describe_contract(contract, essential_devices)
         for contract in sorted(registry, key=lambda contract: contract.name)
     )
 
-    return SYSTEM_PROMPT + catalog
+
+def build_system_prompt(registry: Registry, essential_devices: set[str]) -> str:
+    """The same text for the same registry, so the provider can cache it"""
+    return SYSTEM_PROMPT + describe_catalog(registry, essential_devices)
 
 
 def build_task_message(task: str, places: dict, live_skills: set[str] | None, blind: bool) -> str:

@@ -2,6 +2,7 @@
 
 import json
 import uuid
+import threading
 
 from pathlib import Path
 
@@ -23,7 +24,8 @@ from .knowledge import KnowledgeStore
 from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
-from .tasks import Tasks
+from .tasks import Tasks, parse_task_request
+from .task_agent import COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC, TaskDesk
 from .behavior_tree import Context, Status
 from .ros_skill_runner import RosSkillRunner
 from .press_capture import DEFAULT_CAPTURE_DIR
@@ -47,9 +49,11 @@ class ExecutorNode(Node):
         self.vlm_timeout  = self.declare_parameter('vlm_timeout_s', 40.0).value    # Cosmos on the Thor: one request at a time
         self.capture_dir  = self.declare_parameter('capture_dir', DEFAULT_CAPTURE_DIR).value
         self.require_recorder = self.declare_parameter('require_recorder', False).value   # true: no tree runs unrecorded
+        mode                  = self.declare_parameter('mode', 'task').value   # task: a session does the task step by step; tree: planner_node writes a tree
         self.recorder_status  = {'ready': False, 'reason': 'no status from run_recorder yet'}
 
         self.tracer   = Tracer(self, 'executor')
+        self._speaker = self.create_publisher(String, '/speak', 10)            # unitree_interface's TTS (remapped ~/tts)
         self.runner   = RosSkillRunner(
             self,
             self.registry,
@@ -70,10 +74,43 @@ class ExecutorNode(Node):
             self.create_subscription(Empty, '/orchestrator/cancel', self._on_cancel, 10),
             self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, STATUS_QOS),
         ]
+        self.desk                = self._make_desk() if mode == 'task' else None
         self._tick_timer         = self.create_timer(1.0 / self.tick_hz, self._tick)
 
         self._publish_status('idle')
         self.get_logger().info(f'{len(self.registry)} skills, {len(self.places)} places')
+
+    def _make_desk(self) -> TaskDesk:
+        """Task mode: a session (agent_cli) does each task step by step through these topics"""
+        open_publisher  = self.create_publisher(String, OPEN_TOPIC, STATUS_QOS)
+        reply_publisher = self.create_publisher(String, TASK_REPLY_TOPIC, COMMAND_QOS)
+        publish_reply   = lambda message: reply_publisher.publish(String(data=json.dumps(message, default=str)))
+        knowledge       = self.agent.config.knowledge if self.agent else None
+        desk            = TaskDesk(
+            self.tasks,
+            lambda message: open_publisher.publish(String(data=json.dumps(message, default=str))),
+            publish_reply,
+            self._speak,
+            known=lambda: knowledge.prompt_section(observations=True) if knowledge else '',
+            max_steps=self.declare_parameter('task_max_steps', 40).value,
+            max_task_s=self.declare_parameter('task_max_s', 900.0).value,
+            idle_s=self.declare_parameter('task_idle_s', 120.0).value,
+        )
+
+        def on_command(message: String):                # a run blocks until its step ends: not on the spin thread
+            try:
+                command = json.loads(message.data)
+            except json.JSONDecodeError as error:
+                return publish_reply({'id': None, 'ok': False, 'message': f'not JSON: {error}'})
+
+            threading.Thread(target=desk.command, args=(command,), daemon=True).start()
+
+        self._task_subscriptions = [
+            self.create_subscription(String, '/orchestrator/task', self._on_task, 10),
+            self.create_subscription(String, COMMAND_TOPIC, on_command, COMMAND_QOS),
+        ]
+
+        return desk
 
     def _make_agent(self) -> Agent | None:
         """The runner of agent skills, or None if agent_backend is none or its backend cannot start"""
@@ -106,11 +143,11 @@ class ExecutorNode(Node):
             knowledge=KnowledgeStore(knowledge_dir)
         )
 
-        speaker = self.create_publisher(String, '/speak', 10)                  # unitree_interface's TTS (remapped ~/tts)
-        speak   = lambda text: speaker.publish(String(data=text))
-
         return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames),
-                     on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
+                     on_event=self._on_agent_event, speak=self._speak, press_evidence=self.runner.press_evidence)
+
+    def _speak(self, text: str):
+        self._speaker.publish(String(data=text))
 
     def _make_agent_backend(self, name: str, model: str, base_url: str, api_key_env: str, script: str):
         if name == 'external':
@@ -158,16 +195,30 @@ class ExecutorNode(Node):
         self.recorder_status = json.loads(message.data)
 
     def run(self, xml_text: str, blind: bool) -> bool:
+        if not self._recorder_ready('tree'):
+            return False
+
+        return self.tasks.run_tree(xml_text, self._new_context(), blind)
+
+    def _on_task(self, message: String):
+        """Task mode: a task request opens a task for the session"""
+        task, blind = parse_task_request(message.data)
+
+        if self._recorder_ready('task'):
+            self.desk.open(task, self._new_context(), blind)
+
+    def _recorder_ready(self, what: str) -> bool:
         recorder_up = self.count_publishers(RECORDER_TOPIC) > 0         # a latched ready outlives a recorder that died
 
         if self.require_recorder and not (recorder_up and self.recorder_status.get('ready')):
             reason = self.recorder_status.get('reason') if recorder_up else 'run_recorder is not running'
-            return self.tasks.reject(f'tree refused: the recorder is not ready ({reason})')
+            return self.tasks.reject(f'{what} refused: the recorder is not ready ({reason})')
 
-        run_id  = uuid.uuid4().hex[:8]
-        context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record, run_id=run_id)
+        return True
 
-        return self.tasks.run_tree(xml_text, context, blind)
+    def _new_context(self) -> Context:
+        return Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record,
+                       run_id=uuid.uuid4().hex[:8])
 
     def _run_scratch(self, run_id: str) -> str | None:
         """The run's scratch folder under the agent's scratch root; the recorder moves it into the run's bundle"""
@@ -189,6 +240,9 @@ class ExecutorNode(Node):
 
     def _tick(self):
         self.tasks.tick()
+
+        if self.desk:
+            self.desk.check()
 
     def _on_node_event(self, node, event: dict):
         if event['status'] == Status.IDLE.value:

@@ -14,6 +14,7 @@ from std_msgs.msg import String
 from ament_index_python.packages import get_package_share_directory
 
 from .trace import Tracer
+from .tasks import parse_task_request
 from .planner import Planner
 from .node_setup import load_skills
 from .llm_backends import ClaudeBackend, OpenAICompatibleBackend, ScriptedBackend
@@ -78,18 +79,13 @@ class PlannerNode(Node):
         self.live_skills = set(json.loads(message.data))
 
     def _on_task(self, message: String):
-        """A plain sentence, or JSON: {"task": "...", "blind": true}"""
-        try:
-            request = json.loads(message.data)
-            task    = str(request['task'])
-        except (json.JSONDecodeError, TypeError, KeyError):
-            request, task = {}, message.data
+        task, blind = parse_task_request(message.data)
 
         if not self.busy.acquire(blocking=False):
             self.tracer.emit('error', 'still planning the last task; this one is dropped', level='warn')
             return
 
-        threading.Thread(target=self._plan, args=(task, bool(request.get('blind', False))), daemon=True).start()
+        threading.Thread(target=self._plan, args=(task, blind), daemon=True).start()
 
     def _plan(self, task: str, blind: bool):
         try:
