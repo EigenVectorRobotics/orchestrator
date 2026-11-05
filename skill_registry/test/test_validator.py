@@ -53,19 +53,13 @@ def test_thor_skill_needs_fallback():
     assert _errors('<door_open/>')
     assert _errors('<Fallback><AlwaysSuccess/><door_open/></Fallback>')                  # last child: no recovery after it
     assert not _errors('<Fallback><door_open/><AlwaysSuccess/></Fallback>')
-
-
-def test_thor_skill_is_fine_when_thor_is_essential():
-    assert not _errors('<door_open/>', essential_devices={'nuc', 'orin', 'thor'})
+    assert not _errors('<door_open/>', essential_devices={'nuc', 'orin', 'thor'})      # unless Thor is essential
 
 
 def test_parallel_resource_conflict():
     errors = _errors('<Parallel><track query="button"/><press_button target_description="button"/></Parallel>')
 
     assert any('resource tracker' in error for error in errors)
-
-
-def test_parallel_without_conflict():
     assert not _errors('<Parallel><navigate_to goal="{goal}"/><say text="hello"/></Parallel>')
 
 

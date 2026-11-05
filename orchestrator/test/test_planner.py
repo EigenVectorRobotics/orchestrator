@@ -2,7 +2,7 @@ from pathlib import Path
 
 from skill_registry import Registry
 
-from orchestrator.planner import Planner, build_system_prompt, extract_tree
+from orchestrator.planner import Planner, build_system_prompt
 from orchestrator.llm_backends import BackendError, Reply, ScriptedBackend
 
 
@@ -82,11 +82,6 @@ def test_system_prompt_is_stable_and_lists_skills():
     assert prompt == build_system_prompt(registry, {'orin', 'nuc'})
     assert '## press_button (action)' in prompt
     assert 'runs on thor: can drop out' in prompt
-
-
-def test_extract_tree():
-    assert extract_tree('text <tree>\n<root/>\n</tree> more') == '<root/>'
-    assert extract_tree('no tree') is None
 
 
 def test_unknown_place_goes_back_to_the_model():

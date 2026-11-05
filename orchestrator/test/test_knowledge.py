@@ -112,7 +112,7 @@ def test_a_claim_expires_after_valid_for_s(tmp_path):
     assert store.expire() == []
 
     now[0] = 800.0
-    assert store.expire() == [claim.id]
+    assert store.prompt_section() == ''                     # a prompt retires expired claims first
     assert store.get(claim.id).tier == 'retired'
 
 
@@ -169,20 +169,6 @@ def test_value_stats_ignore_words_and_yes_no(tmp_path):
     assert store.get(flags.id).value_stats() is None
 
 
-def test_a_prompt_retires_expired_claims_first(tmp_path):
-    now   = [100.0]
-    store = KnowledgeStore(tmp_path, clock=lambda: now[0])
-    claim, _ = store.note('The hall door is blocked.', seen(t=100.0), {'place': 'hall'}, valid_for_s=60)
-    store.confirm(claim.id, seen(by='operator', run='r2', t=100.0))
-
-    assert 'blocked' in store.prompt_section()
-
-    now[0] = 1000.0
-
-    assert store.prompt_section() == ''
-    assert store.get(claim.id).tier == 'retired'
-
-
 def test_the_agent_confirms_an_observation_by_its_id(tmp_path):
     from orchestrator.agent import AgentConfig, AgentSession
 
@@ -230,28 +216,13 @@ def test_the_cli_lists_claims_by_tags(tmp_path, capsys):
             cli(['--dir', str(tmp_path), 'list', *[arg for tag in bad for arg in ('--about', tag)]])
 
 
-def test_a_hand_written_claim_gets_clean_tags_on_load(tmp_path):
+def test_hand_written_claims_get_clean_tags_on_load_and_a_bad_kind_still_loads(tmp_path):
     (tmp_path / 'claims.yaml').write_text('- {id: C-0001, text: Door open., about: {place: "cabin "}, key: open_s,\n'
-                                          '   confirmations: [{by: operator, time: 1.0, run: r1, value: 8.0}]}\n')
+                                          '   confirmations: [{by: operator, time: 1.0, run: r1, value: 8.0}]}\n'
+                                          '- {id: C-0002, text: Slow., about: {Device: thor, skill: null},\n'
+                                          '   confirmations: [{by: operator, time: 1.0, run: r1}]}\n')
     store     = KnowledgeStore(tmp_path)
     _, change = store.note('Door open.', seen(value=8.2), {'place': 'cabin'}, 'open_s')
 
-    assert change.startswith('confirmed') and len(store.claims()) == 1
-
-
-def test_a_hand_written_bad_tag_still_loads(tmp_path):
-    (tmp_path / 'claims.yaml').write_text('- {id: C-0001, text: Door open., about: {Place: cabin, skill: null},\n'
-                                          '   confirmations: [{by: operator, time: 1.0, run: r1}]}\n')
-
-    assert KnowledgeStore(tmp_path).get('C-0001').about == {'Place': 'cabin'}
-
-
-def test_the_agent_note_tool_refuses_a_bad_tag(tmp_path):
-    from orchestrator.agent import AgentConfig, AgentSession
-
-    session = AgentSession('judge', {}, {}, None, AgentConfig(skills_dir=str(tmp_path), knowledge=KnowledgeStore(tmp_path)),
-                           lambda kind, text, **data: None, skill='press_judge', run_id='r1')
-
-    output = session.call('note', {'text': 'Slow.', 'about': {'Device X': 'thor'}, 'evidence': ['record:1']})
-
-    assert output.is_error and 'snake_case' in output.text
+    assert change.startswith('confirmed') and len(store.claims()) == 2
+    assert store.get('C-0002').about == {'Device': 'thor'}

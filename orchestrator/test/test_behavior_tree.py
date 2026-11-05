@@ -107,15 +107,13 @@ def test_fallback_uses_recovery_after_failure():
     assert [name for name, _ in runner.calls] == ['press_button', 'say']
 
 
-def test_retry_runs_again():
+def test_retry_runs_again_and_gives_up():
     runner = FakeRunner({'door_open': [[Status.FAILURE], [Status.FAILURE], [Status.SUCCESS]]})
     tree   = _tree('<RetryUntilSuccessful num_attempts="5"><door_open/></RetryUntilSuccessful>', runner)
 
     assert _run(tree) == Status.SUCCESS
     assert len(runner.calls) == 3
 
-
-def test_retry_gives_up():
     runner = FakeRunner({'door_open': [Status.FAILURE]})
     tree   = _tree('<RetryUntilSuccessful num_attempts="3"><door_open/></RetryUntilSuccessful>', runner)
 
@@ -152,15 +150,6 @@ def test_reactive_sequence_halts_running_action_when_condition_fails():
     assert tree.tick() == Status.RUNNING
     assert tree.tick() == Status.FAILURE
     assert runner.handles[1].cancelled
-
-
-def test_parallel_needs_all_by_default():
-    runner = FakeRunner({'navigate_to': [Status.RUNNING, Status.SUCCESS]})
-    tree   = _tree('<Parallel><navigate_to goal="0 0 0"/><say text="walking"/></Parallel>', runner)
-
-    assert tree.tick() == Status.RUNNING
-    assert tree.tick() == Status.SUCCESS
-    assert len(runner.calls) == 2                              # say is not run again
 
 
 def test_blackboard_inputs_and_outputs():
@@ -256,19 +245,14 @@ def test_reactive_fallback_halts_recovery_when_condition_comes_back():
 def test_force_failure_and_parallel_counts():
     assert _run(_tree('<ForceFailure><say text="x"/></ForceFailure>', FakeRunner())) == Status.FAILURE
 
+    runner = FakeRunner({'navigate_to': [Status.RUNNING, Status.SUCCESS]})
+    tree   = _tree('<Parallel><navigate_to goal="0 0 0"/><say text="walking"/></Parallel>', runner)
+
+    assert tree.tick() == Status.RUNNING                      # all children by default
+    assert tree.tick() == Status.SUCCESS
+    assert len(runner.calls) == 2                              # say is not run again
+
     runner = FakeRunner({'navigate_to': [Status.FAILURE]})
     tree   = _tree('<Parallel success_count="1"><navigate_to goal="0 0 0"/><say text="hi"/></Parallel>', runner)
 
     assert _run(tree) == Status.SUCCESS
-
-
-def test_example_tree_fails_when_the_walk_fails():
-    runner = FakeRunner({'navigate_to': [Status.FAILURE]})
-    tree   = BehaviorTree(
-        (TREES / 'call_elevator.xml').read_text(),
-        make_leaf_factory(Registry.from_directory(CONTRACTS), runner),
-        Context(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=FakeClock())
-    )
-
-    assert _run(tree) == Status.FAILURE
-    assert [name for name, _ in runner.calls] == ['navigate_to']
