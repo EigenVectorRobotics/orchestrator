@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from skill_registry import Contract
 
 from .behavior_tree import Context, Status
+from .knowledge import KnowledgeStore, Sighting, about_of
 from .agent_sandbox import SandboxConfig, run_python
 
 
@@ -80,6 +81,7 @@ class AgentConfig:
     read_roots: list[str] = field(default_factory=list)     # read_file sees only these trees (and the scratch dir)
     max_turns:  int = 30
     sandbox:    SandboxConfig = field(default_factory=SandboxConfig)
+    knowledge:  KnowledgeStore | None = None                 # note writes here; its facts and beliefs go in the prompt
 
 
 # ========== Tools ==========
@@ -179,6 +181,30 @@ def _tool_specs(phase: str) -> list[dict]:
             },
         },
         {
+            'name':         'note',
+            'description':  'Keep one thing you found, for later calls and runs: an observation in the knowledge store. '
+                            'It goes up to a belief and a fact only when other runs and sources confirm it, and only the '
+                            'operator makes a fact. Note what is true of a place or a skill (e.g. "the call panel does not '
+                            'light when pressed", or the press offset that worked), not this call\'s decision. With a key '
+                            'and a value, a later note with the same place or skill and key confirms or contradicts it.',
+            'input_schema': {
+                'type':       'object',
+                'properties': {
+                    'text':        {'type': 'string', 'description': 'one sentence'},
+                    'claim':       {'type': 'string', 'description': 'the id of a claim in "What is known" that this confirms or contradicts'},
+                    'contradicts': {'type': 'boolean', 'description': 'with claim: true if what you found disagrees with it'},
+                    'place':       {'type': 'string', 'description': 'the place it is about, as the blackboard names it'},
+                    'skill':       {'type': 'string', 'description': 'the skill it is about'},
+                    'key':         {'type': 'string', 'description': 'for a value, e.g. lights_when_pressed or press_offset'},
+                    'value':       {'description': 'a number, a list of numbers, true/false, or a word'},
+                    'evidence':    {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1,
+                                    'description': 'what shows it, e.g. "record:3" (get_history index), "frame:press", "E-019"'},
+                    'valid_for_s': {'type': 'number', 'description': 'for something that changes, how long it holds'},
+                },
+                'required':   ['text', 'evidence'],
+            },
+        },
+        {
             'name':         'decide',
             'description':  'End your turn with your decision. Call it exactly once.',
             'input_schema': {
@@ -255,7 +281,10 @@ class AgentSession:
     """One agent call: the evidence it was given, its tools, and its decision once made"""
 
     def __init__(self, phase: str, inputs: dict, evidence: dict, ros: RosAccess | None, config: AgentConfig, on_event,
-                 speak: Callable[[str], None] | None = None, clock: Callable[[], float] = time.monotonic):
+                 speak: Callable[[str], None] | None = None, clock: Callable[[], float] = time.monotonic,
+                 skill: str = '', run_id: str | None = None):
+        self.skill    = skill
+        self.run_id   = run_id
         self.speak    = speak
         self.clock    = clock
         self.spoke_at = -math.inf
@@ -375,6 +404,27 @@ class AgentSession:
 
         return ToolOutput(text, is_error=result['exit_code'] != 0)
 
+    def _tool_note(self, text: str, evidence: list, place: str = '', skill: str = '', key: str = '', value=None,
+                   valid_for_s: float | None = None, claim: str = '', contradicts: bool = False) -> ToolOutput:
+        if self.config.knowledge is None:
+            return ToolOutput('there is no knowledge store here', is_error=True)
+
+        if not text.strip() or not evidence:
+            return ToolOutput('a note needs a sentence and at least one piece of evidence', is_error=True)
+
+        store    = self.config.knowledge
+        sighting = Sighting(by=f'agent:{self.skill}', time=time.time(), run=self.run_id, evidence=list(evidence), value=value)
+
+        if claim:
+            change = (store.contradict if contradicts else store.confirm)(claim, sighting)
+            found  = store.get(claim)
+        else:
+            found, change = store.note(text, sighting, about_of(place, skill), key or None, valid_for_s)
+
+        self.on_event('knowledge', f'{found.id} {change}: {found.text}', claim=found.id, change=change, tier=found.tier)
+
+        return ToolOutput(f'{found.id}: {change} ({found.tier})')
+
     def _tool_decide(self, decision: str, reason: str, dx: float | None = None, dy: float | None = None,
                      dyaw: float | None = None, use_left_arm: bool | None = None, ox: float | None = None,
                      oy: float | None = None, oz: float | None = None) -> ToolOutput:
@@ -483,7 +533,10 @@ class Agent:
                 evidence['press'] = self.press_evidence() if self.press_evidence else None
 
             system  = (Path(self.config.skills_dir) / f'{contract.interface.skill}.md').read_text()
-            session = AgentSession(phase, inputs, evidence, self.ros, self.config, self.on_event, self.speak)
+            known   = self.config.knowledge.prompt_section(observations=True) if self.config.knowledge else ''
+            system += f'\n\n{known}\n' if known else ''
+            session = AgentSession(phase, inputs, evidence, self.ros, self.config, self.on_event, self.speak,
+                                   skill=contract.interface.skill, run_id=context.run_id)
 
             self.on_event('agent_start', f'{contract.name} ({phase}) on {self.backend.name}', phase=phase)
             self.backend.run(system, _task(phase, inputs), tool_specs(phase), session.call,

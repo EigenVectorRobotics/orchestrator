@@ -1,6 +1,8 @@
 # Reasoning areas, knowledge graduation and map annotation (design, not built)
 
-Status: draft for review, 2026-11-05. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
+Status: 2026-11-05. Built (branch `feat/knowledge`): `orchestrator/knowledge.py` (claims, tiers, rules, log), the agent's `note` tool and the facts and beliefs in its prompt, the `knowledge` CLI. Not built yet: `{fact:...}` in trees, `scratch/<run_id>/`, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
+
+Built rules: observation → belief at 2 runs and 2 sources; a belief is ready for a fact when the Wilson lower bound (z = 1.645) is at least 0.8, that is 11 confirmations with no contradiction; the operator approves it with `knowledge approve`, at a terminal only.
 
 ## Goal
 
@@ -97,6 +99,14 @@ Examples of place claims from the 2026-11-04 trial (to be checked against the ex
 
 - A skill input can read a fact value: `offset="{fact:freight_elevator_cabin_panel.press_offset}"`. The validator refuses a key that has no fact (as it refuses blackboard keys that are never set).
 - The trees then do not carry offsets per panel; they read them from the facts.
+
+## For the UI (later)
+
+The UI reads files, so it needs no ROS and works on the laptop after an rsync:
+
+- `~/orch_knowledge/claims.yaml`: every claim with its tier, subject, value and sightings (each with its run).
+- `~/orch_knowledge/log.jsonl`: every change, who made it, and the operator's approvals and refusals.
+- `~/orch_runs/<session>/runs/<n>-<tree>/`: the missions (task, tree, records, agent calls, frames, outcome), linked from the claims by `run_id`.
 
 ## Open questions
 

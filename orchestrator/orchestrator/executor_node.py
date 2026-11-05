@@ -21,6 +21,7 @@ from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC, External
 from .trace import Tracer
 from .agent_ros import RosReader
 from .agent_sandbox import SandboxConfig
+from .knowledge import KnowledgeStore
 from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
@@ -85,6 +86,7 @@ class ExecutorNode(Node):
         scratch_dir    = self.declare_parameter('agent_scratch_dir', SandboxConfig.scratch_dir).value
         python_timeout = self.declare_parameter('agent_python_timeout_s', 60.0).value
         max_turns      = self.declare_parameter('agent_max_turns', 30).value
+        knowledge_dir  = self.declare_parameter('knowledge_dir', str(Path.home() / 'orch_knowledge')).value     # claims.yaml, log.jsonl
 
         if backend_name == 'none':
             return None
@@ -99,7 +101,8 @@ class ExecutorNode(Node):
             skills_dir=skills_dir,
             read_roots=list(read_roots),
             max_turns=max_turns,
-            sandbox=SandboxConfig(scratch_dir=scratch_dir, timeout_s=python_timeout)
+            sandbox=SandboxConfig(scratch_dir=scratch_dir, timeout_s=python_timeout),
+            knowledge=KnowledgeStore(knowledge_dir)
         )
 
         speaker = self.create_publisher(String, '/speak', 10)                  # unitree_interface's TTS (remapped ~/tts)
@@ -185,7 +188,8 @@ class ExecutorNode(Node):
             self.tracer.emit('halted', f'halted {self.tree.id} for a new tree', level='warn')
             self._clear_tree()
 
-        context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record)
+        run_id  = uuid.uuid4().hex[:8]
+        context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record, run_id=run_id)
 
         try:
             self.tree = BehaviorTree(xml_text, make_leaf_factory(self.registry, self.runner, self.agent), context)
@@ -195,7 +199,7 @@ class ExecutorNode(Node):
             self._publish_status('rejected')
             return False
 
-        self.tracer.fields = {'run_id': uuid.uuid4().hex[:8], 'tree_id': self.tree.id}
+        self.tracer.fields = {'run_id': run_id, 'tree_id': self.tree.id}
         self.tracer.emit('started', f'running {self.tree.id}' + (' (blind)' if blind else ''), tree=xml_text, blind=blind)
         self._publish_status('running')
 

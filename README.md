@@ -74,6 +74,17 @@ The rest of this section is how the frames are chosen, and the two older checks,
 - Frame times are the camera's header stamps and pose times the NUC's: the Orin's and the NUC's clocks must agree.
 - **The VLM on the Thor.** The executor's VLM conditions post to `vlm_base_url` (default `http://vector-thor:8090/v1`), but the Thor now runs only the Cosmos daemon and `ground_server`. Start `ros2 run orchestrator cosmos_vlm_server --port 8090` on the Thor, in the environment that runs `ground_server`: it answers with the Cosmos daemon, one request at a time, and waits while `ground_server` uses it. `vlm_timeout_s` (executor, default 40 s) covers that wait.
 
+## Knowledge store
+
+What the robot learns is kept as claims in `knowledge_dir` (executor parameter, default `~/orch_knowledge`): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). An agent skill adds observations with its `note` tool and sees the facts and beliefs in its prompt. A session that answers agent calls from outside uses the CLI, with `--by agent:<skill>`. Only the operator makes a fact, at a terminal:
+
+```bash
+ros2 run orchestrator knowledge list --ready                  # beliefs that can become facts
+ros2 run orchestrator knowledge show C-0007
+ros2 run orchestrator knowledge note "The call panel does not light." --by agent:press_judge --evidence frame:press --run <run_id> --place freight_elevator_call_panel --key lights_when_pressed --value false
+ros2 run orchestrator knowledge approve C-0007 [--text "the exact text"]
+```
+
 ## Run on a laptop, with no robot
 
 ```bash
