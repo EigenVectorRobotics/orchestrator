@@ -14,12 +14,16 @@
 Task mode (docs/task-mode.md): the session does a task step by step.
   agent_cli task wait [--timeout S]     block until a task is open; print it (the sentence, places, what is known)
   agent_cli task show                   the open task, or how the last one ended
-  agent_cli skills [--dir DIR]          the skills that run_skill can run, with their inputs and outputs
+  agent_cli skills [--dir DIR]          the skills that run can run now, from the executor (with an open task);
+                                        --dir reads a contracts folder instead, without ROS
   agent_cli plan SUBGOAL [SUBGOAL ...]  save the task plan (again, to change it)
   agent_cli run SKILL [KEY=VALUE ...] --subgoal S
                                         run one skill as the next step; wait for its end and print the result.
                                         A value is read as JSON when it can be ({"x": 1, ...}, 3, true), else as
                                         text; {key} is a blackboard key, e.g. {call_panel} or {step1_detections}
+  agent_cli write-skill FILE            save the contract in FILE (YAML) as a skill: checked, then loaded at once
+  agent_cli interface NAME|TYPE         a topic, service or action by name (/route_planner/navigate_to_goal), or a
+                                        type (std_srvs/srv/Trigger): its types and their fields
   agent_cli done --reason R             the task is done
   agent_cli give-up --reason R          the task cannot be done
 
@@ -29,11 +33,13 @@ The step gate (on the real robot): a person approves each step, at a terminal; t
   agent_cli step approve|refuse [--reason R]
                                         only at a terminal (a tty)
 
-Run it in the same ROS environment as the executor. It publishes nothing but speech (say) and a decision (--send).
+Run it in the same ROS environment as the executor. It publishes only to the executor (decisions, task commands,
+step decisions) and speech (say); it never calls a skill's own interface.
 """
 
 import sys
 import json
+import subprocess
 import time
 import uuid
 import argparse
@@ -43,6 +49,7 @@ from pathlib import Path
 
 import rclpy
 
+from rclpy.action import get_action_names_and_types
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.executors import SingleThreadedExecutor
 from std_msgs.msg import String
@@ -234,8 +241,9 @@ def _value(text: str):
         return text
 
 
-def _task_command(node, command: dict, timeout_s: float) -> int:
-    """One command for the open task; prints the executor's reply"""
+def _task_command(node, command: dict, timeout_s: float,
+                  show=lambda reply: json.dumps({key: value for key, value in reply.items() if key != 'id'}, indent=1, default=str)) -> int:
+    """One command for the open task; prints show(the executor's reply)"""
     task = _latest(node, OPEN_TOPIC, 3.0)
 
     if task is None or task['state'] != 'open':
@@ -248,7 +256,7 @@ def _task_command(node, command: dict, timeout_s: float) -> int:
     if reply is None:
         return 1
 
-    print(json.dumps({key: value for key, value in reply.items() if key != 'id'}, indent=1, default=str))
+    print(show(reply))
 
     return 0 if reply.get('ok') else 1
 
@@ -283,11 +291,44 @@ def _step(node, arguments) -> int:
     return 0 if reply['accepted'] else 1
 
 
-def _skills(directory: Path | None) -> int:
+def _graph_types(node, name: str) -> list[tuple[str, str]]:
+    """(label, type) for each topic, service and action called name in the graph now"""
+    found = []
+
+    for kind, listing in (('topic', node.get_topic_names_and_types()), ('service', node.get_service_names_and_types()),
+                          ('action', get_action_names_and_types(node))):
+        found += [(f'{kind} {name}', ros_type) for graph_name, types in listing if graph_name == name for ros_type in types]
+
+    return found
+
+
+def _interface(node, name: str) -> int:
+    """Read only: the types of a ROS name in the graph, or one type, with their definitions"""
+    found = [('type', name)]
+
+    if name.startswith('/'):
+        def look() -> bool:                             # until discovery has it, 1 s at most
+            found[:] = _graph_types(node, name)
+            return bool(found)
+
+        _spin_until(node, look, 1.0)
+
+    if not found:
+        print(f'{name} is not in the ROS graph now', file=sys.stderr)
+        return 1
+
+    for label, ros_type in found:
+        shown = subprocess.run(['ros2', 'interface', 'show', ros_type], capture_output=True, text=True, timeout=20)
+        print(f'--- {label}: {ros_type}')
+        print(shown.stdout.rstrip() or shown.stderr.rstrip())
+
+    return 0
+
+
+def _skills(directory: Path) -> int:
     from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry
     from .planner import describe_catalog
 
-    directory = directory or Path(get_package_share_directory('skill_registry')) / 'contracts'
     print(describe_catalog(Registry.from_directory(directory), set(DEFAULT_ESSENTIAL_DEVICES)))
 
     return 0
@@ -335,16 +376,19 @@ def main():
     step.add_argument('--reason', default='')
     step.add_argument('--timeout', type=float, default=3600.0)
     commands.add_parser('plan').add_argument('subgoals', nargs='+')
+    commands.add_parser('write-skill').add_argument('file', type=Path)
+    commands.add_parser('interface').add_argument('name')
     run = commands.add_parser('run')
     run.add_argument('skill')
     run.add_argument('inputs', nargs='*', help='KEY=VALUE')
     run.add_argument('--subgoal', required=True)
-    run.add_argument('--timeout', type=float, default=900.0)
+    run.add_argument('--timeout', type=float, default=3600.0,
+                     help='the wait includes the step gate; the task ends by max_task_s first, and that refuses the step')
     for name in ('done', 'give-up'):
         commands.add_parser(name).add_argument('--reason', required=True)
     arguments = parser.parse_args()
 
-    if arguments.command == 'skills':                   # no ROS needed
+    if arguments.command == 'skills' and arguments.dir:     # a folder: no ROS needed
         sys.exit(_skills(arguments.dir))
 
     if arguments.command == 'step' and arguments.action in ('approve', 'refuse') and not sys.stdin.isatty():
@@ -392,6 +436,15 @@ def _run(node, arguments) -> int:
 
     if arguments.command == 'step':
         return _step(node, arguments)
+
+    if arguments.command == 'skills':
+        return _task_command(node, {'op': 'skills'}, 10.0, lambda reply: reply.get('catalog') or reply.get('message'))
+
+    if arguments.command == 'write-skill':
+        return _task_command(node, {'op': 'write_skill', 'yaml': arguments.file.read_text()}, 30.0)
+
+    if arguments.command == 'interface':
+        return _interface(node, arguments.name)
 
     if arguments.command == 'plan':
         return _task_command(node, {'op': 'plan', 'subgoals': arguments.subgoals}, 10.0)

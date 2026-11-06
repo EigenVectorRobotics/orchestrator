@@ -1,3 +1,5 @@
+import re
+
 from string import Formatter
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -14,6 +16,9 @@ READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip')         # the 
 MATURITIES    = ('tested', 'wip', 'untested')
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
+NAME          = re.compile(r'^[a-z][a-z0-9_]{0,62}$')
+AGENT_MARK    = '# written by the agent with write_skill; a person may edit it, and then remove this line\n'
+# A contract file that starts with AGENT_MARK loads at maturity untested: the agent does not grade its own skills
 
 # Devices whose loss stops the robot anyway (the NUC runs the tree, the Orin runs the motors).
 # A skill on any other device can drop out, so a tree must give it a recovery.
@@ -121,6 +126,15 @@ class Contract:
         return next((port for port in self.inputs if port.name == name), None)
 
     @property
+    def conditions(self) -> list[str]:
+        """The condition skills it names: pre, effects and check"""
+        return [*self.pre, *self.effects, *([self.check] if self.check else [])]
+
+    @property
+    def references(self) -> list[str]:
+        return [*self.conditions, *self.fallback]
+
+    @property
     def required_inputs(self) -> list[str]:
         return [port.name for port in self.inputs if port.required]
 
@@ -161,6 +175,9 @@ def parse_contract(raw: dict) -> Contract:
         raise ContractError(f'contract has no name: {raw}')
 
     name = raw['name']
+
+    if not NAME.match(str(name)):
+        raise ContractError(f'{name}: a skill name is snake_case (a-z, 0-9, _), at most 63 characters')
 
     try:
         contract = Contract(
@@ -231,5 +248,16 @@ def _format_fields(text: str) -> set[str]:
 
 
 def load_contract(path: Path) -> Contract:
-    with open(path) as file:
-        return parse_contract(yaml.safe_load(file))
+    """A contract file: its name must be the file's name; an agent's file (AGENT_MARK) is at maturity untested"""
+    text = Path(path).read_text()
+    raw  = yaml.safe_load(text)
+
+    if isinstance(raw, dict) and text.startswith(AGENT_MARK):
+        raw['maturity'] = 'untested'
+
+    contract = parse_contract(raw)
+
+    if contract.name != Path(path).stem:
+        raise ContractError(f'{path}: the file of skill {contract.name} must be {contract.name}.yaml')
+
+    return contract

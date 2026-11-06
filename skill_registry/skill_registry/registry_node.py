@@ -42,10 +42,15 @@ class RegistryNode(Node):
         self._live_publisher = self.create_publisher(String, '/skills/live', LIVE_QOS)
         self._subscription   = self.create_subscription(String, '/skills/announce', self._on_announce, ANNOUNCE_QOS)
         self._live_timer     = self.create_timer(1.0, self._publish_live)
+        self._refresh_timer  = self.create_timer(5.0, self._refresh)          # contracts the agent writes (write_skill)
 
         threading.Thread(target=self._probe_vlm_forever, daemon=True).start()
 
         self.get_logger().info(f'{len(self.registry)} contracts from {self.contracts_directory}')
+
+    def _refresh(self):
+        for name in self.registry.refresh(Path(self.contracts_directory))[0]:       # refresh logs what it refuses
+            self.get_logger().info(f'contract loaded while running: {name}')
 
     def _on_announce(self, message: String):
         try:

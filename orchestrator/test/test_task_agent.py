@@ -158,3 +158,11 @@ def test_a_new_task_closes_the_old_one_and_refuses_its_waiting_step(tmp_path):
 
     assert d.replies[0]['status'] == 'refused' and 'the task ended' in d.replies[0]['message']
     assert {'state': 'closed', 'run_id': 'r1', 'end': 'replaced'} in d.opened and d.opened[-1]['state'] == 'open'
+
+
+def test_the_session_gets_the_skills_the_executor_has(tmp_path):
+    d = _desk(FakeRunner(), tmp_path)
+
+    d.desk.command({'id': 'k', 'run_id': 'r1', 'op': 'skills'})
+
+    assert d.replies[0]['ok'] and '## navigate_to' in d.replies[0]['catalog']

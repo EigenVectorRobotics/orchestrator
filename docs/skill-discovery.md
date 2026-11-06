@@ -39,7 +39,8 @@ People write only a short agent runbook (`docs/agent/runbook.md`): what the robo
 2. The agent reads the stack repos in `eigen_vector_ws` (read-only) and the live graph (`ros_read` topics, `interface_show`), and writes:
    - a contract for each interface it can use, at `experimental`, with a description, inputs, outputs, preconditions, a timeout and the device;
    - a page per package: what it does, its interfaces, the frames and units.
-3. `write_skill` validates each contract (schema, deny list, the ROS type exists) and saves it in `~/orch_skills/contracts/`; the registry loads it while it runs.
+3. `write_skill` (built: `agent_cli write-skill FILE`, `skill_writer.py`) checks each contract (the schema, the deny list, its references, its ROS types and fields, as `contract_check.py`), and saves it in the agent's folder with a mark on the first line (`AGENT_MARK`). It then loads through `Registry.refresh`, the one way in while the nodes run: the executor (at once after a write, and every 5 s) and `registry_node` (every 5 s) load new and changed files, each checked by the deny list and its references (and its ROS types, in the executor). A file with the mark always loads at maturity `untested`, so the agent does not grade its own skills even when it writes the file directly; a file's name must be its skill's name. A new version moves the old file to `old/`. The agent cannot replace a contract that a person wrote (no mark). Launch with `write_skill:=true contracts_directory:=~/orch_skills/contracts`; it is off by default, so the agent never writes into the package's hand-written contracts.
+   - `agent_cli interface NAME|TYPE` (built, read-only): the types of a topic, service or action in the live graph, or of one type, with their fields.
 4. The operator reviews the seeded library before the first robot use, as the graduation gate says.
 
 ## Improving the skills
@@ -52,7 +53,7 @@ People write only a short agent runbook (`docs/agent/runbook.md`): what the robo
 
 1. Task desk and `agent_cli` task commands (`docs/task-mode.md`): needed for every agent task. Done.
 2. The deny list and the step gate on the robot. Done.
-3. `write_skill`, `interface_show`, and the registry loading contracts while it runs.
+3. `write_skill`, `interface_show`, and the registry loading contracts while it runs. Done.
 4. The agent runbook, the session's permissions, and the discovery task.
 
 ## Open questions

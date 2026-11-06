@@ -1,8 +1,11 @@
 import time
 import logging
+import threading
 
 from pathlib import Path
 from dataclasses import dataclass
+
+import yaml
 
 from .deny import DenyList
 from .contract import Contract, ContractError, load_contract, parse_contract
@@ -16,6 +19,8 @@ class Registry:
         self._last_seen: dict[str, float]    = {}   # skill name -> monotonic time of last announce
         self.deny                            = deny if deny is not None else DenyList.load()
         self.denied:     dict[str, list[str]] = {}  # skill name -> why it was left out
+        self._file_times: dict[str, float]    = {}  # refresh: contract file -> the mtime it was last read at
+        self._refreshing                      = threading.Lock()
 
         for contract in contracts or []:
             self.add(contract)
@@ -31,6 +36,7 @@ class Registry:
         registry = cls([load_contract(path) for path in paths], deny)
         registry._drop_dependents_of_denied()
         registry.check_references()
+        registry._file_times = {path.name: path.stat().st_mtime for path in paths}
 
         return registry
 
@@ -48,12 +54,13 @@ class Registry:
             return False
 
         self._contracts[contract.name] = contract
+        self.denied.pop(contract.name, None)
         return True
 
     def _drop_dependents_of_denied(self):
         """A skill that names a denied skill (pre, effects, check, fallback) is left out too, until none is left"""
         while True:
-            needs = {contract.name: sorted(set(_references(contract)) & set(self.denied)) for contract in self}
+            needs = {contract.name: sorted(set(contract.references) & set(self.denied)) for contract in self}
             needs = {name: denied for name, denied in needs.items() if denied}
 
             if not needs:
@@ -63,6 +70,66 @@ class Registry:
                 del self._contracts[name]
                 self.denied[name] = [f'it needs the denied skill {skill}' for skill in denied]
                 logging.getLogger('skill_registry').warning(f'{name} not loaded: {"; ".join(self.denied[name])}')
+
+    def admit_errors(self, contract: Contract) -> list[str]:
+        """Why a new or changed contract may not join: the deny list, its references, the skills that name it"""
+        return self.deny.check(contract) or self.reference_errors(contract) or self._dependent_errors(contract)
+
+    def refresh(self, directory: Path, check=lambda contract: []) -> tuple[list[str], dict[str, str]]:
+        """The one way in while it runs: load the files that are new or changed (a contract the agent wrote, or a
+        person's edit), each through admit_errors and check (e.g. its ROS types). Returns the skills that changed,
+        and the files that did not load with why. Nothing is removed"""
+        with self._refreshing:
+            pending, errors = {}, {}
+
+            for path in sorted(Path(directory).glob('*.yaml')):
+                mtime = path.stat().st_mtime
+
+                if self._file_times.get(path.name) == mtime:
+                    continue
+
+                self._file_times[path.name] = mtime
+
+                try:
+                    contract = load_contract(path)
+                except (ContractError, OSError, ValueError, TypeError, yaml.YAMLError) as error:   # e.g. a half-saved edit
+                    errors[path.name] = str(error)
+                    continue
+
+                if self.get(contract.name) != contract:
+                    pending[path.name] = contract
+
+            changed = self._admit_all(pending, check, errors)
+
+        for file_name, error in errors.items():
+            logging.getLogger('skill_registry').warning(f'{file_name} not loaded: {error}')
+
+        return changed, errors
+
+    def _admit_all(self, pending: dict[str, Contract], check, errors: dict[str, str]) -> list[str]:
+        """Admit in passes, so a contract may name another one of the same batch"""
+        changed = []
+
+        while pending:
+            refused = {}
+
+            for file_name, contract in pending.items():
+                reasons = self.admit_errors(contract) or check(contract)
+
+                if reasons:
+                    refused[file_name] = reasons
+                else:
+                    self._contracts[contract.name] = contract
+                    self.denied.pop(contract.name, None)
+                    changed.append(contract.name)
+
+            if len(refused) == len(pending):
+                errors |= {file_name: '; '.join(reasons) for file_name, reasons in refused.items()}
+                return changed
+
+            pending = {file_name: pending[file_name] for file_name in refused}
+
+        return changed
 
     def get(self, name: str) -> Contract | None:
         return self._contracts.get(name)
@@ -79,18 +146,36 @@ class Registry:
     def check_references(self):
         """Every pre, effect, check and fallback names a known skill of the right kind"""
         for contract in self:
-            for condition in [*contract.pre, *contract.effects, *([contract.check] if contract.check else [])]:
-                target = self.get(condition)
+            errors = self.reference_errors(contract)
 
-                if target is None:
-                    raise ContractError(f'{contract.name}: unknown condition {condition}')
+            if errors:
+                raise ContractError(errors[0])
 
-                if target.kind != 'condition':
-                    raise ContractError(f'{contract.name}: {condition} is a {target.kind}, not a condition')
+    def _dependent_errors(self, contract: Contract) -> list[str]:
+        """A new version must still fit the skills that name it, e.g. a condition must stay a condition"""
+        old, self._contracts[contract.name] = self._contracts.get(contract.name), contract
 
-            for fallback in contract.fallback:
-                if fallback not in self:
-                    raise ContractError(f'{contract.name}: unknown fallback {fallback}')
+        try:
+            return [error for other in self if contract.name in other.references and other is not contract
+                    for error in self.reference_errors(other)]
+        finally:
+            if old is None:
+                del self._contracts[contract.name]
+            else:
+                self._contracts[contract.name] = old
+
+    def reference_errors(self, contract: Contract) -> list[str]:
+        errors = []
+
+        for condition in contract.conditions:
+            target = self.get(condition)
+
+            if target is None:
+                errors.append(f'{contract.name}: unknown condition {condition}')
+            elif target.kind != 'condition':
+                errors.append(f'{contract.name}: {condition} is a {target.kind}, not a condition')
+
+        return errors + [f'{contract.name}: unknown fallback {fallback}' for fallback in contract.fallback if fallback not in self]
 
     # ========== Online discovery ==========
 
@@ -118,10 +203,6 @@ class Registry:
             for name, seen in self._last_seen.items()
             if now - seen <= max_age_s
         ]
-
-
-def _references(contract: Contract) -> list[str]:
-    return [*contract.pre, *contract.effects, *([contract.check] if contract.check else []), *contract.fallback]
 
 
 @dataclass

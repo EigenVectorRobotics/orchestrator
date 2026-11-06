@@ -50,6 +50,9 @@ def generate_launch_description():
         DeclareLaunchArgument('mode', default_value='task', description='task: a session does each task step by step (agent_cli); tree: planner_node writes a tree'),
         DeclareLaunchArgument('step_gate', default_value='auto',
                               description='task mode: a person approves each step; auto: on unless fake (true | false | auto)'),
+        DeclareLaunchArgument('write_skill', default_value='false',
+                              description='skill discovery: the agent saves contracts in contracts_directory; set that to its own folder, '
+                                          'never the package contracts'),
         DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses trees while it is not ready'),
 
         Node(package='skill_registry', executable='registry_node', output='screen', parameters=shared),
@@ -58,7 +61,7 @@ def generate_launch_description():
             executable='executor_node',
             output='screen',
             parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]), 'mode': mode,
-                                  'step_gate': step_gate}]
+                                  'step_gate': step_gate, 'write_skill': LaunchConfiguration('write_skill')}]
         ),
         Node(package='orchestrator', executable='run_recorder', output='screen', parameters=shared, condition=IfCondition(record)),
         Node(

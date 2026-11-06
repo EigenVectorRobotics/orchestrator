@@ -6,6 +6,8 @@ the places, what the knowledge store knows, the scratch folder) and waits for co
 
 - plan: the task plan, a list of subgoals; it goes in the trace (each version) and in plan.md in the scratch folder
 - run: one skill as the next step, for a subgoal; the reply comes when the step ends, with its result
+- write_skill: a contract (YAML text) for a new skill or a new version of the agent's own (skill_writer.py)
+- skills: the skills that run can run now, as the executor has them
 - done, give_up: end the task
 
 Each command gets one reply on REPLY_TOPIC with its id. Limits: max_steps and max_task_s end the task as gave_up.
@@ -29,6 +31,8 @@ from pathlib import Path
 from dataclasses import asdict
 
 from .tasks import Task, Tasks
+from .planner import describe_catalog
+from .skill_writer import SkillWriter
 from .behavior_tree import Context
 
 
@@ -101,8 +105,9 @@ class TaskDesk:
     def __init__(self, tasks: Tasks, publish_open: Callable[[dict], None], publish_reply: Callable[[dict], None],
                  speak: Callable[[str], None], known: Callable[[], str] = lambda: '', max_steps: int = 40,
                  max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
-                 gate: StepGate | None = None):
+                 gate: StepGate | None = None, writer: SkillWriter | None = None):
         self.tasks         = tasks
+        self.writer        = writer                  # None: write_skill is refused
         self.gate          = gate                    # None: steps run without a person's approval (sim)
         self.publish_open  = publish_open
         self.publish_reply = publish_reply
@@ -197,10 +202,25 @@ class TaskDesk:
         if op == 'run':
             return self._run(task, message['skill'], dict(message.get('inputs') or {}), str(message.get('subgoal', '')))
 
+        if op == 'write_skill':
+            return self._write_skill(str(message['yaml']))
+
+        if op == 'skills':
+            return {'ok': True, 'catalog': describe_catalog(self.tasks.registry, self.tasks.essential_devices)}
+
         if op in ('done', 'give_up'):
             return self._end(task, 'done' if op == 'done' else 'gave_up', str(message.get('reason', '')))
 
-        return {'ok': False, 'message': f'unknown op {op}; use plan, run, done or give_up'}
+        return {'ok': False, 'message': f'unknown op {op}; use plan, run, write_skill, skills, done or give_up'}
+
+    def _write_skill(self, text: str) -> dict:
+        if self.writer is None:
+            return {'ok': False, 'message': 'write_skill is off here (no skill folder)'}
+
+        reply = self.writer.write(text)
+        self.tasks.tracer.emit('write_skill', reply['message'], level='info' if reply['ok'] else 'warn', ok=reply['ok'])
+
+        return reply
 
     def _plan(self, task: Task, subgoals: list[str]) -> dict:
         if not subgoals:

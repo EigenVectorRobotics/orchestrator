@@ -25,6 +25,8 @@ from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
 from .tasks import Tasks, parse_task_request
+from .skill_writer import SkillWriter
+from .contract_check import check_ros_types
 from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC, STEP_DECISION_TOPIC,
                          STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC, StepGate, TaskDesk)
 from .behavior_tree import Context, Status
@@ -75,8 +77,12 @@ class ExecutorNode(Node):
             self.create_subscription(Empty, '/orchestrator/cancel', self._on_cancel, 10),
             self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, STATUS_QOS),
         ]
+        # contracts that change on disk load while it runs, checked as write_skill checks them (skill_writer.py)
+        self.writer              = SkillWriter(self.registry, Path(self.get_parameter('contracts_directory').value),
+                                               check_ros_types, self.runner.prepare)
         self.desk                = self._make_desk() if mode == 'task' else None
         self._tick_timer         = self.create_timer(1.0 / self.tick_hz, self._tick)
+        self._refresh_timer      = self.create_timer(5.0, self.writer.refresh)
 
         self._publish_status('idle')
         self.get_logger().info(f'{len(self.registry)} skills, {len(self.places)} places')
@@ -88,6 +94,10 @@ class ExecutorNode(Node):
         publish_reply   = lambda message: reply_publisher.publish(String(data=json.dumps(message, default=str)))
         knowledge       = self.agent.config.knowledge if self.agent else None
         gate            = self._make_gate() if self.declare_parameter('step_gate', True).value else None
+        writes          = self.declare_parameter('write_skill', False).value
+
+        if writes:
+            self.get_logger().info(f'write_skill on: the agent saves contracts in {self.writer.directory}')
         desk            = TaskDesk(
             self.tasks,
             lambda message: open_publisher.publish(String(data=json.dumps(message, default=str))),
@@ -98,6 +108,7 @@ class ExecutorNode(Node):
             max_task_s=self.declare_parameter('task_max_s', 900.0).value,
             idle_s=self.declare_parameter('task_idle_s', 120.0).value,
             gate=gate,
+            writer=self.writer if writes else None,
         )
 
         def on_command(message: String):                # a run blocks until its step ends: not on the spin thread
