@@ -25,7 +25,8 @@ from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
 from .tasks import Tasks, parse_task_request
-from .task_agent import COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC, TaskDesk
+from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC, STEP_DECISION_TOPIC,
+                         STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC, StepGate, TaskDesk)
 from .behavior_tree import Context, Status
 from .ros_skill_runner import RosSkillRunner
 from .press_capture import DEFAULT_CAPTURE_DIR
@@ -86,6 +87,7 @@ class ExecutorNode(Node):
         reply_publisher = self.create_publisher(String, TASK_REPLY_TOPIC, COMMAND_QOS)
         publish_reply   = lambda message: reply_publisher.publish(String(data=json.dumps(message, default=str)))
         knowledge       = self.agent.config.knowledge if self.agent else None
+        gate            = self._make_gate() if self.declare_parameter('step_gate', True).value else None
         desk            = TaskDesk(
             self.tasks,
             lambda message: open_publisher.publish(String(data=json.dumps(message, default=str))),
@@ -95,6 +97,7 @@ class ExecutorNode(Node):
             max_steps=self.declare_parameter('task_max_steps', 40).value,
             max_task_s=self.declare_parameter('task_max_s', 900.0).value,
             idle_s=self.declare_parameter('task_idle_s', 120.0).value,
+            gate=gate,
         )
 
         def on_command(message: String):                # a run blocks until its step ends: not on the spin thread
@@ -111,6 +114,25 @@ class ExecutorNode(Node):
         ]
 
         return desk
+
+    def _make_gate(self) -> StepGate:
+        """The real robot, at first: a person approves each step (agent_cli step approve|refuse, at a terminal)"""
+        request_publisher = self.create_publisher(String, STEP_REQUEST_TOPIC, STATUS_QOS)
+        reply_publisher   = self.create_publisher(String, STEP_REPLY_TOPIC, COMMAND_QOS)
+        gate              = StepGate(lambda request: request_publisher.publish(String(data=json.dumps(request, default=str))))
+
+        def on_decision(message: String):
+            try:
+                reply = gate.decide(json.loads(message.data))
+            except (json.JSONDecodeError, AttributeError) as error:
+                reply = {'id': None, 'accepted': False, 'message': f'bad decision: {error}'}
+
+            reply_publisher.publish(String(data=json.dumps(reply)))
+
+        self._gate_subscription = self.create_subscription(String, STEP_DECISION_TOPIC, on_decision, COMMAND_QOS)
+        self.get_logger().info('step gate on: each step waits for agent_cli step approve')
+
+        return gate
 
     def _make_agent(self) -> Agent | None:
         """The runner of agent skills, or None if agent_backend is none or its backend cannot start"""

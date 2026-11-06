@@ -23,6 +23,12 @@ Task mode (docs/task-mode.md): the session does a task step by step.
   agent_cli done --reason R             the task is done
   agent_cli give-up --reason R          the task cannot be done
 
+The step gate (on the real robot): a person approves each step, at a terminal; the session cannot.
+  agent_cli step wait [--timeout S]     block until a step waits for approval; print it
+  agent_cli step show                   the step that waits, or the last decision
+  agent_cli step approve|refuse [--reason R]
+                                        only at a terminal (a tty)
+
 Run it in the same ROS environment as the executor. It publishes nothing but speech (say) and a decision (--send).
 """
 
@@ -47,7 +53,8 @@ from .images import ImageError, image_to_jpeg
 from .agent_ros import RosReader, RosReadError
 from .agent_sandbox import SandboxConfig, run_python
 from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
-from .task_agent import COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC
+from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC,
+                         REPLY_TOPIC as TASK_REPLY_TOPIC)
 
 
 LATCHED      = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -66,13 +73,18 @@ def _spin_until(node, done, timeout_s: float) -> bool:
     return done()
 
 
-def _latest(node, topic: str, timeout_s: float, wait_open: bool = False) -> dict | None:
-    """The latest latched message on topic (a call or a task); with wait_open, wait until it is open"""
-    holder = []
-    node.create_subscription(String, topic, lambda message: holder.append(json.loads(message.data)), LATCHED)
-    _spin_until(node, lambda: bool(holder) and (not wait_open or holder[-1]['state'] == 'open'), timeout_s)
+def _is_open(message: dict) -> bool:
+    return message['state'] == 'open'
 
-    return holder[-1] if holder else None
+
+def _latest(node, topic: str, timeout_s: float, until=None) -> dict | None:
+    """The latest latched message on topic (a call, a task or a step request), or None; with until, only one for
+    which until(message) holds"""
+    holder = []
+    done   = lambda: bool(holder) and (until is None or until(holder[-1]))
+    node.create_subscription(String, topic, lambda message: holder.append(json.loads(message.data)), LATCHED)
+
+    return holder[-1] if _spin_until(node, done, timeout_s) else None
 
 
 def _request_reply(node, topic: str, reply_topic: str, message: dict, timeout_s: float) -> dict | None:
@@ -241,6 +253,36 @@ def _task_command(node, command: dict, timeout_s: float) -> int:
     return 0 if reply.get('ok') else 1
 
 
+def _step_summary(request: dict) -> str:
+    return (f'step {request["step"]} of task {request["run_id"]} ({request["state"]}'
+            + (f': {request["reason"]}' if request.get('reason') else '') + f'), for "{request["subgoal"]}":\n'
+            f'  {request["skill"]} {json.dumps(request["inputs"])}')
+
+
+def _step(node, arguments) -> int:
+    """The step gate, for the person at the robot"""
+    wait    = arguments.action == 'wait'
+    request = _latest(node, STEP_REQUEST_TOPIC, arguments.timeout if wait else 3.0, _is_open if wait else None)
+
+    if request is None or (arguments.action != 'show' and not _is_open(request)):
+        print('no step waits for approval', file=sys.stderr)
+        return 1
+
+    print(_step_summary(request))
+
+    if arguments.action in ('wait', 'show'):
+        return 0
+
+    reply = _request_reply(node, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, {'id': request['id'], 'reason': arguments.reason,
+                                                                         'approve': arguments.action == 'approve'}, 5.0)
+
+    if reply is None:
+        return 1
+
+    print(reply['message'])
+    return 0 if reply['accepted'] else 1
+
+
 def _skills(directory: Path | None) -> int:
     from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry
     from .planner import describe_catalog
@@ -288,6 +330,10 @@ def main():
     task.add_argument('--timeout', type=float, default=3600.0)
     skills = commands.add_parser('skills')
     skills.add_argument('--dir', type=Path)
+    step = commands.add_parser('step')
+    step.add_argument('action', choices=['wait', 'show', 'approve', 'refuse'])
+    step.add_argument('--reason', default='')
+    step.add_argument('--timeout', type=float, default=3600.0)
     commands.add_parser('plan').add_argument('subgoals', nargs='+')
     run = commands.add_parser('run')
     run.add_argument('skill')
@@ -300,6 +346,10 @@ def main():
 
     if arguments.command == 'skills':                   # no ROS needed
         sys.exit(_skills(arguments.dir))
+
+    if arguments.command == 'step' and arguments.action in ('approve', 'refuse') and not sys.stdin.isatty():
+        print('a step is approved or refused by a person at a terminal, not by a session', file=sys.stderr)
+        sys.exit(1)
 
     if arguments.command == 'python':                   # no ROS needed
         result = run_python(arguments.file.read_text(), SandboxConfig(scratch_dir=arguments.scratch, timeout_s=arguments.timeout))
@@ -330,14 +380,18 @@ def _run(node, arguments) -> int:
     if arguments.command in ('task', 'wait', 'show'):         # task wait|show, or wait|show for a call
         is_task = arguments.command == 'task'
         wait    = (arguments.action if is_task else arguments.command) == 'wait'
-        latest  = _latest(node, OPEN_TOPIC if is_task else REQUEST_TOPIC, arguments.timeout if wait else 3.0, wait_open=wait)
+        latest  = _latest(node, OPEN_TOPIC if is_task else REQUEST_TOPIC, arguments.timeout if wait else 3.0,
+                          _is_open if wait else None)
 
-        if latest is None or (wait and latest['state'] != 'open'):
+        if latest is None:
             print(f'no {"task" if is_task else "call"} opened', file=sys.stderr)
             return 1
 
         print(_task_summary(latest) if is_task else _summary(latest, getattr(arguments, 'full', False)))
         return 0
+
+    if arguments.command == 'step':
+        return _step(node, arguments)
 
     if arguments.command == 'plan':
         return _task_command(node, {'op': 'plan', 'subgoals': arguments.subgoals}, 10.0)

@@ -12,11 +12,16 @@ Each command gets one reply on REPLY_TOPIC with its id. Limits: max_steps and ma
 When no command comes for idle_s between steps (the session or its cloud link is gone), the robot says so once on
 /speak and waits.
 
+With the step gate on (the real robot, at first), a run waits for a person: the request goes out latched on
+STEP_REQUEST_TOPIC, and agent_cli step approve|refuse answers on STEP_DECISION_TOPIC (reply on STEP_REPLY_TOPIC). agent_cli answers only at a
+terminal (a tty), so the session that asked cannot answer itself by mistake. A refused step does not run.
+
 This module needs no ROS: the executor wires the topics, calls command() from a worker thread (a run blocks until
 its step ends) and check() from its timer.
 """
 
 import time
+import uuid
 import threading
 
 from typing import Callable
@@ -30,14 +35,75 @@ from .behavior_tree import Context
 OPEN_TOPIC    = '/orchestrator/task/open'
 COMMAND_TOPIC = '/orchestrator/task/command'
 REPLY_TOPIC   = '/orchestrator/task/reply'
+STEP_REQUEST_TOPIC  = '/orchestrator/step_request'
+STEP_DECISION_TOPIC = '/orchestrator/step_decision'
+STEP_REPLY_TOPIC    = '/orchestrator/step_decision/reply'
 LOST_SPEECH   = 'I lost the connection to my planner. I will wait here. Please help me if you can.'
+
+
+class StepGate:
+    """A person approves or refuses each step before it runs"""
+
+    def __init__(self, publish: Callable[[dict], None]):
+        self.publish  = publish
+        self.request  = None                    # the open request
+        self.decision = None
+        self.answered = threading.Event()
+        self._lock    = threading.Lock()
+
+    def ask(self, request: dict, still_open: Callable[[], bool]) -> dict:
+        """Block until a person decides, or the task ends (cancel); returns {approve, state, reason}"""
+        with self._lock:
+            if self.request is not None:
+                return {'approve': False, 'state': 'refused', 'reason': 'another step already waits for approval'}
+
+            self.request  = {'id': uuid.uuid4().hex[:8], 'state': 'open', **request}
+            self.decision = None
+            self.answered.clear()
+
+        self.publish(self.request)
+
+        if not still_open():                    # it closed before the request was out: no cancel will come
+            self.cancel('the task ended')
+
+        self.answered.wait()
+
+        with self._lock:
+            request, decision, self.request = self.request, self.decision, None
+
+        self.publish({**request, 'state': decision['state'], 'reason': decision['reason']})
+
+        return decision
+
+    def decide(self, message: dict) -> dict:
+        """A decision for the open request; the reply says whether it was taken"""
+        with self._lock:
+            if self.request is None or message.get('id') != self.request['id'] or self.answered.is_set():
+                return {'id': message.get('id'), 'accepted': False, 'message': 'no step with this id waits'}
+
+            approve       = bool(message.get('approve'))
+            self.decision = {'approve': approve, 'state': 'approved' if approve else 'refused',
+                             'reason': str(message.get('reason', ''))}
+            self.answered.set()
+
+        return {'id': message['id'], 'accepted': True, 'message': self.decision['state']}
+
+    def cancel(self, reason: str):
+        """Refuse the open request, if any: its task ended"""
+        with self._lock:
+            request = self.request
+
+        if request is not None:
+            self.decide({'id': request['id'], 'approve': False, 'reason': reason})
 
 
 class TaskDesk:
     def __init__(self, tasks: Tasks, publish_open: Callable[[dict], None], publish_reply: Callable[[dict], None],
                  speak: Callable[[str], None], known: Callable[[], str] = lambda: '', max_steps: int = 40,
-                 max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic):
+                 max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
+                 gate: StepGate | None = None):
         self.tasks         = tasks
+        self.gate          = gate                    # None: steps run without a person's approval (sim)
         self.publish_open  = publish_open
         self.publish_reply = publish_reply
         self.speak         = speak
@@ -55,6 +121,9 @@ class TaskDesk:
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
 
     def open(self, sentence: str, context: Context, blind: bool = False):
+        if self.task is not None:
+            self._close(self.task, 'replaced')          # a new task halts the old one (start_task)
+
         task = self.tasks.start_task('task', context, blind)
 
         with self._lock:
@@ -152,13 +221,22 @@ class TaskDesk:
         if task.steps >= self.max_steps:
             return {'ok': False, 'message': f'max_steps {self.max_steps} reached: end the task with done or give_up'}
 
+        if self.gate is not None:
+            decision = self.gate.ask({'run_id': task.run_id, 'step': task.steps + 1, 'skill': skill, 'inputs': inputs,
+                                      'subgoal': subgoal}, lambda: self.task is task)
+            self.tasks.tracer.emit('step_gate', f'step {task.steps + 1} {skill}: {decision["state"]} {decision["reason"]}'.strip(),
+                                   skill=skill, **decision)
+
+            if not decision['approve']:
+                return {'ok': False, 'status': 'refused', 'message': f'the operator refused the step: {decision["reason"]}'}
+
         result = self.tasks.run_skill(skill, inputs, subgoal=subgoal)
 
         return {'ok': result.status != 'error', **asdict(result)}
 
     def _end(self, task: Task, end: str, reason: str) -> dict:
+        self._close(task, end)                           # first: else check() sees it end and closes it as 'ended'
         self.tasks.end_task(task, end, reason)
-        self._close(task, end)
 
         return {'ok': True, 'message': f'the task ended: {end}'}
 
@@ -168,5 +246,8 @@ class TaskDesk:
                 return
 
             self.task = None
+
+        if self.gate is not None:
+            self.gate.cancel('the task ended')
 
         self.publish_open({'state': 'closed', 'run_id': task.run_id, 'end': end})

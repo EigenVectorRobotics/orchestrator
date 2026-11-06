@@ -14,6 +14,8 @@ def generate_launch_description():
     model        = LaunchConfiguration('planner_model')
     record       = LaunchConfiguration('record')
     mode         = LaunchConfiguration('mode')
+    step_gate    = PythonExpression(["'", LaunchConfiguration('step_gate'), "' == 'true' or ('", LaunchConfiguration('step_gate'),
+                                     "' == 'auto' and '", fake, "' != 'true')"])
     vlm_url      = PythonExpression(["'http://127.0.0.1:8090/v1' if '", fake, "' == 'true' else '", vlm_base_url, "'"])
 
     # Every node gets the same file and the same overrides, so one argument changes them all
@@ -46,6 +48,8 @@ def generate_launch_description():
         DeclareLaunchArgument('planner_backend', default_value='claude', description='claude | openai_compatible | scripted'),
         DeclareLaunchArgument('planner_model', default_value='claude-opus-5'),
         DeclareLaunchArgument('mode', default_value='task', description='task: a session does each task step by step (agent_cli); tree: planner_node writes a tree'),
+        DeclareLaunchArgument('step_gate', default_value='auto',
+                              description='task mode: a person approves each step; auto: on unless fake (true | false | auto)'),
         DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses trees while it is not ready'),
 
         Node(package='skill_registry', executable='registry_node', output='screen', parameters=shared),
@@ -53,7 +57,8 @@ def generate_launch_description():
             package='orchestrator',
             executable='executor_node',
             output='screen',
-            parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]), 'mode': mode}]
+            parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]), 'mode': mode,
+                                  'step_gate': step_gate}]
         ),
         Node(package='orchestrator', executable='run_recorder', output='screen', parameters=shared, condition=IfCondition(record)),
         Node(

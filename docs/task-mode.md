@@ -49,7 +49,8 @@ Status: draft for review, 2026-11-05. Related: `docs/skill-packages.md` ("Compos
 ### Step gate on the robot
 
 - The goal is a robot that tries its own skills. On the real robot, a person approves each step at first (decided 2026-11-05). In the sim, there is no gate.
-- The executor sends the proposed step (skill, inputs, the agent's reason) on `/orchestrator/step_request` and waits. The operator approves or refuses it from a terminal (`agent_cli step approve|refuse`). A refusal goes back to the agent as the step's result, with the operator's reason.
+- The executor sends the proposed step (skill, inputs, subgoal) latched on `/orchestrator/step_request` and waits. The operator approves or refuses it from a terminal (`agent_cli step wait`, then `agent_cli step approve|refuse --reason R`). A refusal goes back to the agent as the step's result (`status: refused`), with the operator's reason. A step that waits when the task ends is refused.
+- Built (`StepGate` in `task_agent.py`). Launch argument `step_gate`: `auto` (the default) is on unless `fake:=true`. `agent_cli` answers only at a tty, so the agent session cannot approve its own step by mistake. This is a guard against mistakes only: the executor takes a decision from anyone who publishes on `/orchestrator/step_decision` (`ros2 topic pub`, or `script` for a tty). The real limit is the session's permissions (`docs/skill-discovery.md`, "The session too"): shell commands only through `agent_cli`, without `step approve|refuse`.
 - The recorder keeps each request and answer. Later, as for facts, the gate can get narrower: first for skills at `tested`, then more, when the operator's answers show that it is safe.
 
 ### Loss of the cloud
