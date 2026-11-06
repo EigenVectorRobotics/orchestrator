@@ -1,0 +1,33 @@
+name: button_in_reach
+kind: condition
+device: nuc
+description: >-
+  Before the first press: the tracked button is where presses have worked from, in the pelvis frame: ahead within
+  [min_ahead_m, max_ahead_m], within max_sideways_m to the side, and the panel facing the robot within max_slant_deg.
+  Reads track_anything's latest 3D pose of its target, so run track on the button first; no fresh pose means not
+  tracking, or too close for depth (E-005). A box check, not inverse kinematics. Runs in the executor, with no cloud.
+interface:
+  transport: in_reach
+  target:
+    pose_topic: /track_3d/selected_normal_pose     # camera frame, +X out of the panel; through TF only, not the EKF
+    normal: out
+    frame: pelvis
+  limits:                      # the union of both panels in E-006; give a panel's own range as inputs
+    max_age_s: 1.0
+    min_ahead_m: 0.33
+    max_ahead_m: 0.48
+    max_sideways_m: 0.15
+    max_slant_deg: 45.0
+inputs:
+- {name: min_ahead_m, type: float, required: false, description: 'nearest the button may be, ahead of the pelvis (E-006: 0.33 outside, 0.38 inside)'}
+- {name: max_ahead_m, type: float, required: false, description: 'farthest, ahead of the pelvis (E-006: 0.48 outside, 0.46 inside)'}
+- {name: max_sideways_m, type: float, required: false, description: 'farthest to either side of the pelvis (E-006: 0.15)'}
+- {name: max_slant_deg, type: float, required: false, description: 'largest angle between the panel normal and the pelvis heading'}
+record: true
+maturity: untested
+source: orchestrator/orchestrator/stance_checks.py (judge_reach)
+notes: >-
+  The ranges are what the field test of 2026-11-04 saw work (E-006), not a reach model, so a pass is "like the
+  stances that worked" and a fail is a reason to look before pressing (manipulation_recovery stance_check). The real
+  planner's IK check is g1_pilot reach_check (manipulation_stack pelvis-correction 54b27de, Trigger
+  /check_reachability); it is not launched on the robot yet. 45 deg slant is the example in manipulation_recovery.md.

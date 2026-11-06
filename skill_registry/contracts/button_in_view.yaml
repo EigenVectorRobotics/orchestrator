@@ -1,0 +1,25 @@
+name: button_in_view
+kind: condition
+device: nuc
+description: >-
+  Before the first press: the tracked button is in the camera's view, away from the image edges. Reads
+  track_anything's latest 2D box of its target, so run track on the button first. A box older than max_age_s means
+  not tracking, or the button is out of the frame (E-015: the robot stopped too close and the button fell below it).
+  Runs in the executor, with no cloud and no VLM call.
+interface:
+  transport: in_view
+  target:
+    box_topic: /track_3d/detections_2d
+    target_topic: /track_3d/selected_target_3d
+  limits:
+    max_age_s: 1.0
+    margin_frac: 0.05          # each edge: 5 % of the image (36 px of 720)
+inputs:
+- {name: margin_frac, type: float, required: false, description: 'the clear band each image edge must keep, as a fraction of the image'}
+record: true
+maturity: untested
+source: orchestrator/orchestrator/stance_checks.py (judge_view)
+notes: >-
+  It cannot tell a wrong button from the right one (E-003): a seed can lock onto a neighbour. The margin is a first
+  guess: on 2026-11-04 a good down press had the button near y 540 of 720 at the call panel, floor 1 near y 450 to 600
+  inside, and a failed one had it cut by the bottom edge (E-015).

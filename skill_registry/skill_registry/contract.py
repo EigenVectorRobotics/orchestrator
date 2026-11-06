@@ -6,11 +6,14 @@ import yaml
 
 
 KINDS         = ('action', 'condition', 'composite')
-TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip')
-READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip')         # the transports a condition may use
+TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip',
+                 'in_view', 'in_reach')
+READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip', 'in_view', 'in_reach')   # the transports a condition may use
 # watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
 # graph: each listed topic has at most its allowed publishers. press_tip: where the end effector got to in the last press.
+# in_view: the tracked target's latest 2D box is fresh and inside the image. in_reach: the tracked target's latest
+# pose, in the robot's frame, is inside the reach limits. Both run in the executor on what the stack publishes.
 MATURITIES    = ('tested', 'wip', 'untested')
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
@@ -78,7 +81,8 @@ class Interface:
     frames:          str = ''               # vlm: judge the frames a capture kept (press_capture) instead of the latest one
     compare_question: str = ''              # vlm with frames: asked of [baseline | later frame] side by side
     topics:          dict = field(default_factory=dict)       # graph: topic -> the most publishers it may have
-    limits:          dict = field(default_factory=dict)       # press_tip: max_lateral_m, min_depth_m
+    limits:          dict = field(default_factory=dict)       # press_tip, in_view, in_reach: the thresholds
+    target:          dict = field(default_factory=dict)       # in_view: box_topic, target_topic; in_reach: pose_topic, frame
 
 
 @dataclass
@@ -102,6 +106,7 @@ class Contract:
     maturity:    str = 'untested'
     source:      str = ''                                   # code the skill wraps
     notes:       str = ''
+    record:      bool = False   # a condition: record its failure for the agent even when it checks no action
 
     def input(self, name: str) -> Port | None:
         return next((port for port in self.inputs if port.name == name), None)
@@ -191,6 +196,15 @@ def parse_contract(raw: dict) -> Contract:
 
     if interface.frames and (interface.frames != 'press_capture' or interface.transport != 'vlm'):
         raise ContractError(f'{name}: frames must be press_capture, on a vlm skill')
+
+    if interface.transport == 'in_view' and not interface.target.get('box_topic'):
+        raise ContractError(f'{name}: an in_view skill needs target.box_topic')
+
+    if interface.transport == 'in_reach' and not (interface.target.get('pose_topic') and interface.target.get('frame')):
+        raise ContractError(f'{name}: an in_reach skill needs target.pose_topic and target.frame')
+
+    if contract.record and contract.kind != 'condition':
+        raise ContractError(f'{name}: record is for conditions; actions are always recorded')
 
     if interface.transport == 'agent' and not interface.skill:
         raise ContractError(f'{name}: an agent skill needs the skill document it follows')

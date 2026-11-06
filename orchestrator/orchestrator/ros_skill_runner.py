@@ -8,6 +8,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from rclpy.node import Node
+from rclpy.time import Time
+from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.action import ActionClient
 from action_msgs.msg import GoalStatus
@@ -23,6 +25,7 @@ from .images import ImageError, image_to_jpeg
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
 from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
+from .stance_checks import judge_reach, judge_view, rotate, transform_pose
 
 
 MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
@@ -459,6 +462,11 @@ class RosSkillRunner:
         self._pose_topics  = set()
         self._box_topics   = set()
         self._target_id    = None
+        self._box_seen     = None           # (monotonic receive time, box) of track_anything's latest target box
+        self._image_size   = None           # (width, height) of the last camera frame
+        self._targets      = {}             # in_reach pose topic -> (monotonic receive time, PoseStamped)
+        self._target_topics = set()
+        self._tf_buffer    = None
 
         self._action_clients:  dict[str, ActionClient] = {}
         self._service_clients: dict[str, object]       = {}
@@ -487,8 +495,12 @@ class RosSkillRunner:
                 self._pose_topics.add(topic)
                 self.node.create_subscription(PoseStamped, topic, lambda message, arm=arm: self._on_ee_pose(arm, message), COMMAND_QOS)
 
-        if interface.capture.get('box_topic') and interface.capture['box_topic'] not in self._box_topics:
-            self._subscribe_boxes(interface.capture['box_topic'], interface.capture.get('target_topic', ''))
+        for source in (interface.capture, interface.target):
+            if source.get('box_topic') and source['box_topic'] not in self._box_topics:
+                self._subscribe_boxes(source['box_topic'], source.get('target_topic', ''))
+
+        if interface.transport == 'in_reach':
+            self._subscribe_target(interface.target['pose_topic'])
 
         try:
             if interface.transport == 'action':
@@ -538,6 +550,12 @@ class RosSkillRunner:
             if interface.transport == 'press_tip':
                 return self._check_press_tip(interface.limits)
 
+            if interface.transport == 'in_view':
+                return self._check_in_view(interface.limits, inputs)
+
+            if interface.transport == 'in_reach':
+                return self._check_in_reach(interface, inputs)
+
             if interface.transport == 'vlm':
                 return self._ask_vlm(contract, inputs)
 
@@ -576,6 +594,58 @@ class RosSkillRunner:
 
         return _DoneHandle(reached, f'deepest {depth * 1000:+.1f} mm along the button normal (needs >= {min_depth * 1000:+.1f}), '
                                     f'{lateral * 1000:.1f} mm sideways there (needs <= {max_lateral * 1000:.1f})')
+
+    def _check_in_view(self, limits: dict, inputs: dict):
+        """The tracked target's latest box is fresh and away from the image edges"""
+        seen = self._box_seen
+        age  = None if seen is None else time.monotonic() - seen[0]
+        success, message, outputs = judge_view(None if seen is None else seen[1], age, self._image_size, limits, inputs)
+
+        return _DoneHandle(success, message, outputs)
+
+    def _check_in_reach(self, interface, inputs: dict):
+        """The tracked target's latest pose, in the robot's frame, is within the reach that worked"""
+        target = interface.target
+        seen   = self._targets.get(target['pose_topic'])
+
+        if seen is None:
+            return _DoneHandle(*judge_reach(None, None, None, interface.limits, inputs, target['frame']))
+
+        received, message = seen
+        pose              = message.pose
+
+        try:
+            transform = self._tf().lookup_transform(target['frame'], message.header.frame_id, Time())
+        except Exception as error:                      # tf2 raises several kinds; all mean "not available"
+            return _DoneHandle(False, f'no transform {target["frame"]} <- {message.header.frame_id}: {error}')
+
+        shift, turn = transform.transform.translation, transform.transform.rotation
+        position, rotation = transform_pose(
+            (pose.position.x, pose.position.y, pose.position.z),
+            (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w),
+            (shift.x, shift.y, shift.z), (turn.x, turn.y, turn.z, turn.w)
+        )
+        axis   = rotate(rotation, (1.0, 0.0, 0.0))
+        inward = axis if target.get('normal', 'out') == 'in' else tuple(-value for value in axis)   # track_anything: +X out of the panel
+
+        return _DoneHandle(*judge_reach(position, inward, time.monotonic() - received, interface.limits, inputs, target['frame']))
+
+    def _subscribe_target(self, topic: str):
+        if topic in self._target_topics:
+            return
+
+        self._target_topics.add(topic)
+        self.node.create_subscription(PoseStamped, topic, lambda message: self._targets.__setitem__(topic, (time.monotonic(), message)), COMMAND_QOS)
+        self._tf()                                      # listen from the start, so TF is there at the first check
+
+    def _tf(self):
+        if self._tf_buffer is None:
+            from tf2_ros import Buffer, TransformListener
+
+            self._tf_buffer   = Buffer(cache_time=Duration(seconds=10))
+            self._tf_listener = TransformListener(self._tf_buffer, self.node)
+
+        return self._tf_buffer
 
     def shutdown(self):
         self._vlm_pool.shutdown(wait=False, cancel_futures=True)
@@ -650,6 +720,7 @@ class RosSkillRunner:
 
         stamp       = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
         self._image = jpeg
+        self._image_size = (message.width, message.height)
         self.frames.add(stamp or self.now(), jpeg)
 
     def _subscribe_boxes(self, box_topic: str, target_topic: str):
@@ -674,8 +745,10 @@ class RosSkillRunner:
         centre, box = detection.bbox.center.position, detection.bbox
         stamp       = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
 
-        self.boxes.add(stamp or self.now(), (centre.x - box.size_x / 2, centre.y - box.size_y / 2,
-                                             centre.x + box.size_x / 2, centre.y + box.size_y / 2))
+        corners = (centre.x - box.size_x / 2, centre.y - box.size_y / 2, centre.x + box.size_x / 2, centre.y + box.size_y / 2)
+
+        self.boxes.add(stamp or self.now(), corners)
+        self._box_seen = (time.monotonic(), corners)    # by receive time: the Orin's stamps need not match this clock
 
     def _on_ee_pose(self, arm: str, message: PoseStamped):
         capture = self.last_capture

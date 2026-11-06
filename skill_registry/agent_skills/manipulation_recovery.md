@@ -1,14 +1,14 @@
 ---
 name: manipulation_recovery
 description: press_button failed. Work out why from the evidence, decide whether the target was out of the arm's reach, and if so where the robot should stand instead.
-runs_when: [press_button failed, the reposition walk arrived]
+runs_when: [a stance check failed before the first press, press_button failed, the reposition walk arrived]
 runs_on: a Claude Code session through agent_cli (default), or a model inside the executor on the NUC
-decisions: [reposition, switch_arm, offset_retry, retry, ask_help, abort, continue]
+decisions: [reposition, switch_arm, offset_retry, retry, ask_help, abort, continue]   # per phase: "Your decision"
 ---
 
 # Manipulation recovery
 
-The behavior tree calls you at two moments: after `press_button` has failed (the diagnosis), and after the walk to a new stance that you chose has arrived (the view check). Each time the tree waits, up to 600 s, for your decision. You cannot move the robot: you gather evidence with read-only tools, build whatever checks you need in Python, and end with one decision. The tree then carries out your decision with its own skills (`navigate_to`, `press_button`, `say`).
+The behavior tree calls you at three moments: before the first press at a panel, when a stance check failed (the stance check); after `press_button` has failed (the diagnosis); and after the walk to a new stance that you chose has arrived (the view check). Each time the tree waits, up to 600 s, for your decision. You cannot move the robot: you gather evidence with read-only tools, build whatever checks you need in Python, and end with one decision. The tree then carries out your decision with its own skills (`navigate_to`, `press_button`, `say`).
 
 You are usually a Claude Code session that reaches the robot over ssh and answers with `agent_cli`: read "When you are a Claude Code session" first. You may also be a model inside the executor, with the tools in "Tools".
 
@@ -31,6 +31,23 @@ This document gives you facts about the robot and its software, and where to fin
    - `ask_help` only when these did not work, or none of them applies.
 8. **Check that the button is still in view.** Look at the camera image, and project the target position into the camera with the camera intrinsics and TF. If the button is not in view from the current stance, or would leave the view from the stance you are about to choose, say so: a press cannot work on a button the camera cannot see.
 9. **Say it, then call `decide` once.** If the evidence is missing or contradictory, say so and choose `ask_help`. Do not guess a reposition. If the button is out of view and no stance within reason brings it back, choose `abort`.
+
+### Before the first press
+
+The walk to the panel has arrived and nothing has been pressed yet. The tree tracked the button and ran two checks in the executor; one failed, and `get_failure` says which, with what it measured:
+
+- **`track` failed:** no seed. The button may be out of the frame (E-015), or the seed was random (E-004).
+- **`button_in_view` failed:** no fresh box, or the box is at an image edge. `outputs` has the box, the image size and the distance to each edge.
+- **`button_in_reach` failed:** no fresh 3D pose (too close for depth, E-005), or the button is outside the reach that worked: `outputs` has `ahead_m`, `sideways_m`, `up_m` and `slant_deg` in `pelvis`, and the limits used.
+
+A poor stance here comes from the walk, not from the arm: the robot stops a few centimetres off its place, sometimes 8 to 24 cm past it (E-001), and then the button falls below the frame or out of reach. The limits are what worked on 2026-11-04 (E-006), not a reach model: confirm before you act. "What is known" holds the claims about this place: where walks to it ended, the reach that worked there, and where the button sat in good frames. Take steps 3, 4, 5 and 8 of "How to work" on the current stance, then decide:
+
+- `continue`: the stance is good after all (the check was marginal, or your IK says both poses are reachable), or the cause is a random no-seed with the button in frame (E-004): `press_button` seeds again itself.
+- `reposition`: the stance needs a change of at least 0.25 m (E-016). The same rules as after a failed press.
+- `switch_arm`: the other arm reaches from here (E-007).
+- `abort`: the button is out of view and no stance you can justify brings it back.
+
+When you are not sure, choose `continue`: the press runs, and a failure comes back to you as a diagnosis.
 
 ### After the reposition walk
 
@@ -228,6 +245,8 @@ After a failed press:
 | `retry` | The cause was transient (rejection, cooldown, a slow but progressing reach, no track while the button is in frame, a step during the press) and the same call is likely to work | none |
 | `ask_help` | The last resort: retries and repositions have not helped (see step 6), the evidence is missing or contradictory, or the needed correction is one the tree cannot make (a stance closer than about 0.15 m, an offset, an EKF reset); say which in your reason | none |
 | `abort` | The button is out of the camera's view and no stance you can justify brings it back | none |
+
+Before the first press (phase `stance_check`): `continue`, `reposition`, `switch_arm` or `abort`, as in the table above and "Before the first press". `continue` presses from where the robot stands.
 
 After the reposition walk:
 

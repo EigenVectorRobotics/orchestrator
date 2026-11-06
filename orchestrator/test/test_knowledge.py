@@ -255,3 +255,18 @@ def test_the_agent_note_tool_refuses_a_bad_tag(tmp_path):
     output = session.call('note', {'text': 'Slow.', 'about': {'Device X': 'thor'}, 'evidence': ['record:1']})
 
     assert output.is_error and 'snake_case' in output.text
+
+
+def test_seed_loads_the_experience_claims_once_as_one_source(tmp_path):
+    from pathlib import Path
+    from orchestrator.knowledge_cli import seed
+
+    store = KnowledgeStore(tmp_path / 'store')
+    path  = Path(__file__).resolve().parents[1] / 'config' / 'knowledge_seed.yaml'
+    first = seed(store, str(path), 'person:experience_log')
+
+    assert first and all(line.startswith('C-') for line in first)
+    assert {claim.tier for claim in store.claims()} == {'observation'}
+    assert all(claim.confirmations[0].evidence and claim.confirmations[0].run is None for claim in store.claims())
+    assert all(line.startswith('skipped') for line in seed(store, str(path), 'person:experience_log'))
+    assert 'place freight_elevator_call_panel' in store.prompt_section(observations=True)

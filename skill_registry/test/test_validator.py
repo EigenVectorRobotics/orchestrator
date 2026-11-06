@@ -218,3 +218,19 @@ def test_failure_when_reads_action_feedback_only():
     held = Registry.from_directory(CONTRACTS).get('navigate_to').interface.failure_when
 
     assert (held.field, held.equals, held.hold_s) == ('state', 'blocked', 10)
+
+
+def test_the_stance_checks_need_their_topics_and_only_conditions_record():
+    base = {'name': 'x', 'kind': 'condition', 'device': 'nuc'}
+
+    with pytest.raises(ContractError, match='box_topic'):
+        parse_contract({**base, 'interface': {'transport': 'in_view'}})
+
+    with pytest.raises(ContractError, match='pose_topic and target.frame'):
+        parse_contract({**base, 'interface': {'transport': 'in_reach', 'target': {'pose_topic': '/p'}}})
+
+    with pytest.raises(ContractError, match='record is for conditions'):
+        parse_contract({**base, 'kind': 'action', 'timeout_s': 1, 'record': True,
+                        'interface': {'transport': 'topic', 'name': '/t', 'ros_type': 'std_msgs/msg/Empty'}})
+
+    assert parse_contract({**base, 'record': True, 'interface': {'transport': 'in_view', 'target': {'box_topic': '/b'}}}).record

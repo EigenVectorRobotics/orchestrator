@@ -128,4 +128,10 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport in ('agent', 'compare', 'graph', 'press_tip'):
         return True                 # they run inside the executor
 
+    if interface.transport == 'in_view':
+        return interface.target['box_topic'] in graph.published
+
+    if interface.transport == 'in_reach':
+        return interface.target['pose_topic'] in graph.published
+
     return False                    # trees are live only when announced

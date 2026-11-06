@@ -459,3 +459,71 @@ def test_a_literal_pose_can_carry_the_storey():
 
     assert parse_pose('3.74 -0.422 2.67') == {'x': 3.74, 'y': -0.422, 'yaw': 2.67, 'frame': 'map'}
     assert parse_pose('3.74, -0.422, -0.435, 2.67')['z'] == -0.435
+
+
+# ========== stance_check: before the first press ==========
+
+FULL_TREE = TREES / 'freight_elevator_down_floor1_agentic.xml'
+PLACES    = {name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'}
+             for name in ('freight_elevator_call_panel_preapproach', 'freight_elevator_call_panel', 'inside_freight_elevator_button_panel')}
+
+
+def _full_tree(runner: FakeRunner, agent) -> BehaviorTree:
+    now     = [0.0]
+    clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]          # the tree's Sleeps pass in a few ticks
+    context = Context(blackboard={name: dict(pose) for name, pose in PLACES.items()}, clock=clock)
+
+    return BehaviorTree(FULL_TREE.read_text(), make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
+
+
+def test_stance_check_decisions(tmp_path):
+    session = AgentSession('stance_check', {'base_goal': PANEL}, {}, None, _config(tmp_path), lambda *a, **k: None)
+
+    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'x', 'ox': 0, 'oy': 0, 'oz': 0}).is_error
+    assert session.call('decide', {'decision': 'ask_help', 'reason': 'x'}).is_error
+    assert session.call('decide', {'decision': 'reposition', 'reason': 'too close', 'dx': -0.25, 'dy': 0.0}).final
+
+
+def test_a_failed_stance_check_is_recorded_for_the_agent():
+    runner = FakeRunner([], failing=('button_in_reach',))
+    body   = ('<root BTCPP_format="4"><BehaviorTree ID="t"><Sequence><track query="down button"/><button_in_view/>'
+              '<button_in_reach max_ahead_m="0.46"/></Sequence></BehaviorTree></root>')
+    tree   = _tree(body, runner, None)
+
+    assert _run(tree) == Status.FAILURE
+    assert tree.context.last_failure['skill'] == 'button_in_reach'
+    assert tree.context.last_failure['inputs'] == {'max_ahead_m': 0.46}
+
+
+def test_a_poor_stance_is_fixed_before_the_first_press(tmp_path):
+    """The reach check fails at both panels: outside the agent repositions before pressing, inside it presses as is"""
+    backend = ScriptedAgentBackend([
+        [['get_failure', {}], ['decide', {'decision': 'reposition', 'reason': 'stopped 17 cm past', 'dx': -0.3, 'dy': 0.0}]],
+        [['decide', {'decision': 'continue', 'reason': 'button in view'}]],
+        [['decide', {'decision': 'pressed', 'reason': 'lit'}]],
+        [['get_failure', {}], ['decide', {'decision': 'continue', 'reason': 'IK reaches both poses'}]],
+        [['decide', {'decision': 'pressed', 'reason': 'lit'}]],
+    ])
+    runner  = FakeRunner([(True, 'Controller reached target', []), (True, 'Controller reached target', [])], failing=('button_in_reach',))
+    tree    = _full_tree(runner, Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE))
+
+    assert _run(tree, max_ticks=3000) == Status.SUCCESS
+
+    names   = [name for name, _ in runner.calls]
+    walks   = [inputs['goal'] for name, inputs in runner.calls if name == 'navigate_to']
+    phases  = [record['phase'] for record in tree.context.history if 'decision' in record]
+
+    assert phases == ['stance_check', 'view_check', 'judge', 'stance_check', 'judge']
+    assert walks[2]['x'] == pytest.approx(0.7) and walks[2]['z'] == pytest.approx(-0.46)   # 0.3 m back, same storey
+    assert names.index('navigate_to', names.index('button_in_reach')) < names.index('press_button')
+    assert names.count('press_button') == 2
+    assert 'button_in_reach' in backend.calls[0][2].text                                  # the agent saw which check failed
+
+
+def test_without_an_agent_a_failed_stance_check_still_presses():
+    pressed = (True, 'Controller reached target', [])
+    runner  = FakeRunner([pressed, pressed], failing=('button_in_view',))
+    tree    = _full_tree(runner, None)
+
+    assert _run(tree, max_ticks=3000) == Status.SUCCESS                     # each press_judge fails: a person is asked
+    assert [name for name, _ in runner.calls].count('press_button') == 2

@@ -24,8 +24,9 @@ from .agent_sandbox import SandboxConfig, run_python
 
 # The decisions each phase may end with, and the ones that let the tree go on
 PHASE_DECISIONS = {
-    'diagnose':   ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help', 'abort'),
-    'view_check': ('continue', 'abort'),
+    'diagnose':     ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help', 'abort'),
+    'stance_check': ('continue', 'reposition', 'switch_arm', 'abort'),
+    'view_check':   ('continue', 'abort'),
     'judge':      ('pressed', 'not_pressed'),
 }
 GOING_ON = {'reposition', 'switch_arm', 'offset_retry', 'retry', 'continue', 'pressed'}
@@ -565,6 +566,10 @@ def _task(phase: str, inputs: dict) -> str:
     elif phase == 'diagnose':
         lines.append('The press did not work: press_button failed, or it succeeded and its check (button_lit) failed; '
                      'get_failure says which. Work out why, following "How to work", and end with decide.')
+    elif phase == 'stance_check':
+        lines.append('The walk to the panel has arrived and nothing has been pressed yet. A stance check failed: the '
+                     'track, button_in_view or button_in_reach; get_failure says which and what it measured. Check the '
+                     'stance, following "Before the first press", and end with decide.')
     else:
         lines.append('The walk to the stance you chose has arrived. Do the view check in "After the reposition walk", '
                      'and end with decide.')
