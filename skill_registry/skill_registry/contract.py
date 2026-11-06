@@ -80,6 +80,20 @@ class Interface:
     topics:          dict = field(default_factory=dict)       # graph: topic -> the most publishers it may have
     limits:          dict = field(default_factory=dict)       # press_tip: max_lateral_m, min_depth_m
 
+    def ros_names(self) -> set[str]:
+        """Every ROS name the skill sends to or reads: the interface, the watched topic, capture and graph topics"""
+        names = {self.name} if self.transport in ('action', 'service', 'topic') else set()
+
+        if self.success_when:
+            names.add(self.success_when.topic)
+
+        names |= {value for key, value in self.capture.items() if key.endswith('_topic')}
+
+        return {name for name in names | set(self.topics) if name}
+
+    def ros_types(self) -> set[str]:
+        return {ros_type for ros_type in [self.ros_type, self.success_when and self.success_when.ros_type] if ros_type}
+
 
 @dataclass
 class Contract:

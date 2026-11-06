@@ -11,7 +11,8 @@ import runpy
 import resource
 
 SCRATCH         = os.path.realpath(os.environ['AGENT_SCRATCH'])
-BLOCKED_MODULES = {'rclpy', 'rcl', 'rmw', 'rosidl_runtime_py', 'tf2_ros', 'launch', 'launch_ros', 'rosbag2_py'}
+ROS_MODULES     = {'rclpy', 'rcl', 'rmw', 'rosidl_runtime_py', 'tf2_ros', 'launch', 'launch_ros', 'rosbag2_py'}
+BLOCKED_MODULES = ROS_MODULES | set(filter(None, os.environ.get('AGENT_DENIED_MODULES', '').split(':')))  # + deny list
 PROCESS_EVENTS  = {
     'subprocess.Popen', 'os.system', 'os.exec', 'os.posix_spawn', 'os.spawn', 'os.fork', 'os.forkpty',
     'pty.spawn', 'os.kill', 'os.killpg',
@@ -38,7 +39,8 @@ def _hook(event: str, args: tuple):
         name = args[0] or ''
 
         if name.split('.')[0] in BLOCKED_MODULES:
-            raise ImportError(f'{name} is blocked in the agent sandbox: use the ros_read tool for ROS data')
+            raise ImportError(f'{name} is blocked in the agent sandbox: use the ros_read tool for ROS data; the '
+                              'Unitree SDK and raw DDS are on the deny list')
 
     elif event == 'open':
         path, mode, flags = args

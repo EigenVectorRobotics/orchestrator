@@ -23,7 +23,8 @@ def test_seed_contracts_load():
     registry = Registry.from_directory(CONTRACTS)
 
     assert 'navigate_to' in registry
-    assert len(registry) == len(list(CONTRACTS.glob('*.yaml')))
+    assert len(registry) + len(registry.denied) == len(list(CONTRACTS.glob('*.yaml')))
+    assert set(registry.denied) == {'ready_walk'}
 
 
 def test_example_tree_is_valid_blind():

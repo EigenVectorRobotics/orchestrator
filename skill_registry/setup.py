@@ -8,6 +8,7 @@ setup(
     name=PACKAGE_NAME,
     version='0.0.0',
     packages=[PACKAGE_NAME],
+    package_data={PACKAGE_NAME: ['deny.yaml']},
     data_files=[
         ('share/ament_index/resource_index/packages', [f'resource/{PACKAGE_NAME}']),
         (f'share/{PACKAGE_NAME}', ['package.xml']),

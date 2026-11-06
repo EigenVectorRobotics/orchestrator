@@ -1,0 +1,22 @@
+# What the agent may never use (docs/skill-discovery.md). A contract that breaks it does not load, and write_skill
+# refuses it; the agent sandbox blocks the modules. This is the operator's file: the agent never writes it.
+
+names:                  # fnmatch patterns, for every ROS name a contract uses (Interface.ros_names); a leading / is ignored
+  - 'rt/*'              # the Unitree low-level DDS topics: rt/lowcmd, rt/lowstate, rt/arm_sdk, rt/dex3/*, ...
+  - '*lowcmd*'
+  - '*arm_sdk*'
+  - '/unitree_interface/ready_locomotion'   # it damps the robot and stands it up again
+
+types:                  # fnmatch patterns for ros_type: the Unitree SDK's own messages
+  - 'unitree_hg/*'
+  - 'unitree_go/*'
+  - 'unitree_api/*'
+
+values:                 # these names may send only these values in these fields; the field must be set
+  /unitree_interface/change_mode:
+    requested_mode: [1, 2]    # idle, high_level; never MONOSTATE 0, EMERGENCY 3 or LOW_LEVEL 4
+
+modules:                # Python modules that the agent sandbox blocks
+  - unitree_sdk2py
+  - unitree_sdk2
+  - cyclonedds

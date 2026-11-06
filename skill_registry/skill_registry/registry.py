@@ -1,38 +1,68 @@
 import time
+import logging
 
 from pathlib import Path
 from dataclasses import dataclass
 
+from .deny import DenyList
 from .contract import Contract, ContractError, load_contract, parse_contract
 
 
 class Registry:
     """All known skill contracts, and which of them are live now"""
 
-    def __init__(self, contracts: list[Contract] | None = None):
+    def __init__(self, contracts: list[Contract] | None = None, deny: DenyList | None = None):
         self._contracts: dict[str, Contract] = {}
         self._last_seen: dict[str, float]    = {}   # skill name -> monotonic time of last announce
+        self.deny                            = deny if deny is not None else DenyList.load()
+        self.denied:     dict[str, list[str]] = {}  # skill name -> why it was left out
 
         for contract in contracts or []:
             self.add(contract)
 
     @classmethod
-    def from_directory(cls, directory: Path) -> 'Registry':
+    def from_directory(cls, directory: Path, deny: DenyList | None = None) -> 'Registry':
+        """The contracts in directory, without those the deny list refuses (see registry.denied)"""
         paths = sorted(Path(directory).glob('*.yaml'))
 
         if not paths:
             raise ContractError(f'no contracts (*.yaml) in {directory}')
 
-        registry = cls([load_contract(path) for path in paths])
+        registry = cls([load_contract(path) for path in paths], deny)
+        registry._drop_dependents_of_denied()
         registry.check_references()
 
         return registry
 
-    def add(self, contract: Contract):
+    def add(self, contract: Contract) -> bool:
+        """False if the deny list refuses the contract: it is kept out, with the reasons in denied"""
         if contract.name in self._contracts:
             raise ContractError(f'duplicate skill {contract.name}')
 
+        reasons = self.deny.check(contract)
+
+        if reasons:
+            self.denied[contract.name] = reasons
+            logging.getLogger('skill_registry').warning(f'{contract.name} not loaded, the deny list refuses it: '
+                                                        + '; '.join(reasons))
+            return False
+
         self._contracts[contract.name] = contract
+        return True
+
+    def _drop_dependents_of_denied(self):
+        """A skill that names a denied skill (pre, effects, check, fallback) is left out too, until none is left"""
+        while True:
+            needs = {contract.name: sorted(set(_references(contract)) & set(self.denied)) for contract in self}
+            needs = {name: denied for name, denied in needs.items() if denied}
+
+            if not needs:
+                return
+
+            for name, denied in needs.items():
+                del self._contracts[name]
+                self.denied[name] = [f'it needs the denied skill {skill}' for skill in denied]
+                logging.getLogger('skill_registry').warning(f'{name} not loaded: {"; ".join(self.denied[name])}')
 
     def get(self, name: str) -> Contract | None:
         return self._contracts.get(name)
@@ -65,11 +95,11 @@ class Registry:
     # ========== Online discovery ==========
 
     def announce(self, raw: dict, now: float | None = None) -> Contract:
-        """A skill server says it is up. New skills join the registry"""
+        """A skill server says it is up. New skills join the registry, unless the deny list refuses them"""
         contract = parse_contract(raw)
 
-        if contract.name not in self:
-            self.add(contract)
+        if contract.name not in self and not self.add(contract):
+            raise ContractError(f'{contract.name} is denied: {"; ".join(self.denied[contract.name])}')
 
         self._last_seen[contract.name] = time.monotonic() if now is None else now
 
@@ -88,6 +118,10 @@ class Registry:
             for name, seen in self._last_seen.items()
             if now - seen <= max_age_s
         ]
+
+
+def _references(contract: Contract) -> list[str]:
+    return [*contract.pre, *contract.effects, *([contract.check] if contract.check else []), *contract.fallback]
 
 
 @dataclass

@@ -134,6 +134,7 @@ def test_run_python_runs_code_and_blocks_ros_writes_and_processes(tmp_path):
 
     for code, error in [
         ('import rclpy', 'blocked in the agent sandbox'),
+        ('import unitree_sdk2py', 'blocked in the agent sandbox'),
         (f'open({str(tmp_path / "outside.txt")!r}, "w")', 'writes only under'),
         ('import subprocess; subprocess.run(["true"])', 'subprocess.Popen is blocked'),
         ('import socket; socket.create_connection(("127.0.0.1", 9))', 'no network'),

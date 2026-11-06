@@ -2,11 +2,14 @@
 
 import os
 import signal
+import functools
 import itertools
 import subprocess
 
 from pathlib import Path
 from dataclasses import dataclass, field
+
+from skill_registry import DenyList
 
 
 GUARD_PATH  = Path(__file__).with_name('agent_guard.py')
@@ -25,6 +28,11 @@ class SandboxConfig:
 
 
 _run_numbers = itertools.count(1)
+
+
+@functools.cache
+def _denied_modules() -> str:
+    return ':'.join(DenyList.load().modules)
 
 
 def _clip(text: str, limit: int) -> str:
@@ -54,6 +62,7 @@ def run_python(code: str, config: SandboxConfig) -> dict:
         'PYTHONDONTWRITEBYTECODE':       '1',
         'AGENT_MEMORY_MB':               str(config.memory_mb),     # agent_guard applies the limits itself
         'AGENT_CPU_S':                   str(int(config.timeout_s) + 5),
+        'AGENT_DENIED_MODULES':          _denied_modules(),     # the deny list's: the Unitree SDK, raw DDS
     }
     process = subprocess.Popen(
         [config.python, '-I', str(GUARD_PATH), str(code_path)],
