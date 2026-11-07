@@ -1,0 +1,6 @@
+# Door state seen from the car: lidar points on the landing in front of the door (the door must be open to see them).
+frame_id: map
+map: maps/sim_map_world.pcd
+corners: [[-0.8, -1.8], [0.8, -1.8], [0.8, -0.4], [-0.8, -0.4]]
+min_intensity: 5
+threshold: 36

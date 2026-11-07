@@ -1,0 +1,37 @@
+# Parameter sets for nav_approach_test.py, set on the running nodes before each set's cycles. Sets apply in order and a
+# set does not reset what an earlier one changed, so each set gives every parameter that any set changes.
+# g1: as deployed (navigation_stack local_planner/config/unitree_g1.yaml and the defaults).
+
+g1:
+  local_planner: {goal_reached_threshold: 0.3, goal_yaw_threshold: 0.15, goal_clear_range: 0.6, goal_behind_range: 0.8}
+  path_follower: {stop_distance_threshold: 0.4, slow_down_distance_threshold: 0.875, two_way_drive: false,
+                  omni_direction_goal_threshold: -1.0, min_turn_yaw_rate: 0.0, min_turn_deadband: 0.1}
+
+# Arrive within 6 cm and 0.1 rad. Obstacles count only 0.2 m past the goal: the press poses are 0.52 m from the panel
+# wall, and at the goal (distance 0) the turn onto its heading needs a clear path, or it stops (run 33). Walk until
+# 3 cm before the end, slow down only in the last 0.25 m (the sim gait stands under 0.1 m/s), back up to a goal behind
+# (two-way in both nodes), and turn in place at 18 deg/s at least (the gait does not turn under ~14 deg/s)
+precise_turn:
+  local_planner: {goal_reached_threshold: 0.06, goal_yaw_threshold: 0.1, goal_clear_range: 0.2, goal_behind_range: 0.0}
+  path_follower: {stop_distance_threshold: 0.03, slow_down_distance_threshold: 0.25, two_way_drive: true,
+                  omni_direction_goal_threshold: -1.0, min_turn_yaw_rate: 18.0, min_turn_deadband: 0.08}
+
+# As precise_turn, and within 0.5 m of the goal the follower crabs onto it (no turn to a sideways path)
+precise_crab:
+  local_planner: {goal_reached_threshold: 0.06, goal_yaw_threshold: 0.1, goal_clear_range: 0.2, goal_behind_range: 0.0}
+  path_follower: {stop_distance_threshold: 0.03, slow_down_distance_threshold: 0.25, two_way_drive: true,
+                  omni_direction_goal_threshold: 0.5, min_turn_yaw_rate: 18.0, min_turn_deadband: 0.08}
+
+# The chosen set (config/nav_params_g1_press.yaml: precise_turn), tested again with the press poses moved for its bias
+press:
+  local_planner: {goal_reached_threshold: 0.06, goal_yaw_threshold: 0.1, goal_clear_range: 0.2, goal_behind_range: 0.0}
+  path_follower: {stop_distance_threshold: 0.03, slow_down_distance_threshold: 0.25, two_way_drive: true,
+                  omni_direction_goal_threshold: -1.0, min_turn_yaw_rate: 18.0, min_turn_deadband: 0.08}
+
+# press, and the follower crabs within 0.25 m of the goal: on the straight last leg to a press pose (from the step back
+# point) a robot 5 to 8 cm beside the line stopped and turned in place to the goal 0.15 m away, and the gait's drift
+# in the turn kept it turning for 60 s (navtest_3, first call panel leg)
+press_crab_near:
+  local_planner: {goal_reached_threshold: 0.06, goal_yaw_threshold: 0.1, goal_clear_range: 0.2, goal_behind_range: 0.0}
+  path_follower: {stop_distance_threshold: 0.03, slow_down_distance_threshold: 0.25, two_way_drive: true,
+                  omni_direction_goal_threshold: 0.25, min_turn_yaw_rate: 18.0, min_turn_deadband: 0.08}

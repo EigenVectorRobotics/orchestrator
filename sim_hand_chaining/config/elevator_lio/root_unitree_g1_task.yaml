@@ -1,0 +1,4 @@
+# Elevator-LIO root config for the FVD task: the task executor switches elevator mode on /LIO/set_elevator_flag.
+sensor_config: "sensor_unitree_g1.yaml"
+runtime_config: "runtime_task.yaml"
+logging_config: "logging.yaml"

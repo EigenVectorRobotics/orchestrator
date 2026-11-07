@@ -1,0 +1,74 @@
+# Places for the task executor, annotated on maps/sim_map_world.pcd (map frame = sim world frame after registration).
+# x, y [m] and yaw [rad] of base_link in the map frame.
+# Press poses for the closed Dex1-1 gripper (from 2026-10-28; DEX3 before), with locomotion nav. The executor walks to
+# the step back point 0.3 m behind a press pose, then straight to the pose at 0.2 m/s (task_executor.py navigate, precise).
+# Aim, in panel coordinates (base_link distance from the panel along its normal, the button to the right of a robot
+# facing the panel, turn right of facing): call panel 0.33 m, 0.23 m, 30 deg, where the up button is pressed with the
+# TCP 1 mm from the goal and seen near the image centre (u 440-470 of 640; analysis/fvd_sim_06/press_reach_dex1_call4/);
+# car panel 0.50 m, 0.16 m, 5 deg (press_reach_dex1_car2/). Each pose is the aim minus the mean arrival error of that
+# last leg (nav_approach_test.py with config/nav_params_g1_press.yaml, and runs 42-44): call panel 2.5 cm past, 6.5 cm
+# left and 1.8 deg right; car panel 2 cm past, 5 cm left and 2 deg right. Outside the button's press region (region in
+# buttons) the executor steps back and walks the last leg again (task_executor.py reach).
+base_height: 0.88        # base_link above the floor (sensor 1.23 m, sensor -> base_link 0.35 m)
+floor_labels: [B, A, "1", "2", "3", "4"]   # bottom to top, as elevator_states imu_floor_detect counts them
+
+floors:
+  "1":
+    ground_z: 0.0
+    start:      {x: 1.6, y: -2.0, yaw: 1.5708}     # initial guess where the robot is put down
+    call_panel: {x: 0.550, y: -0.517, yaw: 1.0786} # hall buttons at (0.735, -0.134), up 1.20 m, down 1.02 m
+    exit:       {x: 0.8, y: -1.3, yaw: -1.0472}    # the straight walk out of the car from car inside ends here
+    targets:
+      door 1: {x: 4.5, y: -5.5, yaw: 0.0}
+      door 2: {x: -4.5, y: -5.5, yaw: 3.1416}
+  "2":
+    ground_z: 3.8
+    start:      {x: 1.6, y: -2.0, yaw: 1.5708}
+    call_panel: {x: 0.550, y: -0.517, yaw: 1.0786}
+    exit:       {x: 0.8, y: -1.3, yaw: -1.0472}
+    targets:
+      door 1: {x: 4.5, y: -5.5, yaw: 0.0}
+      door 2: {x: -4.5, y: -5.5, yaw: 3.1416}
+
+# The car, the same x, y on every floor
+car:
+  corners: [[-1.25, 0.5], [1.25, 0.5], [1.25, 2.55], [-1.25, 2.55]]  # floor rectangle, in order around it
+  # The straight walk in (from 0.3 m behind the call panel pose) ends here, and the robot turns to the panel: 0.7 m from
+  # the left wall, as the turn in place moves the base 0.2-0.35 m toward it. The walk out starts 0.6 m behind the panel
+  # pose (step back). Both lines pass the door (x -0.6..0.6, y -0.1..0.5 in the map) with the robot's centre 0.42 to
+  # 0.52 m from a jamb (0.45 m wide G1: 0.20 m clear or more)
+  inside: {x: -0.55, y: 1.6, yaw: -1.6581}
+  panel: {x: -0.879, y: 0.974, yaw: -1.6232} # floor buttons at (-0.99, 0.451), 1: 0.96 m, 2: 1.06 m, facing +y
+
+# Button centres in x, y [m] (map frame) and the panel normal: only for the reach check before a press. The press
+# itself finds the button with its own perception. Hall buttons: same x, y on every floor.
+# query: what the press sends to Thor's grounding (GroundBoxes), when not the button's own name (up, down, floor_N).
+# This sim panel's floor buttons are a dark plate with the number and a round cap at its right end; only the cap moves.
+# tool/hand_chaining/grounding_test.py, 15 poses near the press pose (2026-10-28): floor_1 and floor_2 boxed the cap in
+# 0 of 15 (whole plate 4 and 3, no box 11 and 12); these object queries in 11 and 14 of 15. Hall up and down: their
+# names 9 of 15 each; object queries 0 and 2 of 15.
+# region: where the button must be before a press with the closed Dex1-1 gripper, in panel coordinates (distance [m],
+# lateral [m], turn_deg [deg] as above): poses of tool/hand_chaining/press_reach_sweep.py where G1Pilot plans with the
+# TCP within about 5 mm of the goal and the button 30 px or more inside the streamed view (analysis/fvd_sim_06/
+# press_reach_dex1_call3/, _call4/, _car2/). Up: farther or less turned, the arm does not reach; less turned and more
+# right, the button leaves the view. Down: nearer than 0.34 m the view cuts it at the bottom. Floor 1: farther than
+# 0.52 m the arm does not reach; nearer than 0.47 m the view cuts it at the bottom.
+buttons:
+  hall_up:   {x: 0.735, y: -0.134, normal_yaw: -1.5708,
+              region: {distance: [0.29, 0.37], lateral: [0.19, 0.28], turn_deg: [24.0, 36.0]}}
+  hall_down: {x: 0.735, y: -0.134, normal_yaw: -1.5708,
+              region: {distance: [0.34, 0.44], lateral: [0.18, 0.30], turn_deg: [20.0, 35.0]}}
+  floor_1:   {x: -0.99, y: 0.451, normal_yaw: 1.5708,
+              region: {distance: [0.47, 0.53], lateral: [0.08, 0.20], turn_deg: [-3.0, 10.0]},
+              query: "object:the small round push button at the right end of the dark plate labeled 1"}
+  floor_2:   {x: -0.99, y: 0.451, normal_yaw: 1.5708,
+              region: {distance: [0.44, 0.55], lateral: [0.08, 0.20], turn_deg: [-3.0, 10.0]},
+              query: "object:the small round push button at the right end of the dark plate labeled 2"}
+# The press region of a button without its own region (buttons above), in panel coordinates.
+press_region: {distance: [0.30, 0.55], lateral: [0.05, 0.30], turn_deg: [-5.0, 35.0]}
+
+# Map annotation: boxes [x_min, y_min, z_min, x_max, y_max, z_max] of dynamic objects removed from the prior map
+# (src/clean_map.py). The landing and car door leaves were mapped closed and block every route into the car.
+map_masks:
+  - [-0.62, -0.2, 0.05, 0.62, 0.5, 2.4]   # floor 1 doorway: landing and car door leaves
+  - [-0.62, -0.2, 3.85, 0.62, 0.5, 6.2]   # floor 2 doorway

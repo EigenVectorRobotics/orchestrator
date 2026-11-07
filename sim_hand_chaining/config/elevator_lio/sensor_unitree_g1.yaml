@@ -1,0 +1,22 @@
+lidar_type: 1 # Livox = 1, Ouster = 2, Velodyne = 3, XT32 = 4
+
+offset:
+  imu_t_lidar: [ -0.011 , -0.02329, 0.04412] # IMU系下激光雷达的位置
+  imu_R_lidar:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  lidar_t_body: [ 0.0 , 0.0, 0.0] # Lidar系下小车中心的位置
+  # The G1 Mid-360 is mounted upside down. body = the lidar turned 180 deg about x,
+  # so body is upright: it is the same frame as arise_slam's `sensor`.
+  # Points and IMU are NOT flipped; the driver extrinsic would rotate only the points.
+  lidar_R_body:
+    - [1.0,  0.0,  0.0]
+    - [0.0, -1.0,  0.0]
+    - [0.0,  0.0, -1.0]
+
+topic_sub:
+  lidar_topic_name: "/lidar/scan"
+  imu_topic_name: "/imu/data"
+  wheel_topic_name: "/wheel_info" # 注意，轮速计话题的回调函数 receive_wheel 需要根据实际修改
+  elevator_flag_topic_name: "/LIO/set_elevator_flag"

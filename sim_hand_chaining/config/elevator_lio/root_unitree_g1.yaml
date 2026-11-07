@@ -1,0 +1,4 @@
+# Elevator-LIO root config for the Unitree G1. Paths are relative to this folder.
+sensor_config: "sensor_unitree_g1.yaml"
+runtime_config: "runtime_odometry.yaml"
+logging_config: "logging.yaml"
