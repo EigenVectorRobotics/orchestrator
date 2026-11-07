@@ -527,3 +527,75 @@ def test_without_an_agent_a_failed_stance_check_still_presses():
 
     assert _run(tree, max_ticks=3000) == Status.SUCCESS                     # each press_judge fails: a person is asked
     assert [name for name, _ in runner.calls].count('press_button') == 2
+
+
+# ========== The ride tree ==========
+
+RIDE_TREE   = TREES / 'freight_elevator_ride_agentic.xml'
+RIDE_PLACES = ('inside_freight_elevator_button_panel', 'freight_elevator_door', 'inside_freight_elevator_door_view', 'exit_goal')
+
+
+class RideRunner(FakeRunner):
+    """The floor counter reads floor 2 until the press, then floor 3 (a stop on the way), then floor 1"""
+
+    def __init__(self, presses: list[tuple], failing: tuple = (), stops: tuple = ('3', '3', '1')):
+        super().__init__(presses, failing)
+        self.floor = '2'
+        self.stops = list(stops)
+
+    def start(self, contract, inputs):
+        if contract.name == 'press_button':
+            self.floor = 'riding'
+
+        if contract.name == 'elevator_floor_is':
+            self.calls.append((contract.name, inputs))
+
+            if 'press_button' in [name for name, _ in self.calls] and self.stops:     # one poll per stop
+                self.floor = self.stops.pop(0)
+
+            return FakeHandle(Status.SUCCESS if inputs['floor'] == self.floor else Status.FAILURE, f'data = {self.floor}')
+
+        return super().start(contract, inputs)
+
+
+def _ride_tree(runner: FakeRunner) -> BehaviorTree:
+    now     = [0.0]
+    clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]
+    context = Context(blackboard={name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'} for name in RIDE_PLACES}, clock=clock)
+
+    return BehaviorTree(RIDE_TREE.read_text(), make_leaf_factory(Registry.from_directory(CONTRACTS), runner, None), context)
+
+
+def test_the_ride_tree_presses_the_target_waits_for_it_and_walks_out():
+    runner = RideRunner([(True, 'Controller reached target', [])])
+    tree   = _ride_tree(runner)
+
+    assert _run(tree, max_ticks=5000) == Status.SUCCESS
+    names = [name for name, _ in runner.calls]
+    press = names.index('press_button')
+
+    assert runner.calls[press][1]['target_description'] == 'floor 1'
+    assert runner.calls[names.index('elevator_floor_is')][1]['floor'] == '2'                  # the start floor first
+    assert names.index('door_open_lidar') > max(i for i, name in enumerate(names) if name == 'elevator_floor_is')
+    assert runner.calls[-1 - names[::-1].index('navigate_to')][1]['goal']['x'] == 1.0          # exit_goal
+    assert 'door_open' not in names
+
+
+def test_a_door_the_lidar_cannot_judge_goes_to_the_vlm_after_turning():
+    runner = RideRunner([(True, 'Controller reached target', [])], failing=('door_open_lidar',))
+    tree   = _ride_tree(runner)
+
+    assert _run(tree, max_ticks=8000) == Status.SUCCESS
+    names = [name for name, _ in runner.calls]
+
+    assert names.index('door_open') > names.index('door_open_lidar')
+    assert names.count('navigate_to') == 3                                                    # in, door view, out
+
+
+def test_a_counter_that_disagrees_with_the_start_floor_stops_before_walking():
+    runner = RideRunner([], stops=())
+    runner.floor = '1'
+    tree   = _ride_tree(runner)
+
+    assert _run(tree) == Status.FAILURE
+    assert 'navigate_to' not in [name for name, _ in runner.calls]

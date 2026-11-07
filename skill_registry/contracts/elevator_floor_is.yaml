@@ -1,0 +1,23 @@
+name: elevator_floor_is
+kind: condition
+device: nuc
+description: The IMU floor counter (elevator_states imu_floor_detect_node) says the robot is on floor, e.g. floor="1"
+interface:
+  transport: watch
+  success_when:
+    topic: /elevator/floor
+    ros_type: std_msgs/msg/String
+    field: data
+    equals: '{floor}'
+    latched: true
+inputs:
+- name: floor
+  type: string
+  description: a label of the counter's floor_labels (default B, A, 1, 2, 3, 4)
+maturity: untested
+source: elevator_states/elevator_states/imu_floor_detect_node.py
+notes: >-
+  The counter knows only its start floor (current_floor, read once at launch) plus the rides it has counted from the
+  Z acceleration: start it with the robot's true floor, and check this before a ride. A label changes only after a
+  ride's deceleration, so polling this until it equals the target floor waits for the arrival. duration_cutoffs are
+  for one building; a ride counted as the wrong number of floors leaves the label wrong until a restart.

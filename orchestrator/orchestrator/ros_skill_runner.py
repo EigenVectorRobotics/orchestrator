@@ -5,7 +5,10 @@ import json
 import math
 import time
 
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+
+import numpy as np
 
 from rclpy.node import Node
 from rclpy.time import Time
@@ -13,7 +16,7 @@ from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.action import ActionClient
 from action_msgs.msg import GoalStatus
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, PointCloud2
 from geometry_msgs.msg import PoseStamped
 from rosidl_runtime_py import message_to_ordereddict, set_message_fields
 from rosidl_runtime_py.utilities import get_action, get_message, get_service
@@ -26,6 +29,7 @@ from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
 from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
 from .stance_checks import judge_reach, judge_view, rotate, transform_pose
+from .door_checks import DOOR_DEFAULTS, judge_doorway, move_points
 
 
 MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
@@ -134,6 +138,16 @@ class TopicWatch:
 
     def _on_message(self, message):
         self.latest, self._parsed, self.receive_time = message, None, time.monotonic()
+
+
+def watch_equals(spec: Watch, inputs: dict):
+    """The value a watch waits for: spec.equals, or the input it names as '{input}', as text"""
+    equals = spec.equals
+
+    if isinstance(equals, str) and equals.startswith('{') and equals.endswith('}') and equals[1:-1] in inputs:
+        return str(inputs[equals[1:-1]])
+
+    return equals
 
 
 # ========== Held values ==========
@@ -466,6 +480,7 @@ class RosSkillRunner:
         self._image_size   = None           # (width, height) of the last camera frame
         self._targets      = {}             # in_reach pose topic -> (monotonic receive time, PoseStamped)
         self._target_topics = set()
+        self._clouds       = {}             # points_in_box cloud topic -> deque of (monotonic receive time, frame, N x 3)
         self._tf_buffer    = None
 
         self._action_clients:  dict[str, ActionClient] = {}
@@ -502,6 +517,9 @@ class RosSkillRunner:
         if interface.transport == 'in_reach':
             self._subscribe_target(interface.target['pose_topic'])
 
+        if interface.transport == 'points_in_box':
+            self._subscribe_cloud(interface.target['cloud_topic'])
+
         try:
             if interface.transport == 'action':
                 self._action_client(interface.name, get_action(interface.ros_type))
@@ -536,7 +554,7 @@ class RosSkillRunner:
                 return _ServiceHandle(self._service_client(interface.name, service_type), request, contract, self.server_wait_s)
 
             if interface.transport == 'watch':
-                return self._check_watch(interface.success_when)
+                return self._check_watch(interface.success_when, inputs)
 
             if interface.transport == 'topic':
                 message = build_message(get_message(interface.ros_type), contract, inputs, self.node)
@@ -555,6 +573,9 @@ class RosSkillRunner:
 
             if interface.transport == 'in_reach':
                 return self._check_in_reach(interface, inputs)
+
+            if interface.transport == 'points_in_box':
+                return self._check_points_in_box(interface, inputs)
 
             if interface.transport == 'vlm':
                 return self._ask_vlm(contract, inputs)
@@ -638,6 +659,61 @@ class RosSkillRunner:
         self.node.create_subscription(PoseStamped, topic, lambda message: self._targets.__setitem__(topic, (time.monotonic(), message)), COMMAND_QOS)
         self._tf()                                      # listen from the start, so TF is there at the first check
 
+    def _check_points_in_box(self, interface, inputs: dict):
+        """Few points of the last window_s of scans in a box about a pose input (the door): see door_checks"""
+        target = interface.target
+        frame  = target['frame']
+        door   = inputs.get(target['box'])
+        window = float(inputs.get('window_s') or interface.limits.get('window_s', DOOR_DEFAULTS['window_s']))
+
+        if door is not None and door.get('frame', frame) != frame:
+            return _DoneHandle(False, f'the {target["box"]} pose is in {door.get("frame")}, not {frame}')
+
+        try:
+            shift = self._tf().lookup_transform(frame, target['robot_frame'], Time()).transform.translation
+            robot = (shift.x, shift.y, shift.z)
+        except Exception as error:                      # tf2 raises several kinds; all mean "not available"
+            return _DoneHandle(False, f'no transform {frame} <- {target["robot_frame"]}: {error}')
+
+        since  = time.monotonic() - window
+        scans  = [(cloud_frame, points) for received, cloud_frame, points in self._clouds.get(target['cloud_topic'], ())
+                  if received >= since]
+        joined = []
+
+        for cloud_frame, points in scans:
+            if cloud_frame != frame and len(points):
+                try:
+                    transform = self._tf().lookup_transform(frame, cloud_frame, Time()).transform
+                except Exception as error:
+                    return _DoneHandle(False, f'no transform {frame} <- {cloud_frame}: {error}')
+
+                shift, turn = transform.translation, transform.rotation
+                points = move_points(points, (shift.x, shift.y, shift.z), (turn.x, turn.y, turn.z, turn.w))
+
+            joined.append(points)
+
+        points = np.concatenate(joined) if joined else None
+
+        return _DoneHandle(*judge_doorway(points, door, robot, interface.limits, inputs))
+
+    def _subscribe_cloud(self, topic: str):
+        if topic in self._clouds:
+            return
+
+        from sensor_msgs_py.point_cloud2 import read_points_numpy
+
+        scans = self._clouds[topic] = deque()
+
+        def on_cloud(message):
+            now = time.monotonic()
+            scans.append((now, message.header.frame_id, read_points_numpy(message, field_names=('x', 'y', 'z'), skip_nans=True)))
+
+            while scans and scans[0][0] < now - 3.0:    # the longest window a tree may ask for
+                scans.popleft()
+
+        self.node.create_subscription(PointCloud2, topic, on_cloud, QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self._tf()
+
     def _tf(self):
         if self._tf_buffer is None:
             from tf2_ros import Buffer, TransformListener
@@ -654,13 +730,19 @@ class RosSkillRunner:
         """The last camera frame, as JPEG: what the VLM sees"""
         return self._image
 
-    def _check_watch(self, spec: Watch):
+    def _check_watch(self, spec: Watch, inputs: dict | None = None):
         watch = self._watch(spec)
 
         if watch.latest is None:
             return _DoneHandle(False, f'no message on {spec.topic} yet')
 
-        return _DoneHandle(watch.matches(spec), f'{spec.field} = {watch.read(spec)}')
+        value  = watch.read(spec)
+        wanted = watch_equals(spec, inputs or {})
+
+        if wanted is not spec.equals:
+            return _DoneHandle(str(value) == wanted, f'{spec.field} = {value} (wanted {wanted})')
+
+        return _DoneHandle(watch.matches(spec), f'{spec.field} = {value}')
 
     def now(self) -> float:
         return self.node.get_clock().now().nanoseconds * 1e-9

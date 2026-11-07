@@ -134,4 +134,7 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport == 'in_reach':
         return interface.target['pose_topic'] in graph.published
 
+    if interface.transport == 'points_in_box':
+        return interface.target['cloud_topic'] in graph.published
+
     return False                    # trees are live only when announced

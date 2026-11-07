@@ -234,3 +234,25 @@ def test_the_stance_checks_need_their_topics_and_only_conditions_record():
                         'interface': {'transport': 'topic', 'name': '/t', 'ros_type': 'std_msgs/msg/Empty'}})
 
     assert parse_contract({**base, 'record': True, 'interface': {'transport': 'in_view', 'target': {'box_topic': '/b'}}}).record
+
+
+def test_a_points_in_box_check_names_its_pose_input_and_a_watch_its_equals_input():
+    base   = {'name': 'x', 'kind': 'condition', 'device': 'nuc'}
+    target = {'cloud_topic': '/c', 'frame': 'map', 'robot_frame': 'base_link', 'box': 'door'}
+
+    with pytest.raises(ContractError, match='cloud_topic, target.frame and target.robot_frame'):
+        parse_contract({**base, 'interface': {'transport': 'points_in_box', 'target': {'cloud_topic': '/c'}}})
+
+    with pytest.raises(ContractError, match='target.box must name a pose input'):
+        parse_contract({**base, 'interface': {'transport': 'points_in_box', 'target': target},
+                        'inputs': [{'name': 'door', 'type': 'string'}]})
+
+    assert parse_contract({**base, 'interface': {'transport': 'points_in_box', 'target': target},
+                           'inputs': [{'name': 'door', 'type': 'pose'}]})
+
+    watch = {'transport': 'watch', 'success_when': {'topic': '/f', 'ros_type': 'std_msgs/msg/String', 'equals': '{floor}'}}
+
+    with pytest.raises(ContractError, match='equals names no input'):
+        parse_contract({**base, 'interface': watch})
+
+    assert parse_contract({**base, 'interface': watch, 'inputs': [{'name': 'floor', 'type': 'string'}]})

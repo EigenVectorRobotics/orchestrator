@@ -7,13 +7,14 @@ import yaml
 
 KINDS         = ('action', 'condition', 'composite')
 TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip',
-                 'in_view', 'in_reach')
-READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip', 'in_view', 'in_reach')   # the transports a condition may use
+                 'in_view', 'in_reach', 'points_in_box')
+READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip', 'in_view', 'in_reach', 'points_in_box')   # the transports a condition may use
 # watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
 # graph: each listed topic has at most its allowed publishers. press_tip: where the end effector got to in the last press.
 # in_view: the tracked target's latest 2D box is fresh and inside the image. in_reach: the tracked target's latest
-# pose, in the robot's frame, is inside the reach limits. Both run in the executor on what the stack publishes.
+# pose, in the robot's frame, is inside the reach limits. points_in_box: few points of the recent scans in a box about
+# a pose input (an open door). All three run in the executor on what the stack publishes.
 MATURITIES    = ('tested', 'wip', 'untested')
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
@@ -50,7 +51,7 @@ class Watch:
     topic:    str
     ros_type: str
     field:    str = 'data'           # dotted path into the message, or into its JSON if json is true
-    equals:   object = True
+    equals:   object = True          # or '{input}': equal to that input of the call, as text
     json:     bool = False           # the message is a std_msgs/String that holds JSON
     latched:  bool = False           # the publisher is transient-local, so the last value is kept
 
@@ -82,7 +83,8 @@ class Interface:
     compare_question: str = ''              # vlm with frames: asked of [baseline | later frame] side by side
     topics:          dict = field(default_factory=dict)       # graph: topic -> the most publishers it may have
     limits:          dict = field(default_factory=dict)       # press_tip, in_view, in_reach: the thresholds
-    target:          dict = field(default_factory=dict)       # in_view: box_topic, target_topic; in_reach: pose_topic, frame
+    target:          dict = field(default_factory=dict)       # in_view: box_topic, target_topic; in_reach: pose_topic, frame;
+                                                              # points_in_box: cloud_topic, frame, robot_frame, box (the pose input)
 
 
 @dataclass
@@ -202,6 +204,21 @@ def parse_contract(raw: dict) -> Contract:
 
     if interface.transport == 'in_reach' and not (interface.target.get('pose_topic') and interface.target.get('frame')):
         raise ContractError(f'{name}: an in_reach skill needs target.pose_topic and target.frame')
+
+    if interface.transport == 'points_in_box':
+        box = interface.target.get('box')
+
+        if not (interface.target.get('cloud_topic') and interface.target.get('frame') and interface.target.get('robot_frame')):
+            raise ContractError(f'{name}: a points_in_box skill needs target.cloud_topic, target.frame and target.robot_frame')
+
+        if not any(port.name == box and port.type == 'pose' for port in contract.inputs):
+            raise ContractError(f'{name}: target.box must name a pose input, not {box}')
+
+    if interface.success_when is not None and isinstance(interface.success_when.equals, str):
+        wanted = _format_fields(interface.success_when.equals)
+
+        if wanted - {port.name for port in contract.inputs}:
+            raise ContractError(f'{name}: success_when.equals names no input: {interface.success_when.equals}')
 
     if contract.record and contract.kind != 'condition':
         raise ContractError(f'{name}: record is for conditions; actions are always recorded')
