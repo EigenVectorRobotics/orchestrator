@@ -9,11 +9,10 @@
           release the arms, Idle for the ride.
        3. Wait for the counter to read target_floor (up to 180 s): the label changes after each ride's deceleration, so a
           stop at another floor does not end the wait.
-       4. HighLevel, then the door: door_open first (door_state_node, up to 20 s); if it does not say open,
-          door_open_lidar on the door place (up to 20 s). The VLM check (door_open_vlm) is disabled.
+       4. HighLevel, then the door: door_open (door_state_node, lidar), up to 20 s.
        5. Walk out to exit_goal.
-       Places from ~/maps/two_floor_clean.places.yaml. Not saved yet, still to do: "freight elevator door" (the robot in
-       the doorway, facing out; any floor) and "exit goal" (the goal on the target floor, with that floor's z). -->
+       Places from ~/maps/two_floor_clean.places.yaml. Not saved yet, still to do: "exit goal" (the goal on the target
+       floor, with that floor's z). -->
   <BehaviorTree ID="freight_elevator_ride_agentic">
     <Sequence>
       <!-- the task -->
@@ -92,20 +91,13 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- door_open (door_state_node) first; when it does not say open in 20 s, door_open_lidar on the door place -->
+  <!-- door_open (door_state_node): wait up to 20 s for the door to read open -->
   <BehaviorTree ID="door_check">
     <Fallback>
       <Timeout msec="20000">
         <RetryUntilSuccessful num_attempts="-1">
           <Delay delay_msec="1000">
             <door_open/>
-          </Delay>
-        </RetryUntilSuccessful>
-      </Timeout>
-      <Timeout msec="20000">
-        <RetryUntilSuccessful num_attempts="-1">
-          <Delay delay_msec="1000">
-            <door_open_lidar door="{freight_elevator_door}"/>
           </Delay>
         </RetryUntilSuccessful>
       </Timeout>
