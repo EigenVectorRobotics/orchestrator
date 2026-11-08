@@ -1,5 +1,7 @@
 <root BTCPP_format="4">
-  <!-- Ride the freight elevator from the cabin to another floor and walk out. The robot starts outside the cabin on
+  <!-- DISABLED FOR NOW (2026-11-08): not in use; the freight elevator ride is skill_registry/trees/freight_elevator_ride.xml.
+       Kept for later; never run on the robot.
+       Ride the freight elevator from the cabin to another floor and walk out. The robot starts outside the cabin on
        current_floor with the door open (call the elevator first, e.g. freight_call_elevator_down_agentic).
        Edit the three SetBlackboard lines for the task: current_floor and target_floor are labels of the IMU floor
        counter (elevator_states imu_floor_detect_node, started with current_floor:=<the true floor>), and target_button
