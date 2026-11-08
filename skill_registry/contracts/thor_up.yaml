@@ -1,0 +1,13 @@
+name: thor_up
+kind: condition
+device: nuc
+description: The Thor stack runs - ground_server and the VLM endpoint
+interface:
+  transport: alive
+  alive:
+    services: [/vlm_ground_server/ground_boxes]
+    http: [http://vector-thor:8090/v1/models]
+timeout_s: 10
+maturity: untested
+source: orchestrator/orchestrator/preflight_checks.py (judge_alive)
+notes: Before a task (preflight). The URL is cosmos_vlm_server, the executor's vlm_base_url.

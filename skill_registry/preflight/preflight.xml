@@ -1,0 +1,204 @@
+<root BTCPP_format="4">
+  <!-- Before every task: start the Run Viewer and the stacks that do not run, stand G1 in ready locomotion when it does not stand (in the
+       gantry), and have the operator remove the gantry. The planner runs it before it plans; kept out of trees/ so the
+       planner never picks it as a task tree. -->
+  <BehaviorTree ID="preflight">
+    <Sequence>
+      <SubTree ID="viewer"/>
+      <SubTree ID="stacks_up"/>
+      <SubTree ID="localization_up"/>
+      <SubTree ID="robot_up"/>
+      <!-- localized is not enough: a full search about the current pose removes drift, with the robot standing still -->
+      <Fallback>
+        <relocalize_here/>
+        <Sequence>
+          <say text="Task aborted: I could not relocalize where I stand."/>
+          <AlwaysFailure/>
+        </Sequence>
+      </Fallback>
+      <Sleep msec="2500"/>    <!-- relocalize_here says "Relocalized on floor N."; the TTS has no queue -->
+      <say text="All nodes are running and my localization is healthy. G1 is in ready locomotion."/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- the Run Viewer shows the tree and its decisions live; a viewer that does not start never stops the task -->
+  <BehaviorTree ID="viewer">
+    <Fallback>
+      <viewer_up/>
+      <Sequence>
+        <launch_run_viewer/>
+        <RetryUntilSuccessful num_attempts="5">
+          <Delay delay_msec="1000">
+            <viewer_up/>
+          </Delay>
+        </RetryUntilSuccessful>
+      </Sequence>
+      <Sequence>
+        <say text="The run viewer did not start. Going on without it."/>
+        <AlwaysSuccess/>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="stacks_up">
+    <Fallback>
+      <Sequence>
+        <nuc_up/>
+        <orin_up/>
+        <thor_up/>
+      </Sequence>
+      <Sequence>
+        <say text="Some nodes are not running. Starting them."/>
+        <SubTree ID="nuc_stack"/>
+        <SubTree ID="orin_stack"/>
+        <SubTree ID="thor_stack"/>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="nuc_stack">
+    <Fallback>
+      <nuc_up/>
+      <Sequence>
+        <Fallback>
+          <launch_nuc_stack/>
+          <Sequence>
+            <say text="Task aborted: the command that starts the NUC nodes failed."/>
+            <AlwaysFailure/>
+          </Sequence>
+        </Fallback>
+        <Fallback>
+          <RetryUntilSuccessful num_attempts="30">
+            <Delay delay_msec="2000">
+              <nuc_up/>
+            </Delay>
+          </RetryUntilSuccessful>
+          <Sequence>
+            <say text="Task aborted: the NUC nodes did not come up within one minute."/>
+            <AlwaysFailure/>
+          </Sequence>
+        </Fallback>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="orin_stack">
+    <Fallback>
+      <orin_up/>
+      <Sequence>
+        <Fallback>
+          <launch_orin_stack/>
+          <Sequence>
+            <say text="Task aborted: the command that starts the Orin nodes failed."/>
+            <AlwaysFailure/>
+          </Sequence>
+        </Fallback>
+        <Fallback>
+          <RetryUntilSuccessful num_attempts="30">
+            <Delay delay_msec="2000">
+              <orin_up/>
+            </Delay>
+          </RetryUntilSuccessful>
+          <Sequence>
+            <say text="Task aborted: the Orin nodes did not come up within one minute."/>
+            <AlwaysFailure/>
+          </Sequence>
+        </Fallback>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- the Thor (VLM, grounding) may be away: without it the task goes on, and the robot says so -->
+  <BehaviorTree ID="thor_stack">
+    <Fallback>
+      <thor_up/>
+      <Sequence>
+        <launch_thor_stack/>
+        <RetryUntilSuccessful num_attempts="45">
+          <Delay delay_msec="2000">
+            <thor_up/>
+          </Delay>
+        </RetryUntilSuccessful>
+      </Sequence>
+      <Sequence>
+        <say text="The Thor is not up. Going on without the VLM and grounding."/>
+        <AlwaysSuccess/>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- SLAM must be localized and healthy. If not, the robot asks to be relocalized (Foxglove /initialpose; after a LIO
+       divergence, a SLAM restart first) and checks slam_healthy itself, once a second, for two minutes -->
+  <BehaviorTree ID="localization_up">
+    <Fallback>
+      <slam_healthy/>
+      <Sequence>                <!-- still localized but lost (tracking): a full search where it stands may be enough -->
+        <relocalize_here/>
+        <RetryUntilSuccessful num_attempts="3">
+          <Delay delay_msec="1000">
+            <slam_healthy/>
+          </Delay>
+        </RetryUntilSuccessful>
+      </Sequence>
+      <Sequence>
+        <say text="My localization is not healthy. Please relocalize me."/>
+        <Fallback>
+          <RetryUntilSuccessful num_attempts="120">
+            <Delay delay_msec="1000">
+              <slam_healthy/>
+            </Delay>
+          </RetryUntilSuccessful>
+          <Sequence>
+            <say text="Task aborted: I was not relocalized within two minutes. My localization is still not healthy."/>
+            <AlwaysFailure/>
+          </Sequence>
+        </Fallback>
+        <say text="Relocalized. My localization is healthy."/>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- robot_ready reads the loco FSM id (801 after ready_locomotion). Only when it does not hold does the tree call
+       ready_walk: ready_locomotion damps a standing robot before it stands it up again -->
+  <BehaviorTree ID="robot_up">
+    <Fallback>
+      <robot_ready/>
+      <Sequence>
+        <say text="I am not in ready locomotion. Standing up in the gantry."/>
+        <Fallback>
+          <in_high_level/>
+          <set_mode mode="high_level"/>
+        </Fallback>
+        <Fallback>
+          <Sequence>
+            <ready_walk/>
+            <RetryUntilSuccessful num_attempts="10">
+              <Delay delay_msec="1000">
+                <robot_ready/>
+              </Delay>
+            </RetryUntilSuccessful>
+          </Sequence>
+          <Sequence>
+            <say text="Task aborted: I could not reach ready locomotion."/>
+            <AlwaysFailure/>
+          </Sequence>
+        </Fallback>
+        <say text="I am standing. Please remove the gantry and tell my operator."/>
+        <SetBlackboard value="none" output_key="gantry_answer"/>
+        <Fallback>
+          <operator_confirm question="G1 stands in ready locomotion. Is the gantry removed and clear of the robot?" decision="{gantry_answer}"/>
+          <Sequence>
+            <Fallback>
+              <Sequence>
+                <decision_is value="{gantry_answer}" equals="not_confirmed"/>
+                <say text="Task aborted: the operator said the gantry is not removed."/>
+              </Sequence>
+              <say text="Task aborted: no reply about the gantry within two minutes."/>
+            </Fallback>
+            <AlwaysFailure/>
+          </Sequence>
+        </Fallback>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+</root>

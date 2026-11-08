@@ -1,0 +1,16 @@
+name: relocalize_here
+kind: action
+device: nuc
+description: Relocalize in place while the robot stands still - a full search about the current pose (several headings, coarse to fine). Use it about 1 m out of the elevator door, before walking on.
+interface:
+  transport: service
+  name: /slam_elevatorlio/relocalize
+  ros_type: std_srvs/srv/Trigger
+resources: [base]
+timeout_s: 12
+maturity: untested
+source: navigation_stack (jean/elevator-side) slam_elevatorlio ~/relocalize
+notes: >-
+  The pose stays localized during it, so the SLAM guard is not tripped. A re-search accepts a larger correction than
+  tracking: on 2026-11-07 the exit relocalization in the floor-2 cabin was 0.5 m off, tracking rejected every correction
+  outside and SLAM went lost. It says "Relocalized on floor N." or "Relocalization failed.".

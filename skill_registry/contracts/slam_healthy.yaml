@@ -1,0 +1,19 @@
+name: slam_healthy
+kind: condition
+device: nuc
+description: SLAM is localized on the prior map and healthy (fresh LIO odometry, recent scan matches, no LIO divergence).
+interface:
+  transport: watch
+  success_when:
+    topic: /slam_elevatorlio/status
+    ros_type: std_msgs/msg/String
+    json: true
+    field: healthy
+    equals: true
+    latched: true
+maturity: untested
+source: navigation_stack slam_elevatorlio _publish_status (healthy)
+notes: >-
+  healthy is false while not localized, when no match was accepted for lost_timeout_s, without fresh LIO odometry,
+  and for good after a LIO divergence (only a SLAM restart clears that; on 2026-11-07 a divergence made /registered_scan
+  garbage and door_state said OPEN at a closed door). After /initialpose it turns true once a match is accepted.

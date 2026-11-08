@@ -1,0 +1,27 @@
+name: operator_confirm
+kind: action
+device: nuc
+description: >-
+  Ask the operator a yes/no question and wait for the answer, through the agent session. confirmed is success,
+  not_confirmed is failure; no answer within the timeout fails too.
+interface:
+  transport: agent
+  skill: operator_confirm
+inputs:
+- name: phase
+  type: enum
+  choices: [confirm]
+  required: false
+  default: confirm
+- name: question
+  type: string
+  required: true
+  description: the yes/no question, e.g. "Is the gantry removed?"
+outputs:
+- {name: decision, type: string}
+- {name: reason, type: string}
+needs_cloud: true
+timeout_s: 120
+maturity: untested
+source: orchestrator/orchestrator/agent.py (phase confirm)
+notes: Say the question out loud first (say), so a person near the robot hears it.

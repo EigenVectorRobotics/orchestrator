@@ -189,7 +189,9 @@ class TreeValidator:
         if self.config.live_skills is not None and skill_name not in self.config.live_skills:
             issues.append(Issue('error', frame.path, f'{skill_name} is not live now'))
 
-        if contract.maturity != 'tested':
+        if contract.maturity == 'disabled':
+            issues.append(Issue('error', frame.path, f'{skill_name} is disabled'))
+        elif contract.maturity != 'tested':
             issues.append(Issue('warning', frame.path, f'{skill_name} is {contract.maturity}', 'maturity'))
 
         return issues

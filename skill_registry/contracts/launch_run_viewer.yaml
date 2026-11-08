@@ -1,0 +1,13 @@
+name: launch_run_viewer
+kind: action
+device: nuc
+description: Start the Run Viewer on the NUC in tmux run_viewer (reads ~/orch_runs/*/events.jsonl locally, serves 127.0.0.1:8780). Does nothing when it runs.
+interface:
+  transport: command
+  command: |
+    tmux has-session -t run_viewer 2>/dev/null && exit 0
+    tmux new-session -d -s run_viewer "env -u LD_PRELOAD python3 ~/run_viewer/scripts/start_viewer.py --robot local --port 8780 2>&1 | tee ~/run_viewer.log"
+timeout_s: 15
+maturity: untested
+source: orchestrator/orchestrator/preflight_checks.py (run_command); viewer in ~/run_viewer (jean_dev/run_viewer on the laptop)
+notes: Poll viewer_up (about 2 s). The viewer needs no ROS; it only reads the recorder's events.jsonl.

@@ -30,7 +30,7 @@ def test_example_tree_is_valid_blind():
     registry  = Registry.from_directory(CONTRACTS)
     validator = TreeValidator(registry, ValidatorConfig(blind=True))
 
-    assert validator.is_valid((PACKAGE / 'trees' / 'call_elevator.xml').read_text())
+    assert validator.is_valid((PACKAGE.parent / 'orchestrator' / 'test_trees' / 'call_elevator.xml').read_text())
 
 
 def test_unknown_skill():
@@ -50,13 +50,21 @@ def test_enum_literal_checked_but_blackboard_passes():
 
 
 def test_thor_skill_needs_fallback():
-    assert _errors('<door_open/>')
-    assert _errors('<Fallback><AlwaysSuccess/><door_open/></Fallback>')                  # last child: no recovery after it
-    assert not _errors('<Fallback><door_open/><AlwaysSuccess/></Fallback>')
+    assert _errors('<button_lit target_description="b"/>')
+    assert _errors('<Fallback><AlwaysSuccess/><button_lit target_description="b"/></Fallback>')                  # last child: no recovery after it
+    assert not _errors('<Fallback><button_lit target_description="b"/><AlwaysSuccess/></Fallback>')
 
 
 def test_thor_skill_is_fine_when_thor_is_essential():
-    assert not _errors('<door_open/>', essential_devices={'nuc', 'orin', 'thor'})
+    assert not _errors('<button_lit target_description="b"/>', essential_devices={'nuc', 'orin', 'thor'})
+
+
+def test_disabled_skill_is_refused():
+    assert 'door_open_vlm is disabled' in _errors('<Fallback><door_open_vlm/><AlwaysSuccess/></Fallback>')
+
+
+def test_door_open_is_a_nuc_watch():
+    assert not _errors('<door_open/>')
 
 
 def test_parallel_resource_conflict():
@@ -138,7 +146,7 @@ def test_subtree_is_judged_where_it_is_called():
     called_in_fallback = (
         '<root BTCPP_format="4">'
         '<BehaviorTree ID="main"><Fallback><SubTree ID="check"/><say text="help"/></Fallback></BehaviorTree>'
-        '<BehaviorTree ID="check"><door_open/></BehaviorTree>'
+        '<BehaviorTree ID="check"><button_lit target_description="b"/></BehaviorTree>'
         '</root>'
     )
     called_bare = called_in_fallback.replace('<Fallback><SubTree ID="check"/><say text="help"/></Fallback>', '<SubTree ID="check"/>')
@@ -146,7 +154,7 @@ def test_subtree_is_judged_where_it_is_called():
 
     assert validator.is_valid(called_in_fallback)
     assert not validator.is_valid(called_bare)
-    assert not validator.is_valid(called_in_fallback.replace('<door_open/>', '<SubTree ID="check"/>'))
+    assert not validator.is_valid(called_in_fallback.replace('<button_lit target_description="b"/>', '<SubTree ID="check"/>'))
 
 
 def test_empty_contracts_directory_is_an_error(tmp_path):
@@ -234,3 +242,20 @@ def test_the_stance_checks_need_their_topics_and_only_conditions_record():
                         'interface': {'transport': 'topic', 'name': '/t', 'ros_type': 'std_msgs/msg/Empty'}})
 
     assert parse_contract({**base, 'record': True, 'interface': {'transport': 'in_view', 'target': {'box_topic': '/b'}}}).record
+
+
+def test_alive_needs_something_to_check():
+    with pytest.raises(ContractError, match='an alive skill needs'):
+        parse_contract({'name': 'x_up', 'kind': 'condition', 'device': 'nuc', 'interface': {'transport': 'alive', 'alive': {}}})
+
+
+def test_command_needs_a_command():
+    with pytest.raises(ContractError, match='a command skill needs'):
+        parse_contract({'name': 'start_x', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5, 'interface': {'transport': 'command', 'command': ' '}})
+
+
+def test_preflight_tree_is_valid():
+    validator = TreeValidator(Registry.from_directory(CONTRACTS), ValidatorConfig())
+    issues    = validator.validate((PACKAGE / 'preflight' / 'preflight.xml').read_text())
+
+    assert [issue.message for issue in issues if issue.level == 'error'] == []

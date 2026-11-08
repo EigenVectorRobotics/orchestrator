@@ -1,0 +1,15 @@
+name: launch_thor_stack
+kind: action
+device: nuc
+description: Start the Thor bringup and cosmos_vlm_server in tmux over ssh from the NUC. Does nothing for a part that runs.
+interface:
+  transport: command
+  command: |
+    env -u LD_PRELOAD ssh -o BatchMode=yes -o ConnectTimeout=5 vector@192.168.123.1 bash -s <<'REMOTE'
+    tmux -L eigen_vector_bringup has-session -t eigen_vector_bringup 2>/dev/null || tmux -L eigen_vector_bringup new-session -d -s eigen_vector_bringup "bash -lc 'source ~/eigen_vector_ws_bringup/env.sh && ros2 launch bringup thor.launch.py 2>&1 | tee ~/eigen_vector_ws_bringup/launch.log'"
+    tmux has-session -t cosmos_vlm 2>/dev/null || tmux new -d -s cosmos_vlm "env -i HOME=\$HOME USER=\$USER LANG=C.UTF-8 PATH=/usr/local/bin:/usr/bin:/bin bash --noprofile --norc -c 'source ~/eigen_vector_ws_bringup/env.sh && exec python3 ~/orchestrator_ws/src/orchestrator/orchestrator/orchestrator/cosmos_vlm_server.py --port 8090'"
+    REMOTE
+timeout_s: 30
+maturity: untested
+source: orchestrator/orchestrator/preflight_checks.py (run_command)
+notes: Uses the NUC's key for vector@192.168.123.1 (the robot wire). Poll thor_up (about 30 s with the edgellm container).

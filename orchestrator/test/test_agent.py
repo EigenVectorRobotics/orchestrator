@@ -20,7 +20,7 @@ from orchestrator.skill_leaf import make_leaf_factory
 ROOT       = Path(__file__).resolve().parents[2]
 CONTRACTS  = ROOT / 'skill_registry' / 'contracts'
 SKILLS_DIR = ROOT / 'skill_registry' / 'agent_skills'
-TREES      = ROOT / 'skill_registry' / 'trees'
+TREES      = ROOT / 'orchestrator' / 'test_trees'
 PANEL      = {'x': 1.0, 'y': 2.0, 'yaw': math.pi / 2, 'frame': 'map'}
 
 
@@ -527,3 +527,11 @@ def test_without_an_agent_a_failed_stance_check_still_presses():
 
     assert _run(tree, max_ticks=3000) == Status.SUCCESS                     # each press_judge fails: a person is asked
     assert [name for name, _ in runner.calls].count('press_button') == 2
+
+
+def test_confirm_phase_relays_the_question():
+    from orchestrator.agent import GOING_ON, PHASE_DECISIONS, _task
+
+    assert PHASE_DECISIONS['confirm'] == ('confirmed', 'not_confirmed')
+    assert 'confirmed' in GOING_ON and 'not_confirmed' not in GOING_ON
+    assert 'Is the gantry removed?' in _task('confirm', {'question': 'Is the gantry removed?'})
