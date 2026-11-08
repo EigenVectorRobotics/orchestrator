@@ -3,9 +3,8 @@
        the cabin, press floor 1 with the right arm (E-007). After each press, press_judge: the executor saves the
        frames of the press and a session looks at the frame at the fingertip's closest point to the button and decides
        pressed or not_pressed (in place of press_reached / button_lit). A not_pressed goes to manipulation_recovery.
-       Before each press the tree says "Holding still to reset my balance estimate." and holds 15 s: a watcher on the
-       NUC sees that say in the trace and runs ~/ekf_reset.sh (body_ekf has no reset service; RUNBOOK "foot_world
-       drifts after a walk"). Before the first press at each panel, a stance check: track the button, then
+       Before each press the tree recalibrates the body EKF in place (ekf_hold: reset_body_ekf, then a wait for
+       body_ekf_calibrated; RUNBOOK "foot_world drifts after a walk"). Before the first press at each panel, a stance check: track the button, then
        button_in_view and button_in_reach (in the executor, no cloud); only when one fails does manipulation_recovery
        look (phase stance_check), because a poor stance comes from the walk, not from the press (E-001, E-015).
        Places from ~/maps/two_floor_clean.places.yaml. -->
@@ -125,11 +124,23 @@
     </RetryUntilSuccessful>
   </BehaviorTree>
 
-  <!-- the watcher keys on this exact text -->
+  <!-- recalibrate the body EKF in place (body_ekf ~/reset): after a walk foot_world drifts. The robot stands still
+       while it collects 2 s of stillness; the pose before the reset is stale, so wait 1 s before checking -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
-      <say text="Holding still to reset my balance estimate."/>
-      <Sleep msec="15000"/>
+      <say text="Holding still to recalibrate my balance estimate."/>
+      <reset_body_ekf/>
+      <Sleep msec="1000"/>
+      <Fallback>
+        <RetryUntilSuccessful num_attempts="20">
+          <Delay delay_msec="500">
+            <body_ekf_calibrated/>
+          </Delay>
+        </RetryUntilSuccessful>
+        <ForceFailure>
+          <say text="My balance estimate did not recalibrate."/>
+        </ForceFailure>
+      </Fallback>
     </Sequence>
   </BehaviorTree>
 

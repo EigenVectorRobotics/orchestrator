@@ -58,11 +58,23 @@
     </RetryUntilSuccessful>
   </BehaviorTree>
 
-  <!-- the watcher keys on this exact text -->
+  <!-- recalibrate the body EKF in place (body_ekf ~/reset): after a walk foot_world drifts. The robot stands still
+       while it collects 2 s of stillness; the pose before the reset is stale, so wait 1 s before checking -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
-      <say text="Holding still to reset my balance estimate."/>
-      <Sleep msec="8000"/>    <!-- ekf_reset.sh: stop + 3 s + relaunch (about 4 s), calibration 2 s, 2 s margin -->
+      <say text="Holding still to recalibrate my balance estimate."/>
+      <reset_body_ekf/>
+      <Sleep msec="1000"/>
+      <Fallback>
+        <RetryUntilSuccessful num_attempts="20">
+          <Delay delay_msec="500">
+            <body_ekf_calibrated/>
+          </Delay>
+        </RetryUntilSuccessful>
+        <ForceFailure>
+          <say text="My balance estimate did not recalibrate."/>
+        </ForceFailure>
+      </Fallback>
     </Sequence>
   </BehaviorTree>
 

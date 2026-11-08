@@ -117,7 +117,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - Arrivals are poor: on 2026-11-04 the robot stopped up to 17 cm past the call-panel place and 24 cm past the inside place, and each arrival 8 cm or more past put the button out of view (E-001, E-015). Set `path_follower` `slow_down_distance_threshold` 0.7 again (a relaunch resets it to 0.4) and compare, or move the places back by the mean overshoot.
 - A reposition 0.18 m away ended at once without a step; why is not known (E-016).
 - The inside press starts at the offset (+5.0, +7.5, +3.4) mm; one press lit only at (+12, +12.6, +3.2) mm. Start there once a second press confirms it.
-- The EKF reset before each press is a watcher outside the tree: `~/orch_runs/start_cycle.sh` (see `docs/RUNBOOK.md`) runs `~/ekf_reset.sh` when the trace shows the `ekf_hold` subtree's `say`. A `reset_ekf` skill needs a reset service in `body_ekf`.
+- The EKF reset before each press is in the tree: the `ekf_hold` subtree calls `reset_body_ekf` (the body_ekf `~/reset` service, manipulation_stack `e63f2b8` on main, 2026-11-08) and waits for `body_ekf_calibrated` (a torso pose within 0.5 s). No watcher and no `~/ekf_reset.sh` are needed. The say is now "Holding still to recalibrate my balance estimate.", so an old watcher left running does not fire.
 - `press_judge` needs a person or a session to look at frames; the VLM could judge the floor buttons' ring alone (`button_lit`), not the call panel.
 
 - `places.yaml` has zeros. Measure the poses on the prior map.
@@ -125,7 +125,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - The service names under `/unitree_interface/` and `/slam_elevatorlio/` come from the `~/` names in the code. Check them on the robot.
 - `ground`, `set_profile`, `set_hand`, `save_map` and `load_map` need their interface packages on the NUC.
 - `reset_tracker` ends only when `/track_3d/is_tracking` changes. If it is already false, it times out.
-- `body_ekf` has no reset service, so no tree can reset it at the panel; the team runs `~/ekf_reset.sh` on the NUC by hand right before a press. A `~/reset` service in `body_ekf` and a `reset_ekf` skill would close this (docs/RUNBOOK.md, "foot_world drifts after a walk").
+- `reset_body_ekf` needs body_ekf from manipulation_stack `e63f2b8` or later on the NUC; an older body_ekf has no `/body_ekf/reset`, and every `ekf_hold` fails.
 - A failed `press_reached` does not reach `manipulation_recovery`: `get_failure` records only failed actions, failed `button_lit` checks and `press_judge` `not_pressed`, so the agent sees `failure: none recorded`. The trees use `press_judge` instead.
 - The executor reads the raw camera topic (`image_topic`, default `/camera/camera/color/image_raw`), because the Orin has no compressed image transport installed, and encodes the frames it keeps to JPEG. That brings the raw stream to the NUC: about 2.8 MB a frame, about 17 MB/s at 6 fps.
 - On hold: in blind mode, every action skill must have a fallback.

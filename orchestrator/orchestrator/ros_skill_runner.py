@@ -715,6 +715,11 @@ class RosSkillRunner:
         if watch.latest is None:
             return _DoneHandle(False, f'no message on {spec.topic} yet')
 
+        age = time.monotonic() - watch.receive_time
+
+        if spec.max_age_s and age > spec.max_age_s:
+            return _DoneHandle(False, f'no message on {spec.topic} for {age:.1f} s (needs one within {spec.max_age_s:g} s)')
+
         return _DoneHandle(watch.matches(spec), f'{spec.field} = {watch.read(spec)}')
 
     def now(self) -> float:

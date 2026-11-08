@@ -1,0 +1,17 @@
+name: reset_body_ekf
+kind: action
+device: nuc
+description: Recalibrate the body EKF in place (body_ekf ~/reset). It stops publishing the torso pose until it has seen 2 s of stillness, then recalibrates; the robot must stand still. Follow it with a wait for body_ekf_calibrated.
+interface:
+  transport: service
+  name: /body_ekf/reset
+  ros_type: std_srvs/srv/Trigger
+resources: [base]
+timeout_s: 5
+maturity: untested
+source: manipulation_stack g1_pilot body_ekf ~/reset (e63f2b8, main, 2026-11-08)
+notes: >-
+  Replaces ~/ekf_reset.sh and its watcher on the NUC (the trees said "Holding still to reset my balance estimate." and a
+  watcher ran the script). Before e63f2b8 body_ekf had no reset service and was restarted instead. The still period
+  is calibration_duration (2.0 s in body_ekf_stanley.yaml); any motion restarts it. Fails with "estimator not started"
+  before body_ekf's first calibration.

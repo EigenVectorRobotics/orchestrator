@@ -699,8 +699,9 @@ def test_each_press_checks_the_stance_then_presses_and_judges():
     assert [press['target_description'] for press in presses] == ['down button', 'floor 1']
     reach = [inputs for name, inputs in runner.calls if name == 'button_in_reach']
     assert [(check['min_ahead_m'], check['max_ahead_m']) for check in reach] == [(0.33, 0.48), (0.38, 0.46)]
-    holds = [inputs['text'] for name, inputs in runner.calls if name == 'say'].count('Holding still to reset my balance estimate.')
-    assert holds == 2                                                                       # before each press
+    assert runner.names().count('reset_body_ekf') == 2                                      # before each press
+    resets = [index for index, name in enumerate(runner.names()) if name == 'reset_body_ekf']
+    assert all(runner.names().index('press_button', index) > index for index in resets)
     assert 'manipulation_recovery' not in runner.names()
 
 

@@ -57,6 +57,7 @@ class Watch:
     latched:  bool = False           # the publisher is transient-local, so the last value is kept
     consecutive: int = 1             # the last N messages must all match, to remove one-message errors
     equals_input: str = ''           # a condition: compare with this input instead of equals
+    max_age_s: float = 0.0           # a condition: the latest message must be at most this old (0: any age)
 
 
 @dataclass

@@ -9,7 +9,7 @@
           door_open. Once all three hold, the arms are released; LIO leaves elevator mode (z snaps to the floor) and the
           robot walks out on its own estimate to {door_out}, relocalizes there and walks on to {target}.
        Each press (press_panel_button, from freight_elevator_down_floor1_agentic, tested 2026-11-04 to 11-06): EKF hold
-       (10 s), a stance check before the first press (track, button_in_view, button_in_reach; manipulation_recovery
+       (reset_body_ekf, then body_ekf_calibrated), a stance check before the first press (track, button_in_view, button_in_reach; manipulation_recovery
        phase stance_check only when one fails), press_button and press_judge, manipulation_recovery up to three times
        (at most 5 diagnoses in the whole task), then a person is asked. Needs the Thor's grounding (preflight stops without it). ~/fake_button_pose.py on the NUC
        is disabled for now (2026-11-08): it gives no 2D box, so button_in_view always fails and button_in_reach checks
@@ -268,11 +268,23 @@
     </Fallback>
   </BehaviorTree>
 
-  <!-- the watcher keys on this exact text -->
+  <!-- recalibrate the body EKF in place (body_ekf ~/reset): after a walk foot_world drifts. The robot stands still
+       while it collects 2 s of stillness; the pose before the reset is stale, so wait 1 s before checking -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
-      <say text="Holding still to reset my balance estimate."/>
-      <Sleep msec="10000"/>   <!-- ekf_reset.sh: stop + 3 s + relaunch (about 4 s), calibration 2 s, 4 s margin -->
+      <say text="Holding still to recalibrate my balance estimate."/>
+      <reset_body_ekf/>
+      <Sleep msec="1000"/>
+      <Fallback>
+        <RetryUntilSuccessful num_attempts="20">
+          <Delay delay_msec="500">
+            <body_ekf_calibrated/>
+          </Delay>
+        </RetryUntilSuccessful>
+        <ForceFailure>
+          <say text="My balance estimate did not recalibrate."/>
+        </ForceFailure>
+      </Fallback>
     </Sequence>
   </BehaviorTree>
 

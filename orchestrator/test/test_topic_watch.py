@@ -49,3 +49,18 @@ def test_equals_input_compares_with_the_tree_input():
 
     assert RosSkillRunner._check_watch(runner, spec, {'floor': 2}).status == Status.SUCCESS
     assert RosSkillRunner._check_watch(runner, spec, {'floor': 1}).status == Status.FAILURE
+
+
+def test_max_age_fails_a_watch_whose_latest_message_is_old():
+    runner = SimpleNamespace(_watch=lambda spec: watch)
+    spec   = Watch(topic='/body_ekf/torso_pose', ros_type='geometry_msgs/msg/PoseStamped', field='header.frame_id',
+                   equals='foot_world', max_age_s=0.5)
+    watch  = TopicWatch(NODE, spec.topic, spec.ros_type, False)
+    watch._on_message(SimpleNamespace(header=SimpleNamespace(frame_id='foot_world')))
+
+    assert RosSkillRunner._check_watch(runner, spec, {}).status == Status.SUCCESS
+
+    watch.receive_time -= 1.0                       # no pose for a second: body_ekf is recalibrating
+
+    result = RosSkillRunner._check_watch(runner, spec, {})
+    assert result.status == Status.FAILURE and 'for 1.0 s' in result.message
