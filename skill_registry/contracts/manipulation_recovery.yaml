@@ -28,7 +28,7 @@ inputs:
 - name: max_rounds
   type: int
   required: false
-  default: 3
+  default: 5
   description: diagnoses allowed in one task; after that the skill fails at once
 outputs:
 - {name: decision, type: string}

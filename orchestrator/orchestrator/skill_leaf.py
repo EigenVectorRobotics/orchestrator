@@ -263,7 +263,7 @@ class AgentLeaf(SkillLeaf):
         if gave_up is not None:
             return DoneHandle(False, f'the agent already asked for help: {gave_up.get("reason", "")}')
 
-        if self.inputs.get('phase', 'diagnose') == 'diagnose' and rounds >= int(self.inputs.get('max_rounds', 3)):
+        if self.inputs.get('phase', 'diagnose') == 'diagnose' and rounds >= int(self.inputs.get('max_rounds', 5)):
             return DoneHandle(False, f'recovery budget spent: {rounds} diagnoses in this task')
 
         return self.runner.start(self.contract, self.inputs, self.context)

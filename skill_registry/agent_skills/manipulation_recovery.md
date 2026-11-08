@@ -118,7 +118,7 @@ When you run inside the executor (`orchestrator/agent.py`), these are your tools
 
 **What `run_python` blocks, and how far to trust it.** An audit hook stops imports of `rclpy` and other ROS client libraries, network connections, new processes, and writes outside the scratch directory; ROS discovery is off in its environment. The NUC allows no user namespaces, so there is no stronger sandbox: this guards against mistakes, not against code written to get around it. Do not try to get around it; use `ros_read` for ROS data.
 
-You have at most 30 model turns for one call. In one task the tree allows a few diagnoses (`max_rounds`, 3 by default); once you choose `ask_help`, the tree does not call you again in that task.
+You have at most 30 model turns for one call. In one task the tree allows a few diagnoses (`max_rounds`, 5 by default); once you choose `ask_help`, the tree does not call you again in that task.
 
 ## Where to find things on the NUC
 
