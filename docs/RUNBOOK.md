@@ -13,17 +13,17 @@ How to run the walk-and-press test at the freight elevator, judge each press, an
   | NUC | `ssh vector@vector-nuc` (`192.168.123.5` on the robot wire) | Ubuntu 24.04, Jazzy | `~/eigen_vector_ws` | `env.sh` there is written by `deploy.sh`. Other workspaces (`eigen_vector_ws_lio`, `eigen_vector_ws_apt`, `manip_test*`, `vector_robotics`) are not in use |
   | Orin | `ssh unitree@unitree-g1-nx` | Ubuntu 22.04, Humble | `~/eigen_vector_ws` | `seed_bbox` and `track_3d` run from its install; the camera is the apt `realsense2_camera`, raw RGB8 only (no compressed transport installed) |
   | Thor | `ssh vector@vector-thor` | Ubuntu 24.04, Jazzy | `~/eigen_vector_ws_bringup` | `ground_server` runs from it (vlm `main` @ `3ca4861`), not from `~/eigen_vector_ws`. The Cosmos daemon runs in the docker container `edgellm` |
-- **Launch:** from the laptop master repo, `eigen_vector/scripts/deploy.sh launch nuc map:=/home/vector/maps/two_floor_clean.pcd localization:=true`. Use `SSH_HOST=192.168.123.5` when the laptop is on the robot wire.
+- **Launch:** from the laptop master repo, `eigen_vector/scripts/deploy.sh launch nuc map:=/home/vector/maps/two_floor_clean_cabin2.pcd localization:=true`. Use `SSH_HOST=192.168.123.5` when the laptop is on the robot wire.
 - **Check localization first:** `/slam_elevatorlio/status` must say `"mode": "localization"` and `"localized": true`. A stack in mapping mode has no terrain graph, and every nav goal aborts. The robot must start near the map origin, or if the first match is rejected (`structure inlier ratio` below 0.80, falling): ask the user to send a pose estimate on `/initialpose`, e.g. from Foxglove (`ws://vector-nuc:8765`, the NUC bridge).
   - **Check a match yourself** (agent trial): `python3 ~/orchestrator_ws/src/orchestrator/scripts/scan_fit.py` in the robot environment. It compares `/registered_scan` with the prior map: a right match has a median about 3 cm, 75 to 80 % of points within 10 cm, and the share falling when the scan is turned 5 or 10 deg either way. Both launches that night matched on their own at yaw -30.1 and -25.7 deg, near the edge of the +-30 deg window, and both passed this check (0.76 and 0.80 within 10 cm at 0 deg, 0.56 to 0.66 at +-10 deg), so no `/initialpose` was needed; a later check in the cabin gave 0.79.
-- **Places:** `~/maps/two_floor_clean.places.yaml` on the NUC has annotations of the map. The inside place sits 10 cm back from the panel (x 3.428, y -0.263, yaw 152.8 deg).
+- **Places:** `~/maps/two_floor_clean_cabin2.places.yaml` on the NUC (the map two_floor_clean_cabin2.pcd: two_floor_clean.pcd without the stray surfaces in the floor-1 cabin, same frame) has annotations of the map. The inside place sits 10 cm back from the panel (x 3.428, y -0.263, yaw 152.8 deg).
 - **Code state:** the NUC runs `manipulation_stack` on `test/pelvis-correction` plus uncommitted edits (`final_leg_steps`, `final_leg_settle_time`); The NUC `navigation_stack` has the uncommitted path_follower fix and `goal_clear_range` 0.1.
 
 ## Bring-up for an agent test
 
 The orchestrator runs a tree, and its `manipulation_recovery` agent skill is answered by a Claude Code session with `agent_cli` (see `skill_registry/agent_skills/manipulation_recovery.md`). Bring the machines up in this order, one at a time, and check each before the next. A session does each step only on the operator's go.
 
-1. **NUC stack** (robot interface, arm control, body EKF, navigation): from the laptop's `eigen_vector` checkout, `scripts/deploy.sh launch nuc map:=/home/vector/maps/two_floor_clean.pcd localization:=true` (`ssh-add -l` first: it forwards your SSH agent). It starts `bringup nuc.launch.py` in tmux on the NUC and streams its log; keep that command running, since Ctrl-C there stops the launch. Check localization as in Setup.
+1. **NUC stack** (robot interface, arm control, body EKF, navigation): from the laptop's `eigen_vector` checkout, `scripts/deploy.sh launch nuc map:=/home/vector/maps/two_floor_clean_cabin2.pcd localization:=true` (`ssh-add -l` first: it forwards your SSH agent). It starts `bringup nuc.launch.py` in tmux on the NUC and streams its log; keep that command running, since Ctrl-C there stops the launch. Check localization as in Setup.
    - **Poll, do not sleep.** The stack is ready about 15 to 20 s after launch: poll `/slam_elevatorlio/status` until `"localized": true`, not a fixed wait. From the laptop, in one command (the NUC needs the robot DDS environment for every ROS call):
 
      ```bash
@@ -56,13 +56,13 @@ The orchestrator runs a tree, and its `manipulation_recovery` agent skill is ans
 5. **Executor** on the NUC, with the team's places file:
 
    ```bash
-   tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && exec ros2 run orchestrator executor_node --ros-args --params-file ~/orchestrator_ws/src/orchestrator/orchestrator/config/orchestrator.yaml -p places_file:=/home/vector/maps/two_floor_clean.places.yaml'"
+   tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && exec ros2 run orchestrator executor_node --ros-args --params-file ~/orchestrator_ws/src/orchestrator/orchestrator/config/orchestrator.yaml -p places_file:=/home/vector/maps/two_floor_clean_cabin2.places.yaml'"
    ```
 
    Check: `tmux capture-pane -pt orchestrator` shows the skill count (32 since the agent trial: `press_judge`, `set_press_offset` and `clear_terrain_map` added) and "3 places". A `ground: No module named 'vlm_interfaces'` warning is expected.
    - **After editing the orchestrator,** rebuild (`cd ~/orchestrator_ws && source env.sh && colcon build --packages-select skill_registry orchestrator`; not a symlink install), then restart this session: `tmux kill-session -t orchestrator` and the command above. Contracts and Python load at start. A tree file is read at each `send_tree`, so a tree edit needs only the rebuild of `skill_registry` (its install copy), no restart. Check a tree first: `ros2 run skill_registry validate_tree <tree.xml>` (0 errors). Run the tests from each package's own directory (`cd ~/orchestrator_ws/src/orchestrator/orchestrator && python3 -m pytest -q test`, the same in `skill_registry`): from the repository root, `orchestrator` resolves to the installed package, and the tests check the old code. The places become `{freight_elevator_call_panel}`, `{inside_freight_elevator_button_panel}` and `{freight_elevator_call_panel_preapproach}`.
 6. **Agent:** the session runs `agent_cli wait` in the background (step "Before the run" in the skill document). Another session's `agent_cli wait` also sees each call (`pgrep -fa agent_cli`); only one should answer. The session answers two skills: `press_judge` after every press (`skill_registry/agent_skills/press_judge.md`) and `manipulation_recovery` after a failure. In the agent trial the operator first asked to see each decision, then let the session send them all.
-7. **Tree**, on the operator's go. The whole task is `freight_elevator_down_floor1_agentic.xml`: preapproach, call panel, EKF hold, down button, `press_judge`, door, cabin, EKF hold, floor 1, `press_judge`, with `manipulation_recovery` after each failure and the standard recoveries (README, "Standard recoveries"). To pick it up partway, in `skill_registry/trees/`:
+7. **Tree**, on the operator's go. The whole task is `freight_elevator_down_floor1_agentic.xml`: preapproach, call panel, EKF hold, down button, `press_judge`, door, cabin, EKF hold, floor 1, `press_judge`, with `manipulation_recovery` after each failure and the standard recoveries (README, "Standard recoveries"). To pick it up partway, in `orchestrator/test_trees/`:
 
    | Tree | Starts with the robot | Does |
    |---|---|---|
@@ -79,7 +79,7 @@ The orchestrator runs a tree, and its `manipulation_recovery` agent skill is ans
    R=~/orch_runs/run_$(date +%H%M%S); mkdir -p $R; source ~/orchestrator_ws/env.sh
    nohup ros2 topic echo /orchestrator/trace --field data > $R/trace.txt 2>&1 < /dev/null &
    nohup ros2 run orchestrator agent_cli wait > $R/agent_wait.txt 2>&1 < /dev/null &
-   nohup ros2 run orchestrator send_tree ~/orchestrator_ws/src/orchestrator/skill_registry/trees/freight_call_elevator_down_agentic.xml > $R/send_tree.txt 2>&1 < /dev/null &
+   nohup ros2 run orchestrator send_tree ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_elevator_down_agentic.xml > $R/send_tree.txt 2>&1 < /dev/null &
    ```
 
    Read progress with `grep -o '"text": "[^"]*"' $R/trace.txt`, and poll for the event you wait for (`press_judge running`, `manipulation_recovery running`, `waiting for the session`, `<tree>: success|failure`). Kill the echo and the wait when the tree ends: an orphaned echo holds a DDS participant.
