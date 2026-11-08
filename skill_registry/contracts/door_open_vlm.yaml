@@ -1,0 +1,14 @@
+name: door_open_vlm
+kind: condition
+device: thor
+description: The elevator door in front of the robot is open (asked of the local VLM)
+interface:
+  transport: vlm
+  question: Is the elevator door in front of you open?
+  choices:
+  - open
+  - closed
+  - unsure
+  success_answer: open
+maturity: disabled
+notes: Built on ask_vlm. Replaced by door_open (lidar, door_state_node); kept for later.

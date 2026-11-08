@@ -1,0 +1,15 @@
+name: inside_cabin
+kind: condition
+device: nuc
+description: The robot is in the freight elevator cabin, from its map x and y (the cabin area of the map places file).
+interface:
+  transport: watch
+  success_when:
+    topic: /slam_elevatorlio/elevator_side
+    ros_type: std_msgs/msg/String
+    field: data
+    equals: in
+    latched: true
+maturity: untested
+source: navigation_stack (jean/elevator-side) slam_elevatorlio, area "freight elevator cabin" in <map>.places.yaml
+notes: Also picks door_state_node's square (cabin when out, hall when in) and the storey route_planner plans on in the cabin (the goal's).

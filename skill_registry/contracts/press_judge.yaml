@@ -24,7 +24,7 @@ outputs:
 - {name: reason, type: string}
 needs_cloud: true
 timeout_s: 600
-maturity: untested
+maturity: disabled
 source: orchestrator/orchestrator/agent.py
 notes: >-
   Put it right after press_button, in place of press_reached or button_lit. With agent_backend external (default), a
