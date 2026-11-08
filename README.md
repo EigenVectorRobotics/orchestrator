@@ -4,8 +4,8 @@ Agentic planning for the G1. An LLM writes a behavior tree, a validator checks i
 
 | Package | Holds |
 |---|---|
-| `skill_registry` | Skill contracts (`contracts/*.yaml`), the tree validator, live-skill discovery, example trees |
-| `orchestrator` | Tree executor, ROS skill runner, planner, trace, fake robot |
+| `skill_registry` | Skill contracts (`contracts/*.yaml`), the tree validator, live-skill discovery, the tree library (`trees/`, curated example trees the planner can reuse) |
+| `orchestrator` | Tree executor, ROS skill runner, planner, trace, fake robot; `test_trees/`, trees for tests and runs (not shown to the planner) |
 
 ## How it works
 
@@ -23,7 +23,7 @@ Write one YAML file in `skill_registry/contracts/`. No code is necessary if the 
 
 ## Agent skills
 
-An agent skill is an LLM with read-only tools that decides how a tree recovers. Its contract has `transport: agent` and names a document in `skill_registry/agent_skills/`, which is the agent's system prompt. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort; after a reposition walk it checks that the button is in view. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). See `skill_registry/trees/call_elevator_agentic.xml` and, on the robot, `freight_elevator_down_floor1_agentic.xml`.
+An agent skill is an LLM with read-only tools that decides how a tree recovers. Its contract has `transport: agent` and names a document in `skill_registry/agent_skills/`, which is the agent's system prompt. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort; after a reposition walk it checks that the button is in view. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). See `orchestrator/test_trees/call_elevator_agentic.xml` and, on the robot, `freight_elevator_down_floor1_agentic.xml`.
 
 - **Evidence.** Every finished action call is recorded in the tree's history; a failure keeps the action's feedback over time. Both go to the trace as `record` events, and to the agent through `get_failure` and `get_history`.
 - **Tools.** `read_file`, `ros_read` (TF, one message, the topic list), `get_image`, `run_python` (numpy, scipy, pinocchio, coal), `decide`. Nothing publishes. `run_python` runs under an audit hook (no ROS, network, processes, or writes outside its scratch directory): a guard against mistakes, not a security boundary, since the NUC allows no user namespaces.
@@ -93,14 +93,14 @@ ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the 
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, e.g. `~/maps/two_floor_clean.places.yaml`), whose names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}`. On the robot, run `trees/freight_elevator_down_floor1_agentic.xml` (the whole task: call panel, down, door, cabin, floor 1) with that file; `docs/RUNBOOK.md` has the bring-up and the other trees. `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node.
+All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, e.g. `~/maps/two_floor_clean.places.yaml`), whose names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}`. On the robot, run `orchestrator/test_trees/freight_elevator_down_floor1_agentic.xml` (the whole task: call panel, down, door, cabin, floor 1) with that file; `docs/RUNBOOK.md` has the bring-up and the other trees. `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node.
 
 `fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback), `nav_blocked:=true` (every route turns blocked until cancelled; navigate_to fails after 10 s), `vlm_answers:=door=closed`, `nav_time_s:=5.0`, `vlm_port`.
 
 Run one tree with no planner:
 
 ```bash
-ros2 run orchestrator send_tree skill_registry/trees/call_elevator.xml --blind
+ros2 run orchestrator send_tree orchestrator/test_trees/call_elevator.xml --blind
 ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 ```
 
