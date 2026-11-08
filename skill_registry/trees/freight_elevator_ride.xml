@@ -10,9 +10,10 @@
           robot walks out on its own estimate to {door_out}, relocalizes there and walks on to {target}.
        Each press (press_panel_button, from freight_elevator_down_floor1_agentic, tested 2026-11-04 to 11-06): EKF hold
        (10 s), a stance check before the first press (track, button_in_view, button_in_reach; manipulation_recovery
-       phase stance_check only when one fails), press_button and press_judge, manipulation_recovery up to three times,
-       then a person is asked. Needs the Thor's grounding: with ~/fake_button_pose.py there is no 2D box, so
-       button_in_view always fails and button_in_reach checks a fixed pose.
+       phase stance_check only when one fails), press_button and press_judge, manipulation_recovery up to three times
+       (at most 5 diagnoses in the whole task), then a person is asked. Needs the Thor's grounding (preflight stops without it). ~/fake_button_pose.py on the NUC
+       is disabled for now (2026-11-08): it gives no 2D box, so button_in_view always fails and button_in_reach checks
+       a fixed pose.
        To change the ride, change the parameters only (the planner overrides them with <use_tree id="freight_elevator_ride" .../>). To change how a button is pressed, replace the SubTree
        press_panel_button: it reads button, press_panel, press_left_arm, press_offset_x/y/z, reach_min, reach_max and
        press_ask, and writes press_left_arm (a switch_arm before the first press).

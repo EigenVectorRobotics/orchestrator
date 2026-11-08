@@ -108,7 +108,8 @@
     </Fallback>
   </BehaviorTree>
 
-  <!-- the Thor (VLM, grounding) may be away: without it the task goes on, and the robot says so -->
+  <!-- the Thor (VLM, grounding) is required: the stance check, press_button and press_judge need its grounding (the
+       button's 2D box and pose). Without it the task stops; fake_button_pose.py is disabled for now (2026-11-08) -->
   <BehaviorTree ID="thor_stack">
     <Fallback>
       <thor_up/>
@@ -121,8 +122,8 @@
         </RetryUntilSuccessful>
       </Sequence>
       <Sequence>
-        <say text="The Thor is not up. Going on without the VLM and grounding."/>
-        <AlwaysSuccess/>
+        <say text="Task aborted: the Thor did not come up within 90 seconds. I need it to find the buttons."/>
+        <AlwaysFailure/>
       </Sequence>
     </Fallback>
   </BehaviorTree>
