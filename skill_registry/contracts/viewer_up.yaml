@@ -1,0 +1,12 @@
+name: viewer_up
+kind: condition
+device: nuc
+description: The Run Viewer page answers on the NUC (http://127.0.0.1:8780/) - the live behavior tree and decisions for the operator
+interface:
+  transport: alive
+  alive:
+    http: [http://127.0.0.1:8780/]
+timeout_s: 10
+maturity: untested
+source: orchestrator/orchestrator/preflight_checks.py (judge_alive)
+notes: Before a task (preflight). The operator opens it through ssh -L 8780:127.0.0.1:8780 vector@vector-nuc.

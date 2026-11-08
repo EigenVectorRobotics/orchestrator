@@ -1,11 +1,13 @@
 """Run any skill from its contract over ROS 2: actions, services, topics, topic watches, and the local VLM"""
 
 import copy
+import dataclasses
 import json
 import math
 import time
 
 from collections import deque
+
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -30,6 +32,7 @@ from .behavior_tree import Status
 from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
 from .stance_checks import judge_reach, judge_view, rotate, transform_pose
 from .door_checks import DOOR_DEFAULTS, judge_doorway, move_points
+from .preflight_checks import judge_alive, run_command, url_answers
 
 
 MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
@@ -37,6 +40,7 @@ MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it ev
 # The fake robot and the elevator_sim bridge use the same profiles; keep them in step.
 COMMAND_QOS = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
 LATCHED_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+WATCH_HISTORY = 10                      # the most messages a watch keeps, for Watch.consecutive
 SENSOR_QOS  = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE)
 
 
@@ -99,12 +103,12 @@ def extract_outputs(contract: Contract, result) -> dict:
 # ========== Topic watches ==========
 
 class TopicWatch:
-    """The latest message on one topic; JSON payloads are parsed once per message"""
+    """The latest messages on one topic; JSON payloads are parsed once per message"""
 
     def __init__(self, node: Node, topic: str, ros_type: str, latched: bool):
         self.latest       = None
         self.receive_time = 0.0
-        self._parsed      = None
+        self.history      = deque(maxlen=WATCH_HISTORY)   # (message, parsed JSON or None), oldest first
         self.subscription = node.create_subscription(
             get_message(ros_type),
             topic,
@@ -112,21 +116,26 @@ class TopicWatch:
             LATCHED_QOS if latched else COMMAND_QOS
         )
 
-    def read(self, spec: Watch):
-        """The watched field of the latest message, or None"""
-        if self.latest is None:
+    def read(self, spec: Watch, back: int = 0):
+        """The watched field of the latest message (back 0) or of an earlier one, or None"""
+        if back >= len(self.history):
             return None
 
-        if spec.json:
-            if self._parsed is None:
-                try:
-                    self._parsed = json.loads(self.latest.data)
-                except (json.JSONDecodeError, TypeError):
-                    self._parsed = {}
+        index           = len(self.history) - 1 - back
+        message, parsed = self.history[index]
 
-            value = self._parsed
+        if spec.json:
+            if parsed is None:
+                try:
+                    parsed = json.loads(message.data)
+                except (json.JSONDecodeError, TypeError):
+                    parsed = {}
+
+                self.history[index] = (message, parsed)
+
+            value = parsed
         else:
-            value = self.latest
+            value = message
 
         for key in spec.field.split('.'):
             value = value.get(key) if isinstance(value, dict) else getattr(value, key, None)
@@ -134,20 +143,15 @@ class TopicWatch:
         return value
 
     def matches(self, spec: Watch, after: float = 0.0) -> bool:
-        return self.latest is not None and self.receive_time > after and self.read(spec) == spec.equals
+        """The last spec.consecutive messages all hold spec.equals, and the latest came after the time given"""
+        if self.latest is None or self.receive_time <= after or len(self.history) < spec.consecutive:
+            return False
+
+        return all(self.read(spec, back) == spec.equals for back in range(spec.consecutive))
 
     def _on_message(self, message):
-        self.latest, self._parsed, self.receive_time = message, None, time.monotonic()
-
-
-def watch_equals(spec: Watch, inputs: dict):
-    """The value a watch waits for: spec.equals, or the input it names as '{input}', as text"""
-    equals = spec.equals
-
-    if isinstance(equals, str) and equals.startswith('{') and equals.endswith('}') and equals[1:-1] in inputs:
-        return str(inputs[equals[1:-1]])
-
-    return equals
+        self.latest, self.receive_time = message, time.monotonic()
+        self.history.append((message, None))
 
 
 # ========== Held values ==========
@@ -387,6 +391,28 @@ class _TopicHandle(_Handle):
         return self.status
 
 
+class _FutureHandle(_Handle):
+    """A check or command run in a thread: the future gives (success, message, outputs)"""
+
+    def __init__(self, future):
+        super().__init__()
+
+        self.future = future
+
+    def poll(self) -> Status:
+        if self.status != Status.RUNNING or not self.future.done():
+            return self.status
+
+        try:
+            success, message, self.outputs = self.future.result()
+        except Exception as error:                      # a crash in the thread is a failed skill, not a dead executor
+            success, message = False, f'{type(error).__name__}: {error}'
+
+        self._finish(success, message)
+
+        return self.status
+
+
 class _VlmHandle(_Handle):
     def __init__(self, future, question: str, success_answer: str):
         super().__init__()
@@ -488,6 +514,7 @@ class RosSkillRunner:
         self._publishers:      dict[str, object]       = {}
         self._watches:         dict[tuple, TopicWatch] = {}
         self._vlm_pool    = ThreadPoolExecutor(max_workers=2)
+        self._command_pool = ThreadPoolExecutor(max_workers=2)      # alive checks and stack launches
         self._image       = None             # the last camera frame, as JPEG
         self._image_topic = image_topic
 
@@ -570,6 +597,12 @@ class RosSkillRunner:
 
             if interface.transport == 'in_view':
                 return self._check_in_view(interface.limits, inputs)
+
+            if interface.transport == 'alive':
+                return _FutureHandle(self._command_pool.submit(self._check_alive, interface.alive))
+
+            if interface.transport == 'command':
+                return _FutureHandle(self._command_pool.submit(run_command, interface.command, contract.timeout_s or 60.0))
 
             if interface.transport == 'in_reach':
                 return self._check_in_reach(interface, inputs)
@@ -723,26 +756,31 @@ class RosSkillRunner:
 
         return self._tf_buffer
 
+    def _check_alive(self, spec: dict) -> tuple[bool, str, dict]:
+        """The listed topics have publishers, the services exist, the URLs answer"""
+        published = {name for name, _ in self.node.get_topic_names_and_types() if self.node.count_publishers(name) > 0}
+        services  = {name for name, _ in self.node.get_service_names_and_types()}
+
+        return judge_alive(spec, published, services, url_answers)
+
     def shutdown(self):
         self._vlm_pool.shutdown(wait=False, cancel_futures=True)
+        self._command_pool.shutdown(wait=False, cancel_futures=True)
 
     def latest_image(self) -> bytes | None:
         """The last camera frame, as JPEG: what the VLM sees"""
         return self._image
 
-    def _check_watch(self, spec: Watch, inputs: dict | None = None):
+    def _check_watch(self, spec: Watch, inputs: dict):
+        if spec.equals_input:
+            spec = dataclasses.replace(spec, equals=inputs[spec.equals_input])
+
         watch = self._watch(spec)
 
         if watch.latest is None:
             return _DoneHandle(False, f'no message on {spec.topic} yet')
 
-        value  = watch.read(spec)
-        wanted = watch_equals(spec, inputs or {})
-
-        if wanted is not spec.equals:
-            return _DoneHandle(str(value) == wanted, f'{spec.field} = {value} (wanted {wanted})')
-
-        return _DoneHandle(watch.matches(spec), f'{spec.field} = {value}')
+        return _DoneHandle(watch.matches(spec), f'{spec.field} = {watch.read(spec)}')
 
     def now(self) -> float:
         return self.node.get_clock().now().nanoseconds * 1e-9

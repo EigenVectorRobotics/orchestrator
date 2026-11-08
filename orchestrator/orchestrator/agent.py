@@ -28,8 +28,9 @@ PHASE_DECISIONS = {
     'stance_check': ('continue', 'reposition', 'switch_arm', 'abort'),
     'view_check':   ('continue', 'abort'),
     'judge':      ('pressed', 'not_pressed'),
+    'confirm':    ('confirmed', 'not_confirmed'),
 }
-GOING_ON = {'reposition', 'switch_arm', 'offset_retry', 'retry', 'continue', 'pressed'}
+GOING_ON = {'reposition', 'switch_arm', 'offset_retry', 'retry', 'continue', 'pressed', 'confirmed'}
 MAX_PRESS_OFFSET_M = 0.03               # an offset_retry corrects millimetres; a larger miss needs another decision
 
 MAX_READ_BYTES = 200_000
@@ -566,6 +567,9 @@ def _task(phase: str, inputs: dict) -> str:
     elif phase == 'diagnose':
         lines.append('The press did not work: press_button failed, or it succeeded and its check (button_lit) failed; '
                      'get_failure says which. Work out why, following "How to work", and end with decide.')
+    elif phase == 'confirm':
+        lines.append(f'Ask the operator, and decide from their reply only: {inputs.get("question", "")} '
+                     'confirmed when they say yes; not_confirmed when they say no. Without a reply the call times out.')
     elif phase == 'stance_check':
         lines.append('The walk to the panel has arrived and nothing has been pressed yet. A stance check failed: the '
                      'track, button_in_view or button_in_reach; get_failure says which and what it measured. Check the '

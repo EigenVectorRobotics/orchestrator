@@ -7,15 +7,17 @@ import yaml
 
 KINDS         = ('action', 'condition', 'composite')
 TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip',
-                 'in_view', 'in_reach', 'points_in_box')
-READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip', 'in_view', 'in_reach', 'points_in_box')   # the transports a condition may use
+                 'in_view', 'in_reach', 'points_in_box', 'alive', 'command')
+READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip', 'in_view', 'in_reach', 'points_in_box', 'alive')   # the transports a condition may use
 # watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
 # graph: each listed topic has at most its allowed publishers. press_tip: where the end effector got to in the last press.
 # in_view: the tracked target's latest 2D box is fresh and inside the image. in_reach: the tracked target's latest
 # pose, in the robot's frame, is inside the reach limits. points_in_box: few points of the recent scans in a box about
 # a pose input (an open door). All three run in the executor on what the stack publishes.
-MATURITIES    = ('tested', 'wip', 'untested')
+# alive: each listed topic has a publisher, each service exists, each URL answers. command: run the contract's fixed
+# shell command on the executor's machine; success is exit code 0.
+MATURITIES    = ('tested', 'wip', 'untested', 'disabled')   # disabled: kept for later, hidden from the planner, refused in a tree
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
 
@@ -51,9 +53,11 @@ class Watch:
     topic:    str
     ros_type: str
     field:    str = 'data'           # dotted path into the message, or into its JSON if json is true
-    equals:   object = True          # or '{input}': equal to that input of the call, as text
+    equals:   object = True
     json:     bool = False           # the message is a std_msgs/String that holds JSON
     latched:  bool = False           # the publisher is transient-local, so the last value is kept
+    consecutive: int = 1             # the last N messages must all match, to remove one-message errors
+    equals_input: str = ''           # a condition: compare with this input instead of equals
 
 
 @dataclass
@@ -85,6 +89,8 @@ class Interface:
     limits:          dict = field(default_factory=dict)       # press_tip, in_view, in_reach: the thresholds
     target:          dict = field(default_factory=dict)       # in_view: box_topic, target_topic; in_reach: pose_topic, frame;
                                                               # points_in_box: cloud_topic, frame, robot_frame, box (the pose input)
+    alive:           dict = field(default_factory=dict)       # alive: topics, services, http (lists)
+    command:         str = ''               # command: the fixed shell command; inputs cannot change it
 
 
 @dataclass
@@ -202,6 +208,12 @@ def parse_contract(raw: dict) -> Contract:
     if interface.transport == 'in_view' and not interface.target.get('box_topic'):
         raise ContractError(f'{name}: an in_view skill needs target.box_topic')
 
+    if interface.transport == 'alive' and not any(interface.alive.get(key) for key in ('topics', 'services', 'http')):
+        raise ContractError(f'{name}: an alive skill needs alive.topics, alive.services or alive.http')
+
+    if interface.transport == 'command' and not interface.command.strip():
+        raise ContractError(f'{name}: a command skill needs interface.command')
+
     if interface.transport == 'in_reach' and not (interface.target.get('pose_topic') and interface.target.get('frame')):
         raise ContractError(f'{name}: an in_reach skill needs target.pose_topic and target.frame')
 
@@ -214,11 +226,14 @@ def parse_contract(raw: dict) -> Contract:
         if not any(port.name == box and port.type == 'pose' for port in contract.inputs):
             raise ContractError(f'{name}: target.box must name a pose input, not {box}')
 
-    if interface.success_when is not None and isinstance(interface.success_when.equals, str):
-        wanted = _format_fields(interface.success_when.equals)
+    watch = interface.success_when
 
-        if wanted - {port.name for port in contract.inputs}:
-            raise ContractError(f'{name}: success_when.equals names no input: {interface.success_when.equals}')
+    if watch is not None and watch.equals_input and contract.input(watch.equals_input) is None:
+        raise ContractError(f'{name}: success_when.equals_input names no input: {watch.equals_input}')
+
+    if watch is not None and isinstance(watch.equals, str) and _format_fields(watch.equals):
+        raise ContractError(f'{name}: success_when.equals is compared as it is; to compare with an input, '
+                            f'use equals_input: {watch.equals.strip("{}")}')
 
     if contract.record and contract.kind != 'condition':
         raise ContractError(f'{name}: record is for conditions; actions are always recorded')

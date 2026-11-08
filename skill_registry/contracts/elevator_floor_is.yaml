@@ -8,7 +8,7 @@ interface:
     topic: /elevator/floor
     ros_type: std_msgs/msg/String
     field: data
-    equals: '{floor}'
+    equals_input: floor
     latched: true
 inputs:
 - name: floor

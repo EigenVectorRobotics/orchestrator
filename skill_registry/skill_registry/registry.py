@@ -125,8 +125,8 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport == 'vlm':
         return vlm_up
 
-    if interface.transport in ('agent', 'compare', 'graph', 'press_tip'):
-        return True                 # they run inside the executor
+    if interface.transport in ('agent', 'compare', 'graph', 'press_tip', 'alive', 'command'):
+        return True                 # they run inside the executor; alive and command must work while the stacks are down
 
     if interface.transport == 'in_view':
         return interface.target['box_topic'] in graph.published

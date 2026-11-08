@@ -8,8 +8,8 @@ interface:
   ros_type: std_srvs/srv/Trigger
 resources:
 - base
-timeout_s: 5
+timeout_s: 30
 maturity: wip
 source: unitree_interface/unitree_interface/src/unitree_interface.cpp
-notes: Changes if locomotion moves to SONIC. Refused in low-level mode, so it fails while SONIC drives the robot
+notes: Takes about 15 s (damp, stand up, start). Changes if locomotion moves to SONIC. Refused in low-level mode, so it fails while SONIC drives the robot
   (sim and real).

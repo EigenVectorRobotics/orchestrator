@@ -1,0 +1,17 @@
+name: robot_ready
+kind: condition
+device: nuc
+description: G1 is in ready locomotion - the loco FSM id is 801, as after ready_locomotion
+interface:
+  transport: watch
+  success_when:
+    topic: /unitree_interface/fsm_id
+    ros_type: std_msgs/msg/Int32
+    field: data
+    equals: 801
+timeout_s: 3
+maturity: untested
+source: unitree_interface (fsm_id topic, branch jean/fsm-id-topic)
+notes: >-
+  HighLevel in current_mode does not mean standing: the robot can be damped or hanging in HighLevel. Never call
+  ready_walk when this holds - ready_locomotion damps a standing robot before it stands it up again.

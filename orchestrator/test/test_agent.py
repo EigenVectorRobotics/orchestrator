@@ -599,3 +599,11 @@ def test_a_counter_that_disagrees_with_the_start_floor_stops_before_walking():
 
     assert _run(tree) == Status.FAILURE
     assert 'navigate_to' not in [name for name, _ in runner.calls]
+
+
+def test_confirm_phase_relays_the_question():
+    from orchestrator.agent import GOING_ON, PHASE_DECISIONS, _task
+
+    assert PHASE_DECISIONS['confirm'] == ('confirmed', 'not_confirmed')
+    assert 'confirmed' in GOING_ON and 'not_confirmed' not in GOING_ON
+    assert 'Is the gantry removed?' in _task('confirm', {'question': 'Is the gantry removed?'})
