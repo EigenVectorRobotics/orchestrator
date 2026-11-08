@@ -488,9 +488,16 @@ class Sleep(Timed, TreeNode):
 
 
 class SetBlackboard(TreeNode):
+    """Writes value to output_key; a value {other} copies the blackboard entry other"""
+
     def _tick(self) -> Status:
-        key = self._attribute('output_key').strip('{}')
-        self.context.blackboard[key] = self._attribute('value')
+        key   = self._attribute('output_key').strip('{}')
+        value = self._attribute('value')
+
+        if value.startswith('{') and value.endswith('}'):
+            value = self.context.blackboard[value[1:-1]]
+
+        self.context.blackboard[key] = value
 
         return Status.SUCCESS
 

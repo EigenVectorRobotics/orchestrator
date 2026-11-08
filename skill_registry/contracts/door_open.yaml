@@ -1,14 +1,18 @@
 name: door_open
 kind: condition
-device: thor
-description: The elevator door in front of the robot is open (asked of the local VLM)
+device: nuc
+description: The elevator door is open, from the lidar (door_state_node). Checks the latest messages only, so a tree can check it on every tick, e.g. as the first child of a ReactiveFallback.
 interface:
-  transport: vlm
-  question: Is the elevator door in front of you open?
-  choices:
-  - open
-  - closed
-  - unsure
-  success_answer: open
+  transport: watch
+  success_when:
+    topic: /door_state
+    ros_type: std_msgs/msg/String
+    field: data
+    equals: OPEN
+    consecutive: 3
 maturity: untested
-notes: Built on ask_vlm. A lidar check on the NUC would remove the Thor dependency.
+source: elevator_states (feat/door_state) door_state_node; started by bringup nuc.launch.py
+notes: >-
+  door_state_node counts lidar points (/registered_scan, map frame) in a rectangle at the freight elevator door and
+  publishes OPEN or CLOSED once per scan (about 10 Hz). consecutive 3 removes one-scan errors (about 0.3 s delay).
+  The rectangle is set for the map two_floor_clean.pcd; a wrong localization gives a wrong state.

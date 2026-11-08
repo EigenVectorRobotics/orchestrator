@@ -272,3 +272,62 @@ def test_example_tree_fails_when_the_walk_fails():
 
     assert _run(tree) == Status.FAILURE
     assert [name for name, _ in runner.calls] == ['navigate_to']
+
+
+def test_open_door_halts_the_press_and_walks_in():
+    runner = FakeRunner({
+        'door_open':    [[Status.FAILURE], [Status.FAILURE], [Status.FAILURE], [Status.SUCCESS]],
+        'press_button': [Status.RUNNING],
+    })
+    tree   = _tree(
+        '<Sequence>'
+        '<ReactiveFallback><door_open/>'
+        '<Sequence><navigate_to goal="1 2 0"/><press_button target_description="down button"/></Sequence>'
+        '</ReactiveFallback>'
+        '<Parallel success_count="2" failure_count="1"><release_arms/><navigate_to goal="3 4 0"/></Parallel>'
+        '</Sequence>',
+        runner
+    )
+
+    assert _run(tree) == Status.SUCCESS
+    press = next(handle for (name, _), handle in zip(runner.calls, runner.handles) if name == 'press_button')
+    assert press.cancelled
+    assert [name for name, _ in runner.calls][-2:] == ['release_arms', 'navigate_to']
+
+
+def test_an_open_door_on_another_floor_does_not_stop_the_floor_press():
+    runner = FakeRunner({
+        'inside_cabin': [Status.SUCCESS],
+        'door_open':    [Status.SUCCESS],                                   # the door is still open at floor 2
+        'at_floor':     [[Status.FAILURE], [Status.FAILURE], [Status.SUCCESS]],
+        'press_button': [Status.RUNNING],
+    })
+    tree   = _tree(
+        '<Sequence>'
+        '<ReactiveFallback><Sequence><inside_cabin/><at_floor floor="1"/><door_open/></Sequence>'
+        '<press_button target_description="floor 1"/></ReactiveFallback>'
+        '<navigate_to goal="3 4 0"/>'
+        '</Sequence>',
+        runner
+    )
+
+    assert _run(tree) == Status.SUCCESS
+    names = [name for name, _ in runner.calls]
+    press = runner.handles[names.index('press_button')]
+    assert press.cancelled
+    assert names.count('at_floor') == 3 and names[-1] == 'navigate_to'
+
+
+def test_set_blackboard_copies_a_place_into_a_parameter():
+    runner     = FakeRunner()
+    place      = {'x': 1.0, 'y': 2.0, 'z': 0.0, 'yaw': 0.0}
+    blackboard = {'target_floor_1': place}
+    tree       = _tree(
+        '<Sequence><SetBlackboard value="{target_floor_1}" output_key="target"/><navigate_to goal="{target}"/></Sequence>',
+        runner,
+        blackboard=blackboard
+    )
+
+    assert _run(tree) == Status.SUCCESS
+    assert blackboard['target'] is place
+    assert runner.calls[-1][0] == 'navigate_to'

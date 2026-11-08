@@ -532,7 +532,7 @@ def test_without_an_agent_a_failed_stance_check_still_presses():
 # ========== The ride tree ==========
 
 RIDE_TREE   = TREES / 'freight_elevator_ride_agentic.xml'
-RIDE_PLACES = ('inside_freight_elevator_button_panel', 'freight_elevator_door', 'inside_freight_elevator_door_view', 'exit_goal')
+RIDE_PLACES = ('inside_freight_elevator_button_panel', 'freight_elevator_door', 'exit_goal')
 
 
 class RideRunner(FakeRunner):
@@ -576,20 +576,20 @@ def test_the_ride_tree_presses_the_target_waits_for_it_and_walks_out():
 
     assert runner.calls[press][1]['target_description'] == 'floor 1'
     assert runner.calls[names.index('elevator_floor_is')][1]['floor'] == '2'                  # the start floor first
-    assert names.index('door_open_lidar') > max(i for i, name in enumerate(names) if name == 'elevator_floor_is')
+    assert names.index('door_open') > max(i for i, name in enumerate(names) if name == 'elevator_floor_is')
     assert runner.calls[-1 - names[::-1].index('navigate_to')][1]['goal']['x'] == 1.0          # exit_goal
-    assert 'door_open' not in names
+    assert 'door_open_lidar' not in names
 
 
-def test_a_door_the_lidar_cannot_judge_goes_to_the_vlm_after_turning():
-    runner = RideRunner([(True, 'Controller reached target', [])], failing=('door_open_lidar',))
+def test_a_door_state_that_does_not_say_open_goes_to_door_open_lidar():
+    runner = RideRunner([(True, 'Controller reached target', [])], failing=('door_open',))
     tree   = _ride_tree(runner)
 
     assert _run(tree, max_ticks=8000) == Status.SUCCESS
     names = [name for name, _ in runner.calls]
 
-    assert names.index('door_open') > names.index('door_open_lidar')
-    assert names.count('navigate_to') == 3                                                    # in, door view, out
+    assert names.index('door_open_lidar') > names.index('door_open')
+    assert names.count('navigate_to') == 2                                                    # in, out
 
 
 def test_a_counter_that_disagrees_with_the_start_floor_stops_before_walking():

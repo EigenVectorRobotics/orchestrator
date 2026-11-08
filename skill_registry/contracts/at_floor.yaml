@@ -1,0 +1,22 @@
+name: at_floor
+kind: condition
+device: nuc
+description: The robot is on the given floor (floors counted from the lowest of the map, 1 first), from the floor state.
+interface:
+  transport: watch
+  success_when:
+    topic: /slam_elevatorlio/floor
+    ros_type: std_msgs/msg/Int32
+    field: data
+    equals_input: floor
+    latched: true
+inputs:
+- name: floor
+  type: int
+  description: The floor number, 1 for the lowest floor of the map
+maturity: untested
+source: navigation_stack (jean/elevator-side) slam_elevatorlio ~/floor
+notes: >-
+  The floor state: set from the localized z, and on a ride from LIO's z (its nearest map floor, so with two floors it
+  switches halfway between them). After the ride the robot relocalizes on that floor's z. Check it together with
+  door_open: the floor counts once the door opens.
