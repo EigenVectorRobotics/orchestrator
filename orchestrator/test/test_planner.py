@@ -206,7 +206,8 @@ def test_system_prompt_lists_subtrees_with_their_keys():
     prompt = build_system_prompt(Registry.from_directory(CONTRACTS), {'nuc', 'orin'}, load_tree_library(TREES))
 
     assert '  - subtree walk_out (reads door_out, target; writes exiting)' in prompt
-    assert '  - subtree press_panel_button (reads press_offset_x, press_offset_y, press_offset_z, button, press_left_arm, press_ask, press_panel; ' in prompt
+    assert '  - subtree press_panel_button (reads press_offset_x, press_offset_y, press_offset_z, button, press_ask, reach_min, reach_max, press_panel; ' in prompt
+    assert '  - subtree stance_check (reads button, reach_min, reach_max, press_panel; writes decision, recovery_goal, stance_left_arm, press_left_arm)' in prompt
 
 
 def test_use_tree_replaces_a_subtree_with_another_tree():
