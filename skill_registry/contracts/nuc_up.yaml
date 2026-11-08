@@ -1,12 +1,12 @@
 name: nuc_up
 kind: condition
 device: nuc
-description: The NUC stack runs - robot interface, localization, the four navigation nodes and door_state_node
+description: The NUC stack runs - robot interface, localization, the four navigation nodes, door_state_node and floor_map_selector
 interface:
   transport: alive
   alive:
     topics: [/feedback, /slam_elevatorlio/status, /unitree_interface/current_mode, /unitree_interface/fsm_id,
-             /terrain_map, /path, /navigation_cmd_vel, /route_planner/status, /door_state]
+             /terrain_map, /path, /navigation_cmd_vel, /route_planner/status, /door_state, /prior_map]
     services: [/unitree_interface/change_mode, /unitree_interface/ready_locomotion]
 timeout_s: 10
 maturity: untested
@@ -14,4 +14,8 @@ source: orchestrator/orchestrator/preflight_checks.py (judge_alive)
 notes: >-
   Before a task (preflight). /unitree_interface/fsm_id needs unitree_interface with the FSM id topic. The last four
   topics are one per navigation node (terrain_analysis, local_planner, path_follower, route_planner): a partial stack
-  with the robot interface and SLAM only (as tmux -L elevtest on 2026-11-07) must fail this check.
+  with the robot interface and SLAM only (as tmux -L elevtest on 2026-11-07) must fail this check. /prior_map comes
+  from floor_map_selector, which is NOT in git (deployed by hand on 2026-11-08): it must be at
+  /home/vector/eigen_vector_ws/src/bringup/scripts/floor_map_selector.py on the NUC, installed by bringup's
+  CMakeLists.txt and started by nuc.launch.py when a map is given. Without it /prior_map never comes, this check
+  always fails, and preflight keeps relaunching the NUC stack; a bringup deployed from git drops it.
