@@ -30,7 +30,7 @@ def test_example_tree_is_valid_blind():
     registry  = Registry.from_directory(CONTRACTS)
     validator = TreeValidator(registry, ValidatorConfig(blind=True))
 
-    assert validator.is_valid((PACKAGE / 'trees' / 'call_elevator.xml').read_text())
+    assert validator.is_valid((PACKAGE.parent / 'orchestrator' / 'test_trees' / 'call_elevator.xml').read_text())
 
 
 def test_unknown_skill():

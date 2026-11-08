@@ -2,7 +2,9 @@
 
 import re
 
+from xml.etree import ElementTree
 from typing import Callable
+from pathlib import Path
 from dataclasses import dataclass, field
 
 from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Contract, Registry, TreeValidator, ValidatorConfig
@@ -10,7 +12,26 @@ from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Contract, Registry, TreeVa
 from .llm_backends import Backend, BackendError
 
 
-TREE_PATTERN = re.compile(r'<tree>(.*?)</tree>', re.DOTALL)
+TREE_PATTERN     = re.compile(r'<tree>(.*?)</tree>', re.DOTALL)
+USE_TREE_PATTERN = re.compile(r'<use_tree\s+id="([^"]+)"((?:\s+\w+="[^"]*")*)\s*(?:/>|>(.*?)</use_tree>)', re.DOTALL)
+REPLACE_PATTERN  = re.compile(r'<replace\s+subtree="([^"]+)"\s+with="([^"]+)"\s*/>')
+BLOCK_PATTERN    = re.compile(r'<BehaviorTree\s+ID="([^"]+)"\s*>.*?</BehaviorTree>', re.DOTALL)
+ATTRIBUTE_PATTERN  = re.compile(r'(\w+)="([^"]*)"')
+PARAMETERS_PATTERN = re.compile(r'<Sequence\s+name="parameters"\s*>(.*?)</Sequence>', re.DOTALL)
+PARAMETER_PATTERN  = re.compile(r'<SetBlackboard\s+value="([^"]*)"\s+output_key="([^"]+)"\s*/>')
+TREE_ID_PATTERN  = re.compile(r'<BehaviorTree\s+ID="([^"]+)"')
+COMMENT_PATTERN  = re.compile(r'<!--(.*?)-->', re.DOTALL)
+SUMMARY_CHARS    = 160
+
+TREE_LIBRARY_HEADER = '''
+
+# Existing trees
+
+These trees exist already. If one of them does the task as it is, answer <use_tree id="..."/> with its ID instead of writing a tree, after your short explanation. Otherwise write a new tree.
+A tree with parameters lists them with their default values, as id(name="value", ...). If the tree does the task with other values, give them as attributes: <use_tree id="..." name="value"/>; the parameters you leave out keep their defaults. A place is written {place_name}.
+A tree also lists its subtrees, with the blackboard keys each one reads and writes. To use a tree with one of its subtrees swapped for another existing tree (one that reads and writes the same keys), write <use_tree id="..." name="value"><replace subtree="subtree_id" with="other_tree_id"/></use_tree>; several replace lines are fine.
+
+'''
 
 EXAMPLE_TREE = '''<root BTCPP_format="4">
   <BehaviorTree ID="greet_at_door">
@@ -52,6 +73,8 @@ SYSTEM_PROMPT = '''You plan tasks for a Unitree G1 humanoid robot. You write the
 - The robot must stand still while an arm moves. Put a Sleep of at least 1000 ms between navigate_to and an arm skill, so the robot has stopped swaying.
 - Name the exact target in a text input. press_button's target_description is a grounding query: "up button", "down button", "floor 1", "floor 2", "floor 3", or "object:<description>"; other text is refused.
 - Asking a person for help with the say skill is a good recovery.
+- When the task enters an elevator, the door can open at any time. Put the walk to the call panel, the call button press and the wait for the door in a ReactiveFallback whose first child is door_open, so an open door halts them at once. Right after it, say that the door is open and the robot walks in. Then run release_arms and the walk into the cabin in a Parallel, with a Delay of 1000 ms before the walk. End the wait with a Sleep and AlwaysFailure, so a door that stays closed fails the tree.
+- To leave the elevator, do the same in the cabin: put the floor button press and the wait for the ride in a ReactiveFallback whose first child is a Sequence of inside_cabin, at_floor with the target floor number and door_open. Right after it, say that the robot is at the floor and walks out. Then, in a Parallel: release_arms at once (in ForceSuccess: the arms can be released already), a wait until in_elevator is false (slam_elevatorlio ends LIO's elevator mode at the open door), a wait until localized, and the walk out: first to the door-out place of the target floor (1 m out of the door), say that the robot stops to relocalize, relocalize_here, then on to the target floor's target place (target_floor_N, or the place the task names; its z is that floor).
 - A tree for "blind" mode runs with no internet. It cannot use skills that need the cloud.
 
 # Your answer
@@ -115,14 +138,190 @@ def describe_contract(contract: Contract, essential_devices: set[str]) -> str:
     return '\n'.join(line for line in lines if line)
 
 
-def build_system_prompt(registry: Registry, essential_devices: set[str]) -> str:
-    """The same text for the same registry, so the provider can cache it"""
+SPEECH_CHARS_PER_S = 13.0          # about how fast the Unitree TTS speaks English
+SPEECH_GAP_S       = 0.5
+
+
+def speech_left_s(
+    text: str,
+    started: float,
+    now: float,
+) -> float:
+    """Seconds until a sentence that started at started is spoken, plus a gap; 0 when it is done."""
+    return max(0.0, started + len(text) / SPEECH_CHARS_PER_S + SPEECH_GAP_S - now)
+
+
+def summarize_tree(
+    xml: str,
+) -> tuple[str, str]:
+    """The main tree's ID and the first sentence of the file's first comment"""
+    tree_id = TREE_ID_PATTERN.search(xml)
+    comment = COMMENT_PATTERN.search(xml)
+    text    = ' '.join(comment.group(1).split()) if comment else ''
+    first   = text.split('. ')[0].rstrip('.')
+    first   = first if len(first) <= SUMMARY_CHARS else first[:SUMMARY_CHARS].rsplit(' ', 1)[0] + ' …'
+
+    return (tree_id.group(1) if tree_id else ''), first
+
+
+def tree_parameters(
+    xml: str,
+) -> dict[str, str]:
+    """Parameter name -> default value, from the SetBlackboard nodes in the Sequence named parameters"""
+    block = PARAMETERS_PATTERN.search(xml)
+
+    return {name: value for value, name in PARAMETER_PATTERN.findall(block.group(1))} if block else {}
+
+
+def override_parameters(
+    xml: str,
+    values: dict[str, str],
+) -> str:
+    """The tree with the given parameters set to new values"""
+    block = PARAMETERS_PATTERN.search(xml)
+    text  = PARAMETER_PATTERN.sub(
+        lambda match: match.group(0).replace(f'value="{match.group(1)}"', f'value="{values.get(match.group(2), match.group(1))}"', 1),
+        block.group(1)
+    )
+
+    return xml[:block.start(1)] + text + xml[block.end(1):]
+
+
+def subtree_interfaces(
+    xml: str,
+    registry: Registry,
+) -> dict[str, tuple[list[str], list[str]]]:
+    """Subtree ID -> (blackboard keys it reads, keys it writes), with the subtrees it calls, for every BehaviorTree but the main one"""
+    own = {}
+
+    for tree_id, block in [(match.group(1), match.group(0)) for match in BLOCK_PATTERN.finditer(xml)]:
+        reads, writes, calls = [], [], []
+
+        for element in ElementTree.fromstring(block).iter():
+            if element.tag == 'SubTree':
+                calls.append(element.get('ID'))
+
+            contract = registry.get(element.tag)
+            outputs  = {port.name for port in contract.outputs} if contract else set()
+
+            for name, value in element.attrib.items():
+                key = value[1:-1] if value.startswith('{') and value.endswith('}') else ''
+
+                if element.tag == 'SetBlackboard' and name == 'output_key':
+                    writes.append(value.strip('{}'))
+                elif key and name in outputs:
+                    writes.append(key)
+                elif key:
+                    reads.append(key)
+
+        own[tree_id] = (reads, writes, calls)
+
+    return {tree_id: _interface(tree_id, own, ()) for tree_id in list(own)[1:]}
+
+
+def _interface(
+    tree_id: str,
+    own: dict[str, tuple[list[str], list[str], list[str]]],
+    visiting: tuple[str, ...],
+) -> tuple[list[str], list[str]]:
+    """The keys a subtree reads before it writes them, and the keys it writes, its called subtrees included"""
+    reads, writes, calls = own[tree_id]
+    reads, writes        = list(reads), list(writes)
+
+    for called in calls:
+        if called in own and called not in visiting:
+            called_reads, called_writes = _interface(called, own, (*visiting, tree_id))
+            reads, writes = reads + called_reads, writes + called_writes
+
+    return [key for key in dict.fromkeys(reads) if key not in writes], list(dict.fromkeys(writes))
+
+
+def replace_subtree(
+    xml: str,
+    subtree_id: str,
+    other_xml: str,
+) -> str:
+    """The tree with subtree_id swapped for the main tree of other_xml; other_xml's own subtrees are added"""
+    blocks       = {match.group(1): match for match in BLOCK_PATTERN.finditer(xml)}
+    other_blocks = [(match.group(1), match.group(0)) for match in BLOCK_PATTERN.finditer(other_xml)]
+    main_id, main_block = other_blocks[0]
+    added        = []
+
+    for tree_id, block in other_blocks[1:]:
+        if tree_id in blocks and tree_id != subtree_id and blocks[tree_id].group(0) != block:
+            raise ValueError(f'both trees have a different subtree {tree_id}')
+
+        if tree_id not in blocks:
+            added.append(block)
+
+    target = blocks[subtree_id]
+    new    = main_block.replace(f'ID="{main_id}"', f'ID="{subtree_id}"', 1)
+    xml    = xml[:target.start()] + new + xml[target.end():]
+    end    = xml.rindex('</root>')
+
+    return xml[:end] + ''.join(f'  {block}\n' for block in added) + xml[end:]
+
+
+def load_tree_library(
+    directory: str | Path,
+) -> dict[str, tuple[str, str]]:
+    """Tree ID -> (summary, XML) for every tree file in directory"""
+    library = {}
+
+    for path in sorted(Path(directory).glob('*.xml')):
+        xml              = path.read_text()
+        tree_id, summary = summarize_tree(xml)
+
+        if tree_id:
+            library[tree_id] = (summary, xml)
+
+    return library
+
+
+def _signature(
+    xml: str,
+) -> str:
+    """(name="default", ...) for a tree with parameters, else nothing"""
+    parameters = tree_parameters(xml)
+
+    return '(' + ', '.join(f'{name}="{value}"' for name, value in parameters.items()) + ')' if parameters else ''
+
+
+def _subtree_lines(
+    xml: str,
+    registry: Registry,
+) -> str:
+    """One line per subtree: its ID and the keys it reads and writes"""
+    lines = ''
+
+    for tree_id, (reads, writes) in subtree_interfaces(xml, registry).items():
+        keys   = '; '.join(part for part in (f'reads {", ".join(reads)}' if reads else '', f'writes {", ".join(writes)}' if writes else '') if part)
+        lines += f'\n  - subtree {tree_id}' + (f' ({keys})' if keys else '')
+
+    return lines
+
+
+def build_system_prompt(
+    registry: Registry,
+    essential_devices: set[str],
+    library: dict[str, tuple[str, str]] | None = None,
+) -> str:
+    """The same text for the same registry and trees, so the provider can cache it"""
     catalog = '\n\n'.join(
         describe_contract(contract, essential_devices)
         for contract in sorted(registry, key=lambda contract: contract.name)
+        if contract.maturity != 'disabled'
     )
 
-    return SYSTEM_PROMPT + catalog
+    if not library:
+        return SYSTEM_PROMPT + catalog
+
+    trees = '\n'.join(
+        f'- {tree_id}{_signature(xml)}: {summary}' + _subtree_lines(xml, registry)
+        for tree_id, (summary, xml) in sorted(library.items())
+    )
+
+    return SYSTEM_PROMPT + catalog + TREE_LIBRARY_HEADER + trees
 
 
 def build_task_message(task: str, places: dict, live_skills: set[str] | None, blind: bool) -> str:
@@ -152,6 +351,7 @@ class PlanResult:
     attempts: int = 0
     message:  str = ''
     warnings: list[str] = field(default_factory=list)
+    reused:   str = ''          # the ID of the existing tree the model chose, or empty for a new tree
 
 
 class Planner:
@@ -161,14 +361,16 @@ class Planner:
         registry: Registry,
         essential_devices: set[str] | None = None,
         max_attempts: int = 3,
-        on_event: Callable[..., None] | None = None
+        on_event: Callable[..., None] | None = None,
+        library: dict[str, tuple[str, str]] | None = None
     ):
         self.backend           = backend
         self.registry          = registry
         self.essential_devices = essential_devices or set(DEFAULT_ESSENTIAL_DEVICES)
         self.max_attempts      = max_attempts
         self.on_event          = on_event or (lambda kind, text, **data: None)
-        self.system_prompt     = build_system_prompt(registry, self.essential_devices)
+        self.library           = library or {}
+        self.system_prompt     = build_system_prompt(registry, self.essential_devices, self.library)
 
     def plan(self, task: str, places: dict | None = None, live_skills: set[str] | None = None, blind: bool = False) -> PlanResult:
         validator = TreeValidator(
@@ -201,7 +403,49 @@ class Planner:
             if explanation:
                 self.on_event('plan', explanation, attempt=attempt)
 
-            tree = extract_tree(reply.text)
+            choice = USE_TREE_PATTERN.search(reply.text)
+            reused = choice.group(1) if choice else ''
+
+            if reused and reused not in self.library:
+                feedback = f'There is no existing tree "{reused}". Choose an ID from the list, or write a new tree.'
+                self.on_event('validation', f'unknown existing tree {reused}', level='warn', attempt=attempt)
+                messages.append({'role': 'user', 'content': feedback})
+                continue
+
+            overrides = dict(ATTRIBUTE_PATTERN.findall(choice.group(2))) if reused else {}
+            unknown   = sorted(overrides.keys() - tree_parameters(self.library[reused][1]).keys()) if reused else []
+
+            if unknown:
+                feedback = f'The tree "{reused}" has no parameter {", ".join(unknown)}. Use its parameters only, or write a new tree.'
+                self.on_event('validation', f'unknown parameters {unknown} of {reused}', level='warn', attempt=attempt)
+                messages.append({'role': 'user', 'content': feedback})
+                continue
+
+            tree = override_parameters(self.library[reused][1], overrides) if overrides else self.library[reused][1] if reused else extract_tree(reply.text)
+            swaps = REPLACE_PATTERN.findall(choice.group(3) or '') if reused else []
+            wrong = ''
+
+            for subtree_id, other_id in swaps:
+                if subtree_id not in subtree_interfaces(tree, self.registry):
+                    wrong = f'The tree "{reused}" has no subtree {subtree_id}.'
+                elif other_id not in self.library:
+                    wrong = f'There is no existing tree "{other_id}" to put in place of {subtree_id}.'
+                else:
+                    try:
+                        tree = replace_subtree(tree, subtree_id, self.library[other_id][1])
+                    except ValueError as error:
+                        wrong = f'{other_id} cannot replace {subtree_id}: {error}.'
+
+                if wrong:
+                    break
+
+            if wrong:
+                self.on_event('validation', wrong, level='warn', attempt=attempt)
+                messages.append({'role': 'user', 'content': wrong + ' Fix the answer, or write a new tree.'})
+                continue
+
+            if reused:
+                self.on_event('reuse', f'existing tree {reused}' + (f' with {overrides}' if overrides else '') + (f' replacing {swaps}' if swaps else ''), attempt=attempt)
 
             if tree is None:
                 feedback = 'Your answer has no <tree></tree> block. Give the full tree inside the tags.'
@@ -217,14 +461,16 @@ class Planner:
 
             if not errors:
                 self.on_event('valid', f'tree is valid after {attempt} attempt(s)', warnings=warnings)
-                return PlanResult(True, tree, attempt, warnings=warnings)
+                return PlanResult(True, tree, attempt, warnings=warnings, reused=reused)
 
             report = '\n'.join(f'- {issue.path}: {issue.message}' for issue in errors)
 
             self.on_event('validation', f'{len(errors)} errors:\n{report}', level='warn', attempt=attempt)
             messages.append({
                 'role':    'user',
-                'content': f'The validator rejected the tree:\n{report}\nFix these errors and give the full tree again.',
+                'content': (f'The existing tree {reused} does not pass the validator now:\n{report}\n'
+                            'Write a new tree inside <tree></tree> tags.') if reused else
+                           f'The validator rejected the tree:\n{report}\nFix these errors and give the full tree again.',
             })
 
         message = f'no valid tree after {self.max_attempts} attempts'

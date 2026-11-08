@@ -62,7 +62,7 @@ The orchestrator runs a tree, and its `manipulation_recovery` agent skill is ans
    Check: `tmux capture-pane -pt orchestrator` shows the skill count (32 since the agent trial: `press_judge`, `set_press_offset` and `clear_terrain_map` added) and "3 places". A `ground: No module named 'vlm_interfaces'` warning is expected.
    - **After editing the orchestrator,** rebuild (`cd ~/orchestrator_ws && source env.sh && colcon build --packages-select skill_registry orchestrator`; not a symlink install), then restart this session: `tmux kill-session -t orchestrator` and the command above. Contracts and Python load at start. A tree file is read at each `send_tree`, so a tree edit needs only the rebuild of `skill_registry` (its install copy), no restart. Check a tree first: `ros2 run skill_registry validate_tree <tree.xml>` (0 errors). Run the tests from each package's own directory (`cd ~/orchestrator_ws/src/orchestrator/orchestrator && python3 -m pytest -q test`, the same in `skill_registry`): from the repository root, `orchestrator` resolves to the installed package, and the tests check the old code. The places become `{freight_elevator_call_panel}`, `{inside_freight_elevator_button_panel}` and `{freight_elevator_call_panel_preapproach}`.
 6. **Agent:** the session runs `agent_cli wait` in the background (step "Before the run" in the skill document). Another session's `agent_cli wait` also sees each call (`pgrep -fa agent_cli`); only one should answer. The session answers two skills: `press_judge` after every press (`skill_registry/agent_skills/press_judge.md`) and `manipulation_recovery` after a failure. In the agent trial the operator first asked to see each decision, then let the session send them all.
-7. **Tree**, on the operator's go. The whole task is `freight_elevator_down_floor1_agentic.xml`: preapproach, call panel, EKF hold, down button, `press_judge`, door, cabin, EKF hold, floor 1, `press_judge`, with `manipulation_recovery` after each failure and the standard recoveries (README, "Standard recoveries"). To pick it up partway, in `skill_registry/trees/`:
+7. **Tree**, on the operator's go. The whole task is `freight_elevator_down_floor1_agentic.xml`: preapproach, call panel, EKF hold, down button, `press_judge`, door, cabin, EKF hold, floor 1, `press_judge`, with `manipulation_recovery` after each failure and the standard recoveries (README, "Standard recoveries"). To pick it up partway, in `orchestrator/test_trees/`:
 
    | Tree | Starts with the robot | Does |
    |---|---|---|
@@ -80,7 +80,7 @@ The orchestrator runs a tree, and its `manipulation_recovery` agent skill is ans
    R=~/orch_runs/run_$(date +%H%M%S); mkdir -p $R; source ~/orchestrator_ws/env.sh
    nohup ros2 topic echo /orchestrator/trace --field data > $R/trace.txt 2>&1 < /dev/null &
    nohup ros2 run orchestrator agent_cli wait > $R/agent_wait.txt 2>&1 < /dev/null &
-   nohup ros2 run orchestrator send_tree ~/orchestrator_ws/src/orchestrator/skill_registry/trees/freight_call_elevator_down_agentic.xml > $R/send_tree.txt 2>&1 < /dev/null &
+   nohup ros2 run orchestrator send_tree ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_elevator_down_agentic.xml > $R/send_tree.txt 2>&1 < /dev/null &
    ```
 
    Read progress with `grep -o '"text": "[^"]*"' $R/trace.txt`, and poll for the event you wait for (`press_judge running`, `manipulation_recovery running`, `waiting for the session`, `<tree>: success|failure`). Kill the echo and the wait when the tree ends: an orphaned echo holds a DDS participant.

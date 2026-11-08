@@ -6,7 +6,7 @@
 # The watcher runs ~/ekf_reset.sh each time the trace records the say of the trees' ekf_hold subtree
 # ("Holding still to reset my balance estimate."); the tree holds 15 s there. Stop it all with stop_cycle.sh RUN_DIR.
 source ~/orchestrator_ws/env.sh
-TREE=${1:-$(ros2 pkg prefix skill_registry)/share/skill_registry/trees/freight_elevator_down_floor1_agentic.xml}
+TREE=${1:-$(ros2 pkg prefix orchestrator)/share/orchestrator/test_trees/freight_elevator_down_floor1_agentic.xml}
 R=~/orch_runs/run_$(date +%H%M%S); mkdir -p $R
 nohup ros2 topic echo /orchestrator/trace --field data > $R/trace.txt 2>&1 < /dev/null &
 echo $! > $R/echo.pid

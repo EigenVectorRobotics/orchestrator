@@ -20,7 +20,7 @@ from orchestrator.skill_leaf import make_leaf_factory
 ROOT       = Path(__file__).resolve().parents[2]
 CONTRACTS  = ROOT / 'skill_registry' / 'contracts'
 SKILLS_DIR = ROOT / 'skill_registry' / 'agent_skills'
-TREES      = ROOT / 'skill_registry' / 'trees'
+TREES      = ROOT / 'orchestrator' / 'test_trees'
 PANEL      = {'x': 1.0, 'y': 2.0, 'yaw': math.pi / 2, 'frame': 'map'}
 
 

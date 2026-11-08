@@ -1,8 +1,19 @@
 <root BTCPP_format="4">
-  <!-- Floor 1 only, with the robot already at the inside panel: hold for the EKF reset, press floor 1 with the right
-       arm, press_judge, manipulation_recovery. -->
-  <BehaviorTree ID="freight_elevator_floor1_press_agentic">
+  <!-- Inside the cabin, too far from the floor panel for a reposition (closer than the 0.15 m arrival tolerance): back
+       up 0.35 m, walk to the inside place again, hold for the EKF reset, press floor 1, press_judge, recovery. -->
+  <BehaviorTree ID="freight_elevator_floor1_walk_in_again_agentic">
     <Sequence>
+      <say text="Backing up to walk to the panel again."/>
+      <Fallback>
+        <in_high_level/>
+        <set_mode mode="high_level"/>
+      </Fallback>
+      <clear_stop/>
+      <set_autonomy enabled="true"/>
+      <navigate_to goal="3.740 -0.422 -0.435 2.6704"/>   <!-- 0.35 m behind the inside place, same storey -->
+      <Sleep msec="2000"/>
+      <SubTree ID="walk_in"/>
+      <set_autonomy enabled="false"/>
       <SubTree ID="ekf_hold"/>
       <no_stale_publishers/>
       <Fallback>
@@ -21,11 +32,27 @@
     </Sequence>
   </BehaviorTree>
 
+  <!-- a walk that finds no free path (latched terrain points): clear the terrain map and walk again -->
+  <BehaviorTree ID="walk_in">
+    <RetryUntilSuccessful num_attempts="3">
+      <Fallback>
+        <navigate_to goal="{inside_freight_elevator_button_panel}"/>
+        <ForceFailure>
+          <Sequence>
+            <say text="My path looks blocked. Clearing my map and trying again."/>
+            <clear_terrain_map/>
+            <Sleep msec="2000"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </RetryUntilSuccessful>
+  </BehaviorTree>
+
   <!-- the watcher keys on this exact text -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to reset my balance estimate."/>
-      <Sleep msec="15000"/>
+      <Sleep msec="8000"/>    <!-- ekf_reset.sh: stop + 3 s + relaunch (about 4 s), calibration 2 s, 2 s margin -->
     </Sequence>
   </BehaviorTree>
 

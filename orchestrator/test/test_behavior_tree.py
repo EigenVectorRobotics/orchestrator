@@ -9,7 +9,7 @@ from orchestrator.skill_leaf import make_leaf_factory
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
-TREES     = Path(__file__).resolve().parents[2] / 'skill_registry' / 'trees'
+TREES     = Path(__file__).resolve().parents[2] / 'orchestrator' / 'test_trees'
 
 
 class FakeClock:

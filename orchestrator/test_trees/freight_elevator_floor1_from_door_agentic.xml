@@ -62,7 +62,7 @@
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to reset my balance estimate."/>
-      <Sleep msec="15000"/>
+      <Sleep msec="8000"/>    <!-- ekf_reset.sh: stop + 3 s + relaunch (about 4 s), calibration 2 s, 2 s margin -->
     </Sequence>
   </BehaviorTree>
 

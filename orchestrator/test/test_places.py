@@ -51,7 +51,7 @@ def test_the_robot_tree_validates_against_the_team_places():
 
     root     = Path(__file__).resolve().parents[2]
     registry = Registry.from_directory(root / 'skill_registry' / 'contracts')
-    tree     = (root / 'skill_registry' / 'trees' / 'freight_call_elevator_agentic.xml').read_text()
+    tree     = (root / 'orchestrator' / 'test_trees' / 'freight_call_elevator_agentic.xml').read_text()
     issues   = TreeValidator(registry, ValidatorConfig(known_keys=set(parse_places(TEAM_FILE)))).validate(tree)
 
     assert [issue.message for issue in issues if issue.level == 'error'] == []
