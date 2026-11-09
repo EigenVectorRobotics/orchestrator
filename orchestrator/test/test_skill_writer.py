@@ -29,14 +29,23 @@ def test_a_written_skill_is_saved_untested_and_loaded_at_once(tmp_path):
     assert Registry.from_directory(tmp_path).get('say_it') == registry.get('say_it')     # it loads again as written
 
 
-def test_a_new_version_keeps_the_old_file(tmp_path):
-    writer, registry, _ = _writer(tmp_path)
+def test_a_version_that_the_registry_refuses_leaves_the_old_one_on_disk(tmp_path):
+    checks = []
 
-    writer.write(yaml.safe_dump(SAY))
+    def check(contract):                            # passes the writer's check, fails the registry's (a change between)
+        checks.append(contract.timeout_s)
+        return ['changed'] if checks.count(9) == 2 else []
+
+    registry = Registry()
+    writer   = SkillWriter(registry, tmp_path, check, lambda contract: None)
+
+    assert writer.write(yaml.safe_dump(SAY))['ok']
+
     reply = writer.write(yaml.safe_dump(SAY | {'timeout_s': 9}))
 
-    assert reply['ok'] and 'replaced' in reply['message'] and registry.get('say_it').timeout_s == 9
-    assert (tmp_path / 'old' / 'say_it.1.yaml').exists()
+    assert not reply['ok'] and registry.get('say_it').timeout_s == 5
+    assert Registry.from_directory(tmp_path).get('say_it').timeout_s == 5          # a restart loads the old version
+    assert not (tmp_path / 'old').exists() or not any((tmp_path / 'old').iterdir())
 
 
 def test_bad_denied_or_mistyped_contracts_are_not_saved(tmp_path):
@@ -120,10 +129,13 @@ def test_a_new_version_must_still_fit_the_skills_that_name_it(tmp_path):
 
 
 def test_the_saved_file_is_untested_and_old_versions_are_never_overwritten(tmp_path):
-    writer, _, _ = _writer(tmp_path)
+    writer, registry, _ = _writer(tmp_path)
 
     for timeout in (5, 6, 7):
-        writer.write(yaml.safe_dump(SAY | {'timeout_s': timeout}))
+        reply = writer.write(yaml.safe_dump(SAY | {'timeout_s': timeout}))
+
+    assert reply['ok'] and 'replaced' in reply['message'] and registry.get('say_it').timeout_s == 7
+    assert (tmp_path / 'old' / 'say_it.1.yaml').exists()
 
     (tmp_path / 'old' / 'say_it.1.yaml').unlink()
     writer.write(yaml.safe_dump(SAY | {'timeout_s': 8}))

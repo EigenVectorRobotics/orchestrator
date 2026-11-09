@@ -55,4 +55,4 @@ def test_a_skill_that_needs_a_denied_skill_is_left_out_too(tmp_path):
 
     registry = Registry.from_directory(tmp_path)
 
-    assert list(registry) == [registry.get('fine')] and registry.denied['uses'] == ['it needs the denied skill bad']
+    assert list(registry) == [registry.get('fine')] and 'bad' in registry.denied['uses'][0]

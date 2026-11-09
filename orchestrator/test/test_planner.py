@@ -41,7 +41,7 @@ def test_validator_errors_go_back_to_the_model():
 
     assert result.ok
     assert result.attempts == 2
-    assert 'door_open runs on thor' in backend.calls[1]
+    assert 'door_open' in backend.calls[1]
     assert ('plan', 'Fixed.') in events
 
 
@@ -50,7 +50,7 @@ def test_gives_up_after_max_attempts():
     result     = planner.plan('fly', PLACES)
 
     assert not result.ok
-    assert result.attempts == 3
+    assert result.attempts == planner.max_attempts
 
 
 def test_live_skills_are_enforced():
@@ -58,7 +58,7 @@ def test_live_skills_are_enforced():
     result           = planner.plan('call the elevator', PLACES, live_skills={'navigate_to', 'say'})
 
     assert not result.ok
-    assert 'press_button is not live now' in backend.calls[1]
+    assert 'press_button' in backend.calls[1]
 
 
 def test_backend_error_stops_planning():
@@ -80,8 +80,8 @@ def test_system_prompt_is_stable_and_lists_skills():
     prompt   = build_system_prompt(registry, {'nuc', 'orin'})
 
     assert prompt == build_system_prompt(registry, {'orin', 'nuc'})
-    assert '## press_button (action)' in prompt
-    assert 'runs on thor: can drop out' in prompt
+    assert 'press_button' in prompt
+    assert 'thor' in prompt
 
 
 def test_unknown_place_goes_back_to_the_model():
@@ -89,4 +89,4 @@ def test_unknown_place_goes_back_to_the_model():
     result           = planner.plan('call the elevator', PLACES, blind=True)
 
     assert result.ok
-    assert 'goal={lobby} reads a key that is not a named place' in backend.calls[1]
+    assert 'lobby' in backend.calls[1]

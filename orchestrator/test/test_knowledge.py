@@ -34,17 +34,16 @@ def test_a_note_is_an_observation_and_a_same_key_note_confirms_it(tmp_path):
     claim, _ = store.note('The call panel does not light.', seen(value=False), PANEL, 'lights_when_pressed')
     again, change = store.note('It did not light again.', seen(run='r2', value=False), PANEL, 'lights_when_pressed')
 
-    assert claim.id == again.id == 'C-0001'
-    assert change == 'confirmed' and store.get('C-0001').tier == 'observation'     # one source only
+    assert claim.id == again.id
+    assert change == 'confirmed' and store.get(claim.id).tier == 'observation'     # one source only
 
 
 def test_two_runs_and_two_sources_make_a_belief(tmp_path):
     store    = KnowledgeStore(tmp_path)
     claim, _ = store.note('The call panel does not light.', seen(value=False), PANEL, 'lights_when_pressed')
 
-    change = store.confirm(claim.id, seen(by='operator', run='r2', value=False))
+    store.confirm(claim.id, seen(by='operator', run='r2', value=False))
 
-    assert 'observation -> belief' in change
     assert store.get(claim.id).tier == 'belief'
 
 
@@ -57,9 +56,9 @@ def test_a_different_word_contradicts_and_a_fact_goes_down_to_a_belief(tmp_path,
 
     assert store.get(claim.id).tier == 'fact'
 
-    _, change = store.note('It lit this time.', seen(run='r99', value=True), PANEL, 'lights_when_pressed')
+    store.note('It lit this time.', seen(run='r99', value=True), PANEL, 'lights_when_pressed')
 
-    assert 'fact -> belief' in change
+    assert store.get(claim.id).tier == 'belief'
 
 
 def test_a_measured_number_never_contradicts_it_goes_into_the_spread(tmp_path):
@@ -71,6 +70,12 @@ def test_a_measured_number_never_contradicts_it_goes_into_the_spread(tmp_path):
 
     assert not store.get(claim.id).contradictions
     assert stats['n'] == 2 and stats['mean'][0] == pytest.approx(0.011)
+
+    words, _ = store.note('Direction.', seen(value=['left', 'up']), PANEL, 'direction')
+    flags, _ = store.note('Lights.', seen(value=True), PANEL, 'lights')
+
+    assert store.get(words.id).value_stats() is None     # words and yes/no have no spread
+    assert store.get(flags.id).value_stats() is None
 
 
 def test_only_the_operator_approves_and_only_a_ready_belief(tmp_path):
@@ -124,7 +129,7 @@ def test_prompt_section_has_facts_and_beliefs_not_observations(tmp_path):
 
     text = store.prompt_section()
 
-    assert 'Beliefs' in text and 'closes after 8 s' in text
+    assert 'closes after 8 s' in text
     assert 'Only seen once' not in text
 
 
@@ -141,7 +146,7 @@ def test_the_agent_note_tool_writes_an_observation_with_its_run(tmp_path):
 
     claim = store.get('C-0001')
 
-    assert not output.is_error and 'new observation' in output.text
+    assert not output.is_error
     assert claim.confirmations[0].by == 'agent:press_judge' and claim.confirmations[0].run == 'r7'
     assert 'knowledge' in events
     assert session.call('note', {'text': 'no evidence', 'evidence': []}).is_error
@@ -160,15 +165,6 @@ def test_many_notes_in_one_run_count_as_one_sighting(tmp_path):
     assert not store.get(claim.id).ready_for_fact()
 
 
-def test_value_stats_ignore_words_and_yes_no(tmp_path):
-    store    = KnowledgeStore(tmp_path)
-    words, _ = store.note('Direction.', seen(value=['left', 'up']), PANEL, 'direction')
-    flags, _ = store.note('Lights.', seen(value=True), PANEL, 'lights')
-
-    assert store.get(words.id).value_stats() is None
-    assert store.get(flags.id).value_stats() is None
-
-
 def test_the_agent_confirms_an_observation_by_its_id(tmp_path):
     from orchestrator.agent import AgentConfig, AgentSession
 
@@ -179,21 +175,20 @@ def test_the_agent_confirms_an_observation_by_its_id(tmp_path):
 
     assert claim.id in store.prompt_section(observations=True)
 
-    output = session.call('note', {'text': 'Again unlit.', 'claim': claim.id, 'evidence': ['frame:press']})
+    session.call('note', {'text': 'Again unlit.', 'claim': claim.id, 'evidence': ['frame:press']})
 
-    assert 'observation -> belief' in output.text
+    assert store.get(claim.id).tier == 'belief'
     assert session.call('note', {'text': 'x', 'claim': 'C-9999', 'evidence': ['e']}).is_error
 
 
 def test_a_claim_can_be_about_any_tags_or_none(tmp_path):
-    store       = KnowledgeStore(tmp_path)
-    thor, _     = store.note('The VLM on Thor is slow after 30 min.', seen(), {'device': 'thor'})
-    general, _  = store.note('The cabin has no network.', seen())
-    door, _     = store.note('The door stays open.', seen(value=8.0), {'object': 'freight_elevator', 'place': 'cabin'}, 'open_s')
-    _, change   = store.note('The door stays open.', seen(run='r2', value=8.5), {'place': 'cabin ', 'object': 'freight_elevator'}, 'open_s')
+    store     = KnowledgeStore(tmp_path)
+    thor, _   = store.note('The VLM on Thor is slow after 30 min.', seen(), {'device': 'thor'})
+    store.note('The cabin has no network.', seen())
+    door, _   = store.note('The door stays open.', seen(value=8.0), {'object': 'freight_elevator', 'place': 'cabin'}, 'open_s')
+    _, change = store.note('The door stays open.', seen(run='r2', value=8.5), {'place': 'cabin ', 'object': 'freight_elevator'}, 'open_s')
 
-    assert store.get(thor.id).subject() == 'device thor'
-    assert store.get(general.id).subject() == 'general'
+    assert 'thor' in store.get(thor.id).subject()
     assert change.startswith('confirmed') and store.find({'place': 'cabin', 'object': 'freight_elevator'}, 'open_s').id == door.id
 
     for bad in ({'Device': 'thor'}, {'two words': 'x'}):

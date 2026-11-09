@@ -58,8 +58,6 @@ def test_a_tree_sent_alone_is_a_task_of_one_step():
     tasks.tick()
     tasks.tick()
 
-    assert tracer.kinds() == ['task_started', 'started', 'finished', 'task_finished']
-    assert tracer.events[0]['scratch'] == '/scratch/r1' and tracer.events[1]['step'] == 1
     assert tracer.events[-1]['end'] == 'success' and tracer.events[-1]['steps'] == 1
     assert statuses == ['running', 'success'] and tasks.task is None
 

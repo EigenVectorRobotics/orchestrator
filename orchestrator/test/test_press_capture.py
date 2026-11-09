@@ -70,13 +70,14 @@ def test_the_capture_chooses_the_three_frames_at_6_fps():
     _play(capture, buffer)
 
     assert capture.ready(DURATION + 1.0)
-    times = {name: t for name, (t, _) in capture.frames.items()}
+    times   = {name: t for name, (t, _) in capture.frames.items()}
     tracker = capture.tracker
+    config  = capture.config
 
     assert set(times) == {'baseline', 'press', 'release'}
     assert tracker.pregrasp_t <= times['baseline'] < tracker.pregrasp_t + 1 / 6
-    assert tracker.deepest_t + 0.005 <= times['press'] < tracker.deepest_t + 0.005 + 1 / 6
-    assert tracker.release_t + 0.5 <= times['release'] < tracker.release_t + 0.5 + 1 / 6
+    assert tracker.deepest_t + config.press_delay_s <= times['press'] < tracker.deepest_t + config.press_delay_s + 1 / 6
+    assert tracker.release_t + config.release_delay_s <= times['release'] < tracker.release_t + config.release_delay_s + 1 / 6
 
 
 def test_a_press_that_never_pushed_is_ready_after_the_settle_time():
@@ -123,8 +124,10 @@ def test_lit_in_either_later_frame_is_success_and_the_frames_are_saved(tmp_path)
 
     status, message, vlm = _check(capture, ['not_lit', 'lit'], tmp_path)
 
-    assert status and message == 'press: not_lit, release: lit (no button box: whole frames)'
-    assert all('left photo was taken just before' in question for _, question in vlm.asked)
+    question = Registry.from_directory(CONTRACTS).get('button_lit').interface.compare_question.format(target_description='up button')
+
+    assert status and 'release: lit' in message
+    assert all(asked == question for _, asked in vlm.asked)
     assert vlm.asked[0][0][0] == 2 * vlm.asked[0][0][1] * 64 // 48          # two photos side by side
     assert len(list(tmp_path.glob('press_*.jpg'))) == 3
 
@@ -147,7 +150,7 @@ def test_without_a_baseline_the_photos_are_asked_alone(tmp_path):
     status, message, vlm = _check(capture, ['lit'], tmp_path)
 
     assert status and 'no baseline frame' in message
-    assert vlm.asked[0][1] == 'Is the up button lit up?'
+    assert vlm.asked[0][1] == Registry.from_directory(CONTRACTS).get('button_lit').interface.question.format(target_description='up button')
 
 
 # ========== cosmos_vlm_server ==========
@@ -235,7 +238,9 @@ def test_the_check_asks_about_crops_and_a_hidden_button_borrows_the_baseline_box
     success, message, vlm = _check(capture, ['not_lit', 'not_lit'], tmp_path)
 
     assert not success and 'no button box' not in message
-    assert vlm.asked[0][0] == (2 * round(100 * 448 / 50), 448)                     # two 100x50 crops, side by side
+    height = int(capture.config.compare_height_px)
+
+    assert vlm.asked[0][0] == (2 * round(100 * height / 50), height)               # two 100x50 crops, side by side
     assert len(list(tmp_path.glob('press_*_crop.jpg'))) == 3
 
 

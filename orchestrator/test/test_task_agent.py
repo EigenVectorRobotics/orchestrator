@@ -44,11 +44,11 @@ def test_a_session_plans_runs_a_step_and_ends_the_task(tmp_path):
 
     assert [reply['ok'] for reply in d.replies] == [True, True, True]
     assert d.replies[1]['status'] == 'success'
-    assert (tmp_path / 'plan.md').read_text().startswith('# Task plan, version 1')
+    assert 'walk to the call panel' in (tmp_path / 'plan.md').read_text()
     assert next(event for event in d.tracer.events if event['kind'] == 'started')['subgoal'] == 'walk to the call panel'
     assert d.tracer.events[-1]['kind'] == 'task_finished' and d.tracer.events[-1]['end'] == 'done'
     assert d.tracer.events[-1]['reason'] == 'arrived'
-    assert d.opened[-1] == {'state': 'closed', 'run_id': 'r1', 'end': 'done'}
+    assert d.opened[-1]['state'] == 'closed' and d.opened[-1]['end'] == 'done'
 
 
 def test_commands_for_another_run_or_past_max_steps_are_refused(tmp_path):
@@ -153,8 +153,8 @@ def test_a_step_waiting_at_the_gate_is_refused_when_the_task_ends(tmp_path):
 def test_a_new_task_closes_the_old_one_and_refuses_its_waiting_step(tmp_path):
     d = _desk(FakeRunner(), tmp_path, gate=StepGate(lambda request: None))
 
-    _gated_run(d, lambda request: (d.desk.gate.ask({'step': 9}, lambda: True)['reason'] == 'another step already waits '
-                                   'for approval' or pytest.fail('a second request was taken'),
+    _gated_run(d, lambda request: (d.desk.gate.ask({'step': 9}, lambda: True)['approve'] is False
+                                   or pytest.fail('a second request was taken'),
                                    d.desk.open('Say hello', _context('r2'))))
 
     assert d.replies[0]['status'] == 'refused' and 'the task ended' in d.replies[0]['message']

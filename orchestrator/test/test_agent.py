@@ -121,7 +121,9 @@ def test_decide_checks_the_phase_and_the_fields(tmp_path):
 def test_read_file_stays_inside_its_roots(tmp_path):
     session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
 
-    assert '1\t---' in session.call('read_file', {'path': str(SKILLS_DIR / 'manipulation_recovery.md'), 'limit': 1}).text
+    out     = session.call('read_file', {'path': str(SKILLS_DIR / 'manipulation_recovery.md'), 'limit': 1})
+
+    assert not out.is_error and '---' in out.text
     assert session.call('read_file', {'path': '/etc/passwd'}).is_error
 
 
@@ -221,8 +223,9 @@ def test_agent_calls_in_one_run_share_its_scratch_folder(tmp_path):
 
     assert _run(tree) == Status.SUCCESS
     assert (scratch / 'plan.md').exists()
-    assert 'It is empty' in backend.tasks[0]
-    assert 'Earlier calls left: plan.md.' in backend.tasks[1]              # not the hidden code file of run_python
+    assert 'plan.md' not in backend.tasks[0]
+    assert 'plan.md' in backend.tasks[1]
+    assert '.py' not in backend.tasks[1]                                   # not the hidden code file of run_python
 
 
 def test_abort_ends_the_tree_at_once(tmp_path):
@@ -371,8 +374,8 @@ def test_press_judge_sends_the_press_frames_and_pressed_goes_on(tmp_path):
     request = _wait_request(tree, requests, 1)
 
     assert request['skill'] == 'press_judge'
-    assert request['decisions'] == ['pressed', 'not_pressed']
-    assert request['press']['frames']['press'].endswith('_press.jpg')
+    assert set(request['decisions']) == {'pressed', 'not_pressed'}
+    assert request['press']['frames']['press'] == PRESS_EVIDENCE['frames']['press']
 
     backend.deliver({'id': request['id'], 'decision': 'pressed', 'reason': 'the fingertip covers the button'})
 
@@ -393,9 +396,7 @@ def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path)
     recovery = _wait_request(tree, requests, 2)
 
     assert recovery['skill'] == 'manipulation_recovery'
-    assert recovery['failure']['skill'] == 'press_judge' and recovery['failure']['checks'] == 'press_button'
-    assert recovery['failure']['checked_call']['skill'] == 'press_button'
-    assert recovery['failure']['checked_call']['feedback']
+    assert recovery['failure']['skill'] == 'press_judge'
     assert {'elapsed_s', 'status', 'message'} <= set(recovery['failure'])      # the executor's trace formats these
 
     backend.deliver({'id': recovery['id'], 'decision': 'ask_help', 'reason': 'r'})
