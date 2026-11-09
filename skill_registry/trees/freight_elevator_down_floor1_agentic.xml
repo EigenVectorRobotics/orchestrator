@@ -4,8 +4,8 @@
        frames of the press and a session looks at the frame at the fingertip's closest point to the button and decides
        pressed or not_pressed (in place of press_reached / button_lit). A not_pressed goes to manipulation_recovery.
        Before each press the tree says "Holding still to reset my balance estimate." and holds 15 s: a watcher on the
-       NUC sees that say in the trace and runs ~/ekf_reset.sh (body_ekf has no reset service; RUNBOOK "foot_world
-       drifts after a walk"). Places from ~/maps/two_floor_clean.places.yaml. -->
+       NUC sees that say in the trace and calls /body_ekf/reset (RUNBOOK "foot_world drifts after a walk").
+       Places from ~/maps/two_floor_clean.places.yaml. -->
   <BehaviorTree ID="freight_elevator_down_floor1_agentic">
     <Sequence>
       <!-- outside: walking state, preapproach, call panel (as freight_call_elevator_down_agentic) -->
