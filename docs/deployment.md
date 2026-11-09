@@ -18,14 +18,14 @@ How to bring the machines up and run a task is in `docs/operations.md`.
 
 ## Repositories on each machine
 
-Branch @ commit, and local changes, as checked. "No upstream": the local branch tracks no remote branch.
+Branch @ commit, and local changes, as checked. "No upstream": the local branch tracks no remote branch. A row marked **to deploy** names the branch the team runs from now on; what was checked is in its last column until the machine is updated.
 
 ### NUC, `~/eigen_vector_ws/src`
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
 | `bringup` | not a git checkout: copied by `deploy.sh`, then edited by hand (see "Only on a machine") | |
-| `manipulation_stack` | `cam-gripper-estimation` @ `ba0cbfa` | 6 files changed, not committed: `g1_pilot/src/move_to_pose/{planning.cpp,server.cpp,server.h}`, `humanoid_arm_skills/humanoid_arm_skills/gripper_pose_estimator.py`, `humanoid_arm_skills/launch/humanoid_arm_visual_servoing.launch.py`, `humanoid_arm_skills/package.xml`. Contains `e63f2b8` (body_ekf `~/reset`) |
+| `manipulation_stack` | **to deploy:** `main` (`4f12ae1` when checked: the gripper estimation merged as #10; contains `e63f2b8`, body_ekf `~/reset`) | checked: `cam-gripper-estimation` @ `ba0cbfa` with 6 files changed, not committed (`g1_pilot/src/move_to_pose/{planning.cpp,server.cpp,server.h}`, `humanoid_arm_skills/humanoid_arm_skills/gripper_pose_estimator.py`, `humanoid_arm_skills/launch/humanoid_arm_visual_servoing.launch.py`, `humanoid_arm_skills/package.xml`) |
 | `navigation_stack` | `jean/elevator-side` @ `39e6139` | no upstream; one untracked file, `slam_elevatorlio/slam_elevatorlio/slam_elevatorlio_parameters.py` |
 | `elevator_states` | `jean/door-state-in-out` @ `8ad0552` | no upstream; clean |
 | `unitree_interface` | `jean/fsm-id-topic` @ `e234864` | no upstream; clean |
@@ -36,7 +36,7 @@ Branch @ commit, and local changes, as checked. "No upstream": the local branch 
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `orchestrator` | `jean/planner-tree-library` @ `e99f402` | `skill_registry/contracts/nuc_up.yaml` changed (`/prior_map`); the same change is on `ltx-dev` |
+| `orchestrator` | **to deploy:** `ltx-dev` | checked: `jean/planner-tree-library` @ `e99f402` with `skill_registry/contracts/nuc_up.yaml` changed (`/prior_map`; the same change is on `ltx-dev`, so it can be dropped before the checkout) |
 
 ### Orin, `~/eigen_vector_ws/src`
 
@@ -56,7 +56,7 @@ Branch @ commit, and local changes, as checked. "No upstream": the local branch 
 | `~/eigen_vector_ws_bringup` | `bringup` | not a git checkout | |
 | | `vlm` | `main` @ `3ca4861` | clean; `ground_server` runs from here |
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
-| `~/orchestrator_ws` | `orchestrator` | `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd` | that branch is deleted on GitHub; `launch_thor_stack` starts `cosmos_vlm_server.py` from this checkout |
+| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-dev` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd`, a branch deleted on GitHub. `launch_thor_stack` starts `cosmos_vlm_server.py` from this checkout |
 | `~/eigen_vector_ws` | `track_anything` `trt` @ `f5a1f47`, `vlm` `thor` @ `3ca4861` | | not in use |
 
 Running when checked: on the Thor, the tmux session `eigen_vector_bringup` (`ground_server`); no `cosmos_vlm` session, so the VLM endpoint `http://vector-thor:8090/v1` did not answer.

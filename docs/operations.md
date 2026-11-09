@@ -14,7 +14,7 @@ A Claude Code session that operates the robot does each step that starts, stops 
 ## 1. Deploy the orchestrator on the NUC
 
 ```bash
-cd ~/orchestrator_ws/src/orchestrator && git fetch && git checkout <branch> && git pull
+cd ~/orchestrator_ws/src/orchestrator && git fetch && git checkout ltx-dev && git pull     # the branch in use: docs/deployment.md
 cd ~/orchestrator_ws && source env.sh && colcon build --packages-select skill_registry orchestrator
 ```
 
