@@ -3,8 +3,8 @@
        freight_elevator_down_floor1_door_preempt and freight_elevator_up_floor2_door_preempt (run 20261108T005956Z-6ad1b1);
        only the parameters differ between rides.
        1. Walk to the call panel and press the call button (the operator may press it too). door_open (lidar) is checked
-          on every tick: once the door opens, the walk or the press is halted, the arms are released and, 1 s later,
-          the robot walks to {inside_panel}.
+          on every tick: once the door opens, the walk or the press is halted, the arms are released and, once the
+          release has ended, the robot walks to {inside_panel}.
        2. In the cabin: EKF hold and press the floor button. Checked on every tick: inside_cabin, at_floor {floor} and
           door_open. Once all three hold, the arms are released; LIO leaves elevator mode (z snaps to the floor) and the
           robot walks out on its own estimate to {door_out}, relocalizes there and walks on to {target}.
@@ -17,8 +17,11 @@
        To change the ride, change the parameters only (the planner overrides them with <use_tree id="freight_elevator_ride" .../>). To change how a button is pressed, replace the SubTree
        press_panel_button: it reads button, press_panel, press_left_arm, press_offset_x/y/z, reach_min, reach_max and
        press_ask, and writes press_left_arm (a switch_arm before the first press).
-       Parameters for floor 2 to floor 1. Floor 1 to floor 2: call_panel_preapproach and call_panel
-       {freight_elevator_call_panel_floor_1}, call_button "up button", inside_panel
+       Parameters for floor 2 to floor 1. Floor 1 to floor 2: call_panel_preapproach
+       {freight_elevator_call_panel_preapproach_floor_1} (not the call panel itself: a second walk to the place the
+       robot stands on timed out), call_panel {freight_elevator_call_panel_floor_1}, call_button "down button" (floor 1
+       has one grey call button below a black round light; the grounding calls the lower round button down and the
+       light up), inside_panel
        {inside_freight_elevator_button_panel_floor_1}, floor_button "floor 2", floor 2, door_out
        {freight_elevator_door_out_floor_2}, target {target_floor_2}.
        Places: ~/maps/two_floor_clean_cabin2.places.yaml (map two_floor_clean_cabin2.pcd). Needs navigation_stack
@@ -58,14 +61,12 @@
               <SubTree ID="call_and_wait"/>
             </ReactiveFallback>
             <say text="The door is open. Walking into the elevator."/>
-            <Parallel success_count="2" failure_count="1">
-              <ForceSuccess>              <!-- the arms may be released already -->
-                <release_arms/>
-              </ForceSuccess>
-              <Delay delay_msec="1000">   <!-- start the walk 1 s after the release starts -->
-                <SubTree ID="walk_in"/>
-              </Delay>
-            </Parallel>
+            <ForceSuccess>                <!-- the arms first, to the end (about 5 s); the arms may be released already. A walk
+                                               started 1 s into the release stalled the base, then turned in place until
+                                               LIO drifted (session 20261109T024122Z run 001) -->
+              <release_arms/>
+            </ForceSuccess>
+            <SubTree ID="walk_in"/>
             <set_autonomy enabled="false"/>
             <ReactiveFallback>
               <Sequence>

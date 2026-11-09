@@ -59,7 +59,7 @@ Branch @ commit, and local changes, as checked. "No upstream": the local branch 
 | `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-dev` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd`, a branch deleted on GitHub. `launch_thor_stack` starts `cosmos_vlm_server.py` from this checkout |
 | `~/eigen_vector_ws` | `track_anything` `trt` @ `f5a1f47`, `vlm` `thor` @ `3ca4861` | | not in use |
 
-Running when checked: on the Thor, the tmux session `eigen_vector_bringup` (`ground_server`); no `cosmos_vlm` session, so the VLM endpoint `http://vector-thor:8090/v1` did not answer.
+Running when checked: on the Thor, the tmux session `eigen_vector_bringup` (`ground_server`); no `cosmos_vlm` session, so the VLM endpoint `http://vector-thor:8090/v1` did not answer. The Thor rebooted on its own on 2026-11-08 at about 21:20 and came back with no stack (troubleshooting, "Machines and processes").
 
 ## Only on a machine (not in any repository)
 
@@ -67,7 +67,8 @@ Running when checked: on the Thor, the tmux session `eigen_vector_bringup` (`gro
 |---|---|---|---|
 | NUC | `~/eigen_vector_ws/src/bringup/config/cyclonedds.xml` | `MaxAutoParticipantIndex` 120 (N-001) | needed; not committed to `eigen_vector` |
 | NUC | `~/eigen_vector_ws/src/bringup/scripts/floor_map_selector.py`, its line in `CMakeLists.txt`, its node in `launch/nuc.launch.py` | publishes one floor of the prior map on `/prior_map` (latched) for Foxglove | needed by `nuc_up`, which waits for `/prior_map`; not committed. A bringup deployed from git drops it, and then `nuc_up` always fails |
-| NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py` | on `eigen_vector` branch `jean/door-state-bringup`, not on `main` |
+| NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py` | on `eigen_vector` branch `jean/door-state-bringup`, not on `main`. The bringup redeployed on 2026-11-08 at 20:29 no longer includes it: `door_state_node` ran in its own tmux session `door_state` (`docs/operations.md`, section 5) |
+| NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two: robot interface, arm control and foxglove (`tmux -L eigen_vector`); navigation and SLAM (`tmux -L nav`, log `~/nav_launch.log`) | what ran on 2026-11-08 evening; not in any repository |
 | NUC | `~/maps/two_floor_clean_cabin2.pcd`, `~/maps/two_floor_clean_cabin2.places.yaml` (backups `*.bak_*`) | the map in use and its places and areas (`freight elevator cabin`, `freight elevator hall`) | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
 | NUC | `~/fake_button_pose.py` | fixed button poses for `press_button` with no Thor | disabled: do not start it |
 | NUC | `~/watch_records_*.sh`, `~/ekf_reset.sh` | the EKF reset outside the trees: the watcher follows the newest session's run records and, on each `ekf_hold` say, runs `~/ekf_reset.sh`, which calls `/body_ekf/reset` | needed in a run through the planner (`docs/operations.md`); `~/ekf_reset.sh.restart_bak` is the old restart, not used |

@@ -54,6 +54,7 @@ Unless an entry says otherwise, "the field test" is the walk-and-press test of 2
 - Signs: the requested button is not in the camera frame, or only at its edge; the tracked target sits where another button is (for floor buttons, a neighbour in the same column); at about 0.38 m from the inside panel, floor 1 can fall out of frame
 - What helped: look at a frame before pressing and confirm the requested button is in it. If it is not, move so that it is (usually back, or toward it) before seeding again. Walking closer does not fix a wrong target
 - Agent trial: with the requested button cut by the bottom edge of the frame, Cosmos gave 0 boxes rather than a wrong one, for both `down` and `floor_1` (E-015)
+- Seen again (2026-11-08, floor 1 call panel): the floor 1 hall panel has one grey call button below a black round light. `up button` was grounded to the light (press goal z 1.13 m in `foot_world`, the light's height; the grey button stayed uncovered in the press frame); `down button` grounded the grey button (goal z 1.06 m). `ground_server` refuses `object:<description>` ("unsupported query"). Its call-button prompt calls the upper round button up and the lower one down, so on floor 1 ask for `down button` (session `20261109T031406Z`, runs 002, 005, 006)
 - Source: field test notes, 2026-11-04; track_anything `main`; agent trial
 
 ### E-004 NO_TRACK is often random
@@ -74,7 +75,7 @@ Unless an entry says otherwise, "the field test" is the walk-and-press test of 2
 ### E-006 The reach that works depends on the panel
 - Status: confirmed (field test)
 - Conditions: target position ahead of the pelvis, as the reach check prints it
-- What was seen: outside call panel, 0.33 to 0.48 m ahead worked, and the operator called 0.338 and 0.354 m good. Inside floor panel, about 0.38 to 0.46 m; 0.52 to 0.53 m was too far, and at 0.38 m floor 1 can fall out of frame (E-003). On both panels, stay within 0.15 m sideways
+- What was seen: outside call panel, 0.33 to 0.48 m ahead worked, and the operator called 0.338 and 0.354 m good. Inside floor panel, about 0.38 to 0.46 m in the field test; on 2026-11-08 floor 1 lit from 0.475 and 0.534 m ahead (about 0.21 m above the pelvis), while floor 2 (0.25 m above the pelvis) stopped 48 mm short from 0.464 m. So the inside limit depends on the button's height: up to about 0.53 m for floor 1, about 0.46 m for floors 2 and 3. At 0.38 m floor 1 can fall out of frame (E-003). On both panels, stay within 0.15 m sideways
 - Agent trial: outside, a down press with the goal 0.48 m ahead in `foot_world` reached its goal. Inside, from 13 cm behind the inside place (3.529, -0.350), `press_button` reported `Controller reached target`, but the fingertip's closest point was 67 mm short and 39 mm beside the goal, near the door buttons: out of reach, and the action did not say so (E-018)
 - What helped: aim a reposition at the middle of the panel's range, not its edge
 - Source: field test notes, 2026-11-04
@@ -209,3 +210,12 @@ Unless an entry says otherwise, "the field test" is the walk-and-press test of 2
 - What helped: the same stance served the three floor buttons; no per-floor stance was needed
 - Evidence: press tests `20261108T215835Z` runs 002 to 004, `20261108T222307Z` runs 001, 002, 005, 006, `20261108T233309Z` runs 001 to 004 (`events.jsonl`)
 - Source: press tests, 2026-11-08
+
+### E-023 Outside, the press often lands about 5 mm high, on the button's upper rim, and the gripper hides the button from the camera
+- Status: reported (operator, 2026-11-08); the missing gripper correction outside is confirmed from the logs
+- Conditions: outside call panels (floor 2 down, floor 1 grey button), right arm; the button sits low in the frame, near its bottom edge
+- What was seen: the operator saw the fingertip land about 5 mm above the button centre, often just on its outer rim. In the press frame the gripper covers the button, so the frame does not show where the fingertip touched, and `press_judge` judges a covered button from where the hand sits. `move_to_pose` applied no gripper correction on these presses: the depth-fitted gripper estimate was 1.9 to 8 s old and ignored (`Ignoring gripper estimate`, `No gripper estimate`), likely because the gripper was out of view at the bottom of the frame. Inside, the estimate was fresh and applied on every final-leg step (about 16 to 17 mm along x in `pelvis`)
+- Cause: suspected: no gripper correction outside, and the occlusion leaves the contact unseen
+- What helped: not solved. When the gripper hides the button, do not take the press frame alone as proof of contact: weigh the residual's z, the baseline frame and where the hand sits. When the press keeps landing high, consider a downward offset of about 5 mm (`offset_retry`, oz about -0.005) with the other axes from the residual (E-020). Do not rule out the gripper correction outside: use it where it helps, as needed [TODO: owner, and how to get a fresh estimate outside, e.g. keep the gripper in view]
+- Evidence: `~/.ros/log/move_to_pose_13814_1794187805130.log` on the NUC (presses at 1794190387, 1794191441, 1794191587); press frames `~/.ros/orchestrator_captures/press_1794191453.510_press.jpg`, `press_1794193196.222_press.jpg`
+- Source: operator observation, 2026-11-08; logs checked by Claude Code

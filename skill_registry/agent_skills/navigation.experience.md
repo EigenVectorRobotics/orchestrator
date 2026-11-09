@@ -81,3 +81,12 @@ Some navigation observations are in `manipulation_recovery.experience.md`, becau
 - What helped: restart SLAM (the NUC stack). The trees' SLAM guard halts a task on unhealthy SLAM outside the cabin
 - Evidence: `skill_registry/contracts/slam_healthy.yaml`
 - Source: Jinyao, 2026-11-07
+
+### N-008 The robot turned back and forth in place; LIO drifted and the map match was refused until SLAM went lost
+- Status: suspected (once, 2026-11-08); analysed from the bag by a subagent, not re-checked
+- Conditions: the walk from the call panel into the cabin, started 1 s into `release_arms` (`freight_elevator_ride` before the fix); navigation_stack `jean/elevator-side`
+- What was seen: the base did not move during the release, then turned back and forth at about 1 rad/s for about 40 s next to the wall without progressing. LIO drifted about 0.8 m in about 3 s; every map match after that wanted a correction above `max_tracking_correction_m` (0.3 m) and was rejected, with inliers still 0.99; after 10 s with no accepted match SLAM reported lost (`healthy: false`) and the tree's SLAM guard failed the task. The old pose was about 1.4 m off afterwards; a restart of the navigation launch localized correctly (confirmed by the operator)
+- Cause: suspected: the fast turning made LIO drift; why the follower turned in place is not known
+- What helped: when the robot keeps turning in place instead of walking, stop it and ask a person to send `/initialpose` from Foxglove; if matches stay rejected, restart the navigation launch. The tree now releases the arms before the walk in
+- Evidence: bag `~/orch_runs/bags/full_test_20261108_214213` (deleted afterwards); `~/orch_runs/loc_fail_20261108/` (`nav_launch.log`, `nav_pane.txt`); session `20261109T024122Z-d5bad5` run 001
+- Source: test run, 2026-11-08; subagent analysis

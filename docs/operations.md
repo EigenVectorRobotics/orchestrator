@@ -60,7 +60,7 @@ One session answers the agent calls, and the same or another session answers the
    ros2 run orchestrator planner_cli answer --use-tree freight_elevator_ride --note "Floor 2 to floor 1 with the existing tree."
    ```
 
-   `--use-tree` reuses a library tree with its default parameters (`freight_elevator_ride`: floor 2 to floor 1). `planner_cli` cannot set parameters yet: for another ride, write the tree with its `parameters` block changed and answer `--tree FILE`. Floor 1 to floor 2: `call_panel_preapproach` and `call_panel` `{freight_elevator_call_panel_floor_1}`, `call_button` `up button`, `inside_panel` `{inside_freight_elevator_button_panel_floor_1}`, `floor_button` `floor 2`, `floor` `2`, `door_out` `{freight_elevator_door_out_floor_2}`, `target` `{target_floor_2}`.
+   `--use-tree` reuses a library tree with its default parameters (`freight_elevator_ride`: floor 2 to floor 1). `planner_cli` cannot set parameters yet: for another ride, write the tree with its `parameters` block changed and answer `--tree FILE`. Floor 1 to floor 2: `call_panel_preapproach` `{freight_elevator_call_panel_preapproach_floor_1}` (not the call panel itself: a second walk to the place the robot stands on times out), `call_panel` `{freight_elevator_call_panel_floor_1}`, `call_button` `down button` (floor 1 has one grey call button below a black round light; the grounding calls the lower round button down and the light up), `inside_panel` `{inside_freight_elevator_button_panel_floor_1}`, `floor_button` `floor 2`, `floor` `2`, `door_out` `{freight_elevator_door_out_floor_2}`, `target` `{target_floor_2}`.
 5. **During the ride** the agent session answers each call as it comes. A call waits up to 600 s; then the agent skill fails and the tree goes on as after any failure of that step (in the end, a person is asked to press).
 6. **Results** are under `~/orch_runs/<session>/runs/<n>-<tree>/`: `tree.xml` (what ran), `records.jsonl`, `outcome.json`, the bag. The session folder holds `events.jsonl`, the whole trace.
 
@@ -100,7 +100,19 @@ Preflight starts the stacks itself. When it cannot, start them one at a time and
 scripts/deploy.sh launch nuc map:=/home/vector/maps/two_floor_clean_cabin2.pcd localization:=true    # SSH_HOST=192.168.123.5 on the robot wire
 ```
 
-It starts `bringup nuc.launch.py` in tmux on the NUC (`tmux -L eigen_vector`) and streams its log; Ctrl-C there stops the launch, so run it in the background. It is ready about 15 to 20 s later. Poll, do not sleep:
+It starts `bringup nuc.launch.py` in tmux on the NUC (`tmux -L eigen_vector`) and streams its log; Ctrl-C there stops the launch, so run it in the background. It is ready about 15 to 20 s later.
+
+On 2026-11-08 the NUC ran two launch files instead, in this order, both only on the NUC (`docs/deployment.md`): the robot interface and arm control, then navigation and SLAM. `door_state_node` was in neither, so it ran in its own session:
+
+```bash
+tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc \"source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\\\"\\$EIGEN_VECTOR_PRELOAD\\\" ros2 launch ~/nuc_manip_only.launch.py 2>&1 | tee ~/eigen_vector_ws/launch.log\""
+tmux -L nav new-session -d -s nav "bash -lc \"source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\\\"\\$EIGEN_VECTOR_PRELOAD\\\" ros2 launch ~/nuc_nav_only.launch.py map:=/home/vector/maps/two_floor_clean_cabin2.pcd localization:=true 2>&1 | tee ~/nav_launch.log\""
+tmux new -d -s door_state "bash -c 'source ~/eigen_vector_ws/env.sh && export LD_PRELOAD=\$EIGEN_VECTOR_PRELOAD && ros2 launch elevator_states door_state_node.launch.py 2>&1 | tee ~/door_state.log'"
+```
+
+These can be stopped and started under a standing robot: `unitree_interface` sends no damp when it exits and starts in Idle, which does not command the motors (`mode_transitions.cpp`); the robot stays in Unitree's FSM 801 on its own. Release the arms first. Save `~/nav_launch.log` before a restart if a failure is to be examined: `tee` truncates it.
+
+Poll, do not sleep:
 
 ```bash
 ssh vector@vector-nuc 'source ~/eigen_vector_ws/env.sh; export LD_PRELOAD=$EIGEN_VECTOR_PRELOAD
