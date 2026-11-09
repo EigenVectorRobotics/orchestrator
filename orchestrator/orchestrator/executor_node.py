@@ -176,7 +176,7 @@ class ExecutorNode(Node):
             knowledge=KnowledgeStore(knowledge_dir)
         )
 
-        return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames),
+        return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames, self.runner.frames.at),
                      on_event=self._on_agent_event, speak=self._speak, press_evidence=self.runner.press_evidence)
 
     def _speak(self, text: str):

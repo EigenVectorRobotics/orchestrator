@@ -5,7 +5,7 @@
   agent_cli tf TARGET SOURCE            the pose of SOURCE in TARGET
   agent_cli topic TOPIC                 the next message on TOPIC (not images or point clouds)
   agent_cli topics                      the topic list
-  agent_cli image camera|overlay OUT    save the latest image to OUT
+  agent_cli image camera|overlay OUT    save the latest image to OUT (overlay: the mask outlines on a frame)
   agent_cli python FILE                 run FILE in the agent sandbox (numpy, scipy, pinocchio, coal)
   agent_cli decide DECISION --reason R [--dx --dy --dyaw] [--ox --oy --oz] [--left-arm | --right-arm] [--send]
                                         without --send, only show what would be sent
@@ -58,6 +58,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from .images import ImageError, image_to_jpeg
 from .agent_ros import RosReader, RosReadError
+from .press_capture import FrameBuffer, stamp_seconds
 from .agent_sandbox import SandboxConfig, run_python
 from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
 from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC,
@@ -475,8 +476,13 @@ def _run(node, arguments) -> int:
     spinner.start()
 
     try:
-        reader = RosReader(node, lambda: image_to_jpeg(reader._once(CAMERA_TOPIC, Image, 3.0)))
+        frames = FrameBuffer()                          # for the overlay: its outlines name a frame by stamp
+        reader = RosReader(node, lambda: image_to_jpeg(reader._once(CAMERA_TOPIC, Image, 3.0)), frame_at=frames.at)
         time.sleep(0.5)                                 # discovery
+
+        if arguments.command == 'image' and arguments.source == 'overlay':
+            node.create_subscription(Image, CAMERA_TOPIC, lambda message: frames.add(stamp_seconds(message.header.stamp), image_to_jpeg(message)),
+                                     reader._qos_for(CAMERA_TOPIC))
 
         if arguments.command == 'tf':
             print(json.dumps(reader.tf(arguments.target, arguments.source, 3.0), indent=1))

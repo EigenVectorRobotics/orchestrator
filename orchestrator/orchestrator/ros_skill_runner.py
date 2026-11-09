@@ -22,7 +22,7 @@ from skill_registry.contract import WHOLE_MESSAGE, HeldValue, Watch
 from .images import ImageError, image_to_jpeg
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
-from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
+from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press, stamp_seconds
 
 
 MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
@@ -648,7 +648,7 @@ class RosSkillRunner:
             self.node.get_logger().warn(f'camera frame dropped: {error}', throttle_duration_sec=10.0)
             return
 
-        stamp       = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        stamp       = stamp_seconds(message.header.stamp)
         self._image = jpeg
         self.frames.add(stamp or self.now(), jpeg)
 
@@ -672,7 +672,7 @@ class RosSkillRunner:
 
         detection = next((item for item in message.detections if item.id == self._target_id), message.detections[0])
         centre, box = detection.bbox.center.position, detection.bbox
-        stamp       = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        stamp       = stamp_seconds(message.header.stamp)
 
         self.boxes.add(stamp or self.now(), (centre.x - box.size_x / 2, centre.y - box.size_y / 2,
                                              centre.x + box.size_x / 2, centre.y + box.size_y / 2))
@@ -683,7 +683,7 @@ class RosSkillRunner:
         if capture is None or capture.left_arm != (arm == 'left') or capture.ended_t is not None:
             return
 
-        stamp    = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        stamp    = stamp_seconds(message.header.stamp)
         position = message.pose.position
         capture.on_pose(stamp or self.now(), (position.x, position.y, position.z))
 

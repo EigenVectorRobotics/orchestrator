@@ -99,6 +99,11 @@ class PhaseTracker:
             self.deepest_t, self.release_t = self._max_t, t
 
 
+def stamp_seconds(stamp) -> float:
+    """A header stamp as float seconds, the key of the frame and box buffers"""
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
 class FrameBuffer:
     """The last few seconds of camera frames: (ROS time, JPEG or PNG bytes)"""
 
@@ -115,6 +120,11 @@ class FrameBuffer:
     def first_after(self, t: float):
         with self._lock:
             return next((frame for frame in self._frames if frame[0] >= t), None)
+
+    def at(self, t: float) -> bytes | None:
+        """The frame with exactly this stamp, e.g. the one track_3d outlined"""
+        with self._lock:
+            return next((data for stamp, data in self._frames if stamp == t), None)
 
 
 class BoxBuffer:

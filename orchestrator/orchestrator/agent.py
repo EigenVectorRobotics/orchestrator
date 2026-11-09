@@ -150,8 +150,9 @@ def _tool_specs(phase: str) -> list[dict]:
         },
         {
             'name':         'get_image',
-            'description':  'An image. camera: the latest color frame. overlay: track_anything\'s overlay with the '
-                            'tracked mask and the tracker state. press_baseline, press_press, press_release: the frames '
+            'description':  'An image. camera: the latest color frame. overlay: a color frame with track_anything\'s '
+                            'mask outlines drawn on it, a color per track; no outline means nothing is tracked '
+                            '(is_tracking is on /track_3d/is_tracking). press_baseline, press_press, press_release: the frames '
                             'the last press kept for button_lit (at the pre-grasp, at the deepest push, after the release).',
             'input_schema': {
                 'type':       'object',

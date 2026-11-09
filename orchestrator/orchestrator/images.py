@@ -50,6 +50,22 @@ def _png(rgb: np.ndarray) -> bytes:
             + chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b''))
 
 
+def draw_outlines(jpeg: bytes, points, colors, width: int = 3) -> tuple[bytes, str]:
+    """jpeg with a line from points[2k] to points[2k+1] in colors[2k] (r, g, b in 0..1): a LINE_LIST, as JPEG"""
+    from PIL import Image, ImageDraw
+
+    image = Image.open(io.BytesIO(jpeg)).convert('RGB')
+    draw  = ImageDraw.Draw(image)
+
+    for start, end, color in zip(points[0::2], points[1::2], colors[0::2]):
+        draw.line([start, end], fill=tuple(round(255 * channel) for channel in color), width=width)
+
+    buffer = io.BytesIO()
+    image.save(buffer, format='JPEG', quality=90)
+
+    return buffer.getvalue(), 'image/jpeg'
+
+
 def encode_rgb(rgb: np.ndarray, max_side: int | None = None, quality: int = 90) -> tuple[bytes, str]:
     """JPEG through Pillow or OpenCV, else PNG. With max_side, the long side is cut to it by striding"""
     if max_side:

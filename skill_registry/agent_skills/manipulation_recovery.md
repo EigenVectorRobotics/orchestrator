@@ -94,7 +94,7 @@ When you run inside the executor (`orchestrator/agent.py`), these are your tools
 | `get_history()` | Every finished action call of this tree (without feedback) and your earlier decisions with their reasons and offsets, oldest first |
 | `read_file(path, offset, limit)` | Reads a text file or lists a directory, only under `/home/vector/eigen_vector_ws`, the agent skills directory and the scratch directory |
 | `ros_read(op, ...)` | `op: tf` with `target_frame`, `source_frame`: the latest transform, i.e. the pose of `source_frame` in `target_frame` (translation, quaternion, roll/pitch/yaw, age). `op: topic_once` with `topic`: the next message (images and point clouds are refused; use `get_image`). `op: topic_list`: topics and types |
-| `get_image(source)` | `camera`: the last color frame the executor has (`/camera/camera/color/image_raw`, raw RGB8 1280x720 at 6 fps, encoded to JPEG by the executor). `overlay`: the next frame of `/track_3d/tracked_overlay`, with the tracked mask and the tracker state text; it is published on every frame, also while nothing is tracked. `press_baseline`, `press_press`, `press_release`: the frames the last press kept for `button_lit` |
+| `get_image(source)` | `camera`: the last color frame the executor has (`/camera/camera/color/image_raw`, raw RGB8 1280x720 at 6 fps, encoded to JPEG by the executor). `overlay`: a color frame with the mask outlines of `/track_3d/mask_outlines` drawn on it, a color per track; no outline means nothing is tracked. The tracker state is on `/track_3d/is_tracking` (`ros_read`), not in the image. `press_baseline`, `press_press`, `press_release`: the frames the last press kept for `button_lit` |
 | `say(text)` | One short sentence through the robot's speaker (`/speak`); at most 200 characters, at least 3 s after the last |
 | `run_python(code)` | Runs Python 3.12 with `numpy`, `scipy`, `pinocchio` 4.1.0 and `coal`; returns stdout, stderr and the exit code. Pass data from the other tools in as literals. It runs in the scratch directory, which is also on `sys.path`: save helpers there and import them in later calls. Limits: 60 s, 4 GB, nice 19 |
 | `decide(decision, reason, dx, dy, dyaw, use_left_arm)` | Ends your turn; see "Your decision" |
@@ -127,7 +127,7 @@ track_anything does not run on the NUC; it runs on the Orin with the RealSense c
 | `/track_3d/selected_normal_pose` | track_anything's target pose, in the color camera frame |
 | `/track_3d/selected_normal_pose_filtered/arm_upright` | The filtered, upright goal the arm is sent, in `foot_world` |
 | `/track_3d/is_tracking` | Whether the 2D tracker holds a mask (see "Perception facts") |
-| `/track_3d/tracked_overlay` | Camera image with the mask, box and tracker state text |
+| `/track_3d/mask_outlines` | `ImageMarker` (LINE_LIST, pixels) of the mask outlines for one frame; published only while subscribed |
 | `/left_ee_pose`, `/right_ee_pose` | End-effector poses, in `foot_world` |
 | `/odom_base_link` | The robot's pose in `map`, used by navigation |
 | `/route_planner/status` | JSON: `state` (`routing`, `arrived`, `blocked`), `dist_to_goal` |
@@ -197,7 +197,7 @@ The result message tells you which stage stopped, but often not why. Use the fee
 ## Perception facts (track_anything, main)
 
 - `/track_3d/is_tracking` true means the 2D tracker has a mask, **not** that a 3D pose was published on that frame. An object can be dropped later (too few depth points, outlier filter, failed box fit) with no message on the topic.
-- When the tracker loses the object, the overlay shows `Lost (<seconds>s)` in red and `is_tracking` is false. After `tracking_timeout` 20 s it stops and does not re-query on its own.
+- When the tracker loses the object, `is_tracking` is false and the overlay has no outline. After `tracking_timeout` 20 s it stops and does not re-query on its own.
 - A seed can lock onto the wrong object (experience E-003). If the target position is implausible for the button you were asked to press, suspect perception before reach: walking closer will not fix a wrong target.
 - The normal is recomputed from a plane fit every frame and is not smoothed by track_anything; the arm filter smooths it.
 - **The D435 gives no depth closer than about 0.28 m.** A button nearer than that has no 3D points, so it is tracked in 2D at most and never gets a pose (E-005).

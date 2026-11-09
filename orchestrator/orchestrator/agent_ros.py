@@ -5,9 +5,11 @@ and a TF listener, and never a publisher.
 """
 
 import math
+import time
 import threading
 
 from typing import Callable
+from collections import deque
 
 from rclpy.node import Node
 from rclpy.time import Time
@@ -15,9 +17,10 @@ from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rosidl_runtime_py import message_to_ordereddict
 from rosidl_runtime_py.utilities import get_message
-from sensor_msgs.msg import Image
+from visualization_msgs.msg import ImageMarker
 
-from .images import encode_rgb, image_to_rgb
+from .images import draw_outlines
+from .press_capture import stamp_seconds
 
 
 # Topics too big to read whole into the conversation; images go through image()
@@ -25,9 +28,9 @@ HEAVY_TYPES = {
     'sensor_msgs/msg/Image', 'sensor_msgs/msg/CompressedImage', 'sensor_msgs/msg/PointCloud2',
     'sensor_msgs/msg/LaserScan', 'nav_msgs/msg/OccupancyGrid', 'livox_ros_driver2/msg/CustomMsg',
 }
-OVERLAY_TOPIC  = '/track_3d/tracked_overlay'
+OUTLINE_TOPIC    = '/track_3d/mask_outlines'    # track_anything: the mask outlines of a frame, only while subscribed
+PENDING_OUTLINES = 10                            # outlines that wait for their frame: more than 1 s at 6 fps
 MAX_LIST       = 32                 # longer sequences in a message are cut to their first items
-MAX_IMAGE_SIDE = 1280
 
 
 class RosReadError(RuntimeError):
@@ -66,8 +69,9 @@ def _quaternion_to_rpy(x: float, y: float, z: float, w: float) -> list[float]:
 
 class RosReader:
     def __init__(self, node: Node, latest_camera_image: Callable[[], bytes | None],
-                 capture_frames: Callable[[], dict] = dict):
+                 capture_frames: Callable[[], dict] = dict, frame_at: Callable[[float], bytes | None] = lambda t: None):
         self.node                = node
+        self.frame_at            = frame_at             # the camera frame with this stamp (s), as JPEG, from the last seconds
         self.latest_camera_image = latest_camera_image     # the last camera frame, as JPEG
         self.capture_frames      = capture_frames       # the last press's kept frames, by name
         self._tf_buffer          = None
@@ -174,6 +178,30 @@ class RosReader:
 
     # ----- images -----
 
+    def _overlay(self, timeout_s: float = 3.0) -> tuple[bytes, str]:
+        """The mask outlines drawn on the very frame they come from. track_3d stamps them with that frame's header and
+        sends them for each frame it processes (empty when nothing is tracked), not for every camera frame; and the
+        frame may reach the executor's buffer after its outlines. So the last outlines wait here for their frame"""
+        markers      = deque(maxlen=PENDING_OUTLINES)
+        subscription = self.node.create_subscription(ImageMarker, OUTLINE_TOPIC, lambda message: markers.append(message),
+                                                     self._qos_for(OUTLINE_TOPIC))   # rclpy cannot inspect a builtin
+        deadline     = time.monotonic() + timeout_s
+
+        try:
+            while time.monotonic() < deadline:
+                for marker in list(markers):
+                    frame = self.frame_at(stamp_seconds(marker.header.stamp))
+
+                    if frame is not None:
+                        colors = [(c.r, c.g, c.b) for c in marker.outline_colors or [marker.outline_color] * len(marker.points)]
+                        return draw_outlines(frame, [(p.x, p.y) for p in marker.points], colors)
+
+                time.sleep(0.05)
+        finally:
+            self.node.destroy_subscription(subscription)
+
+        raise RosReadError(f'no {OUTLINE_TOPIC} for a camera frame the executor has, within {timeout_s:g} s')
+
     def image(self, source: str) -> tuple[bytes, str]:
         if source == 'camera':
             frame = self.latest_camera_image()
@@ -184,7 +212,7 @@ class RosReader:
             return frame, 'image/jpeg'
 
         if source == 'overlay':
-            return encode_rgb(image_to_rgb(self._once(OVERLAY_TOPIC, Image, 3.0)), max_side=MAX_IMAGE_SIDE)
+            return self._overlay()
 
         if source.startswith('press_'):
             frame = self.capture_frames().get(source[len('press_'):])
