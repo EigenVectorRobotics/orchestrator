@@ -33,6 +33,7 @@ tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 la
 
 - It starts the registry, the executor, the recorder and the planner. `planner_backend:=external` makes a Claude Code session answer the planner (`planner_cli`); the launch default is `claude` (the API).
 - Ready when `~/orchestrator.log` shows `planner up: external ..., N existing trees` and the recorder's `recording to <session>`. The executor refuses trees until the recorder is ready (`record:=false` turns recording off).
+- **Start the EKF-reset watcher** once the log shows `recording to` (it follows the newest session): `tmux new -d -s ekf_watch ~/watch_records_20261108.sh` on the NUC. On each `ekf_hold` say ("Holding still to reset my balance estimate.") in the run records it runs `~/ekf_reset.sh`, which calls `/body_ekf/reset`; its output goes to `<session>/helpers/ekf_watch.txt`. Without it the trees hold still but the EKF is not reset. The script is only on the NUC (`docs/deployment.md`).
 - Parameters come from `orchestrator/config/orchestrator.yaml`; `params_file:=` gives another file. The planner's tree library is the installed `skill_registry/trees/` (parameter `tree_library`), and its preflight tree `skill_registry/preflight/preflight.xml` (`preflight_tree`; empty for none).
 - A restart of the orchestrator ends the run in progress: cancel the tree first, and never restart while an agent call is open.
 
@@ -69,7 +70,7 @@ One session answers the agent calls, and the same or another session answers the
 ros2 run orchestrator send_tree <tree.xml>                 # add --blind for a tree that must run with no cloud
 ```
 
-Or, with the trace echo and `agent_cli wait` started beside it, each writing to `~/orch_runs/run_<HHMMSS>/`:
+Or, with the trace echo, `agent_cli wait` and the EKF-reset watcher (it calls `/body_ekf/reset` on each `ekf_hold` say; `ekf_watch.txt` shows `trigger` and `success=True`) started beside it, each writing to `~/orch_runs/run_<HHMMSS>/`:
 
 ```bash
 ~/orchestrator_ws/src/orchestrator/scripts/start_cycle.sh [TREE.xml]     # default: test_trees/freight_elevator_down_floor1_agentic.xml
@@ -139,7 +140,7 @@ The grounding is up when the log has `grounding service on /vlm_ground_server/gr
    ros2 service call /unitree_interface/change_mode unitree_interface_msgs/srv/ChangeControlMode "{requested_mode: 1}"
    ```
 
-4. Stop the orchestrator (`tmux kill-session -t orchestrator`) and any helpers (`stop_cycle.sh`); then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
+4. Stop the orchestrator (`tmux kill-session -t orchestrator`) and any helpers (`tmux kill-session -t ekf_watch`, `stop_cycle.sh`); then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
 
 The next tree clears `/stop` itself. Never use `ready_locomotion` on a standing robot: it damps the robot, then stands it up again.
 

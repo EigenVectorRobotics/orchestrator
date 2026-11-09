@@ -133,6 +133,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - Arrivals are poor: the robot has stopped up to 24 cm past a place, and an arrival 8 cm or more past puts the button out of view (E-001, E-015). Set `path_follower` `slow_down_distance_threshold` 0.7 again (a relaunch resets it to 0.4) and compare, or move the places back by the mean overshoot.
 - A reposition 0.18 m away ended at once without a step; why is not known (E-016).
 - The inside press starts at the offset (+5.0, +7.5, +3.4) mm; one press lit only at (+12, +12.6, +3.2) mm. Start there once a second press confirms it.
+- The EKF reset before each press is a watcher outside the tree: `scripts/start_cycle.sh` (see `docs/operations.md`) calls `/body_ekf/reset` when the trace shows the `ekf_hold` subtree's `say`; in a run through the planner, `~/watch_records_*.sh` on the NUC does the same from the run records. There is no EKF reset skill, so the reset stays outside the tree.
 - `press_judge` needs a person or a session to look at frames; the VLM could judge the floor buttons' ring alone (`button_lit`), not the call panel.
 
 - `places.yaml` has zeros. Measure the poses on the prior map.
@@ -140,7 +141,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - The service names under `/unitree_interface/` and `/slam_elevatorlio/` come from the `~/` names in the code. Check them on the robot.
 - `ground`, `set_profile`, `set_hand`, `save_map` and `load_map` need their interface packages on the NUC.
 - `reset_tracker` ends only when `/track_3d/is_tracking` changes. If it is already false, it times out.
-- `reset_body_ekf` needs body_ekf from manipulation_stack `e63f2b8` or later on the NUC; an older body_ekf has no `/body_ekf/reset`, and every `ekf_hold` fails.
+- `body_ekf` recalibrates in place through `/body_ekf/reset` (`std_srvs/Trigger`): call it at the panel right before a press (docs/troubleshooting.md, "Pressing").
 - A failed `press_reached` does not reach `manipulation_recovery`: `get_failure` records only failed actions, failed `button_lit` checks and `press_judge` `not_pressed`, so the agent sees `failure: none recorded`. The trees use `press_judge` instead.
 - The executor reads the raw camera topic (`image_topic`, default `/camera/camera/color/image_raw`), because the Orin has no compressed image transport installed, and encodes the frames it keeps to JPEG. That brings the raw stream to the NUC: about 2.8 MB a frame, about 17 MB/s at 6 fps.
 - `thor_up` checks the grounding service and the VLM endpoint together, and preflight now stops when the Thor is not up. A Thor with the grounding up and the VLM endpoint down (the endpoint is not needed by `freight_elevator_ride`) stops the task too. Split the check, or check the grounding only.

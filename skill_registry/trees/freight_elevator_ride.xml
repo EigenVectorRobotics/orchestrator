@@ -9,7 +9,7 @@
           door_open. Once all three hold, the arms are released; LIO leaves elevator mode (z snaps to the floor) and the
           robot walks out on its own estimate to {door_out}, relocalizes there and walks on to {target}.
        Each press (press_panel_button, as in the test tree freight_elevator_down_floor1_agentic): EKF hold
-       (reset_body_ekf, then body_ekf_calibrated), a stance check before the first press (track, button_in_view,
+       (a say on which a watcher outside the tree calls /body_ekf/reset, then 10 s), a stance check before the first press (track, button_in_view,
        button_in_reach; manipulation_recovery phase stance_check only when one fails), press_button and press_judge,
        manipulation_recovery up to three times (at most 5 diagnoses in the whole task), then a person is asked.
        Needs the Thor's grounding (preflight stops without it); ~/fake_button_pose.py on the NUC is disabled: it gives
@@ -276,24 +276,14 @@
     </Fallback>
   </BehaviorTree>
 
-  <!-- recalibrate the body EKF in place (body_ekf ~/reset): after a walk foot_world drifts. The robot stands still
-       while it collects 2 s of stillness; the pose before the reset is stale, so wait 1 s before checking.
-       A longer wait after the walk is no substitute: it did not bring the call press closer (E-021) -->
+  <!-- the watcher keys on this exact text: on it, a watcher outside the tree calls /body_ekf/reset (start_cycle.sh, or
+       ~/watch_records_*.sh on the NUC in a planner run). body_ekf then recalibrates after 2 s of stillness, so the robot
+       holds still here (E-008).
+       A longer wait after the walk is no substitute for the reset: it did not bring the call press closer (E-021) -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
-      <say text="Holding still to recalibrate my balance estimate."/>
-      <reset_body_ekf/>
-      <Sleep msec="1000"/>
-      <Fallback>
-        <RetryUntilSuccessful num_attempts="20">
-          <Delay delay_msec="500">
-            <body_ekf_calibrated/>
-          </Delay>
-        </RetryUntilSuccessful>
-        <ForceFailure>
-          <say text="My balance estimate did not recalibrate."/>
-        </ForceFailure>
-      </Fallback>
+      <say text="Holding still to reset my balance estimate."/>
+      <Sleep msec="10000"/>
     </Sequence>
   </BehaviorTree>
 

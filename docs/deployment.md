@@ -70,7 +70,7 @@ Running when checked: on the Thor, the tmux session `eigen_vector_bringup` (`gro
 | NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py` | on `eigen_vector` branch `jean/door-state-bringup`, not on `main` |
 | NUC | `~/maps/two_floor_clean_cabin2.pcd`, `~/maps/two_floor_clean_cabin2.places.yaml` (backups `*.bak_*`) | the map in use and its places and areas (`freight elevator cabin`, `freight elevator hall`) | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
 | NUC | `~/fake_button_pose.py` | fixed button poses for `press_button` with no Thor | disabled: do not start it |
-| NUC | `~/ekf_reset.sh`, `~/ekf_reset.sh.restart_bak`, `~/watch_records_*.sh` | the old EKF reset outside the trees | not used: the trees reset the EKF themselves (`reset_body_ekf`) |
+| NUC | `~/watch_records_*.sh`, `~/ekf_reset.sh` | the EKF reset outside the trees: the watcher follows the newest session's run records and, on each `ekf_hold` say, runs `~/ekf_reset.sh`, which calls `/body_ekf/reset` | needed in a run through the planner (`docs/operations.md`); `~/ekf_reset.sh.restart_bak` is the old restart, not used |
 | NUC | `~/places_markers.py` | publishes the places as markers for Foxglove (`tmux -L places`) | optional; stops with a reboot |
 | NUC | `~/orch_runs/` | run records: one folder per bring-up session, `runs/<n>-<tree>/` each | the operator clears old runs by hand |
 

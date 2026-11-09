@@ -149,7 +149,6 @@ track_anything does not run on the NUC; it runs on the Orin with the RealSense c
 | `/odom_base_link` | The robot's pose in `map`, used by navigation |
 | `/route_planner/status` | JSON: `state` (`routing`, `arrived`, `blocked`), `dist_to_goal` |
 | TF `pelvis`, `torso_link`, `foot_world` | Body frames; `foot_world` is published by `body_ekf` |
-| TF `left_tcp`, `right_tcp` | The end-effector points: `*_wrist_yaw_link` plus 0.1847585 m along X (`nuc.launch.py`) |
 | TF `camera_link` | Fixed on `torso_link` (from the `_ros` URDF). The RealSense driver on the Orin runs with `publish_tf: true` and `base_frame_id: link`, so it should hang its frames, the color optical frame among them, below `camera_link` [TODO: confirm by reading the TF tree] |
 | TF `base_link` | Navigation base; `sensor` to `base_link` is a static −0.35 m in z (`nuc.launch.py`) |
 

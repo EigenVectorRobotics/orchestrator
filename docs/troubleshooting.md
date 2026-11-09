@@ -45,8 +45,8 @@ What to check and what to do when something goes wrong on the robot. Each row is
 | The seed is refused | `press_button`'s `target_description` | Use a name the grounding accepts: `up button`, `down button`, `floor 1`, `floor 2`, `floor 3` (or `object:<description>`) |
 | `press_button` succeeded, but the fingertip ended far short | the press's deepest point (`press_reached`'s numbers, `agent_cli show`) | Out of reach: reposition closer [E-006, E-018] |
 | The finger lands beside, short of, or on the rim of the button, by millimetres | `residual_m` of a clean press (no step, steady track) [E-009] | `offset_retry`: the new offset is the offset in force minus the residual; on floor buttons push the depth further [E-011, E-012, E-020] |
-| The target wanders in `foot_world` while the camera-frame track is steady | the body EKF: was it recalibrated after the walk? | `ekf_hold` (`reset_body_ekf`, then `body_ekf_calibrated`) right before the press, with the robot still [E-008] |
-| `ekf_hold` says "My balance estimate did not recalibrate." | `ros2 service list \| grep body_ekf`; is the robot standing still? | body_ekf from manipulation_stack `e63f2b8` or later has `/body_ekf/reset`; it recalibrates after 2 s of stillness, and any motion restarts that |
+| The target wanders in `foot_world` while the camera-frame track is steady | the body EKF: was it reset after the walk? | Reset it with the robot still, right before the press: the watcher calls `/body_ekf/reset` during `ekf_hold` [E-008] |
+| The press runs without an EKF reset: no `trigger` or `success=True` in `ekf_watch.txt` | Is the watcher running (`tmux ls`)? Does the tree say exactly "Holding still to reset my balance estimate."? `ros2 service list \| grep body_ekf` | Start the watcher (`docs/operations.md`). `/body_ekf/reset` exists in body_ekf from manipulation_stack `e63f2b8` or later; it recalibrates after 2 s of stillness, and any motion restarts that |
 | `release_arms` times out | how long the call takes (about 5 to 6 s) | Its contract timeout is 12 s; a shorter one fails |
 
 ## The orchestrator
