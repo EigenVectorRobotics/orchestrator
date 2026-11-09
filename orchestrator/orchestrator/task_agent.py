@@ -26,6 +26,7 @@ its step ends) and check() from its timer.
 import time
 import uuid
 import threading
+import contextlib
 
 from typing import Callable
 from pathlib import Path
@@ -45,6 +46,29 @@ STEP_REQUEST_TOPIC  = '/orchestrator/step_request'
 STEP_DECISION_TOPIC = '/orchestrator/step_decision'
 STEP_REPLY_TOPIC    = '/orchestrator/step_decision/reply'
 LOST_SPEECH   = 'I lost the connection to my planner. I will wait here. Please help me if you can.'
+
+
+def place_text(info: dict) -> str:
+    """map_info's kind, floor and note of a place; empty for a places file"""
+    text = ', '.join(part for part in (info.get('kind'), info.get('floor')) if part)
+
+    return (f'({text})' if text else '') + (f': {info["note"]}' if info.get('note') else '')
+
+
+def task_summary(task: dict) -> str:
+    """The open message as text: what a session (agent_cli) and the task loop (task_loop.py) read"""
+    if task['state'] != 'open':
+        return f'no open task; the last one ({task["run_id"]}) ended: {task.get("end")}'
+
+    places = ''.join(f'\n  {{{key}}} {place_text(info)}' for key, info in (task.get('places') or {}).items())
+    lines  = [
+        f'task {task["run_id"]}' + (' (blind)' if task.get('blind') else '') + f': {task["task"]}',
+        'places on the blackboard:' + (places or ' none'),
+        f'scratch folder: {task.get("scratch")}',
+        f'limits: {task.get("limits")}',
+    ]
+
+    return '\n'.join(lines + ([task['known']] if task.get('known') else []))
 
 
 class StepGate:
@@ -127,7 +151,8 @@ class TaskDesk:
         self.busy          = 0                       # commands in progress: a session waiting for a step is not quiet
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
 
-    def open(self, sentence: str, context: Context, blind: bool = False):
+    def open(self, sentence: str, context: Context, blind: bool = False) -> dict:
+        """Open a task; returns the open message (also published)"""
         if self.task is not None:
             self._close(self.task, 'replaced')          # a new task halts the old one (start_task)
 
@@ -139,7 +164,7 @@ class TaskDesk:
         self.opened     = self.heard = self.clock()
         self.spoke_lost = False
         self.plans      = 0
-        self.publish_open({
+        opened          = {
             'state':   'open',
             'run_id':  context.run_id,
             'task':    sentence,
@@ -148,27 +173,42 @@ class TaskDesk:
             'known':   self.known(),
             'scratch': context.scratch_dir,
             'limits':  {'max_steps': self.max_steps, 'max_task_s': self.max_task_s},
-        })
+        }
+        self.publish_open(opened)
 
-    def command(self, message: dict):
-        """One command from the session; the reply goes out with the command's id"""
-        reply = {'id': message.get('id'), 'op': message.get('op')}
+        return opened
 
+    @contextlib.contextmanager
+    def thinking(self):
+        """The agent works on a command (a session's, or a model's in the executor): not quiet. Only a success
+        counts as heard: a model that keeps failing (no network) goes quiet, and the robot says so"""
         with self._lock:
             self.busy += 1
 
         try:
-            reply |= self._command(message)
-        except (KeyError, TypeError, ValueError) as error:
-            reply |= {'ok': False, 'message': f'bad command: {error!r}'}
-        except OSError as error:
-            reply |= {'ok': False, 'message': f'could not write: {error!r}'}
+            yield
+
+            with self._lock:
+                self.heard = self.clock()
         finally:
             with self._lock:
                 self.busy -= 1
-                self.heard = self.clock()
+
+    def command(self, message: dict) -> dict:
+        """One command from the session; the reply goes out with the command's id, and is returned"""
+        reply = {'id': message.get('id'), 'op': message.get('op')}
+
+        with self.thinking():
+            try:
+                reply |= self._command(message)
+            except (KeyError, TypeError, ValueError) as error:
+                reply |= {'ok': False, 'message': f'bad command: {error!r}'}
+            except OSError as error:
+                reply |= {'ok': False, 'message': f'could not write: {error!r}'}
 
         self.publish_reply(reply)
+
+        return reply
 
     def check(self):
         """From the executor's timer: the time limit, a session that went quiet, and a task that ended elsewhere"""

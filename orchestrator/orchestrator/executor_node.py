@@ -25,6 +25,8 @@ from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
 from .tasks import Tasks, parse_task_request
+from .task_loop import CodexDecider, TaskLoop
+from .planner import describe_catalog
 from .skill_writer import SkillWriter
 from .contract_check import check_ros_types
 from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC, STEP_DECISION_TOPIC,
@@ -81,6 +83,7 @@ class ExecutorNode(Node):
         self.writer              = SkillWriter(self.registry, Path(self.get_parameter('contracts_directory').value),
                                                check_ros_types, self.runner.prepare)
         self.desk                = self._make_desk() if mode == 'task' else None
+        self.loop                = self._make_loop() if mode == 'task' else None
         self._tick_timer         = self.create_timer(1.0 / self.tick_hz, self._tick)
         self._refresh_timer      = self.create_timer(5.0, self.writer.refresh)
 
@@ -125,6 +128,24 @@ class ExecutorNode(Node):
         ]
 
         return desk
+
+    def _make_loop(self) -> TaskLoop | None:
+        """task_agent codex: the executor runs the loop, Codex decides each step (no session outside)"""
+        kind = self.declare_parameter('task_agent', 'session').value     # session (agent_cli) | codex
+
+        if kind == 'session':
+            return None
+
+        if kind != 'codex':
+            raise ValueError(f'unknown task_agent {kind}: use session or codex')
+
+        decider = CodexDecider(model=self.declare_parameter('codex_model', 'gpt-6-astra').value,
+                               effort=self.declare_parameter('codex_effort', 'high').value,
+                               timeout_s=self.declare_parameter('codex_timeout_s', 180.0).value)
+        self.get_logger().info(f'task agent: codex {decider.model}, one decision per turn')
+
+        return TaskLoop(self.desk, decider, lambda: describe_catalog(self.registry, self.essential_devices),
+                        self.runner.latest_image, self.tracer)
 
     def _make_gate(self) -> StepGate:
         """The real robot, at first: a person approves each step (agent_cli step approve|refuse, at a terminal)"""
@@ -238,7 +259,10 @@ class ExecutorNode(Node):
         task, blind = parse_task_request(message.data)
 
         if self._recorder_ready('task'):
-            self.desk.open(task, self._new_context(), blind)
+            opened = self.desk.open(task, self._new_context(), blind)
+
+            if self.loop is not None:
+                self.loop.start(opened)
 
     def _recorder_ready(self, what: str) -> bool:
         recorder_up = self.count_publishers(RECORDER_TOPIC) > 0         # a latched ready outlives a recorder that died

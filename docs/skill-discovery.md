@@ -12,11 +12,11 @@ Status: draft for review, 2026-11-05. Branch `feat/skill-discovery`. Related: `d
 
 **Everything that the stack exposes, except the deny list below.** That includes, for example:
 - every ROS topic, service and action of the stack on the NUC, the Orin and Thor: navigation (`route_planner`, `local_planner`, the SLAM node), manipulation (`move_to_pose`, visual servoing), `map_info` (places, regions, floors, `NavigateToPlace`), track anything on the Orin, the camera stream on the Orin, the VLM interfaces on Thor (the HTTP server and `ground_server`), and the parts of `unitree_interface` that are not denied;
-- the stack's code in `eigen_vector_ws` (read-only), to find out what the interfaces do;
+- the stack's code in the workspace's `src/` (read-only), to find out what the interfaces do;
 - the orchestrator's own tools: `plan`, `run_skill`, `note` (the knowledge store), `say` (`/speak`), `read_file`, `ros_read`, `get_image`, `run_python`, `done`, `give_up`, and new: `write_skill`, `interface_show` (the type of a topic, service or action);
 - the transports that the executor knows (action, service, topic, watch, graph, compare, vlm, press_tip, agent), and `ask_vlm`, the orchestrator's one closed question to the VLM.
 
-People write only a short agent runbook (`docs/agent/runbook.md`): what the robot is, the devices, how to see that the stack is up, the safety rules and the deny list, the places file. It describes the robot and the rules, not the skills or the steps of a task. The agent writes the codebase docs itself during discovery (`~/orch_skills/docs/<package>.md`).
+People write only a short agent runbook (`docs/agent/runbook.md`): what the robot is, the devices, how to see that the stack is up, the safety rules and the deny list, the places file. It describes the robot and the rules, not the skills or the steps of a task. The agent writes the codebase docs itself during discovery (`<workspace>/agent/docs/<package>.md`).
 
 ## What the agent cannot use
 
@@ -31,15 +31,15 @@ People write only a short agent runbook (`docs/agent/runbook.md`): what the robo
 - the hand-written skills: all 32 contracts except `ask_vlm` (so also `door_open` and `button_lit`, which are `ask_vlm` with a fixed question), the trees, the agent skills `manipulation_recovery.md` and `press_judge.md`, and the experience log;
 - the orchestrator's source and `skill_registry/`, because they hold the above;
 - `docs/RUNBOOK.md` (Tingxuan's), because it gives the steps of the elevator task.
-- How: the launch argument `contracts_directory` points at the agent's package (`~/orch_skills/`, which starts with `ask_vlm` only), and `agent_read_roots` leave out the hidden paths.
+- How: the launch argument `contracts_directory` points at the agent's package (`<workspace>/agent/contracts`, e.g. `~/eigen_vector_orch_ws/agent/contracts`, which starts with `ask_vlm` only), and `agent_read_roots` leave out the hidden paths.
 
 ## Discovery
 
 1. **A discovery task** ("learn the stack"), on the NUC with the robot up and standing still. The step gate is on, but the discovery itself reads only: it calls no skill that moves the robot.
-2. The agent reads the stack repos in `eigen_vector_ws` (read-only) and the live graph (`ros_read` topics, `interface_show`), and writes:
+2. The agent reads the stack repos in the workspace's `src/` (read-only) and the live graph (`ros_read` topics, `interface_show`), and writes:
    - a contract for each interface it can use, at `experimental`, with a description, inputs, outputs, preconditions, a timeout and the device;
    - a page per package: what it does, its interfaces, the frames and units.
-3. `write_skill` (built: `agent_cli write-skill FILE`, `skill_writer.py`) checks each contract (the schema, the deny list, its references, its ROS types and fields, as `contract_check.py`), and saves it in the agent's folder with a mark on the first line (`AGENT_MARK`). It then loads through `Registry.refresh`, the one way in while the nodes run: the executor (at once after a write, and every 5 s) and `registry_node` (every 5 s) load new and changed files, each checked by the deny list and its references (and its ROS types, in the executor). A file with the mark always loads at maturity `untested`, so the agent does not grade its own skills even when it writes the file directly; a file's name must be its skill's name. A new version moves the old file to `old/`. The agent cannot replace a contract that a person wrote (no mark). Launch with `write_skill:=true contracts_directory:=~/orch_skills/contracts`; it is off by default, so the agent never writes into the package's hand-written contracts.
+3. `write_skill` (built: `agent_cli write-skill FILE`, `skill_writer.py`) checks each contract (the schema, the deny list, its references, its ROS types and fields, as `contract_check.py`), and saves it in the agent's folder with a mark on the first line (`AGENT_MARK`). It then loads through `Registry.refresh`, the one way in while the nodes run: the executor (at once after a write, and every 5 s) and `registry_node` (every 5 s) load new and changed files, each checked by the deny list and its references (and its ROS types, in the executor). A file with the mark always loads at maturity `untested`, so the agent does not grade its own skills even when it writes the file directly; a file's name must be its skill's name. A new version moves the old file to `old/`. The agent cannot replace a contract that a person wrote (no mark). Launch with `write_skill:=true` (the contracts are then `<agent_dir>/contracts`; `agent_dir` defaults to `$EIGEN_VECTOR_WS/agent`); it is off by default, so the agent never writes into the package's hand-written contracts.
    - `agent_cli interface NAME|TYPE` (built, read-only): the types of a topic, service or action in the live graph, or of one type, with their fields.
 4. The operator reviews the seeded library before the first robot use, as the graduation gate says.
 

@@ -61,7 +61,7 @@ from .agent_ros import RosReader, RosReadError
 from .press_capture import FrameBuffer, stamp_seconds
 from .agent_sandbox import SandboxConfig, run_python
 from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
-from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC,
+from .task_agent import (task_summary, COMMAND_TOPIC, OPEN_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC,
                          REPLY_TOPIC as TASK_REPLY_TOPIC)
 
 
@@ -219,28 +219,6 @@ def _say(node, text: str) -> int:
     print(f'said: {text}')
 
     return 0
-
-
-def _place_text(info: dict) -> str:
-    """map_info's kind, floor and note of a place; empty for a places file"""
-    text = ', '.join(part for part in (info.get('kind'), info.get('floor')) if part)
-
-    return (f'({text})' if text else '') + (f': {info["note"]}' if info.get('note') else '')
-
-
-def _task_summary(task: dict) -> str:
-    if task['state'] != 'open':
-        return f'no open task; the last one ({task["run_id"]}) ended: {task.get("end")}'
-
-    places = ''.join(f'\n  {{{key}}} {_place_text(info)}' for key, info in (task.get('places') or {}).items())
-    lines  = [
-        f'task {task["run_id"]}' + (' (blind)' if task.get('blind') else '') + f': {task["task"]}',
-        'places on the blackboard:' + (places or ' none'),
-        f'scratch folder: {task.get("scratch")}',
-        f'limits: {task.get("limits")}',
-    ]
-
-    return '\n'.join(lines + ([task['known']] if task.get('known') else []))
 
 
 def _value(text: str):
@@ -440,7 +418,7 @@ def _run(node, arguments) -> int:
             print(f'no {"task" if is_task else "call"} opened', file=sys.stderr)
             return 1
 
-        print(_task_summary(latest) if is_task else _summary(latest, getattr(arguments, 'full', False)))
+        print(task_summary(latest) if is_task else _summary(latest, getattr(arguments, 'full', False)))
         return 0
 
     if arguments.command == 'step':
