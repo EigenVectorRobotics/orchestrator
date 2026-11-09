@@ -7,6 +7,8 @@ of a skill it wrote (the old file goes to old/), never one that a person wrote. 
 executor gives it the ROS type check and what to do with a loaded contract.
 """
 
+import threading
+
 from typing import Callable
 from pathlib import Path
 
@@ -23,6 +25,7 @@ class SkillWriter:
         self.directory   = Path(directory)
         self.check_types = check_types            # contract -> what does not match its ROS types
         self.loaded      = loaded                 # e.g. the runner makes its clients for the new skill
+        self._lock       = threading.Lock()       # the timer's refresh must not read a file between its save and its check
 
     def write(self, text: str) -> dict:
         try:
@@ -51,8 +54,15 @@ class SkillWriter:
         if errors:
             return _refused('; '.join(errors))
 
-        self._save(path, raw)
-        changed, errors = self.registry.refresh(self.directory, self.type_errors)
+        with self._lock:
+            old             = self._save(path, raw)
+            changed, errors = self.registry.refresh(self.directory, self.type_errors)
+
+            if path.name in errors:                 # the registry keeps the old version: so does the folder
+                path.unlink()
+
+                if old:
+                    old.rename(path)
 
         for name in changed:
             self.loaded(self.registry.get(name))
@@ -73,23 +83,28 @@ class SkillWriter:
 
     def refresh(self) -> list[str]:
         """From the executor's timer: files that changed on disk (a person's edit) load the same way"""
-        changed, _ = self.registry.refresh(self.directory, self.type_errors)
+        with self._lock:
+            changed, _ = self.registry.refresh(self.directory, self.type_errors)
 
         for name in changed:
             self.loaded(self.registry.get(name))
 
         return changed
 
-    def _save(self, path: Path, raw: dict):
+    def _save(self, path: Path, raw: dict) -> Path | None:
+        """Write the file; an earlier version goes to old/. Returns where it went"""
         self.directory.mkdir(parents=True, exist_ok=True)
+        moved = None
 
         if path.exists():
             old = self.directory / 'old'
             old.mkdir(exist_ok=True)
             numbers = [int(file.suffixes[-2][1:]) for file in old.glob(f'{path.stem}.*.yaml') if file.suffixes[-2][1:].isdigit()]
-            path.rename(old / f'{path.stem}.{max(numbers, default=0) + 1}.yaml')
+            moved   = path.rename(old / f'{path.stem}.{max(numbers, default=0) + 1}.yaml')
 
         path.write_text(AGENT_MARK + yaml.safe_dump(raw, sort_keys=False))
+
+        return moved
 
 
 def _refused(message: str) -> dict:
