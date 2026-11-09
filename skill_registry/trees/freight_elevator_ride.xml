@@ -164,7 +164,9 @@
       <SetBlackboard value="0.0075" output_key="press_offset_y"/>
       <SetBlackboard value="0.0034" output_key="press_offset_z"/>
       <!-- inside panel: 0.38 to 0.46 m worked (E-006). The place moved 4 cm to the robot left on 2026-11-08, not closer,
-           so the range stays; soft, about +-0.03 m, to check in the run records and tune -->
+           so the range stays; soft, about +-0.03 m, to check in the run records and tune. One stance serves every
+           floor button: on 2026-11-08 floors 1, 2 and 3 were pressed in a row from it with this offset, most within
+           press_reached's limits and the rest 1 to 3 mm over on the sideways limit -->
       <SetBlackboard value="0.38" output_key="reach_min"/>
       <SetBlackboard value="0.46" output_key="reach_max"/>
       <SetBlackboard value="Please press my floor button for me." output_key="press_ask"/>
@@ -275,7 +277,10 @@
   </BehaviorTree>
 
   <!-- recalibrate the body EKF in place (body_ekf ~/reset): after a walk foot_world drifts. The robot stands still
-       while it collects 2 s of stillness; the pose before the reset is stale, so wait 1 s before checking -->
+       while it collects 2 s of stillness; the pose before the reset is stale, so wait 1 s before checking.
+       Waiting longer is no substitute: in the press tests of 2026-11-08 a 35 s settle after the walk left the call press
+       28.8 mm off sideways, as without it; the presses improved once the EKF was recalibrated (real Thor grounding and
+       track_3d, no stance check, press_reached as the check; see RUNBOOK) -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to recalibrate my balance estimate."/>
