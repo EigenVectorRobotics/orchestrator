@@ -137,7 +137,10 @@
       <SetBlackboard value="0.0" output_key="press_offset_x"/>
       <SetBlackboard value="0.0" output_key="press_offset_y"/>
       <SetBlackboard value="0.0" output_key="press_offset_z"/>
-      <SetBlackboard value="0.33" output_key="reach_min"/>   <!-- call panel: the stances that worked (E-006) -->
+      <!-- call panel: 0.33 to 0.48 m worked (E-006, at the old place). The place moved 6 cm closer on 2026-11-08, so the
+           button may now sit near the lower edge: 0.30 is a soft margin, about +-0.03 m. Check button_in_reach in the
+           run records (record: true) and tune -->
+      <SetBlackboard value="0.30" output_key="reach_min"/>
       <SetBlackboard value="0.48" output_key="reach_max"/>
       <SetBlackboard value="Please press the call button for me." output_key="press_ask"/>
       <SubTree ID="press_panel_button"/>
@@ -156,10 +159,13 @@
       <SetBlackboard value="{floor_button}" output_key="button"/>
       <SetBlackboard value="{inside_panel}" output_key="press_panel"/>
       <SetBlackboard value="false" output_key="press_left_arm"/>   <!-- inside: the right arm (E-007) -->
-      <SetBlackboard value="0.005" output_key="press_offset_x"/>   <!-- inside panel, right arm: lit floor 1 on 2026-11-04 (E-012) -->
+      <SetBlackboard value="0.005" output_key="press_offset_x"/>   <!-- inside panel, right arm: lit floor 1 on 2026-11-04 (E-012),
+                                                                       at the old place; soft since the 4 cm move of 2026-11-08 -->
       <SetBlackboard value="0.0075" output_key="press_offset_y"/>
       <SetBlackboard value="0.0034" output_key="press_offset_z"/>
-      <SetBlackboard value="0.38" output_key="reach_min"/>   <!-- inside panel: the stances that worked (E-006) -->
+      <!-- inside panel: 0.38 to 0.46 m worked (E-006). The place moved 4 cm to the robot left on 2026-11-08, not closer,
+           so the range stays; soft, about +-0.03 m, to check in the run records and tune -->
+      <SetBlackboard value="0.38" output_key="reach_min"/>
       <SetBlackboard value="0.46" output_key="reach_max"/>
       <SetBlackboard value="Please press my floor button for me." output_key="press_ask"/>
       <SubTree ID="press_panel_button"/>

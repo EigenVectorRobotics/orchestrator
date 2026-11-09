@@ -10,7 +10,7 @@
       </Fallback>
       <clear_stop/>
       <set_autonomy enabled="true"/>
-      <navigate_to goal="3.740 -0.422 -0.435 2.6704"/>   <!-- 0.35 m behind the inside place, same storey -->
+      <navigate_to goal="3.721 -0.459 -0.435 2.6704"/>   <!-- 0.35 m behind the inside place (3.410, -0.299 since 2026-11-08), same storey -->
       <Sleep msec="2000"/>
       <SubTree ID="walk_in"/>
       <set_autonomy enabled="false"/>
