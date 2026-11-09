@@ -1,6 +1,6 @@
 <root BTCPP_format="4">
   <!-- call_elevator_agentic for the robot, down button: the freight elevator call panel from the team's map places file
-       (~/maps/two_floor_clean.places.yaml, "freight elevator call panel" -> {freight_elevator_call_panel}).
+       (~/maps/two_floor_clean_cabin2.places.yaml, "freight elevator call panel" -> {freight_elevator_call_panel}).
        Run the executor with places_file:= that file. Online only: the agent is a session, and the VLM is on the Thor. -->
   <BehaviorTree ID="freight_call_elevator_down_agentic">
     <Sequence>

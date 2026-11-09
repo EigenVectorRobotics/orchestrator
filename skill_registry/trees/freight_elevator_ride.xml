@@ -8,18 +8,19 @@
        2. In the cabin: EKF hold and press the floor button. Checked on every tick: inside_cabin, at_floor {floor} and
           door_open. Once all three hold, the arms are released; LIO leaves elevator mode (z snaps to the floor) and the
           robot walks out on its own estimate to {door_out}, relocalizes there and walks on to {target}.
-       Each press (press_panel_button, from freight_elevator_down_floor1_agentic, tested 2026-11-04 to 11-06): EKF hold
-       (reset_body_ekf, then body_ekf_calibrated), a stance check before the first press (track, button_in_view, button_in_reach; manipulation_recovery
-       phase stance_check only when one fails), press_button and press_judge, manipulation_recovery up to three times
-       (at most 5 diagnoses in the whole task), then a person is asked. Needs the Thor's grounding (preflight stops without it). ~/fake_button_pose.py on the NUC
-       is disabled for now (2026-11-08): it gives no 2D box, so button_in_view always fails and button_in_reach checks
-       a fixed pose.
+       Each press (press_panel_button, as in the test tree freight_elevator_down_floor1_agentic): EKF hold
+       (reset_body_ekf, then body_ekf_calibrated), a stance check before the first press (track, button_in_view,
+       button_in_reach; manipulation_recovery phase stance_check only when one fails), press_button and press_judge,
+       manipulation_recovery up to three times (at most 5 diagnoses in the whole task), then a person is asked.
+       Needs the Thor's grounding (preflight stops without it); ~/fake_button_pose.py on the NUC is disabled: it gives
+       no 2D box, so button_in_view always fails and button_in_reach checks a fixed pose.
        To change the ride, change the parameters only (the planner overrides them with <use_tree id="freight_elevator_ride" .../>). To change how a button is pressed, replace the SubTree
        press_panel_button: it reads button, press_panel, press_left_arm, press_offset_x/y/z, reach_min, reach_max and
        press_ask, and writes press_left_arm (a switch_arm before the first press).
        Parameters for floor 2 to floor 1. Floor 1 to floor 2: call_panel_preapproach and call_panel
-       {freight_elevator_call_panel_floor_1}, call_button "up button", floor_button "floor 2", floor 2,
-       door_out {freight_elevator_door_out_floor_2}, target {target_floor_2}.
+       {freight_elevator_call_panel_floor_1}, call_button "up button", inside_panel
+       {inside_freight_elevator_button_panel_floor_1}, floor_button "floor 2", floor 2, door_out
+       {freight_elevator_door_out_floor_2}, target {target_floor_2}.
        Places: ~/maps/two_floor_clean_cabin2.places.yaml (map two_floor_clean_cabin2.pcd). Needs navigation_stack
        jean/elevator-side and elevator_states jean/door-state-in-out. -->
   <BehaviorTree ID="freight_elevator_ride">
@@ -137,9 +138,9 @@
       <SetBlackboard value="0.0" output_key="press_offset_x"/>
       <SetBlackboard value="0.0" output_key="press_offset_y"/>
       <SetBlackboard value="0.0" output_key="press_offset_z"/>
-      <!-- call panel: 0.33 to 0.48 m worked (E-006, at the old place). The place moved 6 cm closer on 2026-11-08, so the
-           button may now sit near the lower edge: 0.30 is a soft margin, about +-0.03 m. Check button_in_reach in the
-           run records (record: true) and tune -->
+      <!-- call panel: 0.33 to 0.48 m worked (E-006) from a place that has since moved 6 cm closer, so the button may
+           sit near the lower edge: 0.30 is a soft margin, about +-0.03 m. Check button_in_reach in the run records
+           (record: true) and tune -->
       <SetBlackboard value="0.30" output_key="reach_min"/>
       <SetBlackboard value="0.48" output_key="reach_max"/>
       <SetBlackboard value="Please press the call button for me." output_key="press_ask"/>
@@ -159,14 +160,13 @@
       <SetBlackboard value="{floor_button}" output_key="button"/>
       <SetBlackboard value="{inside_panel}" output_key="press_panel"/>
       <SetBlackboard value="false" output_key="press_left_arm"/>   <!-- inside: the right arm (E-007) -->
-      <SetBlackboard value="0.005" output_key="press_offset_x"/>   <!-- inside panel, right arm: lit floor 1 on 2026-11-04 (E-012),
-                                                                       at the old place; soft since the 4 cm move of 2026-11-08 -->
+      <SetBlackboard value="0.005" output_key="press_offset_x"/>   <!-- inside panel, right arm (E-011, E-012, E-022); found at
+                                                                       a place since moved 4 cm, so soft -->
       <SetBlackboard value="0.0075" output_key="press_offset_y"/>
       <SetBlackboard value="0.0034" output_key="press_offset_z"/>
-      <!-- inside panel: 0.38 to 0.46 m worked (E-006). The place moved 4 cm to the robot left on 2026-11-08, not closer,
-           so the range stays; soft, about +-0.03 m, to check in the run records and tune. One stance serves every
-           floor button: on 2026-11-08 floors 1, 2 and 3 were pressed in a row from it with this offset, most within
-           press_reached's limits and the rest 1 to 3 mm over on the sideways limit -->
+      <!-- inside panel: 0.38 to 0.46 m worked (E-006). The place has since moved 4 cm to the robot left, not closer,
+           so the range stays; soft, about +-0.03 m, to check in the run records and tune. One stance serves the
+           three floor buttons (E-022) -->
       <SetBlackboard value="0.38" output_key="reach_min"/>
       <SetBlackboard value="0.46" output_key="reach_max"/>
       <SetBlackboard value="Please press my floor button for me." output_key="press_ask"/>
@@ -278,9 +278,7 @@
 
   <!-- recalibrate the body EKF in place (body_ekf ~/reset): after a walk foot_world drifts. The robot stands still
        while it collects 2 s of stillness; the pose before the reset is stale, so wait 1 s before checking.
-       Waiting longer is no substitute: in the press tests of 2026-11-08 a 35 s settle after the walk left the call press
-       28.8 mm off sideways, as without it; the presses improved once the EKF was recalibrated (real Thor grounding and
-       track_3d, no stance check, press_reached as the check; see RUNBOOK) -->
+       A longer wait after the walk is no substitute: it did not bring the call press closer (E-021) -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to recalibrate my balance estimate."/>

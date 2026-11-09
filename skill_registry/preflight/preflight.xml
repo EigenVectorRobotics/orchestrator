@@ -109,7 +109,7 @@
   </BehaviorTree>
 
   <!-- the Thor (VLM, grounding) is required: the stance check, press_button and press_judge need its grounding (the
-       button's 2D box and pose). Without it the task stops; fake_button_pose.py is disabled for now (2026-11-08) -->
+       button's 2D box and pose). Without it the task stops; fake_button_pose.py is disabled -->
   <BehaviorTree ID="thor_stack">
     <Fallback>
       <thor_up/>

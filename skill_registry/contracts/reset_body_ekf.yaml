@@ -9,9 +9,8 @@ interface:
 resources: [base]
 timeout_s: 5
 maturity: untested
-source: manipulation_stack g1_pilot body_ekf ~/reset (e63f2b8, main, 2026-11-08)
+source: manipulation_stack g1_pilot body_ekf ~/reset (e63f2b8 and later)
 notes: >-
-  Replaces ~/ekf_reset.sh and its watcher on the NUC (the trees said "Holding still to reset my balance estimate." and a
-  watcher ran the script). Before e63f2b8 body_ekf had no reset service and was restarted instead. The still period
+  Before e63f2b8 body_ekf had no reset service, and a script outside the tree restarted the node. The still period
   is calibration_duration (2.0 s in body_ekf_stanley.yaml); any motion restarts it. Fails with "estimator not started"
   before body_ekf's first calibration.

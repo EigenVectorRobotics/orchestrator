@@ -22,8 +22,8 @@ resources:
 - arms
 timeout_s: 5
 maturity: untested
-source: manipulation_stack g1_pilot/src/move_to_pose/planning.cpp (to_pelvis_frame_); docs/RUNBOOK.md "How the offset works"
+source: manipulation_stack g1_pilot/src/move_to_pose/planning.cpp (to_pelvis_frame_); manipulation_recovery.md ("Safety offset")
 notes: >-
   Set it per panel and per arm before each press (the offsets that work differ: experience E-012), and after a
-  manipulation_recovery offset_retry. On 2026-11-04 the inside panel, right arm, floor 1 hit the rim with 0 and
-  lit with (+0.005, +0.0075, +0.0034).
+  manipulation_recovery offset_retry. Inside panel, right arm, floor 1: 0 hit the rim, (+0.005, +0.0075, +0.0034)
+  lit it (E-012).

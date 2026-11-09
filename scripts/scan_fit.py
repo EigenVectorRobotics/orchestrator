@@ -2,7 +2,7 @@
    python3 scan_fit.py [MAP.pcd]
 Prints the share of /registered_scan points (map frame) within 5, 10, 20, 50 cm of the prior map, then the same with
 the scan turned about the robot by -10 to +10 deg. A right match: median about 3 cm, 75 to 80 % within 10 cm, and the
-share falling on both sides of 0 deg (2026-11-04: 0.76 to 0.80 at 0 deg, 0.56 to 0.70 at +-10 deg, at the start and in the cabin)."""
+share falling on both sides of 0 deg (N-005)."""
 import sys
 import math
 
@@ -37,7 +37,7 @@ def main():
 
     robot = got['odom'].pose.pose.position
     centre = np.array([robot.x, robot.y, 0.0])
-    prior = read_pcd_xyz(sys.argv[1] if len(sys.argv) > 1 else '/home/vector/maps/two_floor_clean.pcd')
+    prior = read_pcd_xyz(sys.argv[1] if len(sys.argv) > 1 else '/home/vector/maps/two_floor_clean_cabin2.pcd')
     prior = prior[np.linalg.norm(prior[:, :2] - centre[:2], axis=1) < 25]
     tree  = cKDTree(prior)
     scan  = pc2.read_points_numpy(got['scan'], field_names=('x', 'y', 'z'))[::3]

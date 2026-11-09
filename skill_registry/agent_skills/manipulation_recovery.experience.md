@@ -26,6 +26,8 @@ Facts that hold by construction (code, configs, the URDF) belong in `manipulatio
 
 Unless an entry says otherwise, "the field test" is the walk-and-press test of 2026-11-04 on the Stanley G1 at the freight elevator: the outside call panel and the inside floor panel, `manipulation_stack` on `test/pelvis-correction` with edits not yet committed, and the navigation stack with edits not yet committed.
 
+"The press tests" are the orchestrator runs of 2026-11-08, 14:57 to 19:45, with test trees that walk and press, or press from where the robot stands (`~/orch_runs/press_down_145709/*.xml` on the NUC; sessions `20261108T185515Z` to `20261108T233309Z`). The Thor's `ground_server` gave the button boxes and the Orin's track_3d tracked them; only the first four presses (`20261108T185515Z` runs 007 to 010) have no tracked target in their bags and may have used the fixed poses of `fake_button_pose.py`. The trees had no stance check and checked each press with `press_reached` (the fingertip against its goal, not whether the button lit). The call panel and inside places then sat a few centimetres from where they are now.
+
 "The agent trial" is the orchestrator run of the full task on the night of 2026-11-04 to 05 (23:22 to 00:16, runs run_232207 to run_001046): walk to the call panel, press down, wait for the door, walk in, press floor 1, with `manipulation_recovery` and `press_judge` answered by a Claude Code session through `agent_cli`, the same software as the field test, and `path_follower` `slow_down_distance_threshold` back at its config default 0.4 (the stack was relaunched). Its traces are `~/orch_runs/run_*/trace.txt` on the NUC and its press frames `~/.ros/orchestrator_captures/`; run names are the start times.
 
 ### E-001 After a walk, the robot stops a few centimetres off its place
@@ -59,7 +61,8 @@ Unless an entry says otherwise, "the field test" is the walk-and-press test of 2
 - Conditions: the reach check before a press, seeding through Cosmos
 - Cause: [TODO: not known]; the seed alone takes 1.7 to 9 s
 - What helped: if the button is in frame, run the seed and the check again, up to twice, before moving the robot
-- Source: field test notes, 2026-11-04
+- Press tests: 10 of 69 presses ended in `press_button`'s 60 s timeout. Of the 6 timeouts in runs with one press, 4 had no or almost no tracked target in their bags (0 to 8 messages on `/track_3d/selected_target_3d`) and 2 had one (121 and 321 messages). `ground_server` answered every grounding request that day, 4 of them with 0 boxes. Why these presses timed out is not known
+- Source: field test notes, 2026-11-04; press tests (sessions `20261108T202345Z`, `20261108T211441Z`, `20261108T215835Z`, `20261108T222307Z`; the Thor's `~/eigen_vector_ws_bringup/launch.log`)
 
 ### E-005 NO_TRACK with a large, close button: the robot is too close
 - Status: confirmed (field test)
@@ -110,6 +113,7 @@ Unless an entry says otherwise, "the field test" is the walk-and-press test of 2
 - Signs: the finger sits on the button face and the button does not light; the reached depth falls short of the planned one, with a jump in waist yaw error at that moment
 - What helped: not yet solved. Options under consideration: a larger depth offset (about +15 mm), or a stiffer or locked waist yaw during the press. Retrying the same press is unlikely to help
 - Agent trial: floor 1, right arm, offset (+5.0, +7.5, +3.4) mm. Once it lit (residual -6.2 mm deep, 7.9 mm sideways); once, after walking in again, the finger sat on the face, nearly centred (residual -2.0, -5.1, +0.2 mm), and nothing lit in the press or the release frame. An `offset_retry` to (+12.0, +12.6, +3.2) mm lit it at once (residual +8.2, -4.0, -1.1 mm). So a depth offset near +12 mm helped once; the residual depth alone does not tell a press from a touch (lit at -6.2 mm, unlit at -2.0 mm): judge by the ring (E-019)
+- Evidence: the field test's floor 2 presses, checked offline with `selfcoll.py` (Pinocchio and coal on `g1_29dof_with_hand_rev_1_0.urdf`, convex hulls, adjacent links skipped) and `depthcheck.py` (planned depth, reached depth, joint error): no right-arm hull overlapped anything at the measured or the commanded hold; the planner put the depth offset into the plan (+5.7 mm at step 3), and the fingertip stalled 4 to 7 mm short with the waist yaw error jumping to +0.5 deg (bags `press_debug_20261104_190703`, `_191319`, `_191723`)
 - Source: field test notes, 2026-11-04; agent trial run_234904, run_001046 (frames press_1793854177.790, press_1793855488.164, press_1793855570.844)
 
 ### E-012 The fingertip error repeats for a given panel and arm, so a correction from clean presses helps
@@ -119,6 +123,7 @@ Unless an entry says otherwise, "the field test" is the walk-and-press test of 2
 - What helped: correct with `arm_safety_distance_{x,y,z}` set to the negative residual of clean presses only (E-009); keep corrections per panel and per arm; prefer the median of several clean presses to one
 - Agent trial, inside panel, right arm, floor 1: with no offset the finger hit the right rim (residual about -9.3 mm deep, 11 mm sideways; not lit); with the field test's (+5.0, +7.5, +3.4) mm it lit once and touched without lighting once; (+12.0, +12.6, +3.2) mm lit (E-011). The trees now start the inside press at (+5.0, +7.5, +3.4) mm [TODO: start at (+12, +12.6, +3.2) mm once a second press confirms it]
 - Agent trial, outside panel, right arm, down button, no offset: residuals (x in, y left, z up) -5 mm deep and 8 mm sideways, signs not recorded (pressed); (-11.3, -14.8, +0.5) mm (on the right rim; judged not pressed); (-8.7, +4.0, -0.3) mm (pressed). The sideways error changed sign between presses, so no outside offset is repeatable yet; an `offset_retry` from one rim hit is still the right recovery (E-020)
+- Evidence: the field test's clean presses (no step, steady track), fingertip minus tracked target in the target frame (x along the normal, y sideways, z up), in mm, with reach ahead of the pelvis: outside, up button, left arm, 0.415 m (-7.7, -12.3, -4.1) and 0.413 m (-8.7, -0.2, -5.1), neither confirmed; inside, floor 1, right arm, 0.432 m (-6.3, -7.8, -2.9) on the rim, then 0.426 m (-4.3, -6.7, -1.5) pressed with offset (+6.3, +7.8, +2.9); inside, floor 2, right arm, 0.391 m (-4.3, -8.6, -4.9; floor 1 asked but out of frame, E-003), 0.379 m (-4.6, -6.9, -3.2) on the right rim, 0.380 m (-6.5, +1.6, +1.2) on the face but not lit with offset (+5.0, +7.5, +3.4). Bags `press_debug_20261104_182519`, `_183313`, `_183646`, `_185256`, `_190703`, `_191319`, `_191723`
 - Source: field test notes, 2026-11-04; agent trial runs run_234029, run_234534, run_235844, run_000131, run_001046
 
 ### E-013 Local moves are open loop and unreliable for small corrections
@@ -168,7 +173,8 @@ Unless an entry says otherwise, "the field test" is the walk-and-press test of 2
 - Conditions: inside panel, right arm, floor 1, the robot 13 cm behind the inside place (about 0.55 m to the button)
 - What was seen: the action succeeded in 15.4 s (others took 19 to 21 s); the fingertip's closest point was 67 mm short and 39 mm beside the goal; no press frames were kept (no pre-grasp was seen); a live frame showed the hand low and right, near the door buttons. The success of the action does not prove that the arm reached the button
 - What helped: judge every press from the frames and the fingertip numbers (`press_judge`); a press that ends far short is out of reach: reposition closer (E-006, E-016)
-- Evidence: run_000131
+- Press tests: twice, a walk into the cabin and a floor 1 press (`floor1_walk_in`, right arm, offset (+5.0, +7.5, +3.4) mm) ended with `Controller reached target` and the fingertip's deepest point 37.5 and 48.5 mm short of its goal. There was no stance check, so the reach at the time is not known
+- Evidence: run_000131; press tests `20261108T211441Z` run 013, `20261108T215835Z` run 001
 - Source: agent trial
 
 ### E-019 Judging a press from the frame at the fingertip's closest point
@@ -186,3 +192,20 @@ Unless an entry says otherwise, "the field test" is the walk-and-press test of 2
 - What helped: the new offset is the offset in force minus the residual, per axis; on floor buttons, push the depth further than the residual says. The offset in force is the last `set_press_offset` in the history
 - Evidence: run_001046, run_235844
 - Source: agent trial
+
+### E-021 A longer wait after the walk did not make the call press land closer
+- Status: confirmed (press tests, three presses after a walk); cause not known
+- Conditions: press tests, outside call panel, down button, right arm, no offset; the walk from the preapproach to the call-panel place, a 15 s hold for an EKF reset done outside the tree (whether it ran is not recorded), then the press
+- What was seen: with 35 s of standing still after the walk, before the hold (`press_down_walk_settle`), the fingertip's deepest point was 28.8 mm sideways of its goal; without that wait (`press_down_walk`), 28.3 and 29.8 mm. Presses with no walk before them (`press_down_only`) ended 4.9, 10.9 and 15.6 mm sideways
+- Cause: not known. The goal comes from the tracked target, so the sideways number does not say whether the fingertip missed the button
+- What helped: not known yet; waiting longer did not
+- Evidence: press tests `20261108T202345Z` runs 001, 004, 005, 007 and `20261108T211441Z` runs 004, 005 (`press_reached` numbers in each session's `events.jsonl`)
+- Source: press tests, 2026-11-08
+
+### E-022 From one inside stance, floors 1, 2 and 3 were pressed in a row; the fingertip ended within about 1 to 2 cm of each goal
+- Status: confirmed (press tests, 39 presses with numbers); whether each button lit is not known
+- Conditions: press tests, inside place, right arm, a 5 s hold before each press for an EKF reset done outside the tree; trees `floors_cycle` (offset (+5.0, +7.5, +3.4) mm), `gripper_ab_test` and `tf_ab_*` (no offset)
+- What was seen: with the offset (`floors_cycle`, 13 presses) the deepest point was within 7.8 mm short of the goal, and the misses of the 8 mm sideways limit were 8.1 to 10.7 mm. With no offset (`gripper_ab_test`, `tf_ab_*`, 26 presses) 8 presses ended 12.6 to 15.1 mm short and the sideways distance reached 18.1 mm. The A/B trees changed something outside the tree between their halves (gripper correction, TF); which setting gave which numbers is in the session, not in the trees. 4 further presses ended in the 60 s timeout (E-004)
+- What helped: the same stance served the three floor buttons; no per-floor stance was needed
+- Evidence: press tests `20261108T215835Z` runs 002 to 004, `20261108T222307Z` runs 001, 002, 005, 006, `20261108T233309Z` runs 001 to 004 (`events.jsonl`)
+- Source: press tests, 2026-11-08

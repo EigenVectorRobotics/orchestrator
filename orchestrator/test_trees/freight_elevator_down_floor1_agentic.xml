@@ -4,10 +4,10 @@
        frames of the press and a session looks at the frame at the fingertip's closest point to the button and decides
        pressed or not_pressed (in place of press_reached / button_lit). A not_pressed goes to manipulation_recovery.
        Before each press the tree recalibrates the body EKF in place (ekf_hold: reset_body_ekf, then a wait for
-       body_ekf_calibrated; RUNBOOK "foot_world drifts after a walk"). Before the first press at each panel, a stance check: track the button, then
+       body_ekf_calibrated; E-008). Before the first press at each panel, a stance check: track the button, then
        button_in_view and button_in_reach (in the executor, no cloud); only when one fails does manipulation_recovery
        look (phase stance_check), because a poor stance comes from the walk, not from the press (E-001, E-015).
-       Places from ~/maps/two_floor_clean.places.yaml. -->
+       Places from ~/maps/two_floor_clean_cabin2.places.yaml. -->
   <BehaviorTree ID="freight_elevator_down_floor1_agentic">
     <Sequence>
       <!-- outside: walking state, preapproach, call panel (as freight_call_elevator_down_agentic) -->
@@ -265,7 +265,7 @@
   <!-- inside: the right arm (E-007) -->
   <BehaviorTree ID="press_floor1">
     <Sequence>
-      <set_press_offset x="0.005" y="0.0075" z="0.0034"/>   <!-- inside panel, right arm: lit floor 1 on 2026-11-04 (E-012) -->
+      <set_press_offset x="0.005" y="0.0075" z="0.0034"/>   <!-- inside panel, right arm (E-012) -->
       <SubTree ID="prepare_arm"/>
       <reset_filters/>
       <press_button target_description="floor 1" left_arm="{press_left_arm}"/>

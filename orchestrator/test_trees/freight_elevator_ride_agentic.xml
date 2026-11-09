@@ -1,5 +1,5 @@
 <root BTCPP_format="4">
-  <!-- DISABLED FOR NOW (2026-11-08): not in use; the freight elevator ride is skill_registry/trees/freight_elevator_ride.xml.
+  <!-- DISABLED FOR NOW: not in use; the freight elevator ride is skill_registry/trees/freight_elevator_ride.xml.
        Kept for later; never run on the robot.
        Ride the freight elevator from the cabin to another floor and walk out. The robot starts outside the cabin on
        current_floor with the door open (call the elevator first, e.g. freight_call_elevator_down_agentic).
@@ -13,7 +13,7 @@
           stop at another floor does not end the wait.
        4. HighLevel, then the door: door_open (door_state_node, lidar), up to 20 s.
        5. Walk out to exit_goal.
-       Places from ~/maps/two_floor_clean.places.yaml. Not saved yet, still to do: "exit goal" (the goal on the target
+       Places from ~/maps/two_floor_clean_cabin2.places.yaml. Not saved yet, still to do: "exit goal" (the goal on the target
        floor, with that floor's z). -->
   <BehaviorTree ID="freight_elevator_ride_agentic">
     <Sequence>
@@ -204,7 +204,7 @@
     </Fallback>
   </BehaviorTree>
 
-  <!-- inside: the right arm (E-007); the offset lit floor 1 on 2026-11-04 (E-012), not yet tried on other floors -->
+  <!-- inside: the right arm (E-007); the offset lit floor 1 (E-012), not yet tried on other floors -->
   <BehaviorTree ID="press_target">
     <Sequence>
       <set_press_offset x="0.005" y="0.0075" z="0.0034"/>

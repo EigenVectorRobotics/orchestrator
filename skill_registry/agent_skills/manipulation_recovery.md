@@ -77,9 +77,9 @@ Speak your process out loud the whole time you work, so the people around the ro
 
 ## When you are a Claude Code session
 
-The executor publishes each call on `/orchestrator/agent/request` and waits for one decision. `agent_cli` (in the orchestrator package) is your only way to answer. Run it on the NUC (`ssh vector@vector-nuc`) after `source ~/orchestrator_ws/env.sh`: that is the deployed workspace `~/eigen_vector_ws` with the orchestrator overlay on top (see `docs/RUNBOOK.md`).
+The executor publishes each call on `/orchestrator/agent/request` and waits for one decision. `agent_cli` (in the orchestrator package) is your only way to answer. Run it on the NUC (`ssh vector@vector-nuc`) after `source ~/orchestrator_ws/env.sh`: that is the deployed workspace `~/eigen_vector_ws` with the orchestrator overlay on top (see `docs/deployment.md`).
 
-**Before the run.** If the user asks you to bring the stack up, follow "Bring-up for an agent test" in `docs/RUNBOOK.md`, one step at a time, with the user's go for each machine. Then start `agent_cli wait` in the background. It returns, with a summary of the call, when the tree opens one.
+**Before the run.** If the user asks you to bring the stack up, follow `docs/operations.md`, one step at a time, with the user's go for each machine; when something fails, `docs/troubleshooting.md`. Then start `agent_cli wait` in the background. It returns, with a summary of the call, when the tree opens one.
 
 **Each call.** Do the steps in "How to work" with these commands in place of the tools:
 
@@ -95,7 +95,7 @@ The executor publishes each call on `/orchestrator/agent/request` and waits for 
 
 **Rules for a session.** Nothing enforces these for you, unlike the tools inside the executor, so keep them yourself:
 
-- `agent_cli decide --send` and `agent_cli say` are the only things you publish. Do not publish topics, call services, send action goals, or change files, parameters or configs on any robot computer. Start and stop processes only as the bring-up in `docs/RUNBOOK.md` says, with the user's go, and never while a call is open.
+- `agent_cli decide --send` and `agent_cli say` are the only things you publish. Do not publish topics, call services, send action goals, or change files, parameters or configs on any robot computer. Start and stop processes only as `docs/operations.md` says, with the user's go, and never while a call is open.
 - **Get the user's go before you send.** Show the user the decision, the reason, and the evidence it rests on (the feedback shape, the target position in `pelvis`, what your check computed); run `--send` only after the user says go. Edits to the decision: show it again. [This becomes automatic when the team says so.]
 - Watch the clock: `agent_cli show` says how long the call has been open. At 600 s the tree stops waiting and goes to its fallback, a request for help. Tell the user when time is short.
 - After a `reposition`, the tree walks, then calls you again for the view check: run `agent_cli wait` again.
@@ -268,6 +268,6 @@ The facts above were read from these versions; update this file when they change
 - manipulation_stack: GitHub `pelvis-correction` @ `d70b9d1`; the NUC runs `test/pelvis-correction` @ `0554dd4` (that commit plus a merge of main, which adds one line to `body_ekf.cpp`). Files: `humanoid_arm_skills/humanoid_arm_skills/{humanoid_arm_visual_servoing,pose_filtering,utils}.py`, `humanoid_arm_skills/launch/humanoid_arm_visual_servoing.launch.py`, `g1_pilot/src/move_to_pose/{server,planning,control}.cpp`, `g1_pilot/src/core/arm_mp/{visual_servo_planner,joint_space_planner}.cpp`, `g1_pilot/src/body_ekf.cpp`, `g1_pilot/config/g1.yaml`, `g1_description/assets/g1/*.urdf`
 - track_anything `main` @ `f5a1f47` (`trt` is merged into it): `track_anything/track_3d.py`, `track_anything/pointcloud_utils.py`, `track_anything/transform_utils.py`, `track_anything/track_3d_parameters.yaml`, `launch/track_3d.launch.py`, `README.md`
 - NUC `/home/vector/eigen_vector_ws`: `src/bringup/launch/nuc.launch.py`, `src/bringup/README.md`, `src/navigation_stack` main @ `6242b3e` (`route_planner/route_planner/{route_planner_node,planner}.py`, `route_planner/route_planner/route_planner_parameters.yaml`, `local_planner/src/local_planner.cpp`, `local_planner/src/local_planner_params.yaml`, `local_planner/config/unitree_g1.yaml`, `route_planner/config/unitree_g1.yaml`); Python packages under `/opt/ros/jazzy/lib/python3.12/site-packages`
-- orchestrator: `skill_registry/contracts/{press_button,navigate_to,set_mode,clear_stop,set_autonomy}.yaml`, `skill_registry/trees/freight_call_elevator_down_agentic.xml`, `orchestrator/{places,agent,ros_skill_runner}.py` (goal z)
+- orchestrator: `skill_registry/contracts/{press_button,navigate_to,set_mode,clear_stop,set_autonomy}.yaml`, `orchestrator/test_trees/freight_call_elevator_down_agentic.xml`, `orchestrator/{places,agent,ros_skill_runner}.py` (goal z)
 - NUC field-test scripts in `~/`: `nav_call.sh`, `nav_outside.sh` (walking state, goals with z), `down_once_right.sh` (press in HighLevel with the VisualServo profile)
-- Observations, with their own sources: `manipulation_recovery.experience.md`
+- Observations, with their own sources: `manipulation_recovery.experience.md`, and for walking and localization `navigation.experience.md`

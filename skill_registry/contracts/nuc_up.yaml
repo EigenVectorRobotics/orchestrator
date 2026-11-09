@@ -14,8 +14,8 @@ source: orchestrator/orchestrator/preflight_checks.py (judge_alive)
 notes: >-
   Before a task (preflight). /unitree_interface/fsm_id needs unitree_interface with the FSM id topic. The last four
   topics are one per navigation node (terrain_analysis, local_planner, path_follower, route_planner): a partial stack
-  with the robot interface and SLAM only (as tmux -L elevtest on 2026-11-07) must fail this check. /prior_map comes
-  from floor_map_selector, which is NOT in git (deployed by hand on 2026-11-08): it must be at
+  with the robot interface and SLAM only (as once in tmux -L elevtest) must fail this check. /prior_map comes
+  from floor_map_selector, which is NOT in git (deployed by hand; docs/deployment.md): it must be at
   /home/vector/eigen_vector_ws/src/bringup/scripts/floor_map_selector.py on the NUC, installed by bringup's
   CMakeLists.txt and started by nuc.launch.py when a map is given. Without it /prior_map never comes, this check
   always fails, and preflight keeps relaunching the NUC stack; a bringup deployed from git drops it.

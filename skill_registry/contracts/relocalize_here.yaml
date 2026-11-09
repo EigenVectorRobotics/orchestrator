@@ -12,5 +12,5 @@ maturity: untested
 source: navigation_stack (jean/elevator-side) slam_elevatorlio ~/relocalize
 notes: >-
   The pose stays localized during it, so the SLAM guard is not tripped. A re-search accepts a larger correction than
-  tracking: on 2026-11-07 the exit relocalization in the floor-2 cabin was 0.5 m off, tracking rejected every correction
-  outside and SLAM went lost. It says "Relocalized on floor N." or "Relocalization failed.".
+  tracking: a pose 0.5 m off at the exit of the floor-2 cabin was not recovered by tracking, and SLAM went lost
+  (N-006). It says "Relocalized on floor N." or "Relocalization failed.".

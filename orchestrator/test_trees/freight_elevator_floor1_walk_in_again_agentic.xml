@@ -10,7 +10,7 @@
       </Fallback>
       <clear_stop/>
       <set_autonomy enabled="true"/>
-      <navigate_to goal="3.721 -0.459 -0.435 2.6704"/>   <!-- 0.35 m behind the inside place (3.410, -0.299 since 2026-11-08), same storey -->
+      <navigate_to goal="3.721 -0.459 -0.435 2.6704"/>   <!-- 0.35 m behind the inside place (3.410, -0.299), same storey -->
       <Sleep msec="2000"/>
       <SubTree ID="walk_in"/>
       <set_autonomy enabled="false"/>
@@ -88,7 +88,7 @@
   <!-- inside: the right arm (E-007) -->
   <BehaviorTree ID="press_floor1">
     <Sequence>
-      <set_press_offset x="0.005" y="0.0075" z="0.0034"/>   <!-- inside panel, right arm: lit floor 1 on 2026-11-04 (E-012) -->
+      <set_press_offset x="0.005" y="0.0075" z="0.0034"/>   <!-- inside panel, right arm (E-012) -->
       <SubTree ID="prepare_arm"/>
       <reset_filters/>
       <press_button target_description="floor 1" left_arm="false"/>
