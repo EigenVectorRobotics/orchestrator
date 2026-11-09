@@ -220,13 +220,21 @@ def _say(node, text: str) -> int:
     return 0
 
 
+def _place_text(info: dict) -> str:
+    """map_info's kind, floor and note of a place; empty for a places file"""
+    text = ', '.join(part for part in (info.get('kind'), info.get('floor')) if part)
+
+    return (f'({text})' if text else '') + (f': {info["note"]}' if info.get('note') else '')
+
+
 def _task_summary(task: dict) -> str:
     if task['state'] != 'open':
         return f'no open task; the last one ({task["run_id"]}) ended: {task.get("end")}'
 
-    lines = [
+    places = ''.join(f'\n  {{{key}}} {_place_text(info)}' for key, info in (task.get('places') or {}).items())
+    lines  = [
         f'task {task["run_id"]}' + (' (blind)' if task.get('blind') else '') + f': {task["task"]}',
-        f'places on the blackboard: {", ".join(task.get("places") or []) or "none"}',
+        'places on the blackboard:' + (places or ' none'),
         f'scratch folder: {task.get("scratch")}',
         f'limits: {task.get("limits")}',
     ]

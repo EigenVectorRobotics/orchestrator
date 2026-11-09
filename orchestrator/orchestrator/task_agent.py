@@ -2,7 +2,8 @@
 step by step (docs/task-mode.md).
 
 A task sentence opens a task. The executor publishes it (latched JSON on OPEN_TOPIC: run_id, the sentence, blind,
-the places, what the knowledge store knows, the scratch folder) and waits for commands on COMMAND_TOPIC:
+the places with their kind, floor and note, what the knowledge store knows, the scratch folder) and waits for
+commands on COMMAND_TOPIC:
 
 - plan: the task plan, a list of subgoals; it goes in the trace (each version) and in plan.md in the scratch folder
 - run: one skill as the next step, for a subgoal; the reply comes when the step ends, with its result
@@ -30,6 +31,7 @@ from typing import Callable
 from pathlib import Path
 from dataclasses import asdict
 
+from .places import PLACE_INFO
 from .tasks import Task, Tasks
 from .planner import describe_catalog
 from .skill_writer import SkillWriter
@@ -142,7 +144,7 @@ class TaskDesk:
             'run_id':  context.run_id,
             'task':    sentence,
             'blind':   blind,
-            'places':  sorted(context.blackboard),
+            'places':  {key: {field: place[field] for field in PLACE_INFO if field in place} for key, place in sorted(context.blackboard.items())},
             'known':   self.known(),
             'scratch': context.scratch_dir,
             'limits':  {'max_steps': self.max_steps, 'max_task_s': self.max_task_s},

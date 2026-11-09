@@ -17,7 +17,7 @@ def _desk(runner: FakeRunner, tmp_path, **limits):
     said, clock      = [], FakeClock()
     desk             = TaskDesk(tasks, opened.append, replies.append, said.append, clock=clock, **limits)
     context          = _context()
-    context.blackboard['call_panel'] = {'x': 1.0, 'y': 2.0, 'yaw': 0.0, 'frame': 'map'}
+    context.blackboard['call_panel'] = {'x': 1.0, 'y': 2.0, 'yaw': 0.0, 'frame': 'map', 'kind': 'place', 'floor': 'floor 2'}
 
     tasks.make_scratch = lambda run_id: str(tmp_path)
     desk.open('Go to the call panel', context)
@@ -35,7 +35,8 @@ def _command(d, **command):
 def test_a_session_plans_runs_a_step_and_ends_the_task(tmp_path):
     d = _desk(FakeRunner({'navigate_to': [Status.RUNNING, Status.SUCCESS]}), tmp_path)
 
-    assert d.opened[0]['state'] == 'open' and d.opened[0]['task'] == 'Go to the call panel' and 'call_panel' in d.opened[0]['places']
+    assert d.opened[0]['state'] == 'open' and d.opened[0]['task'] == 'Go to the call panel' 
+    assert d.opened[0]['places'] == {'call_panel': {'kind': 'place', 'floor': 'floor 2'}}
 
     _command(d, op='plan', subgoals=['walk to the call panel'])
     _command(d, op='run', skill='navigate_to', inputs={'goal': '{call_panel}'}, subgoal='walk to the call panel')

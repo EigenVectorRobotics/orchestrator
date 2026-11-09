@@ -24,6 +24,7 @@ def generate_launch_description():
         {
             'contracts_directory': LaunchConfiguration('contracts_directory'),
             'places_file':         LaunchConfiguration('places_file'),
+            'map_info':            LaunchConfiguration('map_info'),
             'vlm_base_url':        vlm_url,
         },
     ]
@@ -42,9 +43,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'places_file',
-            default_value=PathJoinSubstitution([FindPackageShare('orchestrator'), 'config', 'places.yaml']),
-            description='named map poses; for the elevator sim use its ros2/places.yaml'
+            default_value=PythonExpression(["'", PathJoinSubstitution([FindPackageShare('orchestrator'), 'config', 'places.yaml']),
+                                            "' if '", fake, "' == 'true' else ''"]),
+            description='named map poses; used when set (for the elevator sim its ros2/places.yaml). Default: none, '
+                        'the places come from map_info; with fake:=true, this package\'s places.yaml'
         ),
+        DeclareLaunchArgument('map_info', default_value='/map_info', description='the map_info node the places come from, live, when places_file is empty'),
         DeclareLaunchArgument('planner_backend', default_value='claude', description='claude | openai_compatible | scripted'),
         DeclareLaunchArgument('planner_model', default_value='claude-opus-5'),
         DeclareLaunchArgument('mode', default_value='task', description='task: a session does each task step by step (agent_cli); tree: planner_node writes a tree'),

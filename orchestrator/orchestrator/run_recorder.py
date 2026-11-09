@@ -86,13 +86,13 @@ class RunRecorderNode(Node):
         bag_topics  = self.declare_parameter('bag_topics', BAG_TOPICS).value
         agent_docs  = self.declare_parameter('agent_skills_dir', str(Path(get_package_share_directory('skill_registry')) / 'agent_skills')).value
 
-        contracts, places_file = declare_sources(self)
+        contracts, places_file, map_info = declare_sources(self)
 
         provenance = {
             'git':          [git_state(repo) for repo in find_repos(repo_roots)],
             'contracts':    directory_digests(Path(contracts), '*.yaml'),
             'agent_skills': directory_digests(Path(agent_docs), '*.md'),
-            'places':       {'path': places_file, 'sha256': file_digest(Path(places_file))},
+            'places':       {'path': places_file, 'sha256': file_digest(Path(places_file))} if places_file else {'map_info': map_info},
         }
 
         self.bag      = RosBag(self, list(bag_topics)) if record_bag else None

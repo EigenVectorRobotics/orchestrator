@@ -6,12 +6,16 @@
 
 A name becomes its blackboard key in lower case with underscores: "freight elevator call panel" is
 {freight_elevator_call_panel}. z is kept when a place has it: on a map of several storeys the route
-planner picks the storey by the goal's z, and a goal with z 0 snaps to the lowest one. Fields other
-than x, y, z and the yaw are ignored.
+planner picks the storey by the goal's z, and a goal with z 0 snaps to the lowest one. kind, floor
+and note are kept when a place has them (map_info gives all three), for the task agent. Other fields
+are ignored.
 """
 
 import re
 import math
+
+
+PLACE_INFO = ('kind', 'floor', 'note')    # for the task agent; the skills read only the pose
 
 
 class PlacesError(ValueError):
@@ -23,7 +27,7 @@ def place_key(name: str) -> str:
 
 
 def parse_places(raw: dict | None) -> dict:
-    """Blackboard key -> {x, y, yaw (radians), frame}"""
+    """Blackboard key -> {x, y, yaw (radians), frame}, and z, kind, floor and note when the place has them"""
     if not raw:
         return {}
 
@@ -50,5 +54,7 @@ def parse_places(raw: dict | None) -> dict:
 
         if 'z' in pose:
             places[key]['z'] = float(pose['z'])
+
+        places[key] |= {field: str(pose[field]) for field in PLACE_INFO if pose.get(field)}
 
     return places

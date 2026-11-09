@@ -1,6 +1,6 @@
 # Reasoning areas, knowledge graduation and map annotation (design, not built)
 
-Status: 2026-11-05. Built (on `main`; `scratch/<run_id>/` for the agent not committed): `orchestrator/knowledge.py` (claims, tiers, rules, log), the agent's `note` tool and the facts and beliefs in its prompt, the `knowledge` CLI. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, scratch for the planner, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
+Status: 2026-11-05. Built (on `main`; `scratch/<run_id>/` for the agent not committed): `orchestrator/knowledge.py` (claims, tiers, rules, log), the agent's `note` tool and the facts and beliefs in its prompt, the `knowledge` CLI. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, scratch for the planner, claims from `retrospect`. Places come from `map_info`'s latched `~/places` (2026-11-09), with kind, floor and note; floor links wait for a decision on the nav side. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
 
 Built rules: observation → belief at 2 runs and 2 sources; a belief is ready for a fact when the Wilson lower bound (z = 1.645) is at least 0.8, that is 11 confirmations with no contradiction; the operator approves it with `knowledge approve`, at a terminal only.
 

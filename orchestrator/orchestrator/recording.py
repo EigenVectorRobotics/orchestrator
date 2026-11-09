@@ -257,6 +257,7 @@ class Recorder:
             'blind':   bool(event.get('blind')),
             'started': event.get('time'),
             'task':    self.task,                 # the planner's last task; none for send_tree
+            'places':  event.get('places'),       # the blackboard at the start: the places and their poses
         })
         self.task    = None
         self.scratch = event.get('scratch')

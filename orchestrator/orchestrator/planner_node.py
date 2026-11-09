@@ -90,7 +90,7 @@ class PlannerNode(Node):
     def _plan(self, task: str, blind: bool):
         try:
             live   = self.live_skills if self.use_live_skills else None
-            result = self.planner.plan(task, self.places, live, blind)
+            result = self.planner.plan(task, self.places(), live, blind)
 
             if not result.ok:
                 return

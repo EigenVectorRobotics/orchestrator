@@ -20,7 +20,8 @@ def test_the_team_format_becomes_snake_case_keys_with_yaw_in_radians():
     places = parse_places(TEAM_FILE)
 
     assert set(places) == {'freight_elevator_call_panel', 'inside_freight_elevator_button_panel'}
-    assert places['freight_elevator_call_panel'] == pytest.approx({'x': 1.771, 'y': -1.356, 'z': -0.458, 'yaw': math.radians(-15.6), 'frame': 'map'})
+    assert places['freight_elevator_call_panel'] == {'x': 1.771, 'y': -1.356, 'z': -0.458, 'yaw': pytest.approx(math.radians(-15.6)),
+                                                     'frame': 'map', 'note': 'by hand'}
 
 
 def test_a_reposition_keeps_the_storey_of_its_base_goal():

@@ -85,7 +85,7 @@ class ExecutorNode(Node):
         self._refresh_timer      = self.create_timer(5.0, self.writer.refresh)
 
         self._publish_status('idle')
-        self.get_logger().info(f'{len(self.registry)} skills, {len(self.places)} places')
+        self.get_logger().info(f'{len(self.registry)} skills, {len(self.places())} places')
 
     def _make_desk(self) -> TaskDesk:
         """Task mode: a session (agent_cli) does each task step by step through these topics"""
@@ -250,7 +250,7 @@ class ExecutorNode(Node):
         return True
 
     def _new_context(self) -> Context:
-        return Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record,
+        return Context(blackboard=dict(self.places()), on_event=self._on_node_event, on_record=self._on_record,
                        run_id=uuid.uuid4().hex[:8])
 
     def _run_scratch(self, run_id: str) -> str | None:

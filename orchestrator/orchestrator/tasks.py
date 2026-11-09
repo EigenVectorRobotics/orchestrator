@@ -219,7 +219,7 @@ class Tasks:
         self.task                = task
         self.tracer.fields = {'run_id': task.run_id}
         self.tracer.emit('task_started', f'task {task.run_id}: {task.name}', name=task.name, blind=task.blind,
-                         scratch=task.context.scratch_dir)
+                         scratch=task.context.scratch_dir, places=dict(task.context.blackboard))
 
     def _start_step(self, step: _Step):
         self.task.context.abort_reason = ''             # an abort ends one step; the task agent decides what is next
