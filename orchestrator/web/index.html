@@ -157,17 +157,16 @@ const token = (() => {
 const escaped = value => String(value ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const clock = seconds => new Date((seconds || 0) * 1000).toTimeString().slice(3, 8);
 const said = document.getElementById('said');
+const say = (message, bad) => { said.textContent = message; said.className = 'said' + (bad ? ' bad' : ''); };
 
 async function send(path, body) {
   try {
     const answer = await fetch(path, { method: 'POST', body: JSON.stringify(body),
                                        headers: { 'Content-Type': 'application/json', 'X-Mission-Token': token } });
     const reply = await answer.json();
-    said.textContent = reply.message || (answer.ok ? 'sent' : 'refused');
-    said.className = 'said' + (reply.ok ? '' : ' bad');
+    say(reply.message || (answer.ok ? 'sent' : 'refused'), !reply.ok);
   } catch (error) {
-    said.textContent = 'the adapter did not answer: ' + error;
-    said.className = 'said bad';
+    say('the adapter did not answer: ' + error, true);
   }
 }
 
@@ -284,6 +283,10 @@ async function poll() {
     if (state.seq < seq) { events = []; seq = 0; return; }   // the adapter restarted: read the trace again
     seq = state.seq || seq;
     keep = state.keep || keep;
+    // a page opened without the link's token can read, but every command is refused. The node says when it needs one
+    once('token', String(state.token_needed), () => {
+      if (!token && state.token_needed) say('no token in this link: open the link the node logs, or a command is refused', true);
+    });
     if (state.trace && state.trace.length) {
       events = events.concat(state.trace).slice(-keep);
       renderLog();
@@ -299,10 +302,6 @@ async function poll() {
 
 document.getElementById('where').textContent = 'Vector · G1 · ' + location.host;
 
-if (!token) {                   // a page opened without the link's token can read, but every command is refused
-  said.textContent = 'no token in this link: open the one the node logs, or commands are refused';
-  said.className = 'said bad';
-}
 poll();
 setInterval(poll, 1000);
 </script>

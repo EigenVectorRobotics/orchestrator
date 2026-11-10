@@ -100,7 +100,7 @@ def generate_launch_description():
             executable='mission_control',
             output='screen',
             parameters=[params_file, {'port': ParameterValue(LaunchConfiguration('mission_control_port'), value_type=int),
-                                      'token': LaunchConfiguration('mission_control_token'),
+                                      'token': ParameterValue(LaunchConfiguration('mission_control_token'), value_type=str),
                                       'web_dir': PathJoinSubstitution([FindPackageShare('orchestrator'), 'web'])}],
             condition=IfCondition(LaunchConfiguration('mission_control'))
         ),

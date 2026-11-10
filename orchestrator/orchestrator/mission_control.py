@@ -77,7 +77,7 @@ class MissionState:
 
 def token_ok(expected: str, given: str) -> bool:
     """True when a command carries the node's token. `off` takes the check away, for a bench with no agent on it"""
-    return expected == 'off' or (bool(expected) and hmac.compare_digest(expected, given or ''))
+    return expected == 'off' or (bool(expected) and hmac.compare_digest(expected.encode(), (given or '').encode()))
 
 
 class Camera:
@@ -187,10 +187,12 @@ class Commands:
 class MissionApi:
     """The paths under /api; the node's web server does the HTTP and the files"""
 
-    def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None):
-        self.state  = state
-        self.camera = camera or Camera()
-        self.posts  = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel}
+    def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None,
+                 token_needed: bool = True):
+        self.state        = state
+        self.camera       = camera or Camera()
+        self.token_needed = token_needed     # the page says so when it holds no token; it cannot see the parameter
+        self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel}
 
     def get(self, path: str, query: dict) -> tuple[int, dict]:
         if path != '/api/state':
@@ -201,7 +203,7 @@ class MissionApi:
         except (TypeError, ValueError):
             after = 0
 
-        return 200, {**self.state.snapshot(after), 'camera': self.camera.state()}
+        return 200, {**self.state.snapshot(after), 'camera': self.camera.state(), 'token_needed': self.token_needed}
 
     def post(self, path: str, body: dict) -> tuple[int, dict]:
         command = self.posts.get(path)

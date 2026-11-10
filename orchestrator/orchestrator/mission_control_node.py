@@ -2,7 +2,7 @@
 
 It runs where the executor runs (the NUC), with a small web server on 127.0.0.1:8080. From the laptop:
 
-    ssh -L 8080:localhost:8080 vector@vector-nuc        # then open http://localhost:8080
+    ssh -L 8080:localhost:8080 vector@vector-nuc        # then open the link the node logs, with its token
 
 It reads the state (executor status, open task, step request, recorder, trace) and publishes a task, a step
 decision and a cancel. It never calls a skill's own interface. The state and the rules of a command are in
@@ -66,6 +66,7 @@ class MissionControlNode(Node):
         host    = self.declare_parameter('host', '127.0.0.1').value      # localhost only: reach it over ssh -L
         port    = self.declare_parameter('port', 8080).value
         token   = self.declare_parameter('token', '').value or secrets.token_urlsafe(16)   # 'off': no token
+        off     = token == 'off'
         web_dir = Path(self.declare_parameter('web_dir', '').value or share_web()).expanduser()
 
         image_topic   = self.declare_parameter('image_topic', '/camera/camera/color/image_raw').value
@@ -87,7 +88,8 @@ class MissionControlNode(Node):
             self.create_subscription(Image, image_topic, self.camera.put, SENSOR_QOS),
         ]
 
-        self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel), self.camera)
+        self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel),
+                                       self.camera, token_needed=not off)
         files              = read_web(web_dir)       # before the port is bound: a missing page is not half a server
         self.server        = ThreadingHTTPServer((host, port), Handler)
         self.server.api    = self.api
@@ -95,10 +97,13 @@ class MissionControlNode(Node):
         self.server.token  = token
         self._web          = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._web.start()
-        link = f'http://{host}:{port}/' + ('' if token == 'off' else f'?t={token}')
+        link = f'http://{host}:{port}/' + ('' if off else f'?t={token}')
         self.get_logger().info(f'mission control on {link} (page from {web_dir})')
-        self.get_logger().info('open that link, with its token: a command without the token is refused'
-                               if token != 'off' else 'token off: anything that reaches this port can drive the robot')
+
+        if off:
+            self.get_logger().warning('token off: anything that reaches this port can drive the robot')
+        else:
+            self.get_logger().info('open that link, with its token: a command without the token is refused')
 
     # ========== State in ==========
 
@@ -204,16 +209,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self._from_this_page():
-            return self._json(403, {'ok': False, 'message': 'a command comes from the Mission Control page, as JSON'})
+            return self._refused(403, 'a command comes from the Mission Control page, as JSON')
 
-        if not token_ok(self.server.token, self.headers.get('X-Mission-Token', '')):
-            return self._json(403, {'ok': False, 'message': 'wrong token: open the page from the link in the node log'})
+        if not token_ok(self.server.token, self.headers.get('X-Mission-Token')):
+            return self._refused(403, 'wrong token: open the page from the link in the node log')
 
         length = int(self.headers.get('Content-Length') or 0)
 
         if length > MAX_BODY:
-            self.close_connection = True            # the body stays unread: it must not be read as the next request
-            return self._json(413, {'ok': False, 'message': 'the body is too long'})
+            return self._refused(413, 'the body is too long')
 
         try:
             body = json.loads(self.rfile.read(length) or b'{}')
@@ -231,6 +235,12 @@ class Handler(BaseHTTPRequestHandler):
         return (self.headers.get('Content-Type', '').split(';')[0].strip() == 'application/json'
                 and self.headers.get('Host', '').rsplit(':', 1)[0].strip('[]') in local
                 and (origin is None or urlparse(origin).hostname in local))
+
+    def _refused(self, code: int, message: str):
+        """A refusal that leaves the body unread. The connection closes, because the body it did not read must not
+        be read as the next request on a kept-alive socket"""
+        self.close_connection = True
+        self._json(code, {'ok': False, 'message': message})
 
     def _json(self, code: int, payload: dict):
         self._send(code, json.dumps(payload, default=str).encode(), 'application/json')

@@ -123,3 +123,4 @@ def test_a_command_needs_the_node_token():
     assert not token_ok('s3cret', 'guess') and not token_ok('s3cret', '')
     assert not token_ok('', '') and not token_ok('', 'anything')   # no token set is not an open door
     assert token_ok('off', '') and token_ok('off', 'anything')     # off is the one way to take the check away
+    assert not token_ok('s3cret', 'café')                           # a header byte over 0x7F is refused, not a crash
