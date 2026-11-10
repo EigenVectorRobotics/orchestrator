@@ -270,7 +270,8 @@ def _step(node, arguments) -> int:
         return 0
 
     reply = _request_reply(node, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, {'id': request['id'], 'reason': arguments.reason,
-                                                                         'approve': arguments.action == 'approve'}, 5.0)
+                                                                         'approve': arguments.action == 'approve',
+                                                                         'by': 'agent_cli'}, 5.0)
 
     if reply is None:
         return 1
