@@ -11,7 +11,6 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
-from ament_index_python.packages import get_package_share_directory
 
 from .trace import Tracer
 from .tasks import parse_task_request
@@ -29,14 +28,12 @@ class PlannerNode(Node):
 
         self.registry, self.places, self.essential_devices = load_skills(self)
 
-        registry_share = Path(get_package_share_directory('skill_registry'))
-
         self.backend_name        = self.declare_parameter('backend', 'claude').value     # claude | openai_compatible | scripted
         self.model               = self.declare_parameter('model', 'claude-opus-5').value
         self.effort              = self.declare_parameter('effort', 'high').value
         self.base_url            = self.declare_parameter('base_url', '').value          # openai_compatible only
         self.api_key_env         = self.declare_parameter('api_key_env', 'OPENAI_API_KEY').value
-        self.scripted_tree       = self.declare_parameter('scripted_tree', str(registry_share / 'trees' / 'call_elevator.xml')).value
+        self.scripted_tree       = self.declare_parameter('scripted_tree', '').value        # scripted only: a tree file
         self.max_attempts        = self.declare_parameter('max_attempts', 3).value
         self.use_live_skills     = self.declare_parameter('use_live_skills', True).value
         self.auto_run            = self.declare_parameter('auto_run', True).value
@@ -70,6 +67,8 @@ class PlannerNode(Node):
             return OpenAICompatibleBackend(self.base_url, self.model, self.api_key_env)
 
         if self.backend_name == 'scripted':
+            if not self.scripted_tree:
+                raise ValueError('the scripted backend needs scripted_tree, a tree file')
             tree = Path(self.scripted_tree).read_text()
             return ScriptedBackend([f'Scripted plan from {Path(self.scripted_tree).name}.\n<tree>\n{tree}\n</tree>'])
 

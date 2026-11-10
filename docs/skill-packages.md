@@ -69,7 +69,7 @@ A behavior tree is not the planner's normal output. It is a composition that the
 - **The planner calls a graduated tree as one skill**, for example `call_elevator`.
 - **Blind segments need a tree.** In the cabin there is no cloud, so the agent cannot work step by step there. Only a tree at `wip` or `tested` can run a blind segment.
 
-Experiment: can the agent find the compositions alone? For the test, the agent must not see the trees that people wrote (`skill_registry/trees/`). Hide them from the planner's catalog and from `agent_read_roots`, and check what else gives the steps away (for example the procedure and the experience log in `manipulation_recovery.md`). Keep them outside the agent's view, to compare with what the agent makes.
+Experiment: can the agent find the compositions alone? For the test, the agent must not see the trees that people wrote (on `main` and `ltx-dev`; this branch has none). Hide them from the planner's catalog and from `agent_read_roots`, and check what else gives the steps away (for example the procedure and the experience log in `manipulation_recovery.md`). Keep them outside the agent's view, to compare with what the agent makes.
 
 Not built yet: the step-by-step mode of the planner, the run boundary per task (now `started` per tree), a contract for a tree, and the agent's tool to write a tree from run bundles.
 

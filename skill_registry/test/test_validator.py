@@ -5,8 +5,8 @@ import pytest
 from skill_registry import ContractError, Registry, TreeValidator, ValidatorConfig, parse_contract
 
 
-PACKAGE   = Path(__file__).resolve().parent.parent
-CONTRACTS = PACKAGE / 'contracts'
+DATA      = Path(__file__).resolve().parent / 'data'
+CONTRACTS = DATA / 'contracts'
 
 
 def _tree(body: str) -> str:
@@ -31,7 +31,7 @@ def test_example_tree_is_valid_blind():
     registry  = Registry.from_directory(CONTRACTS)
     validator = TreeValidator(registry, ValidatorConfig(blind=True))
 
-    assert validator.is_valid((PACKAGE / 'trees' / 'call_elevator.xml').read_text())
+    assert validator.is_valid((DATA / 'trees' / 'call_elevator.xml').read_text())
 
 
 def test_unknown_skill():
@@ -155,9 +155,9 @@ def test_subtree_is_judged_where_it_is_called():
     assert not validator.is_valid(called_in_fallback.replace('<door_open/>', '<SubTree ID="check"/>'))
 
 
-def test_empty_contracts_directory_is_an_error(tmp_path):
-    with pytest.raises(ContractError, match='no contracts'):
-        Registry.from_directory(tmp_path)
+def test_an_empty_or_missing_contracts_directory_is_an_empty_library(tmp_path):
+    assert len(Registry.from_directory(tmp_path)) == 0
+    assert len(Registry.from_directory(tmp_path / 'not_yet')) == 0
 
 
 def test_vlm_question_fields_must_be_inputs():

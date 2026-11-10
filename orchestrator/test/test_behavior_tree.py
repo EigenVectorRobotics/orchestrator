@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from skill_registry import Registry
@@ -7,9 +5,9 @@ from skill_registry import Registry
 from orchestrator.behavior_tree import BehaviorTree, Context, Status, TreeError
 from orchestrator.skill_leaf import make_leaf_factory
 
+from data_paths import CONTRACTS, TREES
 
-CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
-TREES     = Path(__file__).resolve().parents[2] / 'skill_registry' / 'trees'
+
 
 
 class FakeClock:

@@ -54,7 +54,8 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.executors import SingleThreadedExecutor
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
-from ament_index_python.packages import get_package_share_directory
+
+from skill_registry import agent_skills_dir
 
 from .images import ImageError, image_to_jpeg
 from .agent_ros import RosReader, RosReadError
@@ -120,7 +121,7 @@ def _summary(request: dict, full: bool) -> str:
     lines = [
         f'call {request["id"]} ({request["state"]}), skill {request["skill"]}, opened {time.time() - request["opened"]:.0f} s ago',
         request['task'],
-        f'skill document: {Path(get_package_share_directory("skill_registry")) / "agent_skills" / (request["skill"] + ".md")}',
+        f'skill document: {agent_skills_dir() / (request["skill"] + ".md")}',
     ]
     failure = request.get('failure')
     label   = 'failure'

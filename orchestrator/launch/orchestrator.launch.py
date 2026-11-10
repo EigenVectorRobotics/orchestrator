@@ -1,9 +1,11 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import Node
+
+from skill_registry import agent_dir
 
 
 def generate_launch_description():
@@ -23,6 +25,7 @@ def generate_launch_description():
         params_file,
         {
             'contracts_directory': LaunchConfiguration('contracts_directory'),
+            'agent_skills_dir':    PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'agent_skills']),
             'places_file':         LaunchConfiguration('places_file'),
             'map_info':            LaunchConfiguration('map_info'),
             'vlm_base_url':        vlm_url,
@@ -39,19 +42,18 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'agent_dir',
-            default_value=PathJoinSubstitution([EnvironmentVariable('EIGEN_VECTOR_WS', default_value=EnvironmentVariable('HOME')), 'agent']),
-            description="the agent's own folder in the workspace: contracts/ (write_skill) and docs/ (what it writes about the stack)"
+            default_value=str(agent_dir()),
+            description="the agent's own folder in the workspace: contracts/ (write_skill), agent_skills/ and docs/ (what it writes about the stack)"
         ),
         DeclareLaunchArgument('task_agent', default_value='session',
                               description='task mode: session (a session outside uses agent_cli) or codex (the executor asks codex exec for each step)'),
         DeclareLaunchArgument('codex_model', default_value='gpt-6-astra', description='task_agent codex: the model, with the codex login'),
-        DeclareLaunchArgument('write_skill', default_value='false',
-                              description='skill discovery: the agent saves contracts in <agent_dir>/contracts, and only those load'),
+        DeclareLaunchArgument('write_skill', default_value='true',
+                              description='the agent may save contracts in contracts_directory; false locks the library'),
         DeclareLaunchArgument(
             'contracts_directory',
-            default_value=PythonExpression(["'", LaunchConfiguration('agent_dir'), "/contracts' if '", LaunchConfiguration('write_skill'),
-                                            "' == 'true' else '", PathJoinSubstitution([FindPackageShare('skill_registry'), 'contracts']), "'"]),
-            description="the skill contracts that load: the package's, or with write_skill:=true the agent's"
+            default_value=PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'contracts']),
+            description='the skill contracts that load; the package has none, the agent writes or seeds them'
         ),
         DeclareLaunchArgument(
             'places_file',

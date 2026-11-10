@@ -12,10 +12,9 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
-from ament_index_python.packages import get_package_share_directory
 
 from .contract import ContractError
-from .registry import GraphSnapshot, Registry, is_present
+from .registry import GraphSnapshot, Registry, agent_contracts_dir, is_present
 
 
 # Volatile, so it matches any publisher. Skill servers announce again every few seconds
@@ -29,9 +28,7 @@ class RegistryNode(Node):
     def __init__(self):
         super().__init__('skill_registry')
 
-        default_directory = Path(get_package_share_directory('skill_registry')) / 'contracts'
-
-        self.contracts_directory = self.declare_parameter('contracts_directory', str(default_directory)).value
+        self.contracts_directory = self.declare_parameter('contracts_directory', str(agent_contracts_dir())).value
         self.max_age_s           = self.declare_parameter('max_age_s', 5.0).value
         self.vlm_base_url        = self.declare_parameter('vlm_base_url', 'http://vector-thor:8090/v1').value
         self.vlm_up              = False

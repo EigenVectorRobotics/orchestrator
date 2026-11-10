@@ -1,4 +1,3 @@
-from glob import glob
 from setuptools import setup
 
 
@@ -12,9 +11,6 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', [f'resource/{PACKAGE_NAME}']),
         (f'share/{PACKAGE_NAME}', ['package.xml']),
-        (f'share/{PACKAGE_NAME}/contracts', glob('contracts/*.yaml')),
-        (f'share/{PACKAGE_NAME}/trees', glob('trees/*.xml')),
-        (f'share/{PACKAGE_NAME}/agent_skills', glob('agent_skills/*.md')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

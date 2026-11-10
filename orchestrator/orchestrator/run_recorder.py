@@ -18,7 +18,8 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
-from ament_index_python.packages import get_package_share_directory
+
+from skill_registry import agent_skills_dir
 
 from .trace import TRACE_QOS, TRACE_TOPIC
 from .node_setup import declare_sources
@@ -84,7 +85,7 @@ class RunRecorderNode(Node):
         repo_roots  = self.declare_parameter('repo_roots', ['/home/vector/orchestrator_ws/src', '/home/vector/eigen_vector_ws/src']).value
         record_bag  = self.declare_parameter('bag', True).value
         bag_topics  = self.declare_parameter('bag_topics', BAG_TOPICS).value
-        agent_docs  = self.declare_parameter('agent_skills_dir', str(Path(get_package_share_directory('skill_registry')) / 'agent_skills')).value
+        agent_docs  = self.declare_parameter('agent_skills_dir', str(agent_skills_dir())).value
 
         contracts, places_file, map_info = declare_sources(self)
 

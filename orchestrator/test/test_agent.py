@@ -16,11 +16,10 @@ from orchestrator.agent_sandbox import SandboxConfig, run_python
 from orchestrator.behavior_tree import BehaviorTree, Context, Status
 from orchestrator.skill_leaf import make_leaf_factory
 
+from data_paths import AGENT_SKILLS, CONTRACTS, TREES
+
 
 ROOT       = Path(__file__).resolve().parents[2]
-CONTRACTS  = ROOT / 'skill_registry' / 'contracts'
-SKILLS_DIR = ROOT / 'skill_registry' / 'agent_skills'
-TREES      = ROOT / 'skill_registry' / 'trees'
 PANEL      = {'x': 1.0, 'y': 2.0, 'yaw': math.pi / 2, 'frame': 'map'}
 
 
@@ -64,7 +63,7 @@ MISS    = (False, 'Planning failed: empty trajectory', STALLED)
 
 
 def _config(tmp_path: Path) -> AgentConfig:
-    return AgentConfig(skills_dir=str(SKILLS_DIR), read_roots=[str(ROOT)], sandbox=SandboxConfig(scratch_dir=str(tmp_path / 'scratch')))
+    return AgentConfig(skills_dir=str(AGENT_SKILLS), read_roots=[str(ROOT)], sandbox=SandboxConfig(scratch_dir=str(tmp_path / 'scratch')))
 
 
 def _run(tree: BehaviorTree, max_ticks: int = 500) -> Status:
@@ -121,7 +120,7 @@ def test_decide_checks_the_phase_and_the_fields(tmp_path):
 def test_read_file_stays_inside_its_roots(tmp_path):
     session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
 
-    out     = session.call('read_file', {'path': str(SKILLS_DIR / 'manipulation_recovery.md'), 'limit': 1})
+    out     = session.call('read_file', {'path': str(AGENT_SKILLS / 'manipulation_recovery.md'), 'limit': 1})
 
     assert not out.is_error and '---' in out.text
     assert session.call('read_file', {'path': '/etc/passwd'}).is_error

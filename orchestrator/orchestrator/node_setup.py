@@ -6,9 +6,8 @@ from pathlib import Path
 from typing import Callable
 
 from rclpy.node import Node
-from ament_index_python.packages import get_package_share_directory
 
-from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry
+from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry, agent_contracts_dir
 
 from .places import parse_places
 from .map_places import MapInfoPlaces
@@ -26,9 +25,7 @@ def load_places(path: str) -> dict:
 def declare_sources(node: Node) -> tuple[str, str, str]:
     """Declare contracts_directory, places_file and map_info: where every node loads its skills and places from.
     A places_file is used when it is set; else the places come from the map_info node (e.g. /map_info), live"""
-    registry_share = Path(get_package_share_directory('skill_registry'))
-
-    contracts_directory = node.declare_parameter('contracts_directory', str(registry_share / 'contracts')).value
+    contracts_directory = node.declare_parameter('contracts_directory', str(agent_contracts_dir())).value
     places_file         = node.declare_parameter('places_file', '').value
 
     map_info            = node.declare_parameter('map_info', '/map_info').value

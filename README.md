@@ -4,7 +4,7 @@ Agentic planning for the G1. An LLM writes a behavior tree, a validator checks i
 
 | Package | Holds |
 |---|---|
-| `skill_registry` | Skill contracts (`contracts/*.yaml`), the tree validator, live-skill discovery, example trees |
+| `skill_registry` | The contract schema and deny list, the tree validator, live-skill discovery. No skills: the agent writes or seeds them in `<agent_dir>/contracts` |
 | `orchestrator` | Tree executor, ROS skill runner, planner, trace, fake robot |
 
 ## How it works
@@ -19,11 +19,11 @@ Blind mode (`/orchestrator/tree_blind`, or `"blind": true`): the tree cannot use
 
 ## Add a skill
 
-Write one YAML file in `skill_registry/contracts/`. No code is necessary if the skill is an action, service, topic or VLM question. See `cancel_nav.yaml` (topic), `navigate_to.yaml` and `press_button.yaml` (action), `set_profile.yaml` (service with an enum), and `door_open.yaml` (VLM). An input's `field` can index a sequence: `set_press_offset.yaml` sets `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters; a service reply with per-item `successful` flags fails if any is false. A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`; give z on the two-storey map, or the route planner takes the lowest storey. Two read-only transports run inside the executor: `graph` checks that each listed topic has at most its allowed publishers, not counting the executor's own (`no_stale_publishers.yaml`), and `press_tip` judges where the end effector got to in the last press (`press_reached.yaml`).
+This branch has no skills. The agent writes them (`write_skill`, `docs/skill-discovery.md`) in `<agent_dir>/contracts` (launch argument `agent_dir`, default `$EIGEN_VECTOR_WS/agent`). The hand-written contracts and trees are on `main` and `ltx-dev`. One YAML file is one skill. No code is necessary if the skill is an action, service, topic or VLM question. An input's `field` can index a sequence: it can set `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters; a service reply with per-item `successful` flags fails if any is false. A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`; give z on the two-storey map, or the route planner takes the lowest storey. Two read-only transports run inside the executor: `graph` checks that each listed topic has at most its allowed publishers, not counting the executor's own, and `press_tip` judges where the end effector got to in the last press.
 
 ## Agent skills
 
-An agent skill is an LLM with read-only tools that decides how a tree recovers. Its contract has `transport: agent` and names a document in `skill_registry/agent_skills/`, which is the agent's system prompt. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort; after a reposition walk it checks that the button is in view. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). See `skill_registry/trees/call_elevator_agentic.xml` and, on the robot, `freight_elevator_down_floor1_agentic.xml`.
+An agent skill is an LLM with read-only tools that decides how a tree recovers. Its contract has `transport: agent` and names a document in `<agent_dir>/agent_skills/`, which is the agent's system prompt. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort; after a reposition walk it checks that the button is in view. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). Both documents are on `main` and `ltx-dev`.
 
 - **Evidence.** Every finished action call is recorded in the tree's history; a failure keeps the action's feedback over time. Both go to the trace as `record` events, and to the agent through `get_failure` and `get_history`.
 - **Tools.** `read_file`, `ros_read` (TF, one message, the topic list), `get_image`, `run_python` (numpy, scipy, pinocchio, coal), `decide`. Nothing publishes. `run_python` runs under an audit hook (no ROS, network, processes, or writes outside its scratch directory): a guard against mistakes, not a security boundary, since the NUC allows no user namespaces.
@@ -88,19 +88,21 @@ ros2 run orchestrator knowledge approve C-0007 [--text "the exact text"]
 ## Run on a laptop, with no robot
 
 ```bash
-ros2 launch orchestrator orchestrator.launch.py fake:=true planner_backend:=scripted
+ros2 launch orchestrator orchestrator.launch.py fake:=true task_agent:=codex
 ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the elevator and call it'}"
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, e.g. `~/maps/two_floor_clean.places.yaml`), whose names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}`. On the robot, run `trees/freight_elevator_down_floor1_agentic.xml` (the whole task: call panel, down, door, cabin, floor 1) with that file; `docs/RUNBOOK.md` has the bring-up and the other trees. `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node.
+The library starts empty, so the agent gives up until it writes its own skills (`write_skill`) or a person puts contracts in `<agent_dir>/contracts`. To exercise the engine alone, run the tests.
+
+All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, e.g. `~/maps/two_floor_clean.places.yaml`), whose names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}`. `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node.
 
 `fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback), `nav_blocked:=true` (every route turns blocked until cancelled; navigate_to fails after 10 s), `vlm_answers:=door=closed`, `nav_time_s:=5.0`, `vlm_port`.
 
 Run one tree with no planner:
 
 ```bash
-ros2 run orchestrator send_tree skill_registry/trees/call_elevator.xml --blind
+ros2 run orchestrator send_tree my_tree.xml --blind
 ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 ```
 
@@ -110,7 +112,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 |---|---|
 | `claude` (default, model `claude-opus-5`) | `pip install anthropic`, and `ANTHROPIC_API_KEY` or an `ant auth login` profile |
 | `openai_compatible` | `base_url`, `model`, and the key in the env var that `api_key_env` names. For GPT, Gemini's OpenAI endpoint, vLLM |
-| `scripted` | Nothing. It replies with `scripted_tree` |
+| `scripted` | `scripted_tree`, a tree file. It replies with that tree |
 
 ## Not done yet
 

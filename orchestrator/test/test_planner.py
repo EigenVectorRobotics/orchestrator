@@ -1,13 +1,11 @@
-from pathlib import Path
-
 from skill_registry import Registry
 
 from orchestrator.planner import Planner, build_system_prompt
 from orchestrator.llm_backends import BackendError, Reply, ScriptedBackend
 
+from data_paths import CONTRACTS, TREES
 
-CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
-TREES     = Path(__file__).resolve().parents[2] / 'skill_registry' / 'trees'
+
 PLACES    = {'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}
 
 BAD_TREE  = '<root BTCPP_format="4"><BehaviorTree ID="t"><Sequence><navigate_to goal="{call_panel}"/><door_open/></Sequence></BehaviorTree></root>'

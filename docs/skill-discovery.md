@@ -6,7 +6,7 @@ Status: draft for review, 2026-11-05. Branch `feat/skill-discovery`. Related: `d
 
 - The agent finds its base skills itself: it reads the stack's code and the live ROS graph, and writes a contract for each interface that it can use. This seeds the skill library.
 - The skills then get better with use: graduation counts, new versions after failures, compositions (BTs) from subgoals that work again and again.
-- The test: compare what the agent finds and builds with the skills that people wrote (the 32 contracts, the trees, `manipulation_recovery.md`).
+- The test: compare what the agent finds and builds with the skills that people wrote (the 32 contracts, the trees, `manipulation_recovery.md`, on `main` and `ltx-dev`).
 
 ## What the agent can use
 
@@ -27,11 +27,12 @@ People write only a short agent runbook (`docs/agent/runbook.md`): what the robo
 
 **The session too.** In this experiment the agent is a Claude Code session with a shell on the NUC. The checks above cover what goes through the executor and the sandbox; a shell can still call `ros2 service call` directly. So the session runs with its own permissions: shell commands only through `agent_cli` (without `step approve|refuse`) and read-only tools, set in the session's config (step 3).
 
-**Hidden for the test** (kept in the repo for the comparison, out of the agent's view):
-- the hand-written skills: all 32 contracts except `ask_vlm` (so also `door_open` and `button_lit`, which are `ask_vlm` with a fixed question), the trees, the agent skills `manipulation_recovery.md` and `press_judge.md`, and the experience log;
-- the orchestrator's source and `skill_registry/`, because they hold the above;
+**Not on this branch** (2026-11-09, branch `agentic`): the hand-written skills, that is all 32 contracts (`ask_vlm` too), the trees, the agent skills `manipulation_recovery.md` and `press_judge.md`, and the experience log. They stay on `main` and `ltx-dev` for the comparison. The agent starts with zero skills; it can write `ask_vlm` itself, because the `vlm` transport is part of the executor and the `vlm` package is in `src/`. If it does not find it, we seed it.
+
+**Hidden for the test** (out of the agent's view):
+- the orchestrator's source and `skill_registry/`: the tests keep copies of some contracts and trees in `skill_registry/test/data/`;
 - `docs/RUNBOOK.md` (Tingxuan's), because it gives the steps of the elevator task.
-- How: the launch argument `contracts_directory` points at the agent's package (`<workspace>/agent/contracts`, e.g. `~/eigen_vector_orch_ws/agent/contracts`, which starts with `ask_vlm` only), and `agent_read_roots` leave out the hidden paths.
+- How: the launch argument `contracts_directory` defaults to the agent's folder (`<agent_dir>/contracts`, e.g. `~/eigen_vector_orch_ws/agent/contracts`, empty at the start), and `agent_read_roots` leave out the hidden paths.
 
 ## Discovery
 
@@ -39,7 +40,7 @@ People write only a short agent runbook (`docs/agent/runbook.md`): what the robo
 2. The agent reads the stack repos in the workspace's `src/` (read-only) and the live graph (`ros_read` topics, `interface_show`), and writes:
    - a contract for each interface it can use, at `experimental`, with a description, inputs, outputs, preconditions, a timeout and the device;
    - a page per package: what it does, its interfaces, the frames and units.
-3. `write_skill` (built: `agent_cli write-skill FILE`, `skill_writer.py`) checks each contract (the schema, the deny list, its references, its ROS types and fields, as `contract_check.py`), and saves it in the agent's folder with a mark on the first line (`AGENT_MARK`). It then loads through `Registry.refresh`, the one way in while the nodes run: the executor (at once after a write, and every 5 s) and `registry_node` (every 5 s) load new and changed files, each checked by the deny list and its references (and its ROS types, in the executor). A file with the mark always loads at maturity `untested`, so the agent does not grade its own skills even when it writes the file directly; a file's name must be its skill's name. A new version moves the old file to `old/`. The agent cannot replace a contract that a person wrote (no mark). Launch with `write_skill:=true` (the contracts are then `<agent_dir>/contracts`; `agent_dir` defaults to `$EIGEN_VECTOR_WS/agent`); it is off by default, so the agent never writes into the package's hand-written contracts.
+3. `write_skill` (built: `agent_cli write-skill FILE`, `skill_writer.py`) checks each contract (the schema, the deny list, its references, its ROS types and fields, as `contract_check.py`), and saves it in the agent's folder with a mark on the first line (`AGENT_MARK`). It then loads through `Registry.refresh`, the one way in while the nodes run: the executor (at once after a write, and every 5 s) and `registry_node` (every 5 s) load new and changed files, each checked by the deny list and its references (and its ROS types, in the executor). A file with the mark always loads at maturity `untested`, so the agent does not grade its own skills even when it writes the file directly; a file's name must be its skill's name. A new version moves the old file to `old/`. The agent cannot replace a contract that a person wrote (no mark). It is on by default, because the library starts empty; `write_skill:=false` locks it, so only a person can add a contract. The contracts are always `<agent_dir>/contracts` (`agent_dir` defaults to `$EIGEN_VECTOR_WS/agent`).
    - `agent_cli interface NAME|TYPE` (built, read-only): the types of a topic, service or action in the live graph, or of one type, with their fields.
 4. The operator reviews the seeded library before the first robot use, as the graduation gate says.
 

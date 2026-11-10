@@ -1,3 +1,4 @@
+import os
 import time
 import logging
 import threading
@@ -9,6 +10,19 @@ import yaml
 
 from .deny import DenyList
 from .contract import Contract, ContractError, load_contract, parse_contract
+
+
+def agent_dir() -> Path:
+    """The agent's own folder: contracts/ (write_skill), agent_skills/ and docs/; the package has no skills"""
+    return Path(os.environ.get('EIGEN_VECTOR_WS', Path.home())) / 'agent'
+
+
+def agent_contracts_dir() -> Path:
+    return agent_dir() / 'contracts'
+
+
+def agent_skills_dir() -> Path:
+    return agent_dir() / 'agent_skills'
 
 
 class Registry:
@@ -27,12 +41,8 @@ class Registry:
 
     @classmethod
     def from_directory(cls, directory: Path, deny: DenyList | None = None) -> 'Registry':
-        """The contracts in directory, without those the deny list refuses (see registry.denied)"""
-        paths = sorted(Path(directory).glob('*.yaml'))
-
-        if not paths:
-            raise ContractError(f'no contracts (*.yaml) in {directory}')
-
+        """The contracts in directory, without those the deny list refuses (see registry.denied); none if it is empty"""
+        paths    = sorted(Path(directory).glob('*.yaml'))
         registry = cls([load_contract(path) for path in paths], deny)
         registry._drop_dependents_of_denied()
         registry.check_references()

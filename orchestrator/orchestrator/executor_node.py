@@ -12,7 +12,8 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
-from ament_index_python.packages import get_package_share_directory
+
+from skill_registry import agent_skills_dir
 
 from .agent import Agent, AgentConfig
 from .agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
@@ -97,10 +98,12 @@ class ExecutorNode(Node):
         publish_reply   = lambda message: reply_publisher.publish(String(data=json.dumps(message, default=str)))
         knowledge       = self.agent.config.knowledge if self.agent else None
         gate            = self._make_gate() if self.declare_parameter('step_gate', True).value else None
-        writes          = self.declare_parameter('write_skill', False).value
+        writes          = self.declare_parameter('write_skill', True).value
 
         if writes:
             self.get_logger().info(f'write_skill on: the agent saves contracts in {self.writer.directory}')
+        else:
+            self.get_logger().warning('write_skill off: only a person can add a contract')
         desk            = TaskDesk(
             self.tasks,
             lambda message: open_publisher.publish(String(data=json.dumps(message, default=str))),
@@ -173,7 +176,7 @@ class ExecutorNode(Node):
         base_url       = self.declare_parameter('agent_base_url', '').value              # openai_compatible only
         api_key_env    = self.declare_parameter('agent_api_key_env', 'OPENAI_API_KEY').value
         script         = self.declare_parameter('agent_script', '[]').value              # scripted: JSON, one call list per agent call
-        skills_dir     = self.declare_parameter('agent_skills_dir', str(Path(get_package_share_directory('skill_registry')) / 'agent_skills')).value
+        skills_dir     = self.declare_parameter('agent_skills_dir', str(agent_skills_dir())).value
         read_roots     = self.declare_parameter('agent_read_roots', ['/home/vector/eigen_vector_ws', skills_dir]).value
         python_timeout = self.declare_parameter('agent_python_timeout_s', 60.0).value
         max_turns      = self.declare_parameter('agent_max_turns', 30).value

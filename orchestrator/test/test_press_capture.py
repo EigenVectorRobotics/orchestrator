@@ -12,13 +12,12 @@ import pytest
 from PIL import Image
 from skill_registry import Registry
 
-from pathlib import Path
-
 from orchestrator.press_capture import BoxBuffer, CaptureConfig, FrameBuffer, PhaseTracker, PressCapture, crop_around, judge_press, side_by_side
 from orchestrator.cosmos_vlm_server import CosmosAnswerer, make_handler, parse_request
 
+from data_paths import CONTRACTS
 
-CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
+
 GOAL      = (0.62, -0.18, 1.05)
 PRESS     = [(0.0, -0.40), (0.4, -0.10), (0.5, -0.10), (0.7, 0.0), (0.75, 0.0), (1.0, -0.10)]   # (phase, depth)
 DURATION  = 3.0
