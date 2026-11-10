@@ -3,6 +3,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.actions import Node
 
 from skill_registry import agent_dir
@@ -69,6 +70,10 @@ def generate_launch_description():
         DeclareLaunchArgument('mode', default_value='task', description='task: a session does each task step by step (agent_cli); tree: planner_node writes a tree'),
         DeclareLaunchArgument('step_gate', default_value='auto',
                               description='task mode: a person approves each step; auto: on unless fake (true | false | auto)'),
+        DeclareLaunchArgument('mission_control', default_value='false',
+                              description='serve the Mission Control page: see the run and drive it from a browser'),
+        DeclareLaunchArgument('mission_control_port', default_value='8080',
+                              description='the page is on 127.0.0.1 only; reach it with ssh -L 8080:localhost:8080'),
         DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses trees while it is not ready'),
 
         Node(package='skill_registry', executable='registry_node', output='screen', parameters=shared),
@@ -87,6 +92,14 @@ def generate_launch_description():
             output='screen',
             parameters=[*shared, {'backend': backend, 'model': model}],
             condition=IfCondition(PythonExpression(["'", mode, "' == 'tree'"]))
+        ),
+        Node(
+            package='orchestrator',
+            executable='mission_control',
+            output='screen',
+            parameters=[params_file, {'port': ParameterValue(LaunchConfiguration('mission_control_port'), value_type=int),
+                                      'web_dir': PathJoinSubstitution([FindPackageShare('orchestrator'), 'web'])}],
+            condition=IfCondition(LaunchConfiguration('mission_control'))
         ),
         Node(package='orchestrator', executable='fake_robot', output='screen', condition=IfCondition(fake)),
     ])

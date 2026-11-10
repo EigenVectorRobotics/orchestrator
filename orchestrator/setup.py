@@ -13,6 +13,7 @@ setup(
         (f'share/{PACKAGE_NAME}', ['package.xml']),
         (f'share/{PACKAGE_NAME}/launch', glob('launch/*.launch.py')),
         (f'share/{PACKAGE_NAME}/config', glob('config/*.yaml')),
+        (f'share/{PACKAGE_NAME}/web', glob('web/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -31,6 +32,7 @@ setup(
             'cosmos_vlm_server = orchestrator.cosmos_vlm_server:main',
             'run_recorder = orchestrator.run_recorder:main',
             'knowledge = orchestrator.knowledge_cli:main',
+            'mission_control = orchestrator.mission_control_node:main',
         ],
     },
 )

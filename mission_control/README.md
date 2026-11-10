@@ -2,13 +2,16 @@
 
 A web UI to see and drive the orchestrator: robot state, task, plan, step gate, trace, camera, map, skill graph, skill proposals, knowledge and runs.
 
-Status: mockup only, with fake data. Nothing connects to the robot yet.
+Two pages live here and in the package:
 
-Open `mockup/index.html` in a browser. The "Feature sets" tab lists each feature, the ROS interface behind it, and what is missing.
+- **The live page**: `orchestrator/web/index.html`, served by the adapter node (`orchestrator/orchestrator/mission_control_node.py`). It shows the executor's state, the open task, the plan, the step gate and the trace, and it sends a task, a step decision and a cancel.
+- **The design reference**: `mockup/index.html`, fake data, opened straight in a browser. Its "Feature sets" tab lists every feature, the ROS interface behind it, and what is missing. The panels not yet in the live page come from here.
 
-## Plan
+Still to build: camera, map, the decision turns, the skill graph and proposals, knowledge, and past runs. Those need the adapter to read the run folders, the knowledge store and the agent's contracts.
 
-One adapter node on the NUC (rclpy and a small web server in one process). It collects the state from the topics, reads the run folders, the knowledge store and the agent's contracts, and serves the page on `127.0.0.1:8080`. It sends commands on the same topics as `agent_cli`, so the step gate, the limits and the recorder see no difference. Approve and Refuse on the page publish on `/orchestrator/step_decision`, with no tty check. From the laptop:
+## How it runs
+
+One adapter node on the NUC (rclpy and a small web server in one process), started with `mission_control:=true` on the orchestrator launch file. It collects the state from the topics and serves the page on `127.0.0.1:8080`. It sends commands on the same topics as `agent_cli`, so the step gate, the limits and the recorder see no difference. Approve and Refuse publish on `/orchestrator/step_decision` with no tty check, and the gate stays the only judge of a decision. From the laptop:
 
 ```bash
 ssh -L 8080:localhost:8080 vector@vector-nuc     # then open http://localhost:8080

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vector Mission Control</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Neuton:wght@400;700&family=Open+Sans:wght@400;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Theme: "Standards and Regulations" deck. Forest, lime, ink, Neuton titles, Open Sans body, Roboto Mono labels */
+:root {
+  --forest: #003310; --leaf: #085420; --lime: #E0F0B0; --paper: #FFFFFF; --mist: #ECECE8;
+  --rule: #D0D0D0; --ink: #1A1A1A; --grey: #737373; --warn: #FFDCB4; --bad: #FFBBBB;
+  --serif: 'Neuton', Georgia, serif; --sans: 'Open Sans', Arial, sans-serif; --mono: 'Roboto Mono', ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--paper); color: var(--ink); font: 14px/1.45 var(--sans); }
+button, input, select, textarea { font: inherit; color: inherit; }
+.top { background: var(--forest); color: var(--lime); display: flex; align-items: center; gap: 24px; padding: 12px 24px; flex-wrap: wrap; }
+.brand { font: 700 26px/1 var(--serif); letter-spacing: .2px; }
+.brand small { font: 400 12px var(--mono); color: #FFFFFF; margin-left: 10px; opacity: .8; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+.chip { font: 500 11px var(--mono); border: 1px solid rgba(224,240,176,.45); padding: 4px 8px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.chip i { width: 8px; height: 8px; display: inline-block; background: var(--lime); }
+.chip.off i { background: transparent; border: 1px solid var(--lime); }
+.chip.warn i { background: var(--warn); }
+.stop { background: var(--lime); color: var(--forest); border: 0; padding: 8px 16px; font-weight: 700; cursor: pointer; }
+main { padding: 20px 24px 40px; max-width: 1600px; margin: 0 auto; }
+.grid { display: grid; gap: 20px; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1.1fr) minmax(300px, 1fr); }
+@media (max-width: 1180px) { .grid { grid-template-columns: 1fr 1fr; } .grid .trace { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .top, main { padding-left: 16px; padding-right: 16px; } }
+.frame { position: relative; background: #0F1A12; aspect-ratio: 4 / 3; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.frame .cap { position: absolute; left: 10px; bottom: 8px; right: 10px; font: 400 11px var(--mono); color: var(--lime); }
+.frame .none { font: 400 12px var(--mono); color: var(--lime); opacity: .7; padding: 12px; text-align: center; }
+.panel { border-top: 1px solid var(--ink); padding-top: 10px; min-width: 0; }
+.panel + .panel { margin-top: 24px; }
+.ph { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; min-width: 0; }
+.ph h2 { font: 400 26px/1.1 var(--serif); }
+.tag { font: 400 11px var(--mono); color: var(--grey); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.label { font: 500 11px var(--mono); color: var(--grey); text-transform: uppercase; letter-spacing: .6px; }
+.note { font-size: 12px; color: var(--grey); margin-top: 6px; }
+.compose textarea { width: 100%; min-height: 70px; border: 1px solid var(--ink); padding: 10px; resize: vertical; background: var(--paper); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.btn { border: 1px solid var(--forest); background: var(--forest); color: var(--lime); padding: 7px 14px; cursor: pointer; font-weight: 600; }
+.btn.ghost { background: transparent; color: var(--forest); }
+.btn.bad { background: var(--paper); border-color: #8A1F1F; color: #8A1F1F; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.check { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.said { font: 400 12px var(--mono); color: var(--leaf); }
+.said.bad { color: #8A1F1F; }
+.plan { list-style: none; counter-reset: s; }
+.plan li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+.plan li::before { content: counter(s, decimal-leading-zero); font: 400 12px var(--mono); color: var(--grey); }
+.plan li.now { font-weight: 700; color: var(--forest); }
+.st { font: 500 11px var(--mono); padding: 2px 6px; }
+.st.run { background: var(--forest); color: var(--lime); }
+.st.wait { background: var(--mist); color: var(--grey); }
+.gate { background: var(--lime); padding: 16px; margin-top: 12px; }
+.gate.quiet { background: var(--mist); }
+.gate h3 { font: 700 20px/1.2 var(--serif); color: var(--forest); }
+.kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; margin: 10px 0; font-size: 13px; }
+.kv dt { font: 500 11px/1.9 var(--mono); color: var(--grey); text-transform: uppercase; }
+.kv dd { font-family: var(--mono); font-size: 12.5px; word-break: break-word; }
+.gate input[type=text] { flex: 1; min-width: 160px; border: 1px solid var(--ink); padding: 7px 10px; background: var(--paper); }
+.timer { font: 500 12px var(--mono); color: var(--forest); }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.pill { border: 1px solid var(--ink); background: var(--paper); padding: 3px 8px; cursor: pointer; font: 500 11px var(--mono); }
+.pill[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.log { height: 70vh; overflow-y: auto; border-top: 1px solid var(--rule); font: 400 12px/1.5 var(--mono); }
+.ev { display: grid; grid-template-columns: 62px 96px 1fr; gap: 8px; padding: 6px 2px; border-bottom: 1px solid var(--mist); }
+.ev time { color: var(--grey); }
+.ev b { font-weight: 500; color: var(--leaf); }
+.ev span { white-space: pre-wrap; word-break: break-word; }
+.ev.warn { background: #FFF4E8; } .ev.warn b { color: #8A5A10; }
+.ev.error { background: #FFEDED; } .ev.error b { color: #8A1F1F; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">Mission Control<small id="where">Vector · G1</small></div>
+  <div class="chips" id="chips" aria-label="State"></div>
+  <button class="stop" id="cancel" title="/orchestrator/cancel">Cancel task</button>
+</header>
+
+<main>
+<div class="grid">
+
+  <div>
+    <div class="panel compose">
+      <div class="ph"><h2>Task</h2><span class="tag">/orchestrator/task</span></div>
+      <textarea id="task" aria-label="Task" placeholder="Walk to the freight elevator call panel and press the down button"></textarea>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="blind"> blind</label>
+        <button class="btn" id="send">Send task</button>
+        <span class="said" id="said"></span>
+      </div>
+      <p class="note">The task opens a run. The task agent (a session or codex) decides each step.</p>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><h2>Plan</h2><span class="tag" id="plantag">no plan yet</span></div>
+      <ol class="plan" id="plan"></ol>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><h2>Step gate</h2><span class="tag">/orchestrator/step_request</span></div>
+      <div id="gate"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="ph"><h2>Camera</h2><span class="tag" id="camtag">camera</span></div>
+      <div class="frame">
+        <img id="cam" alt="The latest camera frame" hidden>
+        <span class="none" id="camnone">No camera frame yet. The Orin publishes the colour image; with the fake robot there is none.</span>
+        <span class="cap" id="camcap"></span>
+      </div>
+      <p class="note">The adapter encodes a frame only when this page asks for one.</p>
+    </div>
+  </div>
+
+  <div class="panel trace">
+    <div class="ph"><h2>Trace</h2><span class="tag">/orchestrator/trace</span></div>
+    <div class="filters" id="filters" role="group" aria-label="Filter">
+      <button class="pill" aria-pressed="true" data-filter="all">all</button>
+      <button class="pill" aria-pressed="false" data-filter="plan">plan</button>
+      <button class="pill" aria-pressed="false" data-filter="step">step</button>
+      <button class="pill" aria-pressed="false" data-filter="record">record</button>
+      <button class="pill" aria-pressed="false" data-filter="skill">skill</button>
+      <button class="pill" aria-pressed="false" data-filter="warn">warn+</button>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+
+</div>
+</main>
+
+<script>
+let events = [], seq = 0, keep = 400, filter = 'all', state = {}, drawn = {}, polling = false;
+
+const escaped = value => String(value ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const clock = seconds => new Date((seconds || 0) * 1000).toTimeString().slice(3, 8);
+const said = document.getElementById('said');
+
+async function send(path, body) {
+  try {
+    const answer = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const reply = await answer.json();
+    said.textContent = reply.message || (answer.ok ? 'sent' : 'refused');
+    said.className = 'said' + (reply.ok ? '' : ' bad');
+  } catch (error) {
+    said.textContent = 'the adapter did not answer: ' + error;
+    said.className = 'said bad';
+  }
+}
+
+document.getElementById('send').addEventListener('click', () =>
+  send('/api/task', { task: document.getElementById('task').value, blind: document.getElementById('blind').checked }));
+document.getElementById('cancel').addEventListener('click', () => send('/api/cancel', {}));
+document.getElementById('filters').addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  document.querySelectorAll('#filters .pill').forEach(pill => pill.setAttribute('aria-pressed', pill === button));
+  filter = button.dataset.filter;
+  renderLog();
+});
+
+// A panel is drawn again only when its own data changed: the typed refusal reason then survives the next poll
+function once(panel, signature, draw) {
+  if (drawn[panel] === signature) return;
+  drawn[panel] = signature;
+  draw();
+}
+
+function chips() {
+  const status = state.status || {}, task = state.task || {}, recorder = state.recorder || {}, step = state.step || {};
+  const open = task.state === 'open';
+  const rows = [
+    ['executor ' + (status.state || 'no status'), status.state ? '' : 'off'],
+    [open ? 'task ' + task.run_id : 'no task', open ? '' : 'off'],
+    ['recorder ' + (recorder.ready ? 'ready' : (recorder.reason || 'no status')), recorder.ready ? '' : 'off'],
+    [step.state ? 'step gate on' : 'step gate: no request yet', step.state === 'open' ? 'warn' : ''],
+  ];
+  once('chips', JSON.stringify(rows), () => document.getElementById('chips').innerHTML = rows.map(([label, kind]) =>
+    `<span class="chip ${kind}"><i></i>${escaped(label)}</span>`).join(''));
+}
+
+function renderPlan() {
+  const plan = state.plan || {}, subgoals = plan.subgoals || [], now = (state.step || {}).subgoal;
+  once('plan', JSON.stringify([plan, now]), () => {
+    document.getElementById('plantag').textContent = subgoals.length ? `revision ${plan.version} · ${subgoals.length} subgoals` : 'no plan yet';
+    document.getElementById('plan').innerHTML = subgoals.length
+      ? subgoals.map(subgoal => `<li class="${subgoal === now ? 'now' : ''}"><span>${escaped(subgoal)}</span>`
+          + (subgoal === now ? '<span class="st run">now</span>' : '<span class="st wait">open</span>') + '</li>').join('')
+      : '<li><span>The agent has not sent a plan for this task.</span><span class="st wait">waiting</span></li>';
+  });
+}
+
+function renderGate() {
+  const step = state.step || {}, open = step.state === 'open';
+  once('gate', JSON.stringify(step), () => {
+    if (!step.state) {
+      document.getElementById('gate').innerHTML = '<div class="gate quiet"><h3>No step has asked yet</h3>'
+        + '<p class="note">With the gate off (sim, fake robot), steps run without asking.</p></div>';
+      return;
+    }
+    document.getElementById('gate').innerHTML = `<div class="gate${open ? '' : ' quiet'}">
+      <h3>${open ? 'Step' : 'Last step'} ${escaped(step.step)} · ${escaped(step.skill)}</h3>
+      <dl class="kv">
+        <dt>state</dt><dd>${escaped(step.state)}${escaped(step.reason ? ': ' + step.reason : '')}${escaped(step.by ? ' (by ' + step.by + ')' : '')}</dd>
+        <dt>subgoal</dt><dd>${escaped(step.subgoal) || '(none)'}</dd>
+        <dt>inputs</dt><dd>${escaped(JSON.stringify(step.inputs || {}))}</dd>
+        <dt>task</dt><dd>${escaped(step.run_id)}${step.in_code ? ' · inside a code skill, which was approved already' : ''}</dd>
+      </dl>
+      ${open ? `<div class="row">
+        <button class="btn" id="approve">Approve</button>
+        <input type="text" id="why" placeholder="Reason for refusal (the agent gets it as a hint)" aria-label="Reason">
+        <button class="btn bad" id="refuse">Refuse</button>
+      </div>
+      <div class="row"><span class="timer" id="waited"></span><span class="note">Your click goes to the step gate, which takes one decision per step.</span></div>` : ''}
+    </div>`;
+    if (!open) return;
+    const decide = approve => {
+      ['approve', 'refuse'].forEach(name => document.getElementById(name).disabled = true);   // one click, one decision
+      send('/api/step', { id: step.id, approve, reason: document.getElementById('why').value });
+    };
+    document.getElementById('approve').addEventListener('click', () => decide(true));
+    document.getElementById('refuse').addEventListener('click', () => decide(false));
+  });
+
+  const waited = document.getElementById('waited');
+
+  if (waited && open) waited.textContent = `step ${step.id} · waiting ${Math.max(0, Math.round((state.time || 0) - (step.opened || 0)))} s`;
+}
+
+function renderCamera() {
+  const camera = state.camera || {}, image = document.getElementById('cam');
+  once('camtag', camera.topic || '', () => document.getElementById('camtag').textContent = camera.topic || 'camera');
+  document.getElementById('camnone').hidden = !!camera.have;
+  image.hidden = !camera.have;
+  if (!camera.have) return;
+  once('cam', String(camera.stamp), () => image.src = '/api/camera.jpg?t=' + camera.stamp);
+  document.getElementById('camcap').textContent = `${camera.width}x${camera.height} · ${camera.age_s} s old`;
+}
+
+const KEEPERS = {
+  all: () => true,
+  plan: event => event.kind === 'plan' || event.kind.startsWith('task'),
+  step: event => event.kind === 'step_gate' || event.kind === 'node',
+  record: event => event.kind === 'record',
+  skill: event => event.kind === 'write_skill',
+  warn: event => (event.level || 'info') !== 'info',
+};
+
+function renderLog() {
+  document.getElementById('log').innerHTML = events.filter(KEEPERS[filter]).reverse().map(event =>
+    `<div class="ev ${escaped(event.level || 'info')}"><time>${clock(event.time)}</time>`
+    + `<b>${escaped(event.kind)}</b><span>${escaped(event.text)}</span></div>`).join('');
+}
+
+async function poll() {
+  if (polling) return;          // a slow answer must not let the next poll ask with the same cursor, twice
+  polling = true;
+  try {
+    const answer = await fetch('/api/state?after=' + seq);
+    state = await answer.json();
+    if (state.seq < seq) { events = []; seq = 0; return; }   // the adapter restarted: read the trace again
+    seq = state.seq || seq;
+    keep = state.keep || keep;
+    if (state.trace && state.trace.length) {
+      events = events.concat(state.trace).slice(-keep);
+      renderLog();
+    }
+    chips(); renderPlan(); renderGate(); renderCamera();
+  } catch (error) {
+    document.getElementById('chips').innerHTML = '<span class="chip off"><i></i>the adapter does not answer</span>';
+    drawn = {};
+  } finally {
+    polling = false;
+  }
+}
+
+document.getElementById('where').textContent = 'Vector · G1 · ' + location.host;
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>
