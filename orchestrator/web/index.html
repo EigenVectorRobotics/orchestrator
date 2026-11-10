@@ -143,13 +143,25 @@ main { padding: 20px 24px 40px; max-width: 1600px; margin: 0 auto; }
 <script>
 let events = [], seq = 0, keep = 400, filter = 'all', state = {}, drawn = {}, polling = false;
 
+// The node's token, from the link it logs. It is kept for this tab, so a reload without the query still works
+const token = (() => {
+  const given = new URLSearchParams(location.search).get('t');
+  try {
+    if (given) sessionStorage.setItem('token', given);
+    return given || sessionStorage.getItem('token') || '';
+  } catch (error) {
+    return given || '';
+  }
+})();
+
 const escaped = value => String(value ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const clock = seconds => new Date((seconds || 0) * 1000).toTimeString().slice(3, 8);
 const said = document.getElementById('said');
 
 async function send(path, body) {
   try {
-    const answer = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const answer = await fetch(path, { method: 'POST', body: JSON.stringify(body),
+                                       headers: { 'Content-Type': 'application/json', 'X-Mission-Token': token } });
     const reply = await answer.json();
     said.textContent = reply.message || (answer.ok ? 'sent' : 'refused');
     said.className = 'said' + (reply.ok ? '' : ' bad');
@@ -286,6 +298,11 @@ async function poll() {
 }
 
 document.getElementById('where').textContent = 'Vector · G1 · ' + location.host;
+
+if (!token) {                   // a page opened without the link's token can read, but every command is refused
+  said.textContent = 'no token in this link: open the one the node logs, or commands are refused';
+  said.className = 'said bad';
+}
 poll();
 setInterval(poll, 1000);
 </script>

@@ -11,6 +11,7 @@ mission_control.py; the page is in the package's web/ folder, read once at start
 
 import json
 import time
+import secrets
 import mimetypes
 import threading
 
@@ -31,7 +32,7 @@ from .trace import TRACE_QOS, TRACE_TOPIC
 from .tasks import CANCEL_TOPIC, STATUS_TOPIC, TASK_TOPIC
 from .run_recorder import STATUS_TOPIC as RECORDER_TOPIC
 from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS
-from .mission_control import DECISION_WAIT, Camera, Commands, MissionApi, MissionState
+from .mission_control import DECISION_WAIT, Camera, Commands, MissionApi, MissionState, token_ok
 from .task_agent import OPEN_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC
 
 
@@ -64,6 +65,7 @@ class MissionControlNode(Node):
 
         host    = self.declare_parameter('host', '127.0.0.1').value      # localhost only: reach it over ssh -L
         port    = self.declare_parameter('port', 8080).value
+        token   = self.declare_parameter('token', '').value or secrets.token_urlsafe(16)   # 'off': no token
         web_dir = Path(self.declare_parameter('web_dir', '').value or share_web()).expanduser()
 
         image_topic   = self.declare_parameter('image_topic', '/camera/camera/color/image_raw').value
@@ -90,9 +92,13 @@ class MissionControlNode(Node):
         self.server        = ThreadingHTTPServer((host, port), Handler)
         self.server.api    = self.api
         self.server.files  = files
+        self.server.token  = token
         self._web          = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._web.start()
-        self.get_logger().info(f'mission control on http://{host}:{port} (page from {web_dir})')
+        link = f'http://{host}:{port}/' + ('' if token == 'off' else f'?t={token}')
+        self.get_logger().info(f'mission control on {link} (page from {web_dir})')
+        self.get_logger().info('open that link, with its token: a command without the token is refused'
+                               if token != 'off' else 'token off: anything that reaches this port can drive the robot')
 
     # ========== State in ==========
 
@@ -199,6 +205,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._from_this_page():
             return self._json(403, {'ok': False, 'message': 'a command comes from the Mission Control page, as JSON'})
+
+        if not token_ok(self.server.token, self.headers.get('X-Mission-Token', '')):
+            return self._json(403, {'ok': False, 'message': 'wrong token: open the page from the link in the node log'})
 
         length = int(self.headers.get('Content-Length') or 0)
 

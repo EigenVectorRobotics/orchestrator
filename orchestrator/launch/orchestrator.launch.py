@@ -74,6 +74,8 @@ def generate_launch_description():
                               description='serve the Mission Control page: see the run and drive it from a browser'),
         DeclareLaunchArgument('mission_control_port', default_value='8080',
                               description='the page is on 127.0.0.1 only; reach it with ssh -L 8080:localhost:8080'),
+        DeclareLaunchArgument('mission_control_token', default_value='',
+                              description='a command needs this token; empty: the node makes one and logs the link, off: no token'),
         DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses trees while it is not ready'),
 
         Node(package='skill_registry', executable='registry_node', output='screen', parameters=shared),
@@ -98,6 +100,7 @@ def generate_launch_description():
             executable='mission_control',
             output='screen',
             parameters=[params_file, {'port': ParameterValue(LaunchConfiguration('mission_control_port'), value_type=int),
+                                      'token': LaunchConfiguration('mission_control_token'),
                                       'web_dir': PathJoinSubstitution([FindPackageShare('orchestrator'), 'web'])}],
             condition=IfCondition(LaunchConfiguration('mission_control'))
         ),

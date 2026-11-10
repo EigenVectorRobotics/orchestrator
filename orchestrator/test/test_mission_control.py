@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from orchestrator.mission_control import Camera, Commands, MissionApi, MissionState
+from orchestrator.mission_control import Camera, Commands, MissionApi, MissionState, token_ok
 
 
 def _api(reply: dict | None = {'accepted': True, 'message': 'approved'}, listening: bool = True):
@@ -116,3 +116,10 @@ def test_the_camera_encodes_a_frame_once_and_only_when_it_is_asked():
     camera.put(SimpleNamespace(height=4, width=4, step=12, encoding='rgb8', data=bytes(range(48))))
 
     assert camera.frame()[0] is not body
+
+
+def test_a_command_needs_the_node_token():
+    assert token_ok('s3cret', 's3cret')
+    assert not token_ok('s3cret', 'guess') and not token_ok('s3cret', '')
+    assert not token_ok('', '') and not token_ok('', 'anything')   # no token set is not an open door
+    assert token_ok('off', '') and token_ok('off', 'anything')     # off is the one way to take the check away

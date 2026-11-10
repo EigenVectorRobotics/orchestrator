@@ -9,6 +9,7 @@ difference. The step gate itself is the only judge of a decision (StepGate.decid
 checks the HTTP body, sends the decision and relays the gate's answer.
 """
 
+import hmac
 import time
 import threading
 
@@ -72,6 +73,11 @@ class MissionState:
                 'task':   {field: task[field] for field in TASK_FIELDS if field in task},
                 **{part: self._parts.get(part, {}) for part in ('status', 'step', 'recorder')},
             }
+
+
+def token_ok(expected: str, given: str) -> bool:
+    """True when a command carries the node's token. `off` takes the check away, for a bench with no agent on it"""
+    return expected == 'off' or (bool(expected) and hmac.compare_digest(expected, given or ''))
 
 
 class Camera:
