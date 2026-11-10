@@ -27,7 +27,7 @@ from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
 from .code_skill import CodeRunner
 from .agent_sandbox import SandboxConfig
-from .tasks import Tasks, parse_task_request
+from .tasks import CANCEL_TOPIC, STATUS_TOPIC, TASK_TOPIC, Tasks, parse_task_request
 from .task_loop import CodexDecider, TaskLoop
 from .planner import describe_catalog
 from .skill_writer import SkillWriter
@@ -79,11 +79,11 @@ class ExecutorNode(Node):
                            self._publish_status, self.essential_devices, make_scratch=self._run_scratch,
                            on_error=self.get_logger().error)
 
-        self._status_publisher   = self.create_publisher(String, '/orchestrator/status', STATUS_QOS)
+        self._status_publisher   = self.create_publisher(String, STATUS_TOPIC, STATUS_QOS)
         self._tree_subscriptions = [
             self.create_subscription(String, '/orchestrator/tree', self._on_tree, 10),
             self.create_subscription(String, '/orchestrator/tree_blind', self._on_blind_tree, 10),
-            self.create_subscription(Empty, '/orchestrator/cancel', self._on_cancel, 10),
+            self.create_subscription(Empty, CANCEL_TOPIC, self._on_cancel, 10),
             self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, STATUS_QOS),
         ]
         # contracts that change on disk load while it runs, checked as write_skill checks them (skill_writer.py)
@@ -131,7 +131,7 @@ class ExecutorNode(Node):
             threading.Thread(target=desk.command, args=(command,), daemon=True).start()
 
         self._task_subscriptions = [
-            self.create_subscription(String, '/orchestrator/task', self._on_task, 10),
+            self.create_subscription(String, TASK_TOPIC, self._on_task, 10),
             self.create_subscription(String, COMMAND_TOPIC, on_command, COMMAND_QOS),
         ]
 
@@ -189,7 +189,7 @@ class ExecutorNode(Node):
             reply_publisher.publish(String(data=json.dumps(reply)))
 
         self._gate_subscription = self.create_subscription(String, STEP_DECISION_TOPIC, on_decision, COMMAND_QOS)
-        self.get_logger().info('step gate on: each step waits for agent_cli step approve')
+        self.get_logger().info('step gate on: each step waits for a person (agent_cli step approve, or Mission Control)')
 
         return gate
 

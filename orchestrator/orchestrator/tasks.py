@@ -21,6 +21,11 @@ from skill_registry import Registry, TreeValidator, ValidatorConfig
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
 
 
+TASK_TOPIC   = '/orchestrator/task'          # a task sentence in, from a session, a script or Mission Control
+STATUS_TOPIC = '/orchestrator/status'        # the executor's state, latched
+CANCEL_TOPIC = '/orchestrator/cancel'        # halt the running step or tree
+
+
 def parse_task_request(text: str) -> tuple[str, bool]:
     """A message on /orchestrator/task: a plain sentence, or JSON {"task": "...", "blind": true}"""
     try:

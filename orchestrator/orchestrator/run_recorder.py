@@ -21,6 +21,7 @@ from std_msgs.msg import String
 
 from skill_registry import agent_skills_dir
 
+from .tasks import TASK_TOPIC
 from .trace import TRACE_QOS, TRACE_TOPIC
 from .node_setup import declare_sources
 from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
@@ -104,7 +105,7 @@ class RunRecorderNode(Node):
         self._status_publisher = self.create_publisher(String, STATUS_TOPIC, LATCHED_QOS)
         self._subscriptions    = [       # not self._subscriptions of Node: that name is taken by rclpy
             self.create_subscription(String, TRACE_TOPIC, self._json(self.recorder.on_event), TRACE_QOS),
-            self.create_subscription(String, '/orchestrator/task', lambda message: self.recorder.on_task(message.data), 10),
+            self.create_subscription(String, TASK_TOPIC, lambda message: self.recorder.on_task(message.data), 10),
             self.create_subscription(String, REQUEST_TOPIC, self._json(self.recorder.on_agent_request), LATCHED_QOS),
             self.create_subscription(String, DECISION_TOPIC, self._json(partial(self.recorder.on_agent_message, 'decision')), COMMAND_QOS),
             self.create_subscription(String, REPLY_TOPIC, self._json(partial(self.recorder.on_agent_message, 'reply')), COMMAND_QOS),

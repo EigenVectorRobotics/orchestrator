@@ -13,7 +13,7 @@ from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
 
 from .trace import Tracer
-from .tasks import parse_task_request
+from .tasks import TASK_TOPIC, parse_task_request
 from .planner import Planner
 from .node_setup import load_skills
 from .llm_backends import ClaudeBackend, OpenAICompatibleBackend, ScriptedBackend
@@ -53,7 +53,7 @@ class PlannerNode(Node):
         self._blind_publisher = self.create_publisher(String, '/orchestrator/tree_blind', 10)
         self._plan_publisher  = self.create_publisher(String, '/orchestrator/plan', LIVE_QOS)
         self._planner_subscriptions = [
-            self.create_subscription(String, '/orchestrator/task', self._on_task, 10),
+            self.create_subscription(String, TASK_TOPIC, self._on_task, 10),
             self.create_subscription(String, '/skills/live', self._on_live, LIVE_QOS),
         ]
 
