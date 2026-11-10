@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vector Mission Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Neuton:wght@400;700&family=Open+Sans:wght@400;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Theme: "Standards and Regulations" deck. Forest #003310, lime #E0F0B0, ink #1A1A1A, grey #7A7A7A,
+   Neuton titles, Open Sans body, Roboto Mono labels, hairline rules, square corners */
+:root {
+  --forest: #003310;
+  --leaf:   #085420;
+  --lime:   #E0F0B0;
+  --paper:  #FFFFFF;
+  --mist:   #ECECE8;
+  --rule:   #D0D0D0;
+  --ink:    #1A1A1A;
+  --grey:   #737373;
+  --warn:   #FFDCB4;
+  --bad:    #FFBBBB;
+  --serif:  'Neuton', Georgia, serif;
+  --sans:   'Open Sans', Arial, sans-serif;
+  --mono:   'Roboto Mono', ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--paper); color: var(--ink); font: 14px/1.45 var(--sans); }
+button, input, select, textarea { font: inherit; color: inherit; }
+
+/* Top bar */
+.top { background: var(--forest); color: var(--lime); display: flex; align-items: center; gap: 24px; padding: 12px 24px; flex-wrap: wrap; }
+.brand { font: 700 26px/1 var(--serif); letter-spacing: .2px; }
+.brand small { font: 400 12px var(--mono); color: #FFFFFF; margin-left: 10px; opacity: .8; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+.chip { font: 500 11px var(--mono); border: 1px solid rgba(224,240,176,.45); padding: 4px 8px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.chip i { width: 8px; height: 8px; display: inline-block; background: var(--lime); }
+.chip.off i { background: transparent; border: 1px solid var(--lime); }
+.chip.warn i { background: #FFDCB4; }
+.stop { background: var(--lime); color: var(--forest); border: 0; padding: 8px 16px; font-weight: 700; cursor: pointer; }
+
+/* Tabs */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--ink); padding: 0 24px; background: var(--lime); overflow-x: auto; }
+.tab { background: none; border: 0; padding: 12px 18px; cursor: pointer; font: 600 14px var(--sans); color: var(--forest); border-bottom: 3px solid transparent; white-space: nowrap; }
+.tab[aria-selected="true"] { border-bottom-color: var(--forest); }
+.tab .n { font: 400 11px var(--mono); color: var(--grey); margin-right: 6px; }
+
+main { padding: 20px 24px 40px; max-width: 1600px; margin: 0 auto; }
+.view { display: none; }
+.view.on { display: block; }
+
+/* Panels */
+.grid { display: grid; gap: 20px; }
+.mission { grid-template-columns: minmax(300px, 1fr) minmax(340px, 1.25fr) minmax(320px, 1fr); }
+@media (max-width: 1180px) { .mission { grid-template-columns: 1fr 1fr; } .mission .trace { grid-column: 1 / -1; } }
+@media (max-width: 760px)  { .mission { grid-template-columns: 1fr; } .top, .tabs, main { padding-left: 16px; padding-right: 16px; } }
+.panel { border-top: 1px solid var(--ink); padding-top: 10px; min-width: 0; }
+.panel + .panel { margin-top: 24px; }
+.ph { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.ph h2 { font: 400 26px/1.1 var(--serif); }
+.tag { font: 400 11px var(--mono); color: var(--grey); white-space: nowrap; }
+.label { font: 500 11px var(--mono); color: var(--grey); text-transform: uppercase; letter-spacing: .6px; }
+
+/* Task composer */
+.compose textarea { width: 100%; min-height: 70px; border: 1px solid var(--ink); padding: 10px; resize: vertical; background: var(--paper); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.btn { border: 1px solid var(--forest); background: var(--forest); color: var(--lime); padding: 7px 14px; cursor: pointer; font-weight: 600; }
+.btn.ghost { background: transparent; color: var(--forest); }
+.btn.bad { background: var(--paper); border-color: #8A1F1F; color: #8A1F1F; }
+select { border: 1px solid var(--ink); padding: 6px 8px; background: var(--paper); }
+.check { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+
+/* Plan */
+.plan { list-style: none; counter-reset: s; }
+.plan li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+.plan li::before { content: counter(s, decimal-leading-zero); font: 400 12px var(--mono); color: var(--grey); }
+.plan li.done { color: var(--grey); }
+.plan li.now { font-weight: 700; color: var(--forest); }
+.st { font: 500 11px var(--mono); padding: 2px 6px; }
+.st.ok   { background: var(--lime); color: var(--forest); }
+.st.run  { background: var(--forest); color: var(--lime); }
+.st.wait { background: var(--mist); color: var(--grey); }
+.st.fail { background: var(--bad); color: #5A1010; }
+.st.warn { background: var(--warn); color: #5A3A10; }
+
+/* Step gate */
+.gate { background: var(--lime); padding: 16px; margin-top: 12px; }
+.gate h3 { font: 700 20px/1.2 var(--serif); color: var(--forest); }
+.kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; margin: 10px 0; font-size: 13px; }
+.kv dt { font: 500 11px/1.9 var(--mono); color: var(--grey); text-transform: uppercase; }
+.kv dd { font-family: var(--mono); font-size: 12.5px; word-break: break-word; }
+.reason { border-left: 0; background: var(--paper); padding: 10px; font-size: 13px; margin: 8px 0; }
+.gate input[type=text] { flex: 1; min-width: 160px; border: 1px solid var(--ink); padding: 7px 10px; background: var(--paper); }
+.timer { font: 500 12px var(--mono); color: var(--forest); }
+
+/* Camera + map */
+.frame { position: relative; background: #0F1A12; aspect-ratio: 4 / 3; overflow: hidden; }
+.frame svg { width: 100%; height: 100%; display: block; }
+.frame .cap { position: absolute; left: 10px; bottom: 8px; font: 400 11px var(--mono); color: var(--lime); }
+.seg { display: flex; border: 1px solid var(--ink); }
+.seg button { border: 0; background: var(--paper); padding: 4px 10px; cursor: pointer; font: 500 11px var(--mono); }
+.seg button[aria-pressed="true"] { background: var(--forest); color: var(--lime); }
+.map { background: var(--mist); aspect-ratio: 16 / 9; }
+.map svg { width: 100%; height: 100%; display: block; }
+
+/* Trace */
+.trace .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.pill { border: 1px solid var(--ink); background: var(--paper); padding: 3px 8px; cursor: pointer; font: 500 11px var(--mono); }
+.pill[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.log { height: 640px; overflow-y: auto; border-top: 1px solid var(--rule); font: 400 12px/1.5 var(--mono); }
+.ev { display: grid; grid-template-columns: 62px 92px 1fr; gap: 8px; padding: 6px 2px; border-bottom: 1px solid var(--mist); }
+.ev time { color: var(--grey); }
+.ev b { font-weight: 500; }
+.ev.warn { background: #FFF4E8; }
+.ev.error { background: #FFEDED; }
+.ev .k { color: var(--leaf); }
+.ev.warn .k { color: #8A5A10; }
+.ev.error .k { color: #8A1F1F; }
+
+/* Decision timeline */
+.turns { display: flex; gap: 2px; margin-top: 8px; }
+.turns div { flex: 1; height: 28px; background: var(--lime); position: relative; }
+.turns div.r { background: var(--forest); }
+.turns div.x { background: var(--bad); }
+.turns div span { position: absolute; left: 4px; top: 6px; font: 400 10px var(--mono); color: var(--forest); }
+.turns div.r span { color: var(--lime); }
+
+/* Skills */
+.skills { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); }
+@media (max-width: 1100px) { .skills { grid-template-columns: 1fr; } }
+.graph { border: 1px solid var(--rule); background: var(--paper); overflow-x: auto; }
+.graph svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.legend { margin-bottom: 24px; display: flex; gap: 16px; flex-wrap: wrap; font: 400 11px var(--mono); color: var(--grey); margin-top: 8px; }
+.legend span { display: flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 10px; display: inline-block; border: 1px solid var(--ink); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font: 500 11px var(--mono); color: var(--grey); text-transform: uppercase; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--ink); }
+td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td.m { font-family: var(--mono); font-size: 12px; }
+.wrap { overflow-x: auto; }
+.card { border: 1px solid var(--ink); padding: 14px; margin-bottom: 14px; background: var(--paper); }
+.card h4 { font: 700 18px var(--serif); margin-bottom: 4px; }
+pre { background: var(--mist); padding: 10px; font: 400 12px/1.5 var(--mono); overflow-x: auto; white-space: pre; margin: 8px 0; }
+
+/* Knowledge, runs, spec */
+.two { grid-template-columns: 1fr 1fr; }
+@media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--ink); margin-bottom: 24px; }
+@media (max-width: 760px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stat { padding: 14px 14px 14px 0; }
+.stat b { display: block; font: 400 44px/1 var(--serif); color: var(--forest); }
+.stat span { font: 500 11px var(--mono); color: var(--grey); text-transform: uppercase; }
+.hero { background: var(--forest); color: var(--lime); padding: 28px; margin-bottom: 24px; }
+.hero h1 { font: 400 40px/1.1 var(--serif); }
+.hero p { color: #FFFFFF; max-width: 860px; margin-top: 8px; }
+.note { font-size: 12px; color: var(--grey); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">Mission Control<small>Vector · G1 · mockup, fake data</small></div>
+  <div class="chips" aria-label="Robot state">
+    <span class="chip"><i></i>NUC</span>
+    <span class="chip"><i></i>Orin</span>
+    <span class="chip off"><i></i>Thor · VLM down</span>
+    <span class="chip"><i></i>localized</span>
+    <span class="chip"><i></i>high_level</span>
+    <span class="chip"><i></i>recorder ready</span>
+    <span class="chip warn"><i></i>step gate on</span>
+    <span class="chip"><i></i>cloud link</span>
+    <span class="chip"><i></i>codex · gpt-6-astra</span>
+  </div>
+  <button class="stop" title="/orchestrator/cancel">Cancel task</button>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab" role="tab" aria-selected="true"  data-view="mission"><span class="n">01</span>Mission</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="skills"><span class="n">02</span>Skills</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="knowledge"><span class="n">03</span>Knowledge</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="runs"><span class="n">04</span>Runs</button>
+  <button class="tab" role="tab" aria-selected="false" data-view="spec"><span class="n">05</span>Feature sets</button>
+</nav>
+
+<main>
+
+<!-- 01 MISSION ------------------------------------------------------------------------------------------------>
+<section class="view on" id="mission">
+  <div class="grid mission">
+
+    <!-- Left: command, plan, step gate -->
+    <div>
+      <div class="panel compose">
+        <div class="ph"><h2>Task</h2><span class="tag">/orchestrator/task</span></div>
+        <textarea aria-label="Task">Walk to the freight elevator call panel and press the down button</textarea>
+        <div class="row">
+          <select aria-label="Task agent"><option>codex · gpt-6-astra</option><option>session (agent_cli)</option></select>
+          <label class="check"><input type="checkbox"> blind</label>
+          <button class="btn">Send task</button>
+        </div>
+        <div class="row">
+          <span class="label">Say</span>
+          <button class="btn ghost">"I am going to the elevator"</button>
+          <button class="btn ghost">Speak…</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><h2>Plan</h2><span class="tag">run 003 · revision 2</span></div>
+        <ol class="plan">
+          <li class="done"><span>Check that the robot is localized</span><span class="st ok">done</span></li>
+          <li class="done"><span>Walk to freight_elevator_call_panel_preapproach</span><span class="st ok">done</span></li>
+          <li class="now"><span>Walk to freight_elevator_call_panel</span><span class="st run">gate</span></li>
+          <li><span>Find the down button</span><span class="st wait">open</span></li>
+          <li><span>Press the down button and check that it is lit</span><span class="st wait">open</span></li>
+        </ol>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><h2>Step gate</h2><span class="tag">/orchestrator/step_request</span></div>
+        <div class="gate">
+          <h3>Step 7 · navigate_to</h3>
+          <dl class="kv">
+            <dt>subgoal</dt><dd>Walk to freight_elevator_call_panel</dd>
+            <dt>inputs</dt><dd>{"goal": "{freight_elevator_call_panel}"}</dd>
+            <dt>contract</dt><dd>untested · agent · nuc</dd>
+            <dt>tree</dt><dd>one leaf · validated</dd>
+          </dl>
+          <div class="label">Model's reason</div>
+          <p class="reason">The robot is at the preapproach pose (0.3 m). The call panel is 1.4 m ahead, so the next subgoal is the walk to the panel.</p>
+          <div class="row">
+            <button class="btn">Approve</button>
+            <input type="text" placeholder="Reason for refusal (the model gets it as a hint)" aria-label="Refusal reason">
+            <button class="btn bad">Refuse</button>
+          </div>
+          <div class="row"><span class="timer">waiting 00:12</span><span class="note">Your decision goes to /orchestrator/step_decision.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: what the robot sees, where it is -->
+    <div>
+      <div class="panel">
+        <div class="ph">
+          <h2>Camera</h2>
+          <div class="seg" role="group" aria-label="Image">
+            <button aria-pressed="false">raw</button>
+            <button aria-pressed="true">overlay</button>
+            <button aria-pressed="false">decision frame</button>
+          </div>
+        </div>
+        <div class="frame">
+          <svg viewBox="0 0 640 480" role="img" aria-label="Camera frame, mock">
+            <rect width="640" height="480" fill="#26302A"/>
+            <rect x="0" y="330" width="640" height="150" fill="#1C241F"/>
+            <rect x="150" y="60" width="300" height="300" fill="#3A463E"/>
+            <rect x="200" y="80" width="200" height="270" fill="#46534A"/>
+            <rect x="470" y="150" width="70" height="120" fill="#5B6A60"/>
+            <circle cx="505" cy="190" r="12" fill="#7C8C80"/>
+            <circle cx="505" cy="235" r="12" fill="#7C8C80"/>
+            <rect x="490" y="220" width="30" height="30" fill="none" stroke="#E0F0B0" stroke-width="3"/>
+            <text x="472" y="142" fill="#E0F0B0" font-family="Roboto Mono" font-size="13">down button 0.91</text>
+            <polyline points="472,152 538,152 538,268 472,268 472,152" fill="none" stroke="#E0F0B0" stroke-width="2" stroke-dasharray="6 4"/>
+          </svg>
+          <span class="cap">/camera/camera/color/image_raw · 15:42:07.31 · overlay from /track_3d/mask_outlines</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><h2>Map</h2><span class="tag">/map_info/places · floor 2</span></div>
+        <div class="map">
+          <svg viewBox="0 0 640 360" role="img" aria-label="Map with places, mock">
+            <rect width="640" height="360" fill="#ECECE8"/>
+            <path d="M40 40 H600 V320 H40 Z M300 40 V180 M300 230 V320 M40 200 H220" fill="none" stroke="#1A1A1A" stroke-width="2"/>
+            <rect x="470" y="70" width="90" height="80" fill="#E0F0B0" stroke="#003310"/>
+            <text x="478" y="90" font-family="Roboto Mono" font-size="11" fill="#003310">elevator</text>
+            <path d="M120 270 C 220 260, 330 200, 430 150" fill="none" stroke="#003310" stroke-width="2" stroke-dasharray="5 4"/>
+            <circle cx="120" cy="270" r="5" fill="#737373"/><text x="96" y="292" font-family="Roboto Mono" font-size="11" fill="#737373">lab door</text>
+            <circle cx="400" cy="165" r="5" fill="#003310"/><text x="330" y="200" font-family="Roboto Mono" font-size="11" fill="#003310">call_panel_preapproach</text>
+            <circle cx="452" cy="140" r="5" fill="#003310"/><text x="360" y="128" font-family="Roboto Mono" font-size="11" fill="#003310">call_panel</text>
+            <g transform="translate(405 162) rotate(-30)"><path d="M-9 -7 L12 0 L-9 7 Z" fill="#003310"/></g>
+            <text x="48" y="340" font-family="Roboto Mono" font-size="11" fill="#737373">robot x 31.2 y −4.8 z −1.1 yaw 152° · nearest: call_panel_preapproach 0.3 m</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><h2>Decisions</h2><span class="tag">turn 9 · 6.8 s mean</span></div>
+        <div class="turns" aria-label="Decision turns">
+          <div><span>plan</span></div><div><span>run</span></div><div><span>run</span></div><div class="x"><span>err</span></div>
+          <div><span>plan</span></div><div><span>run</span></div><div><span>run</span></div><div><span>run</span></div><div class="r"><span>gate</span></div>
+        </div>
+        <p class="note">Each turn: prompt, frame and answer in &lt;run&gt;/scratch/decisions/NNN/. Click a turn to see them.</p>
+      </div>
+    </div>
+
+    <!-- Right: trace -->
+    <div class="panel trace">
+      <div class="ph"><h2>Trace</h2><span class="tag">/orchestrator/trace</span></div>
+      <div class="filters" role="group" aria-label="Filter">
+        <button class="pill" aria-pressed="true">all</button>
+        <button class="pill" aria-pressed="false">plan</button>
+        <button class="pill" aria-pressed="false">step</button>
+        <button class="pill" aria-pressed="false">record</button>
+        <button class="pill" aria-pressed="false">skill</button>
+        <button class="pill" aria-pressed="false">warn+</button>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+
+  </div>
+</section>
+
+<!-- 02 SKILLS ------------------------------------------------------------------------------------------------->
+<section class="view" id="skills">
+  <div class="stats">
+    <div class="stat"><b>9</b><span>skills loaded</span></div>
+    <div class="stat"><b>7</b><span>live now</span></div>
+    <div class="stat"><b>2</b><span>proposals to review</span></div>
+    <div class="stat"><b>4</b><span>denied by deny.yaml</span></div>
+  </div>
+  <div class="grid skills">
+    <div class="panel">
+      <div class="ph"><h2>Skill graph</h2><span class="tag">/skills/live · &lt;agent_dir&gt;/contracts</span></div>
+      <div class="graph">
+        <svg viewBox="0 0 900 470" role="img" aria-label="Skill graph, mock">
+          <defs><marker id="a" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#1A1A1A"/></marker></defs>
+          <!-- device columns -->
+          <g font-family="Roboto Mono" font-size="11" fill="#737373">
+            <text x="20" y="24">NUC</text><text x="400" y="24">ORIN</text><text x="640" y="24">THOR</text>
+          </g>
+          <line x1="380" y1="10" x2="380" y2="460" stroke="#D0D0D0"/><line x1="620" y1="10" x2="620" y2="460" stroke="#D0D0D0"/>
+          <!-- edges -->
+          <g stroke="#1A1A1A" stroke-width="1.3" fill="none" marker-end="url(#a)">
+            <path d="M190 90 C 230 90, 230 160, 230 175"/>
+            <path d="M120 112 C 120 230, 120 250, 120 278"/>
+            <path d="M250 205 C 300 260, 300 290, 280 300"/>
+            <path d="M560 112 C 600 150, 650 170, 680 182"/>
+            <path d="M490 112 L490 170"/>
+          </g>
+          <g font-family="Roboto Mono" font-size="10" fill="#737373">
+            <text x="236" y="140">fallback</text><text x="126" y="200">pre</text><text x="298" y="262">fallback</text><text x="600" y="140">uses</text><text x="496" y="145">pre</text>
+          </g>
+          <!-- nodes: fill = maturity, solid border = live, dashed = not live -->
+          <g font-family="Open Sans" font-size="13">
+            <g><rect x="40" y="68" width="160" height="44" fill="#E0F0B0" stroke="#1A1A1A" stroke-width="1.5"/><text x="52" y="88" font-weight="700">navigate_to</text><text x="52" y="104" font-family="Roboto Mono" font-size="10" fill="#737373">action · wip</text></g>
+            <g><rect x="180" y="176" width="140" height="44" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="1.5"/><text x="192" y="196" font-weight="700">cancel_nav</text><text x="192" y="212" font-family="Roboto Mono" font-size="10" fill="#737373">topic · untested</text></g>
+            <g><rect x="40" y="280" width="160" height="44" fill="#003310" stroke="#003310"/><text x="52" y="300" font-weight="700" fill="#E0F0B0">localized</text><text x="52" y="316" font-family="Roboto Mono" font-size="10" fill="#E0F0B0">condition · tested</text></g>
+            <g><rect x="210" y="300" width="150" height="44" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="1.5"/><text x="222" y="320" font-weight="700">clear_terrain_map</text><text x="222" y="336" font-family="Roboto Mono" font-size="10" fill="#737373">topic · untested</text></g>
+            <g><rect x="40" y="390" width="140" height="44" fill="#E0F0B0" stroke="#1A1A1A" stroke-width="1.5"/><text x="52" y="410" font-weight="700">say</text><text x="52" y="426" font-family="Roboto Mono" font-size="10" fill="#737373">topic · wip</text></g>
+            <g><rect x="200" y="390" width="160" height="44" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="1.5"/><text x="212" y="410" font-weight="700">where_am_i</text><text x="212" y="426" font-family="Roboto Mono" font-size="10" fill="#737373">code · untested · new</text></g>
+            <g><rect x="410" y="68" width="170" height="44" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="1.5"/><text x="422" y="88" font-weight="700">track</text><text x="422" y="104" font-family="Roboto Mono" font-size="10" fill="#737373">topic · untested</text></g>
+            <g><rect x="410" y="172" width="170" height="44" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="1.5"/><text x="422" y="192" font-weight="700">is_tracking</text><text x="422" y="208" font-family="Roboto Mono" font-size="10" fill="#737373">condition · untested</text></g>
+            <g><rect x="680" y="160" width="170" height="44" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="1.5" stroke-dasharray="5 4"/><text x="692" y="180" font-weight="700">ask_vlm</text><text x="692" y="196" font-family="Roboto Mono" font-size="10" fill="#737373">vlm · untested · not live</text></g>
+            <g><rect x="410" y="300" width="170" height="44" fill="#FFBBBB" stroke="#8A1F1F" stroke-dasharray="3 3"/><text x="422" y="320" font-weight="700" fill="#5A1010">ready_walk</text><text x="422" y="336" font-family="Roboto Mono" font-size="10" fill="#5A1010">denied · deny.yaml</text></g>
+            <g><rect x="680" y="300" width="170" height="44" fill="#FFDCB4" stroke="#1A1A1A" stroke-dasharray="3 3"/><text x="692" y="320" font-weight="700">ground_boxes</text><text x="692" y="336" font-family="Roboto Mono" font-size="10" fill="#5A3A10">proposal · to review</text></g>
+          </g>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><i class="sw" style="background:#003310"></i>tested</span>
+        <span><i class="sw" style="background:#E0F0B0"></i>wip</span>
+        <span><i class="sw" style="background:#FFFFFF"></i>untested</span>
+        <span><i class="sw" style="background:#FFDCB4"></i>proposal</span>
+        <span><i class="sw" style="background:#FFBBBB"></i>denied</span>
+        <span>solid border = live · dashed = not live</span>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><h2>Skills</h2><span class="tag">click a row: contract, uses, last runs</span></div>
+        <div class="wrap">
+        <table>
+          <thead><tr><th>skill</th><th>kind</th><th>interface</th><th>device</th><th>maturity</th><th>runs</th><th>live</th></tr></thead>
+          <tbody>
+            <tr><td><b>navigate_to</b></td><td>action</td><td class="m">/route_planner/navigate_to_goal</td><td>nuc</td><td><span class="st ok">wip</span></td><td class="m">6 ✓ · 2 ✗</td><td>yes</td></tr>
+            <tr><td><b>localized</b></td><td>condition</td><td class="m">watch /slam_elevatorlio/status</td><td>nuc</td><td><span class="st run">tested</span></td><td class="m">14 ✓</td><td>yes</td></tr>
+            <tr><td><b>say</b></td><td>action</td><td class="m">/speak</td><td>nuc</td><td><span class="st ok">wip</span></td><td class="m">9 ✓</td><td>yes</td></tr>
+            <tr><td><b>ask_vlm</b></td><td>action</td><td class="m">vlm · http thor:8090</td><td>thor</td><td><span class="st wait">untested</span></td><td class="m">0 ✓ · 1 ✗</td><td>no</td></tr>
+            <tr><td><b>where_am_i</b></td><td>action</td><td class="m">code → localized, tf</td><td>nuc</td><td><span class="st wait">untested</span></td><td class="m">—</td><td>yes</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="ph"><h2>Proposals</h2><span class="tag">write_skill</span></div>
+        <div class="card">
+          <h4>ground_boxes</h4>
+          <p class="note">The agent wrote it during the discovery task, run 001, from vlm/ground_server and the live graph.</p>
+<pre>name: ground_boxes
+kind: action
+device: thor
+interface:
+  transport: service
+  name: /ground_server/ground_boxes
+inputs:
+- {name: query, type: string}
+outputs:
+- {name: boxes, type: string}
+maturity: untested</pre>
+          <p class="note">Checks: schema ✓ · deny list ✓ · references ✓ · ROS types ✓</p>
+          <div class="row"><button class="btn">Keep</button><button class="btn ghost">Edit</button><button class="btn bad">Remove</button></div>
+        </div>
+        <div class="card">
+          <h4>where_am_i · v2</h4>
+          <p class="note">Code skill (Code as Policies, option A): it calls only skills through the executor. A new version after 1 failure; v1 goes to old/.</p>
+<pre>def run(skills, places):
+    pose = skills.read_pose()
+    near = min(places, key=lambda p: p.distance(pose))
+    skills.say(text=f"I am near {near.name}")
+    return {"place": near.name}</pre>
+          <div class="row"><button class="btn">Keep</button><button class="btn ghost">Diff v1</button><button class="btn bad">Remove</button></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><h2>Deny list</h2><span class="tag">skill_registry/deny.yaml · read only</span></div>
+        <table>
+          <tbody>
+            <tr><td class="m">rt/*</td><td>low-level DDS</td></tr>
+            <tr><td class="m">*lowcmd*</td><td>low-level command</td></tr>
+            <tr><td class="m">change_mode 0, 3, 4</td><td>MONOSTATE, EMERGENCY, LOW_LEVEL</td></tr>
+            <tr><td class="m">ready_locomotion</td><td>damps and stands up again</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 03 KNOWLEDGE ---------------------------------------------------------------------------------------------->
+<section class="view" id="knowledge">
+  <div class="stats">
+    <div class="stat"><b>23</b><span>claims</span></div>
+    <div class="stat"><b>4</b><span>ready to approve</span></div>
+    <div class="stat"><b>11</b><span>facts</span></div>
+    <div class="stat"><b>1</b><span>contradiction</span></div>
+  </div>
+  <div class="grid two">
+    <div class="panel">
+      <div class="ph"><h2>Ready to approve</h2><span class="tag">knowledge list --ready</span></div>
+      <div class="card">
+        <h4>The call panel does not light when it is pressed</h4>
+        <dl class="kv">
+          <dt>id</dt><dd>C-0007</dd>
+          <dt>about</dt><dd>place=freight_elevator_call_panel · lights_when_pressed=false</dd>
+          <dt>evidence</dt><dd>3 runs · frame:press · agent:press_judge</dd>
+        </dl>
+        <div class="row"><button class="btn">Approve as fact</button><button class="btn ghost">Edit text</button><button class="btn bad">Reject</button></div>
+      </div>
+      <div class="card">
+        <h4>The cabin has no cloud link</h4>
+        <dl class="kv">
+          <dt>id</dt><dd>C-0012</dd>
+          <dt>about</dt><dd>place=freight_elevator_cabin · cloud=false</dd>
+          <dt>evidence</dt><dd>2 runs · LOST_SPEECH at 15:51, 16:20</dd>
+        </dl>
+        <div class="row"><button class="btn">Approve as fact</button><button class="btn ghost">Edit text</button><button class="btn bad">Reject</button></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><h2>Contradictions</h2><span class="tag">knowledge_review</span></div>
+      <div class="card">
+        <h4>Door open time</h4>
+        <p>C-0003 "The door stays open 8 s" and C-0019 "The door stays open 15 s" are about the same key.</p>
+        <div class="row"><button class="btn ghost">Keep C-0003</button><button class="btn ghost">Keep C-0019</button><button class="btn ghost">Keep both, as a range</button></div>
+      </div>
+      <div class="panel">
+        <div class="ph"><h2>Log</h2><span class="tag">log.jsonl</span></div>
+        <table>
+          <tbody>
+            <tr><td class="m">16:21</td><td>agent:task_loop noted C-0012</td></tr>
+            <tr><td class="m">15:58</td><td>operator approved C-0004</td></tr>
+            <tr><td class="m">15:40</td><td>agent:press_judge noted C-0007, 3rd evidence</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 RUNS --------------------------------------------------------------------------------------------------->
+<section class="view" id="runs">
+  <div class="panel">
+    <div class="ph"><h2>Runs</h2><span class="tag">~/orch_runs/&lt;session&gt;/runs · recorder</span></div>
+    <div class="wrap">
+    <table>
+      <thead><tr><th>run</th><th>task</th><th>agent</th><th>steps</th><th>refused</th><th>outcome</th><th>time</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="m">003</td><td>Walk to the call panel and press the down button</td><td class="m">codex</td><td class="m">7</td><td class="m">1</td><td><span class="st run">running</span></td><td class="m">04:12</td><td><button class="btn ghost">Open</button></td></tr>
+        <tr><td class="m">002</td><td>Walk to freight_elevator_call_panel_preapproach</td><td class="m">codex</td><td class="m">6</td><td class="m">1</td><td><span class="st warn">halted</span></td><td class="m">06:40</td><td><button class="btn ghost">Open</button></td></tr>
+        <tr><td class="m">001</td><td>Say hello, where am I</td><td class="m">codex</td><td class="m">8</td><td class="m">1</td><td><span class="st ok">done</span></td><td class="m">01:55</td><td><button class="btn ghost">Open</button></td></tr>
+        <tr><td class="m">000</td><td>Learn the stack (discovery)</td><td class="m">session</td><td class="m">41</td><td class="m">0</td><td><span class="st fail">gave up</span></td><td class="m">62:10</td><td><button class="btn ghost">Open</button></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Open: replay of plans.jsonl, steps.jsonl, records.jsonl and the decision frames; the bag in Foxglove; outcome.json; provenance (git, contract and agent-skill hashes).</p>
+  </div>
+</section>
+
+<!-- 05 FEATURE SETS -------------------------------------------------------------------------------------------->
+<section class="view" id="spec">
+  <div class="hero">
+    <h1>Feature sets</h1>
+    <p>What each part of Mission Control shows or does, and the ROS interface behind it. An adapter node on the NUC collects the state and serves this page on 127.0.0.1:8080; the laptop opens it through ssh -L 8080:localhost:8080. Commands go through the same topics as agent_cli, so the step gate, the limits and the recorder see no difference.</p>
+  </div>
+  <div class="wrap">
+  <table>
+    <thead><tr><th>#</th><th>feature set</th><th>shows / does</th><th>interface</th><th>exists now</th></tr></thead>
+    <tbody>
+      <tr><td class="m">F1</td><td><b>Robot state</b></td><td>devices up, localized, mode, recorder, step gate, cloud link, agent and model</td><td class="m">/skills/live, /slam_elevatorlio/status, /orchestrator/recorder/status</td><td>partly: the adapter collects it</td></tr>
+      <tr><td class="m">F2</td><td><b>Task</b></td><td>send a task (blind or not), cancel, say a sentence</td><td class="m">/orchestrator/task, /orchestrator/cancel, /speak</td><td>yes</td></tr>
+      <tr><td class="m">F3</td><td><b>Plan and steps</b></td><td>subgoals, the step now, results, revisions</td><td class="m">/orchestrator/task/open, /orchestrator/trace (plan, task_*)</td><td>yes</td></tr>
+      <tr><td class="m">F4</td><td><b>Step gate</b></td><td>approve or refuse each step, with a reason as a hint</td><td class="m">/orchestrator/step_request, /orchestrator/step_decision</td><td>yes</td></tr>
+      <tr><td class="m">F5</td><td><b>Trace</b></td><td>live event stream, filter by kind and level</td><td class="m">/orchestrator/trace (JSON)</td><td>yes</td></tr>
+      <tr><td class="m">F6</td><td><b>Camera</b></td><td>raw, track_anything overlay, the frame of each decision</td><td class="m">/camera/camera/color/image_raw, /track_3d/mask_outlines</td><td>yes; decision frames from the run folder</td></tr>
+      <tr><td class="m">F7</td><td><b>Map</b></td><td>places, floor, robot pose, nearest place, route</td><td class="m">/map_info/places, tf map→base_link</td><td>yes</td></tr>
+      <tr><td class="m">F8</td><td><b>Decisions</b></td><td>each model turn: prompt, frame, answer, time</td><td class="m">&lt;run&gt;/scratch/decisions/NNN/</td><td>files: the adapter reads them</td></tr>
+      <tr><td class="m">F9</td><td><b>Skill graph</b></td><td>skills by device, maturity, live, pre and fallback links, denied</td><td class="m">/skills/live + contracts</td><td>partly: needs a topic with the contracts</td></tr>
+      <tr><td class="m">F10</td><td><b>Skill proposals</b></td><td>review what write_skill saved: keep, edit, remove, diff versions</td><td class="m">&lt;agent_dir&gt;/contracts, old/</td><td>no: new service</td></tr>
+      <tr><td class="m">F11</td><td><b>Knowledge</b></td><td>claims ready to approve, contradictions, the log</td><td class="m">knowledge CLI, claims.yaml, log.jsonl</td><td>CLI only: new service</td></tr>
+      <tr><td class="m">F12</td><td><b>Runs</b></td><td>past runs, outcome, replay, provenance</td><td class="m">~/orch_runs</td><td>files only</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">The adapter node also gives F1 one status, and reads the files for F8, F10, F11 and F12 directly.</p>
+</section>
+
+</main>
+
+<script>
+// Tabs
+const tabs = document.querySelectorAll('.tab');
+function show(view) {
+  tabs.forEach(t => t.setAttribute('aria-selected', t.dataset.view === view));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === view));
+}
+tabs.forEach(tab => tab.addEventListener('click', () => { show(tab.dataset.view); history.replaceState(null, '', '#' + tab.dataset.view); }));
+if (document.getElementById(location.hash.slice(1))) show(location.hash.slice(1));
+
+// Toggle groups (mock only)
+document.querySelectorAll('.seg, .filters').forEach(group => group.addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  group.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b === button));
+  if (group.classList.contains('filters')) renderLog(button.textContent);
+}));
+
+// Trace, fake events in the shape of /orchestrator/trace
+const EVENTS = [
+  ['15:40:02', 'info',  'task_started', 'run 003: Walk to the call panel and press the down button'],
+  ['15:40:09', 'info',  'plan',         '5 subgoals'],
+  ['15:40:15', 'info',  'step_gate',    'step 1 localized: approved'],
+  ['15:40:16', 'info',  'record',       'localized: success (localized: true)'],
+  ['15:40:24', 'info',  'step_gate',    'step 2 navigate_to {call_panel_preapproach}: approved'],
+  ['15:40:24', 'info',  'started',      'navigate_to'],
+  ['15:42:24', 'warn',  'record',       'navigate_to: timeout 120 s, 1 feedback sample'],
+  ['15:42:31', 'warn',  'step_gate',    'step 3 cancel_nav: refused, "the terrain map is stale, clear it"'],
+  ['15:42:38', 'error', 'decider_error','codex exec: stream disconnected, retry 1'],
+  ['15:42:47', 'info',  'plan',         'revision 2: clear the terrain map first'],
+  ['15:42:53', 'info',  'record',       'clear_terrain_map: success'],
+  ['15:43:01', 'info',  'record',       'navigate_to: success, 0.3 m to goal'],
+  ['15:43:07', 'info',  'write_skill',  'ground_boxes saved, untested, to review'],
+  ['15:43:09', 'info',  'step_gate',    'step 7 navigate_to {call_panel}: waiting'],
+];
+function renderLog(filter = 'all') {
+  const keep = ({ plan: e => e[2] === 'plan' || e[2].startsWith('task'), step: e => e[2] === 'step_gate' || e[2] === 'started',
+                  record: e => e[2] === 'record', skill: e => e[2] === 'write_skill', 'warn+': e => e[1] !== 'info' })[filter] || (() => true);
+  document.getElementById('log').innerHTML = EVENTS.filter(keep).reverse().map(([time, level, kind, text]) =>
+    `<div class="ev ${level}"><time>${time.slice(3)}</time><b class="k">${kind}</b><span>${text}</span></div>`).join('');
+}
+renderLog();
+</script>
+</body>
+</html>
