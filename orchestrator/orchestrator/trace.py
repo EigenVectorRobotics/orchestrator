@@ -24,7 +24,7 @@ class Tracer:
         self._log_publisher  = node.create_publisher(Log, '/orchestrator/log', TRACE_QOS)
 
     def emit(self, kind: str, text: str, level: str = 'info', **data):
-        event = {'time': time.time(), 'source': self.source, 'kind': kind, 'text': text, **self.fields, **data}
+        event = {'time': time.time(), 'source': self.source, 'kind': kind, 'text': text, 'level': level, **self.fields, **data}
 
         self._json_publisher.publish(String(data=json.dumps(event, default=str)))
 
