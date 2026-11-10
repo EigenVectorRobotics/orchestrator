@@ -90,14 +90,16 @@ class RunRecorderNode(Node):
         contracts, places_file, map_info = declare_sources(self)
 
         provenance = {
-            'git':          [git_state(repo) for repo in find_repos(repo_roots)],
-            'contracts':    directory_digests(Path(contracts), '*.yaml'),
-            'agent_skills': directory_digests(Path(agent_docs), '*.md'),
-            'places':       {'path': places_file, 'sha256': file_digest(Path(places_file))} if places_file else {'map_info': map_info},
+            'git':    [git_state(repo) for repo in find_repos(repo_roots)],
+            'places': {'path': places_file, 'sha256': file_digest(Path(places_file))} if places_file else {'map_info': map_info},
         }
+        # read at the start of each run, not once: the agent writes contracts while the session runs (write_skill)
+        library = lambda: {'contracts':    directory_digests(Path(contracts), '*.yaml'),
+                           'agent_skills': directory_digests(Path(agent_docs), '*.md')}
 
         self.bag      = RosBag(self, list(bag_topics)) if record_bag else None
-        self.recorder = Recorder(RecorderConfig(root=root, min_free_gb=min_free_gb, capture_dir=capture_dir), provenance, self.bag)
+        self.recorder = Recorder(RecorderConfig(root=root, min_free_gb=min_free_gb, capture_dir=capture_dir), provenance,
+                                 self.bag, library=library)
 
         self._status_publisher = self.create_publisher(String, STATUS_TOPIC, LATCHED_QOS)
         self._subscriptions    = [       # not self._subscriptions of Node: that name is taken by rclpy

@@ -2,6 +2,8 @@
 
 How to run the walk-and-press test at the freight elevator, judge each press, and decide the next step. It collects what we learned on 2026-11-04, in the field test and in the agent trial that night (the whole task run by the orchestrator, with a Claude Code session as the agent; "Agent trial, 2026-11-04" below, and `skill_registry/agent_skills/manipulation_recovery.experience.md` E-014 to E-020).
 
+This branch (`agentic`) has no hand-written skills, so every `skill_registry/contracts`, `skill_registry/trees` and `skill_registry/agent_skills` path below is on `main` and `ltx-dev`. Run this test from one of those branches.
+
 ## Setup
 
 - **Machines:** the NUC runs the robot interface, arm control, body EKF and navigation. The Orin runs the camera, `seed_bbox` and `track_3d`. The Thor runs Cosmos grounding.

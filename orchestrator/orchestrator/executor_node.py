@@ -103,7 +103,7 @@ class ExecutorNode(Node):
         if writes:
             self.get_logger().info(f'write_skill on: the agent saves contracts in {self.writer.directory}')
         else:
-            self.get_logger().warning('write_skill off: only a person can add a contract')
+            self.get_logger().warning('write_skill off: the agent cannot save a contract; a file put in by hand still loads')
         desk            = TaskDesk(
             self.tasks,
             lambda message: open_publisher.publish(String(data=json.dumps(message, default=str))),

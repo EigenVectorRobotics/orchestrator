@@ -7,7 +7,7 @@ from typing import Callable
 
 from rclpy.node import Node
 
-from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry, agent_contracts_dir
+from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry, agent_contracts_dir, missing_folder
 
 from .places import parse_places
 from .map_places import MapInfoPlaces
@@ -39,5 +39,8 @@ def load_skills(node: Node) -> tuple[Registry, Callable[[], dict], set[str]]:
     essential_devices                          = node.declare_parameter('essential_devices', sorted(DEFAULT_ESSENTIAL_DEVICES)).value
     file_places                                = load_places(places_file)
     places                                     = (lambda: file_places) if places_file or not map_info else MapInfoPlaces(node, map_info)
+
+    if warning := missing_folder(contracts_directory):
+        node.get_logger().warning(warning)
 
     return Registry.from_directory(Path(contracts_directory)), places, set(essential_devices)

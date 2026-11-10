@@ -55,8 +55,6 @@ from rclpy.executors import SingleThreadedExecutor
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 
-from skill_registry import agent_skills_dir
-
 from .images import ImageError, image_to_jpeg
 from .agent_ros import RosReader, RosReadError
 from .press_capture import FrameBuffer, stamp_seconds
@@ -121,7 +119,7 @@ def _summary(request: dict, full: bool) -> str:
     lines = [
         f'call {request["id"]} ({request["state"]}), skill {request["skill"]}, opened {time.time() - request["opened"]:.0f} s ago',
         request['task'],
-        f'skill document: {agent_skills_dir() / (request["skill"] + ".md")}',
+        f'skill document: {request.get("document") or "(not sent)"}',
     ]
     failure = request.get('failure')
     label   = 'failure'

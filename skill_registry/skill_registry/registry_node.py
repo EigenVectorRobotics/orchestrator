@@ -14,7 +14,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
 
 from .contract import ContractError
-from .registry import GraphSnapshot, Registry, agent_contracts_dir, is_present
+from .registry import GraphSnapshot, Registry, agent_contracts_dir, is_present, missing_folder
 
 
 # Volatile, so it matches any publisher. Skill servers announce again every few seconds
@@ -44,6 +44,9 @@ class RegistryNode(Node):
         threading.Thread(target=self._probe_vlm_forever, daemon=True).start()
 
         self.get_logger().info(f'{len(self.registry)} contracts from {self.contracts_directory}')
+
+        if warning := missing_folder(self.contracts_directory):
+            self.get_logger().warning(warning)
 
     def _refresh(self):
         for name in self.registry.refresh(Path(self.contracts_directory))[0]:       # refresh logs what it refuses

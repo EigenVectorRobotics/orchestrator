@@ -537,7 +537,8 @@ class Agent:
             if phase == 'judge':                # waits until the press's frames are chosen, then saves them
                 evidence['press'] = self.press_evidence() if self.press_evidence else None
 
-            system  = (Path(self.config.skills_dir) / f'{contract.interface.skill}.md').read_text()
+            document = Path(self.config.skills_dir) / f'{contract.interface.skill}.md'
+            system  = document.read_text()
             known   = self.config.knowledge.prompt_section(observations=True) if self.config.knowledge else ''
             system += f'\n\n{known}\n' if known else ''
             session = AgentSession(phase, inputs, evidence, self.ros, self.config, self.on_event, self.speak,
@@ -546,7 +547,8 @@ class Agent:
 
             self.on_event('agent_start', f'{contract.name} ({phase}) on {self.backend.name}', phase=phase)
             self.backend.run(system, task, tool_specs(phase), session.call,
-                             self.config.max_turns, stop.is_set, self.on_event, skill=contract.interface.skill)
+                             self.config.max_turns, stop.is_set, self.on_event, skill=contract.interface.skill,
+                             document=str(document))
 
             if session.decision is None:
                 raise AgentError('the agent ended without a decision')

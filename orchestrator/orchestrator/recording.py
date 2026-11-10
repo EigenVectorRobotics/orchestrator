@@ -139,8 +139,9 @@ class NoBag:
 
 
 class Recorder:
-    def __init__(self, config: RecorderConfig, provenance: dict, bag=None, clock=time.time):
+    def __init__(self, config: RecorderConfig, provenance: dict, bag=None, clock=time.time, library=dict):
         self.config   = config
+        self.library  = library       # the skill library now: the agent writes contracts while the session runs
         self.bag      = bag or NoBag()
         self.clock    = clock
         self.run      = None                     # the open run's folder
@@ -250,6 +251,8 @@ class Recorder:
         folder = self.path / 'runs' / f'{self.runs:03d}-{name}'
         (folder / 'steps').mkdir(parents=True)
         self.run = folder
+
+        write_json(self.run / 'library.json', self.library())      # digests of the skills this run could use
 
         write_json(self.run / 'task.json', {
             'run_id':  event.get('run_id'),

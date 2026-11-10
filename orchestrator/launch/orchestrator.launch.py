@@ -49,7 +49,8 @@ def generate_launch_description():
                               description='task mode: session (a session outside uses agent_cli) or codex (the executor asks codex exec for each step)'),
         DeclareLaunchArgument('codex_model', default_value='gpt-6-astra', description='task_agent codex: the model, with the codex login'),
         DeclareLaunchArgument('write_skill', default_value='true',
-                              description='the agent may save contracts in contracts_directory; false locks the library'),
+                              description='the agent may save contracts with write_skill; false refuses that command '
+                                          '(a file put in contracts_directory by hand still loads)'),
         DeclareLaunchArgument(
             'contracts_directory',
             default_value=PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'contracts']),

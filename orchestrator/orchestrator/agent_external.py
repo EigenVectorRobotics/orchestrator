@@ -50,12 +50,14 @@ class ExternalAgentBackend:
         self._decisions.put(decision)
 
     def run(self, system: str, task: str, tools: list[dict], call_tool: Callable[[str, dict], ToolOutput],
-            max_turns: int, should_stop: Callable[[], bool], on_event: Callable[..., None], skill: str = ''):
+            max_turns: int, should_stop: Callable[[], bool], on_event: Callable[..., None], skill: str = '',
+            document: str = ''):
         decide  = next(tool for tool in tools if tool['name'] == 'decide')
         request = {
             'id':        uuid.uuid4().hex[:8],
             'state':     'open',
             'skill':     skill,
+            'document':  document,            # where the executor read the system prompt; the session reads the same file
             'opened':    time.time(),
             'task':      task,
             'decisions': decide['input_schema']['properties']['decision']['enum'],

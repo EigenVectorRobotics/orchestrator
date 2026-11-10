@@ -31,7 +31,8 @@ class OpenAICompatibleAgentBackend:
         self.timeout_s  = timeout_s
 
     def run(self, system: str, task: str, tools: list[dict], call_tool: Callable[[str, dict], ToolOutput],
-            max_turns: int, should_stop: Callable[[], bool], on_event: Callable[..., None], skill: str = ''):
+            max_turns: int, should_stop: Callable[[], bool], on_event: Callable[..., None], skill: str = '',
+            document: str = ''):
         functions = [
             {'type': 'function', 'function': {'name': tool['name'], 'description': tool['description'], 'parameters': tool['input_schema']}}
             for tool in tools
@@ -101,7 +102,8 @@ class ScriptedAgentBackend:
         self.calls  = []
 
     def run(self, system: str, task: str, tools: list[dict], call_tool: Callable[[str, dict], ToolOutput],
-            max_turns: int, should_stop: Callable[[], bool], on_event: Callable[..., None], skill: str = ''):
+            max_turns: int, should_stop: Callable[[], bool], on_event: Callable[..., None], skill: str = '',
+            document: str = ''):
         if not self.script:
             raise AgentError('no scripted agent call left')
 

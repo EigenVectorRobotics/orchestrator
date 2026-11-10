@@ -25,6 +25,11 @@ def agent_skills_dir() -> Path:
     return agent_dir() / 'agent_skills'
 
 
+def missing_folder(directory) -> str:
+    """'' if the folder is there; else why no skill loads, e.g. a typo in contracts_directory"""
+    return '' if Path(directory).is_dir() else f'no folder {directory}: no skill loads until it is made'
+
+
 class Registry:
     """All known skill contracts, and which of them are live now"""
 
