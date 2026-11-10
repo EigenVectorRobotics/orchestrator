@@ -7,7 +7,8 @@ commands on COMMAND_TOPIC:
 
 - plan: the task plan, a list of subgoals; it goes in the trace (each version) and in plan.md in the scratch folder
 - run: one skill as the next step, for a subgoal; the reply comes when the step ends, with its result
-- write_skill: a contract (YAML text) for a new skill or a new version of the agent's own (skill_writer.py)
+- write_skill: a contract (YAML text) for a new skill or a new version of the agent's own, and for a code skill
+  the Python that calls other skills (skill_writer.py)
 - skills: the skills that run can run now, as the executor has them
 - done, give_up: end the task
 
@@ -245,7 +246,7 @@ class TaskDesk:
             return self._run(task, message['skill'], dict(message.get('inputs') or {}), str(message.get('subgoal', '')))
 
         if op == 'write_skill':
-            return self._write_skill(str(message['yaml']))
+            return self._write_skill(str(message['yaml']), str(message.get('code', '')))
 
         if op == 'skills':
             return {'ok': True, 'catalog': describe_catalog(self.tasks.registry, self.tasks.essential_devices)}
@@ -255,11 +256,11 @@ class TaskDesk:
 
         return {'ok': False, 'message': f'unknown op {op}; use plan, run, write_skill, skills, done or give_up'}
 
-    def _write_skill(self, text: str) -> dict:
+    def _write_skill(self, text: str, code: str = '') -> dict:
         if self.writer is None:
             return {'ok': False, 'message': 'write_skill is off here (no skill folder)'}
 
-        reply = self.writer.write(text)
+        reply = self.writer.write(text, code)
         self.tasks.tracer.emit('write_skill', reply['message'], level='info' if reply['ok'] else 'warn', ok=reply['ok'])
 
         return reply
@@ -284,10 +285,8 @@ class TaskDesk:
             return {'ok': False, 'message': f'max_steps {self.max_steps} reached: end the task with done or give_up'}
 
         if self.gate is not None:
-            decision = self.gate.ask({'run_id': task.run_id, 'step': task.steps + 1, 'skill': skill, 'inputs': inputs,
-                                      'subgoal': subgoal}, lambda: self.task is task)
-            self.tasks.tracer.emit('step_gate', f'step {task.steps + 1} {skill}: {decision["state"]} {decision["reason"]}'.strip(),
-                                   skill=skill, **decision)
+            decision = self.ask_step({'skill': skill, 'inputs': inputs, 'subgoal': subgoal},
+                                     lambda: self.task is task)
 
             if not decision['approve']:
                 return {'ok': False, 'status': 'refused', 'message': f'the operator refused the step: {decision["reason"]}'}
@@ -295,6 +294,19 @@ class TaskDesk:
         result = self.tasks.run_skill(skill, inputs, subgoal=subgoal)
 
         return {'ok': result.status != 'error', **asdict(result)}
+
+    def ask_step(self, request: dict, still_open=None, step=None) -> dict:
+        """Ask a person about one step and trace the answer; also used for a call inside a code skill"""
+        if self.gate is None:
+            return {'approve': True, 'state': 'approved', 'reason': ''}
+
+        task     = self.task
+        full     = {'run_id': task.run_id if task else None, 'step': step or (task.steps + 1 if task else 0)} | request
+        decision = self.gate.ask(full, still_open or (lambda: self.task is task))
+        self.tasks.tracer.emit('step_gate', f'{request.get("skill")}: {decision["state"]} {decision["reason"]}'.strip(),
+                               skill=request.get('skill'), **decision)
+
+        return decision
 
     def _end(self, task: Task, end: str, reason: str) -> dict:
         self._close(task, end)                           # first: else check() sees it end and closes it as 'ended'

@@ -25,6 +25,15 @@ def agent_skills_dir() -> Path:
     return agent_dir() / 'agent_skills'
 
 
+def agent_code_dir() -> Path:
+    return agent_dir() / 'code'
+
+
+def code_file(name: str, code_dir=None) -> Path:
+    """Where the Python of a code skill lives; the runner and write_skill must agree on it"""
+    return Path(code_dir) / f'{name}.py' if code_dir else agent_code_dir() / f'{name}.py'
+
+
 def missing_folder(directory) -> str:
     """'' if the folder is there; else why no skill loads, e.g. a typo in contracts_directory"""
     return '' if Path(directory).is_dir() else f'no folder {directory}: no skill loads until it is made'

@@ -8,11 +8,12 @@ import yaml
 
 
 KINDS         = ('action', 'condition', 'composite')
-TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip')
+TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip', 'code')
 READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip')         # the transports a condition may use
 # watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
 # graph: each listed topic has at most its allowed publishers. press_tip: where the end effector got to in the last press.
+# code: Python that calls other skills through the executor; it runs in the sandbox and reaches no ROS of its own.
 MATURITIES    = ('tested', 'wip', 'untested')
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
@@ -202,8 +203,8 @@ def parse_contract(raw: dict) -> Contract:
     if contract.maturity not in MATURITIES:
         raise ContractError(f'{name}: unknown maturity {contract.maturity}')
 
-    if contract.kind == 'action' and contract.timeout_s <= 0:
-        raise ContractError(f'{name}: an action skill needs a timeout_s above 0')
+    if contract.timeout_s <= 0 and (contract.kind == 'action' or interface.transport == 'code'):
+        raise ContractError(f'{name}: an action or code skill needs a timeout_s above 0')
 
     if contract.kind == 'condition' and interface.transport not in READ_ONLY:
         raise ContractError(f'{name}: a condition must only read ({READ_ONLY}), not {interface.transport}')

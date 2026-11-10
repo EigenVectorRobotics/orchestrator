@@ -13,7 +13,8 @@ from test_behavior_tree import FakeRunner
 
 
 def _decision(op, **fields):
-    return {'reason': '', 'op': op, 'subgoals': [], 'skill': '', 'inputs_json': '', 'subgoal': ''} | fields
+    return {'reason': '', 'op': op, 'subgoals': [], 'skill': '', 'inputs_json': '', 'subgoal': '',
+            'yaml': '', 'code': ''} | fields
 
 
 class ScriptedDecider:
@@ -128,3 +129,21 @@ def test_codex_runs_read_only_with_the_schema_and_only_known_features_off(tmp_pa
 
     with pytest.raises(DeciderError, match='cannot be turned off'):         # no decision with codex's tools on
         CodexDecider(executable=str(broken)).decide('decide', None, work)
+
+
+def test_the_model_can_write_a_skill_and_the_desk_checks_it_as_it_checks_a_session(tmp_path):
+    written = []
+    d       = _desk(FakeRunner({}), tmp_path)
+    d.desk.writer = type('Writer', (), {'write': lambda self, text, code='': (written.append((text, code)),
+                                                                              {'ok': True, 'message': 'added'})[1]})()
+    decider = ScriptedDecider([_decision('write_skill', yaml='name: greet\n', code='def run(skills, inputs):\n    return {}\n'),
+                               _decision('give_up', reason='enough')])
+
+    assert not _loop(d, decider).is_alive()
+    assert written == [('name: greet\n', 'def run(skills, inputs):\n    return {}\n')]
+
+
+def test_the_system_prompt_tells_the_model_how_to_write_a_code_skill():
+    prompt = build_prompt({'state': 'open', 'task': 'x', 'run_id': 'r'}, 'say(text: string)', [])
+
+    assert 'write_skill' in prompt and 'transport: code' in prompt and 'def run(skills, inputs)' in prompt

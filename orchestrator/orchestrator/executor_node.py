@@ -13,7 +13,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
 
-from skill_registry import agent_skills_dir
+from skill_registry import agent_code_dir, agent_skills_dir
 
 from .agent import Agent, AgentConfig
 from .agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
@@ -25,6 +25,8 @@ from .knowledge import KnowledgeStore
 from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
+from .code_skill import CodeRunner
+from .agent_sandbox import SandboxConfig
 from .tasks import Tasks, parse_task_request
 from .task_loop import CodexDecider, TaskLoop
 from .planner import describe_catalog
@@ -69,7 +71,11 @@ class ExecutorNode(Node):
         )
 
         self.agent = self._make_agent()
-        self.tasks = Tasks(self.registry, make_leaf_factory(self.registry, self.runner, self.agent), self.tracer,
+        self.gate  = self._make_gate() if self.declare_parameter('step_gate', True).value else None
+        self.code  = self._make_code()
+        build_leaf = make_leaf_factory(self.registry, self.runner, self.agent, self.code)
+        self.code.build_leaf = build_leaf              # a call inside a code skill is a leaf of its own
+        self.tasks = Tasks(self.registry, build_leaf, self.tracer,
                            self._publish_status, self.essential_devices, make_scratch=self._run_scratch,
                            on_error=self.get_logger().error)
 
@@ -82,7 +88,7 @@ class ExecutorNode(Node):
         ]
         # contracts that change on disk load while it runs, checked as write_skill checks them (skill_writer.py)
         self.writer              = SkillWriter(self.registry, Path(self.get_parameter('contracts_directory').value),
-                                               check_ros_types, self.runner.prepare)
+                                               check_ros_types, self.runner.prepare, code_dir=self.code.code_dir)
         self.desk                = self._make_desk() if mode == 'task' else None
         self.loop                = self._make_loop() if mode == 'task' else None
         self._tick_timer         = self.create_timer(1.0 / self.tick_hz, self._tick)
@@ -97,7 +103,6 @@ class ExecutorNode(Node):
         reply_publisher = self.create_publisher(String, TASK_REPLY_TOPIC, COMMAND_QOS)
         publish_reply   = lambda message: reply_publisher.publish(String(data=json.dumps(message, default=str)))
         knowledge       = self.agent.config.knowledge if self.agent else None
-        gate            = self._make_gate() if self.declare_parameter('step_gate', True).value else None
         writes          = self.declare_parameter('write_skill', True).value
 
         if writes:
@@ -113,7 +118,7 @@ class ExecutorNode(Node):
             max_steps=self.declare_parameter('task_max_steps', 40).value,
             max_task_s=self.declare_parameter('task_max_s', 900.0).value,
             idle_s=self.declare_parameter('task_idle_s', 120.0).value,
-            gate=gate,
+            gate=self.gate,
             writer=self.writer if writes else None,
         )
 
@@ -149,6 +154,25 @@ class ExecutorNode(Node):
 
         return TaskLoop(self.desk, decider, lambda: describe_catalog(self.registry, self.essential_devices),
                         self.runner.latest_image, self.tracer)
+
+    def _make_code(self) -> CodeRunner:
+        """Code skills: Python in the sandbox that calls other skills back through this executor"""
+        code_dir = self.declare_parameter('code_dir', str(agent_code_dir())).value
+        scratch  = self.declare_parameter('code_scratch_dir', str(Path.home() / 'orch_knowledge' / 'scratch' / 'code')).value
+        timeout  = self.declare_parameter('code_cpu_s', 60.0).value
+
+        return CodeRunner(self.registry, SandboxConfig(scratch_dir=scratch, timeout_s=timeout),
+                          code_dir=code_dir, approve=self._approve_inside_code)
+
+    def _approve_inside_code(self, contract, inputs: dict, reasons: list[str]) -> tuple[bool, str]:
+        """A code skill is approved once; a skill the operator's gate.yaml names asks again, inside the code"""
+        if self.desk is None or self.gate is None:
+            return True, ''
+
+        decision = self.desk.ask_step({'skill': contract.name, 'inputs': inputs, 'in_code': True,
+                                       'subgoal': '; '.join(reasons)}, step='inside the code')
+
+        return decision['approve'], decision['reason']
 
     def _make_gate(self) -> StepGate:
         """The real robot, at first: a person approves each step (agent_cli step approve|refuse, at a terminal)"""

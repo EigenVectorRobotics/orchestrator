@@ -82,6 +82,11 @@ def _convert(value, port_type: str, port_name: str):
     return value
 
 
+def _blackboard_key(value) -> str:
+    """The key in '{key}', or '': only text holds one, and a code skill's inputs come already typed"""
+    return value[1:-1] if isinstance(value, str) and value.startswith('{') and value.endswith('}') else ''
+
+
 def resolve_inputs(contract: Contract, attributes: dict, blackboard: dict) -> dict:
     """Port values for one call: literals parsed, {key} read from the blackboard, defaults filled"""
     inputs = {}
@@ -98,9 +103,7 @@ def resolve_inputs(contract: Contract, attributes: dict, blackboard: dict) -> di
 
         value = attributes[port.name]
 
-        if value.startswith('{') and value.endswith('}'):
-            key = value[1:-1]
-
+        if key := _blackboard_key(value):
             if key not in blackboard:
                 raise InputError(f'{port.name}: blackboard has no {key}')
 
@@ -127,6 +130,7 @@ class SkillLeaf(TreeNode):
         self.handle     = None
         self.start_time = 0.0
         self.inputs     = {}
+        self.outputs    = {}                # the last call's outputs, for whoever asked for the call
 
     def _tick(self) -> Status:
         if self.handle is None:
@@ -157,6 +161,7 @@ class SkillLeaf(TreeNode):
 
         if status in DONE:
             self.message = self.handle.message
+            self.outputs = dict(self.handle.outputs)
             self._write_outputs(self.handle.outputs)
             self._finish_call(status)
             self.handle = None
@@ -219,8 +224,8 @@ class SkillLeaf(TreeNode):
             value = self.inputs[port.name]
 
             if port.type == 'pose':
-                attribute = self.attributes.get(port.name, '')
-                name      = attribute[1:-1] + ' ' if attribute.startswith('{') else ''
+                key   = _blackboard_key(self.attributes.get(port.name, ''))
+                name  = f'{key} ' if key else ''
                 value     = f'{name}({value["x"]:.2f}, {value["y"]:.2f}, {math.degrees(value.get("yaw", 0.0)):.0f} deg)'
 
             parts.append(f'{port.name}={value}')
@@ -229,10 +234,10 @@ class SkillLeaf(TreeNode):
 
     def _write_outputs(self, outputs: dict):
         for port in self.contract.outputs:
-            target = self.attributes.get(port.name, '')
+            key = _blackboard_key(self.attributes.get(port.name, ''))
 
-            if target.startswith('{') and target.endswith('}') and port.name in outputs:
-                self.context.blackboard[target[1:-1]] = outputs[port.name]
+            if key and port.name in outputs:
+                self.context.blackboard[key] = outputs[port.name]
 
 
 class AgentRunner(Protocol):
@@ -296,7 +301,19 @@ class AgentLeaf(SkillLeaf):
             self.context.abort(f'{self.contract.name}: {outputs.get("reason", "")}')
 
 
-def make_leaf_factory(registry: Registry, runner: SkillRunner, agent: AgentRunner | None = None):
+class CodeLeaf(SkillLeaf):
+    """A leaf whose skill is Python (code_skill.py); its timeout, records and outputs are a plain skill's"""
+
+    def __init__(self, contract: Contract, code, path: str, attributes: dict, context: Context):
+        super().__init__(contract, None, path, attributes, context)
+
+        self.code = code
+
+    def _start_call(self) -> SkillHandle:
+        return self.code.start(self.contract, self.inputs, self.context, chain=self.path)
+
+
+def make_leaf_factory(registry: Registry, runner: SkillRunner, agent: AgentRunner | None = None, code=None):
     def build_leaf(skill_name: str, path: str, attributes: dict, context: Context) -> TreeNode:
         contract = registry.get(skill_name)
 
@@ -305,6 +322,12 @@ def make_leaf_factory(registry: Registry, runner: SkillRunner, agent: AgentRunne
 
         if contract.interface.transport == 'agent':
             return AgentLeaf(contract, agent, path, attributes, context)
+
+        if contract.interface.transport == 'code':
+            if code is None:
+                raise TreeError(f'{path}: {skill_name} is a code skill, and this executor runs none')
+
+            return CodeLeaf(contract, code, path, attributes, context)
 
         return SkillLeaf(contract, runner, path, attributes, context)
 

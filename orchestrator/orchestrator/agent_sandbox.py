@@ -42,16 +42,9 @@ def _clip(text: str, limit: int) -> str:
     return text[:limit // 2] + f'\n... [{len(text) - limit} characters cut] ...\n' + text[-limit // 2:]
 
 
-def run_python(code: str, config: SandboxConfig) -> dict:
-    """Run the code; return stdout, stderr, exit_code and timed_out"""
-    scratch = Path(config.scratch_dir)
-    scratch.mkdir(parents=True, exist_ok=True)
-
-    code_path = scratch / CODE_FOLDER / f'run_{os.getpid()}_{next(_run_numbers)}.py'     # hidden from the agent's file list
-    code_path.parent.mkdir(exist_ok=True)
-    code_path.write_text(code)
-
-    environment = {
+def sandbox_env(config: SandboxConfig, scratch: Path) -> dict:
+    """The environment of a guarded child: no ROS discovery, the deny list's modules, the limits agent_guard applies"""
+    return {
         'PATH':                          '/usr/bin:/bin',
         'HOME':                          str(scratch),
         'AGENT_SCRATCH':                 str(scratch),
@@ -64,6 +57,18 @@ def run_python(code: str, config: SandboxConfig) -> dict:
         'AGENT_CPU_S':                   str(int(config.timeout_s) + 5),
         'AGENT_DENIED_MODULES':          _denied_modules(),     # the deny list's: the Unitree SDK, raw DDS
     }
+
+
+def run_python(code: str, config: SandboxConfig) -> dict:
+    """Run the code; return stdout, stderr, exit_code and timed_out"""
+    scratch = Path(config.scratch_dir)
+    scratch.mkdir(parents=True, exist_ok=True)
+
+    code_path = scratch / CODE_FOLDER / f'run_{os.getpid()}_{next(_run_numbers)}.py'     # hidden from the agent's file list
+    code_path.parent.mkdir(exist_ok=True)
+    code_path.write_text(code)
+
+    environment = sandbox_env(config, scratch)
     process = subprocess.Popen(
         [config.python, '-I', str(GUARD_PATH), str(code_path)],
         cwd=scratch,

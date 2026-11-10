@@ -21,7 +21,8 @@ Task mode (docs/task-mode.md): the session does a task step by step.
                                         run one skill as the next step; wait for its end and print the result.
                                         A value is read as JSON when it can be ({"x": 1, ...}, 3, true), else as
                                         text; {key} is a blackboard key, e.g. {call_panel} or {step1_detections}
-  agent_cli write-skill FILE            save the contract in FILE (YAML) as a skill: checked, then loaded at once
+  agent_cli write-skill FILE [--code F] save the contract in FILE (YAML) as a skill: checked, then loaded at once;
+                                        a code skill (transport code) takes its Python with --code
   agent_cli interface NAME|TYPE         a topic, service or action by name (/route_planner/navigate_to_goal), or a
                                         type (std_srvs/srv/Trigger): its types and their fields
   agent_cli done --reason R             the task is done
@@ -248,9 +249,10 @@ def _task_command(node, command: dict, timeout_s: float,
 
 
 def _step_summary(request: dict) -> str:
-    return (f'step {request["step"]} of task {request["run_id"]} ({request["state"]}'
-            + (f': {request["reason"]}' if request.get('reason') else '') + f'), for "{request["subgoal"]}":\n'
-            f'  {request["skill"]} {json.dumps(request["inputs"])}')
+    return (f'step {request.get("step")} of task {request.get("run_id")} ({request.get("state")}'
+            + (f': {request["reason"]}' if request.get('reason') else '') + f'), for "{request.get("subgoal", "")}":\n'
+            f'  {request.get("skill")} {json.dumps(request.get("inputs", {}))}'
+            + ('\n  this call is inside a code skill, which was approved already' if request.get('in_code') else ''))
 
 
 def _step(node, arguments) -> int:
@@ -362,7 +364,9 @@ def main():
     step.add_argument('--reason', default='')
     step.add_argument('--timeout', type=float, default=3600.0)
     commands.add_parser('plan').add_argument('subgoals', nargs='+')
-    commands.add_parser('write-skill').add_argument('file', type=Path)
+    write_skill = commands.add_parser('write-skill')
+    write_skill.add_argument('file', type=Path)
+    write_skill.add_argument('--code', type=Path, help='a code skill: the Python with def run(skills, inputs)')
     commands.add_parser('interface').add_argument('name')
     run = commands.add_parser('run')
     run.add_argument('skill')
@@ -427,7 +431,8 @@ def _run(node, arguments) -> int:
         return _task_command(node, {'op': 'skills'}, 10.0, lambda reply: reply.get('catalog') or reply.get('message'))
 
     if arguments.command == 'write-skill':
-        return _task_command(node, {'op': 'write_skill', 'yaml': arguments.file.read_text()}, 30.0)
+        return _task_command(node, {'op': 'write_skill', 'yaml': arguments.file.read_text(),
+                                    'code': arguments.code.read_text() if arguments.code else ''}, 30.0)
 
     if arguments.command == 'interface':
         return _interface(node, arguments.name)

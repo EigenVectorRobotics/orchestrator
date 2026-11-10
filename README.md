@@ -21,6 +21,27 @@ Blind mode (`/orchestrator/tree_blind`, or `"blind": true`): the tree cannot use
 
 This branch has no skills. The agent writes them (`write_skill`, `docs/skill-discovery.md`) in `<agent_dir>/contracts` (launch argument `agent_dir`, default `$EIGEN_VECTOR_WS/agent`). The hand-written contracts and trees are on `main` and `ltx-dev`. One YAML file is one skill. No code is necessary if the skill is an action, service, topic or VLM question. An input's `field` can index a sequence: it can set `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters; a service reply with per-item `successful` flags fails if any is false. A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`; give z on the two-storey map, or the route planner takes the lowest storey. Two read-only transports run inside the executor: `graph` checks that each listed topic has at most its allowed publishers, not counting the executor's own, and `press_tip` judges where the end effector got to in the last press.
 
+## Code skills
+
+A code skill is a skill whose body is Python: a policy over the skills that already exist (Code as Policies). Its contract is `transport: code`, and the Python sits in `<agent_dir>/code/<name>.py`:
+
+```python
+def run(skills, inputs):
+    """Say the greeting, then name every place"""
+    skills.run('say', text=inputs['greeting'])
+
+    for place in inputs['places'].split(';'):
+        result = skills.run('say', text=f'I know {place}')      # result.ok, result.message, result.outputs
+
+    return {'places': len(inputs['places'].split(';'))}
+```
+
+- **It reaches no ROS.** The code runs in the same sandbox as `run_python` (no ROS, no network, no new processes, writes only in its scratch folder). `skills.run` sends the call back to the executor, which runs it like any leaf of a tree, so the deny list, the contract, the places and the recorder all still see it. Each inner call is recorded under `<code skill>/<skill>`.
+- **The gate.** A code skill is approved once. After that, every call it makes that can act on the robot asks again; a call that only reads never does. `skill_registry/gate.yaml` lists the few acting skills that are quiet (`say` and the map resets). So a skill the agent wrote for an interface nobody listed still stops. That file is the operator's: the agent never writes it.
+- **Writing one.** `write_skill` takes the contract and the code together, checks both (the code must parse and define `run`), and saves both; if either is refused, neither is kept. `agent_cli write-skill greet.yaml --code greet.py`.
+- **Building on a policy.** A code skill may call another: `approach_panel` can correct the goal, walk, and then hand over to `servo_press`, which is itself a policy with a loop. What it may not do is call a skill that is already running in that chain, so a policy cannot call itself for ever. Three code skills deep is the limit (`MAX_DEPTH`), because each one is a process.
+- **Limits.** The contract's `timeout_s` ends the whole policy, the inner calls with it.
+
 ## Agent skills
 
 An agent skill is an LLM with read-only tools that decides how a tree recovers. Its contract has `transport: agent` and names a document in `<agent_dir>/agent_skills/`, which is the agent's system prompt. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort; after a reposition walk it checks that the button is in view. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). Both documents are on `main` and `ltx-dev`.

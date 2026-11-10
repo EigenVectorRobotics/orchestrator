@@ -22,13 +22,13 @@ from typing import Callable, Protocol
 from .task_agent import task_summary
 
 
-OPS = ('plan', 'run', 'done', 'give_up')          # the desk's ops that the model may use
+OPS = ('plan', 'run', 'write_skill', 'done', 'give_up')          # the desk's ops that the model may use
 
 # Strict structured output: every field is required, unused ones are empty, and free-form inputs travel as JSON text
 DECISION_SCHEMA = {
     'type':                 'object',
     'additionalProperties': False,
-    'required':             ['reason', 'op', 'subgoals', 'skill', 'inputs_json', 'subgoal'],
+    'required':             ['reason', 'op', 'subgoals', 'skill', 'inputs_json', 'subgoal', 'yaml', 'code'],
     'properties': {
         'reason':      {'type': 'string', 'description': 'why this is the next step, in one or two sentences'},
         'op':          {'type': 'string', 'enum': list(OPS)},
@@ -36,6 +36,8 @@ DECISION_SCHEMA = {
         'skill':       {'type': 'string', 'description': 'run: the skill name'},
         'inputs_json': {'type': 'string', 'description': 'run: the inputs as a JSON object, e.g. {"goal": "{call_panel}"}'},
         'subgoal':     {'type': 'string', 'description': 'run: the subgoal of the plan this step is for'},
+        'yaml':        {'type': 'string', 'description': 'write_skill: the contract, as YAML text'},
+        'code':        {'type': 'string', 'description': 'write_skill: for a code skill, the Python with def run(skills, inputs)'},
     },
 }
 
@@ -44,12 +46,21 @@ and you see the result in the next turn. Decisions (field op):
 - plan: write or rewrite the task plan as subgoals. Plan first, and again when the plan no longer fits.
 - run: run one skill with its inputs, for one subgoal. A place is written {place_key}; an earlier step's output is
   {step<n>_<port>}. A person may refuse a step; then choose another way.
+- write_skill: add a skill, or a new version of one you wrote. Put the contract in yaml. Use it when the stack has
+  a capability that no listed skill reaches, or when the same few steps keep going together.
 - done: the task is done (give the evidence in reason). give_up: it cannot be done (say why).
 Use only the skills listed. Check the result of each step before the next one; do not repeat a failed step unchanged.
+
+A code skill is a skill whose body is Python: the contract has `interface: {transport: code}` and you put the
+Python in code, as `def run(skills, inputs)`. It calls `skills.run("<skill>", input=value)`, which gives back a
+result with .ok, .message and .outputs, and it returns a dict of its own outputs. Use it for a policy that needs a
+loop, a branch or arithmetic over several skills. It runs in a sandbox: no ROS, no network, no files of its own.
+The robot moves only through the skills it calls, and a person is asked again before any of those that move it.
 '''
 
 HISTORY_TURNS = 12         # the last turns in the prompt; older ones are summarized by count
 MAX_REPLY_CHARS = 1500     # a step's reply in the prompt is cut to this
+MAX_DECISION_CHARS = 1500  # and so is a past decision: write_skill carries a whole contract and its code
 
 
 class DeciderError(RuntimeError):
@@ -68,7 +79,7 @@ def build_prompt(opened: dict, catalog: str, history: list[tuple[dict, dict]]) -
         lines.append(f'({older} earlier turns not shown)')
 
     for turn, (decision, reply) in enumerate(history[-HISTORY_TURNS:], max(older, 0) + 1):
-        lines.append(f'Turn {turn}: {json.dumps(decision)}')
+        lines.append(f'Turn {turn}: {json.dumps(decision)[:MAX_DECISION_CHARS]}')
         lines.append(f'  result: {json.dumps(reply, default=str)[:MAX_REPLY_CHARS]}')
 
     lines.append('' if history else 'No turn yet: start with a plan.')

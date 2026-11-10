@@ -142,3 +142,53 @@ def test_the_saved_file_is_untested_and_old_versions_are_never_overwritten(tmp_p
 
     assert sorted(file.name for file in (tmp_path / 'old').iterdir()) == ['say_it.2.yaml', 'say_it.3.yaml']
     assert yaml.safe_load((tmp_path / 'say_it.yaml').read_text())['maturity'] == 'untested'
+
+
+CODE_SKILL = {'name': 'greet', 'kind': 'action', 'device': 'nuc', 'timeout_s': 20,
+              'interface': {'transport': 'code'}}
+BODY       = 'def run(skills, inputs):\n    skills.run("say_it", text="hi")\n    return {}\n'
+
+
+def test_a_code_skill_saves_its_python_beside_the_contracts(tmp_path):
+    writer, registry, _ = _writer(tmp_path / 'contracts')
+
+    reply = writer.write(yaml.safe_dump(CODE_SKILL), BODY)
+
+    assert reply['ok'] and registry.get('greet').interface.transport == 'code'
+    assert 'def run(skills, inputs)' in (tmp_path / 'code' / 'greet.py').read_text()
+
+
+def test_a_code_skill_without_its_python_is_refused(tmp_path):
+    writer, registry, _ = _writer(tmp_path / 'contracts')
+
+    assert not writer.write(yaml.safe_dump(CODE_SKILL))['ok']
+    assert registry.get('greet') is None
+
+
+def test_python_that_does_not_parse_or_has_no_run_is_refused(tmp_path):
+    writer, registry, _ = _writer(tmp_path / 'contracts')
+
+    assert not writer.write(yaml.safe_dump(CODE_SKILL), 'def run(skills, inputs:\n')['ok']
+    assert not writer.write(yaml.safe_dump(CODE_SKILL), 'def other(skills, inputs):\n    return {}\n')['ok']
+    assert registry.get('greet') is None and not (tmp_path / 'code').exists()
+
+
+def test_a_new_version_keeps_the_old_python_and_a_refused_one_puts_it_back(tmp_path):
+    writer, registry, _ = _writer(tmp_path / 'contracts', type_errors=[])
+    writer.write(yaml.safe_dump(CODE_SKILL), BODY)
+
+    writer.write(yaml.safe_dump(CODE_SKILL), BODY.replace('hi', 'hello'))
+
+    assert 'hello' in (tmp_path / 'code' / 'greet.py').read_text()
+    assert 'hi' in (tmp_path / 'code' / 'old' / 'greet.1.py').read_text()
+
+    writer.check_types = lambda contract: ['no such type']
+    assert not writer.write(yaml.safe_dump(CODE_SKILL), BODY.replace('hi', 'third'))['ok']
+    assert 'hello' in (tmp_path / 'code' / 'greet.py').read_text()        # the refused version left nothing behind
+
+
+def test_python_sent_for_a_skill_that_is_not_code_is_refused(tmp_path):
+    writer, registry, _ = _writer(tmp_path / 'contracts')
+
+    assert not writer.write(yaml.safe_dump(SAY), BODY)['ok']
+    assert registry.get('say_it') is None
