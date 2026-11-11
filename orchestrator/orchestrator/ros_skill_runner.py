@@ -5,6 +5,7 @@ import json
 import math
 import time
 
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 
 from rclpy.node import Node
@@ -524,7 +525,7 @@ class RosSkillRunner:
                 return _ServiceHandle(self._service_client(interface.name, service_type), request, contract, self.server_wait_s)
 
             if interface.transport == 'watch':
-                return self._check_watch(interface.success_when)
+                return self._check_watch(interface.success_when, contract)
 
             if interface.transport == 'topic':
                 message = build_message(get_message(interface.ros_type), contract, inputs, self.node)
@@ -584,13 +585,17 @@ class RosSkillRunner:
         """The last camera frame, as JPEG: what the VLM sees"""
         return self._image
 
-    def _check_watch(self, spec: Watch):
+    def _check_watch(self, spec: Watch, contract: Contract):
+        """A condition on a topic. Its outputs are fields of the same message, so the agent can report a value
+        that no action or service gives back (the robot's pose, for one)"""
         watch = self._watch(spec)
 
         if watch.latest is None:
             return _DoneHandle(False, f'no message on {spec.topic} yet')
 
-        return _DoneHandle(watch.matches(spec), f'{spec.field} = {watch.read(spec)}')
+        outputs = {port.name: watch.read(replace(spec, field=port.message_field)) for port in contract.outputs}
+
+        return _DoneHandle(watch.matches(spec), f'{spec.field} = {watch.read(spec)}', outputs)
 
     def now(self) -> float:
         return self.node.get_clock().now().nanoseconds * 1e-9

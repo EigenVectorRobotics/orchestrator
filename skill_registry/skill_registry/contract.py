@@ -11,7 +11,8 @@ KINDS         = ('action', 'condition', 'composite')
 TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip', 'code')
 READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip')         # the transports a condition may use
 ROS_TRANSPORTS = ('action', 'service', 'topic')                           # the transports that reach a ROS name
-# watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
+# watch: read a topic, never publish; its outputs are fields of the message it reads.
+# agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
 # graph: each listed topic has at most its allowed publishers. press_tip: where the end effector got to in the last press.
 # code: Python that calls other skills through the executor; it runs in the sandbox and reaches no ROS of its own.

@@ -33,6 +33,11 @@ def check_ros_types(contract: Contract) -> list[str]:
     if watch is not None and not watch.json and not _has_field(get_message(watch.ros_type)(), watch.field):
         errors.append(f'{watch.ros_type} has no field {watch.field}')
 
+    if interface.transport == 'watch' and watch is not None and not watch.json:
+        message = get_message(watch.ros_type)()
+        errors += [f'{watch.ros_type} has no field {port.message_field}' for port in contract.outputs
+                   if not _has_field(message, port.message_field)]
+
     if interface.transport == 'action':
         action_type      = get_action(interface.ros_type)
         outgoing, result = action_type.Goal, action_type.Result

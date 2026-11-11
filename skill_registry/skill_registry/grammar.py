@@ -41,7 +41,8 @@ the inputs value and equals. A vlm skill needs a question; a {{field}} in a ques
 an input; success_answer must be one of choices; frames: press_capture judges the frames a press kept. failure_when
 reads action feedback, so it needs an action skill; capture kind is press. An enum port needs choices, and one
 value per choice if it gives values. A port fills the message field of its own
-name, or the one in field; an output is read from a top-level field of the result. Whatever maturity you give, your
+name, or the one in field; an output is read from a top-level field of the result, or, on a watch, from any
+field of the message it reads. Whatever maturity you give, your
 skill loads untested.
 A code skill is a skill whose body is Python: the contract has interface: {{transport: code}}, and the Python goes
 in code, as `def run(skills, inputs)`. It calls skills.run("<skill>", input=value), which gives back a result with
