@@ -1,15 +1,14 @@
 name: launch_orin_stack
 kind: action
 device: nuc
-description: Start the Orin stack in tmux (-L eigen_vector) and gripper_pose_estimator in tmux gripper_est, over ssh from the NUC. Does nothing for a part that runs.
+description: Start the Orin stack in tmux (-L eigen_vector), over ssh from the NUC; orin.launch.py starts gripper_pose_estimator too. Does nothing when it runs.
 interface:
   transport: command
   command: |
     env -u LD_PRELOAD ssh -o BatchMode=yes -o ConnectTimeout=5 unitree@192.168.123.164 bash -s <<'REMOTE'
     tmux -L eigen_vector has-session -t eigen_vector 2>/dev/null || tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 launch bringup orin.launch.py 2>&1 | tee ~/eigen_vector_ws/launch.log'"
-    tmux has-session -t gripper_est 2>/dev/null || tmux new-session -d -s gripper_est "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 run humanoid_arm_skills gripper_pose_estimator 2>&1 | tee ~/gripper_est.log'"
     REMOTE
 timeout_s: 30
 maturity: untested
 source: orchestrator/orchestrator/preflight_checks.py (run_command)
-notes: Uses the NUC's key for unitree@192.168.123.164. Poll orin_up (about 15 s). gripper_pose_estimator (humanoid_arm_skills, branch cam-gripper-estimation on the Orin) publishes /gripper_pose from the depth camera. env -u LD_PRELOAD - ssh aborts with the executor's preloaded DDS libraries.
+notes: Uses the NUC's key for unitree@192.168.123.164. Poll orin_up (about 15 s). orin.launch.py (bringup on the Orin, since 2026-11-08) starts gripper_pose_estimator (humanoid_arm_skills, manipulation_stack main), which publishes /left_gripper_pose and /right_gripper_pose from the depth camera; a second one in tmux gripper_est would duplicate its TF frames. env -u LD_PRELOAD - ssh aborts with the executor's preloaded DDS libraries.
