@@ -28,7 +28,7 @@ TREE_LIBRARY_HEADER = '''
 # Existing trees
 
 These trees exist already. If one of them does the task as it is, answer <use_tree id="..."/> with its ID instead of writing a tree, after your short explanation. Otherwise write a new tree.
-A tree with parameters lists them with their default values, as id(name="value", ...). If the tree does the task with other values, give them as attributes: <use_tree id="..." name="value"/>; the parameters you leave out keep their defaults. A place is written {place_name}.
+A tree with parameters lists them with their default values, as id(name="value", ...). If the tree does the task with other values, give them as attributes: <use_tree id="..." name="value"/>; the parameters you leave out keep their defaults. A place is written {place_name}. A parameter named <name>_floor is the floor of the place in parameter <name>: leave it out, and the planner sets it from the place.
 A tree also lists its subtrees, with the blackboard keys each one reads and writes. To use a tree with one of its subtrees swapped for another existing tree (one that reads and writes the same keys), write <use_tree id="..." name="value"><replace subtree="subtree_id" with="other_tree_id"/></use_tree>; several replace lines are fine.
 
 '''
@@ -75,6 +75,7 @@ SYSTEM_PROMPT = '''You plan tasks for a Unitree G1 humanoid robot. You write the
 - Asking a person for help with the say skill is a good recovery.
 - When the task enters an elevator, the door can open at any time. Put the walk to the call panel, the call button press and the wait for the door in a ReactiveFallback whose first child is door_open, so an open door halts them at once. Right after it, say that the door is open and the robot walks in. Then run release_arms and the walk into the cabin in a Parallel, with a Delay of 1000 ms before the walk. End the wait with a Sleep and AlwaysFailure, so a door that stays closed fails the tree.
 - To leave the elevator, do the same in the cabin: put the floor button press and the wait for the ride in a ReactiveFallback whose first child is a Sequence of inside_cabin, at_floor with the target floor number and door_open. Right after it, say that the robot is at the floor and walks out. Then, in a Parallel: release_arms at once (in ForceSuccess: the arms can be released already), a wait until in_elevator is false (slam_elevatorlio ends LIO's elevator mode at the open door), a wait until localized, and the walk out: first to the door-out place of the target floor (1 m out of the door), say that the robot stops to relocalize, relocalize_here, then on to the target floor's target place (target_floor_N, or the place the task names; its z is that floor).
+- A goal place on another floor than the robot (the task message gives the floor of each place and of the robot) needs the freight elevator; a goal on the robot's floor does not.
 - A tree for "blind" mode runs with no internet. It cannot use skills that need the cloud.
 
 # Your answer
@@ -185,6 +186,32 @@ def override_parameters(
     )
 
     return xml[:block.start(1)] + text + xml[block.end(1):]
+
+
+def fill_floor_parameters(
+    xml: str,
+    floors: dict[str, str],
+    given: set[str],
+) -> tuple[str, dict[str, str], list[str]]:
+    """Set each <name>_floor parameter to the floor of the place in parameter <name>; a given value that differs is an error"""
+    parameters = tree_parameters(xml)
+    values     = {}
+    errors     = []
+
+    for name, value in parameters.items():
+        place = parameters.get(name.removesuffix('_floor'), '') if name.endswith('_floor') else ''
+        key   = place[1:-1] if place.startswith('{') and place.endswith('}') else ''
+        floor = floors.get(key)
+
+        if floor is None or value == floor:
+            continue
+
+        if name in given:
+            errors.append(f'{name}="{value}", but {{{key}}} is on floor {floor}')
+        else:
+            values[name] = floor
+
+    return (override_parameters(xml, values) if values else xml), values, errors
 
 
 def subtree_interfaces(
@@ -324,11 +351,22 @@ def build_system_prompt(
     return SYSTEM_PROMPT + catalog + TREE_LIBRARY_HEADER + trees
 
 
-def build_task_message(task: str, places: dict, live_skills: set[str] | None, blind: bool) -> str:
-    lines = [f'Task: {task}', '']
+def build_task_message(
+    task: str,
+    places: dict,
+    live_skills: set[str] | None,
+    blind: bool,
+    floors: dict[str, str] | None = None,
+    robot_floor: str | None = None,
+) -> str:
+    floors = floors or {}
+    lines  = [f'Task: {task}', '']
 
     if places:
-        lines.append('Named places (on the blackboard): ' + ', '.join(sorted(places)))
+        lines.append('Named places (on the blackboard): ' + ', '.join(f'{key} (floor {floors[key]})' if key in floors else key for key in sorted(places)))
+
+    if robot_floor is not None:
+        lines.append(f'The robot is on floor {robot_floor}.')
 
     if live_skills is not None:
         lines.append('Skills that are up now (use only these): ' + ', '.join(sorted(live_skills)))
@@ -372,7 +410,15 @@ class Planner:
         self.library           = library or {}
         self.system_prompt     = build_system_prompt(registry, self.essential_devices, self.library)
 
-    def plan(self, task: str, places: dict | None = None, live_skills: set[str] | None = None, blind: bool = False) -> PlanResult:
+    def plan(
+        self,
+        task: str,
+        places: dict | None = None,
+        live_skills: set[str] | None = None,
+        blind: bool = False,
+        floors: dict[str, str] | None = None,
+        robot_floor: str | None = None,
+    ) -> PlanResult:
         validator = TreeValidator(
             self.registry,
             ValidatorConfig(
@@ -382,7 +428,7 @@ class Planner:
                 known_keys=None if places is None else set(places)
             )
         )
-        messages = [{'role': 'user', 'content': build_task_message(task, places or {}, live_skills, blind)}]
+        messages = [{'role': 'user', 'content': build_task_message(task, places or {}, live_skills, blind, floors, robot_floor)}]
 
         self.on_event('task', task, blind=blind, backend=self.backend.name)
 
@@ -452,6 +498,17 @@ class Planner:
                 self.on_event('validation', 'no tree in the answer', level='warn', attempt=attempt)
                 messages.append({'role': 'user', 'content': feedback})
                 continue
+
+            tree, filled, mismatches = fill_floor_parameters(tree, floors or {}, set(overrides) if reused else set(tree_parameters(tree)))
+
+            if mismatches:
+                feedback = 'Floor parameters that do not match their places: ' + '; '.join(mismatches) + '. Leave the floor parameter out, or give the floor of the place.'
+                self.on_event('validation', 'floor parameters do not match: ' + '; '.join(mismatches), level='warn', attempt=attempt)
+                messages.append({'role': 'user', 'content': feedback})
+                continue
+
+            if filled:
+                self.on_event('parameters', f'floor parameters set from their places: {filled}', attempt=attempt)
 
             self.on_event('tree', f'tree, attempt {attempt}', tree=tree, attempt=attempt, usage=reply.usage)
 

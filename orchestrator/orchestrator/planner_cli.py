@@ -3,12 +3,15 @@
   planner_cli wait [--timeout S]        block until a planning call is open; print it and save its system prompt
   planner_cli show                      the current call; saves its system prompt
   planner_cli answer --use-tree ID --note TEXT     choose an existing tree
+  planner_cli answer --use-tree ID --param goal={target_floor_2} --note TEXT
+                                                   choose an existing tree with other parameter values
   planner_cli answer --tree FILE --note TEXT       answer with the tree in FILE (BehaviorTree.CPP v4 XML)
 
 The system prompt (skill catalog, existing trees, rules) is saved to --system-out. The last message of the call is
 the task, or the validator's errors on the last answer. Run it in the same ROS environment as the planner.
 """
 
+import re
 import sys
 import json
 import time
@@ -73,12 +76,31 @@ def summary(
             f'last message:\n{last}')
 
 
+def parse_parameters(
+    texts: list[str],
+) -> list[tuple[str, str]]:
+    """NAME=VALUE texts as (name, value); a name is letters, digits and underscores, a value has no double quote."""
+    parameters = []
+
+    for text in texts:
+        name, separator, value = text.partition('=')
+
+        if not separator or not re.fullmatch(r'\w+', name) or '"' in value:
+            raise ValueError(f'bad parameter {text!r}: give NAME=VALUE, with no double quote in the value')
+
+        parameters.append((name, value))
+
+    return parameters
+
+
 def answer_text(
     arguments: argparse.Namespace,
 ) -> str:
     """The answer as the planner expects a model's: an explanation, then the tree or the choice."""
     if arguments.use_tree:
-        return f'{arguments.note}\n<use_tree id="{arguments.use_tree}"/>'
+        attributes = ''.join(f' {name}="{value}"' for name, value in parse_parameters(arguments.param))
+
+        return f'{arguments.note}\n<use_tree id="{arguments.use_tree}"{attributes}/>'
 
     return f'{arguments.note}\n<tree>\n{Path(arguments.tree).read_text().strip()}\n</tree>'
 
@@ -118,8 +140,20 @@ def main() -> None:
     choice.add_argument('--use-tree', metavar='ID')
     choice.add_argument('--tree', type=Path, metavar='FILE')
     answer.add_argument('--note', required=True, help='a few sentences: what the robot will do, how it handles failures')
+    answer.add_argument('--param', action='append', default=[], metavar='NAME=VALUE',
+                        help='with --use-tree: a parameter of the tree, e.g. goal={target_floor_2}; repeat for more')
 
     arguments = parser.parse_args()
+
+    if arguments.command == 'answer' and arguments.param and not arguments.use_tree:
+        parser.error('--param needs --use-tree; in a --tree FILE, set the parameters in the file')
+
+    if arguments.command == 'answer':
+        try:
+            parse_parameters(arguments.param)
+        except ValueError as error:
+            parser.error(str(error))
+
     rclpy.init()
     node = rclpy.create_node('planner_cli')
 

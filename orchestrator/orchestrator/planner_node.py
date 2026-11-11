@@ -11,18 +11,19 @@ from pathlib import Path
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.executors import ExternalShutdownException
-from std_msgs.msg import String
+from std_msgs.msg import Int32, String
 from ament_index_python.packages import get_package_share_directory
 
 from .trace import TRACE_QOS, TRACE_TOPIC, Tracer
 from .planner import Planner, load_tree_library, speech_left_s
-from .node_setup import load_skills
+from .node_setup import load_place_floors, load_skills
 from .llm_backends import ClaudeBackend, OpenAICompatibleBackend, ScriptedBackend
 from .planner_external import ANSWER_TOPIC, REQUEST_TOPIC, ExternalPlannerBackend
 
 
 LIVE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 ANSWER_QOS = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
+FLOOR_QOS       = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 SPEAK_TOPIC     = '/speak'                      # the say skill's topic: unitree_interface speaks it
 NO_LIBRARY_TEXT = 'No existing behavior tree. Generating a new behavior tree.'
 GENERATED_TEXT  = 'No existing behavior tree fits. I generated a new one.'
@@ -33,6 +34,8 @@ class PlannerNode(Node):
         super().__init__('orchestrator_planner')
 
         self.registry, self.places, self.essential_devices = load_skills(self)
+        self.place_floors = load_place_floors(self.get_parameter('places_file').value)   # key -> floor, for the task message
+        self.robot_floor  = None                                                          # the latest floor on floor_topic
 
         registry_share = Path(get_package_share_directory('skill_registry'))
 
@@ -49,6 +52,7 @@ class PlannerNode(Node):
         self.tree_library        = self.declare_parameter('tree_library', str(registry_share / 'trees')).value   # the tree library; '' = none
         self.preflight_tree      = self.declare_parameter('preflight_tree', str(registry_share / 'preflight' / 'preflight.xml')).value   # '' = none
         self.preflight_timeout_s = self.declare_parameter('preflight_timeout_s', 600.0).value
+        self.floor_topic         = self.declare_parameter('floor_topic', '/slam_elevatorlio/floor').value   # Int32, latched; '' = none
 
         self.tracer      = Tracer(self, 'planner')
         self.library     = load_tree_library(self.tree_library) if self.tree_library else {}
@@ -77,6 +81,9 @@ class PlannerNode(Node):
             self.create_subscription(String, TRACE_TOPIC, self._on_trace, TRACE_QOS),
             self.create_subscription(String, SPEAK_TOPIC, self._on_speak, 10),
         ]
+
+        if self.floor_topic:
+            self._planner_subscriptions.append(self.create_subscription(Int32, self.floor_topic, self._on_floor, FLOOR_QOS))
 
         self.get_logger().info(f'planner up: {self.planner.backend.name} {self.model}, {len(self.registry)} skills, '
                                f'{len(self.library)} existing trees')
@@ -108,6 +115,9 @@ class PlannerNode(Node):
             String, ANSWER_TOPIC, lambda message: backend.deliver(json.loads(message.data)), ANSWER_QOS)
 
         return backend
+
+    def _on_floor(self, message: Int32):
+        self.robot_floor = str(message.data)
 
     def _on_live(self, message: String):
         self.live_skills = set(json.loads(message.data))
@@ -170,7 +180,7 @@ class PlannerNode(Node):
                 self._speak(NO_LIBRARY_TEXT)
 
             live   = self.live_skills if self.use_live_skills else None
-            result = self.planner.plan(task, self.places, live, blind)
+            result = self.planner.plan(task, self.places, live, blind, self.place_floors, self.robot_floor)
 
             if not result.ok:
                 return

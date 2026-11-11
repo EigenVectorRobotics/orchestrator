@@ -9,7 +9,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry
 
-from .places import parse_places
+from .places import parse_places, place_floors
 
 
 def load_places(path: str) -> dict:
@@ -19,6 +19,15 @@ def load_places(path: str) -> dict:
 
     with open(path) as file:
         return parse_places(yaml.safe_load(file))
+
+
+def load_place_floors(path: str) -> dict:
+    """Blackboard key -> floor number as text, from the places file's floors table (see places.py)"""
+    if not path or not Path(path).exists():
+        return {}
+
+    with open(path) as file:
+        return place_floors(yaml.safe_load(file))
 
 
 def declare_sources(node: Node) -> tuple[str, str]:

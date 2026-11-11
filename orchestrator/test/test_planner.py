@@ -226,3 +226,67 @@ def test_unknown_subtree_goes_back_to_the_model():
     planner.plan('ride to floor 2', PLACES)
 
     assert 'The tree "freight_elevator_ride" has no subtree lobby.' in backend.calls[1]
+
+
+FLOORS = {'call_panel': '2', 'lobby': '1'}
+TWO_FLOORS = {'call_panel': {'x': 0.0, 'y': 0.0, 'z': -0.4, 'yaw': 0.0, 'frame': 'map'},
+              'lobby':      {'x': 1.0, 'y': 0.0, 'z': -6.5, 'yaw': 0.0, 'frame': 'map'}}
+GO_TO = ('<root BTCPP_format="4">\n  <!-- Walk to a goal place -->\n  <BehaviorTree ID="go_to">\n    <Sequence>\n'
+         '      <Sequence name="parameters">\n        <SetBlackboard value="{call_panel}" output_key="goal"/>\n'
+         '        <SetBlackboard value="2" output_key="goal_floor"/>\n      </Sequence>\n'
+         '      <at_floor floor="{goal_floor}"/>\n      <navigate_to goal="{goal}"/>\n    </Sequence>\n  </BehaviorTree>\n</root>\n')
+
+
+def test_task_message_gives_the_floor_of_each_place_and_of_the_robot():
+    from orchestrator.planner import build_task_message
+
+    message = build_task_message('go to the lobby', TWO_FLOORS, None, False, FLOORS, '2')
+
+    assert 'Named places (on the blackboard): call_panel (floor 2), lobby (floor 1)' in message
+    assert 'The robot is on floor 2.' in message
+    assert 'Named places (on the blackboard): call_panel, lobby' in build_task_message('go', TWO_FLOORS, None, False)
+
+
+def test_a_floor_parameter_left_out_is_set_from_its_place():
+    events     = []
+    planner, _ = _planner(['The lobby.\n<use_tree id="go_to" goal="{lobby}"/>'], events, {'go_to': ('Walk to a goal place', GO_TO)})
+    result     = planner.plan('go to the lobby', TWO_FLOORS, floors=FLOORS, robot_floor='2')
+
+    assert result.ok
+    assert tree_parameters(result.tree) == {'goal': '{lobby}', 'goal_floor': '1'}
+    assert ('parameters', "floor parameters set from their places: {'goal_floor': '1'}") in events
+
+
+def test_a_floor_parameter_that_disagrees_with_its_place_goes_back_to_the_model():
+    planner, backend = _planner(['<use_tree id="go_to" goal="{lobby}" goal_floor="2"/>', '<use_tree id="go_to" goal="{lobby}"/>'],
+                                library={'go_to': ('Walk to a goal place', GO_TO)})
+    result           = planner.plan('go to the lobby', TWO_FLOORS, floors=FLOORS)
+
+    assert result.ok
+    assert 'goal_floor="2", but {lobby} is on floor 1' in backend.calls[1]
+    assert tree_parameters(result.tree)['goal_floor'] == '1'
+
+
+def test_without_place_floors_the_parameters_stay_as_given():
+    planner, _ = _planner(['<use_tree id="go_to" goal="{lobby}"/>'], library={'go_to': ('Walk to a goal place', GO_TO)})
+    result     = planner.plan('go to the lobby', TWO_FLOORS)
+
+    assert tree_parameters(result.tree) == {'goal': '{lobby}', 'goal_floor': '2'}
+
+
+def test_planner_cli_answer_passes_parameters_to_use_tree():
+    import argparse
+
+    import pytest
+
+    from orchestrator.planner_cli import answer_text, parse_parameters
+
+    arguments = argparse.Namespace(use_tree='go_to', tree=None, note='To the lobby.', param=['goal={lobby}', 'goal_floor=1'])
+
+    assert answer_text(arguments) == 'To the lobby.\n<use_tree id="go_to" goal="{lobby}" goal_floor="1"/>'
+
+    with pytest.raises(ValueError):
+        parse_parameters(['goal'])
+
+    with pytest.raises(ValueError):
+        parse_parameters(['goal="{lobby}"x=1'])

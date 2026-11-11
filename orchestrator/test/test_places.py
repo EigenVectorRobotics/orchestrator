@@ -55,3 +55,13 @@ def test_the_robot_tree_validates_against_the_team_places():
     issues   = TreeValidator(registry, ValidatorConfig(known_keys=set(parse_places(TEAM_FILE)))).validate(tree)
 
     assert [issue.message for issue in issues if issue.level == 'error'] == []
+
+
+def test_place_floors_come_from_the_floors_table_by_z():
+    from orchestrator.places import place_floors
+
+    raw = {**TEAM_FILE, 'floors': {'floor 1': {'z_min': -10.0, 'z_max': -3.5}, 'floor 2': {'z_min': -3.5, 'z_max': 2.5}}}
+    raw['places'] = {**raw['places'], 'target floor 1': {'x': -0.7, 'y': -0.1, 'z': -6.53, 'yaw_deg': 169.8}, 'no z': {'x': 0.0, 'y': 0.0}}
+
+    assert place_floors(raw) == {'freight_elevator_call_panel': '2', 'inside_freight_elevator_button_panel': '2', 'target_floor_1': '1'}
+    assert place_floors(TEAM_FILE) == {}
