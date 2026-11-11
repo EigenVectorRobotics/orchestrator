@@ -48,7 +48,8 @@ and you see the result in the next turn. Decisions (field op):
   {step<n>_<port>}. A person may refuse a step; then choose another way.
 - write_skill: add a skill, or a new version of one you wrote. Put the contract in yaml. Use it when the stack has
   a capability that no listed skill reaches, or when the same few steps keep going together.
-- done: the task is done (give the evidence in reason). give_up: it cannot be done (say why).
+- done: the task is done (give the evidence in reason). give_up: it cannot be done (say why). A capability the
+  stack has that no skill reaches is a reason to write_skill, not a reason to give up.
 Use only the skills listed. Check the result of each step before the next one; do not repeat a failed step unchanged.
 
 A code skill is a skill whose body is Python: the contract has `interface: {transport: code}` and you put the
@@ -72,6 +73,7 @@ class Decider(Protocol):
 
 
 def build_prompt(opened: dict, catalog: str, history: list[tuple[dict, dict]]) -> str:
+    """SYSTEM says how to decide; task_summary carries what the robot is (the runbook) and what it knows"""
     lines = [SYSTEM, task_summary(opened), '', 'Skills:', catalog, '']
     older = len(history) - HISTORY_TURNS
 

@@ -16,7 +16,7 @@ Status: draft for review, 2026-11-05. Branch `feat/skill-discovery`. Related: `d
 - the orchestrator's own tools: `plan`, `run_skill`, `note` (the knowledge store), `say` (`/speak`), `read_file`, `ros_read`, `get_image`, `run_python`, `done`, `give_up`, and new: `write_skill`, `interface_show` (the type of a topic, service or action);
 - the transports that the executor knows (action, service, topic, watch, graph, compare, vlm, press_tip, agent), and `ask_vlm`, the orchestrator's one closed question to the VLM.
 
-People write only a short agent runbook (`docs/agent/runbook.md`): what the robot is, the devices, how to see that the stack is up, the safety rules and the deny list, the places file. It describes the robot and the rules, not the skills or the steps of a task. The agent writes the codebase docs itself during discovery (`<workspace>/agent/docs/<package>.md`).
+People write only a short agent runbook (`orchestrator/agent/runbook.md`, installed with the package; the agent never writes it, it holds only facts that hold by construction, and what the robot or the team observed goes to the knowledge store instead): what the robot is, the devices, how to see that the stack is up, the safety rules and the deny list, the places file. It describes the robot and the rules, not the skills or the steps of a task. The agent writes the codebase docs itself during discovery (`<workspace>/agent/docs/<package>.md`).
 
 ## What the agent cannot use
 

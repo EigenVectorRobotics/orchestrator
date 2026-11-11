@@ -4,7 +4,7 @@ import pytest
 
 from types import SimpleNamespace
 
-from orchestrator.task_agent import LOST_SPEECH, StepGate, TaskDesk
+from orchestrator.task_agent import LOST_SPEECH, StepGate, TaskDesk, task_summary
 from orchestrator.behavior_tree import Status
 
 from test_tasks import _context, _tasks, _tick_until
@@ -167,3 +167,9 @@ def test_the_session_gets_the_skills_the_executor_has(tmp_path):
     d.desk.command({'id': 'k', 'run_id': 'r1', 'op': 'skills'})
 
     assert d.replies[0]['ok'] and '## navigate_to' in d.replies[0]['catalog']
+
+
+def test_the_open_task_carries_the_runbook_for_a_session_and_the_loop(tmp_path):
+    d = _desk(FakeRunner(), tmp_path, runbook=lambda: 'stanley has no hands wired up')
+
+    assert 'stanley has no hands wired up' in task_summary(d.opened[0])

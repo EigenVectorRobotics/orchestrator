@@ -29,6 +29,11 @@ def agent_code_dir() -> Path:
     return agent_dir() / 'code'
 
 
+def agent_runbook_file() -> Path:
+    """What the robot is, for the agent's prompt. The operator's file, like deny.yaml: the agent never writes it"""
+    return agent_dir() / 'runbook.md'
+
+
 def code_file(name: str, code_dir=None) -> Path:
     """Where the Python of a code skill lives; the runner and write_skill must agree on it"""
     return Path(code_dir) / f'{name}.py' if code_dir else agent_code_dir() / f'{name}.py'

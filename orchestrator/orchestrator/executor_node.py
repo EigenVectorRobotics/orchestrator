@@ -13,7 +13,8 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
 
-from skill_registry import agent_code_dir, agent_skills_dir
+from ament_index_python.packages import get_package_share_directory
+from skill_registry import agent_code_dir, agent_runbook_file, agent_skills_dir
 
 from .agent import Agent, AgentConfig
 from .agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
@@ -42,6 +43,19 @@ from .run_recorder import STATUS_TOPIC as RECORDER_TOPIC
 
 STATUS_QOS  = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 COMMAND_QOS = QoSProfile(depth=5)
+
+
+def read_text(path: Path) -> str:
+    """An operator file that may go away while the node runs: no file is no text, not an error"""
+    try:
+        return path.read_text().strip()
+    except (OSError, ValueError):            # ValueError: a hand-edited file that is not UTF-8
+        return ''
+
+
+def share_runbook() -> Path:
+    """The runbook as the package installs it (setup.py); the agent folder's copy wins over it"""
+    return Path(get_package_share_directory('orchestrator')) / 'agent' / 'runbook.md'
 
 
 class ExecutorNode(Node):
@@ -103,6 +117,8 @@ class ExecutorNode(Node):
         reply_publisher = self.create_publisher(String, TASK_REPLY_TOPIC, COMMAND_QOS)
         publish_reply   = lambda message: reply_publisher.publish(String(data=json.dumps(message, default=str)))
         knowledge       = self.agent.config.knowledge if self.agent else None
+        self._runbook_given = self.declare_parameter('runbook', '').value
+        self._say_which_runbook()
         writes          = self.declare_parameter('write_skill', True).value
 
         if writes:
@@ -115,6 +131,7 @@ class ExecutorNode(Node):
             publish_reply,
             self._speak,
             known=lambda: knowledge.prompt_section(observations=True) if knowledge else '',
+            runbook=lambda: read_text(self._runbook_file()),
             max_steps=self.declare_parameter('task_max_steps', 40).value,
             max_task_s=self.declare_parameter('task_max_s', 900.0).value,
             idle_s=self.declare_parameter('task_idle_s', 120.0).value,
@@ -154,6 +171,26 @@ class ExecutorNode(Node):
 
         return TaskLoop(self.desk, decider, lambda: describe_catalog(self.registry, self.essential_devices),
                         self.runner.latest_image, self.tracer)
+
+    def _runbook_file(self) -> Path:
+        """What the robot is: the operator's file wins, else the one the package ships, so a fresh robot is never
+        without a runbook. Chosen again at each task open, so a file written or removed while it runs is seen"""
+        wanted = Path(self._runbook_given).expanduser() if self._runbook_given else agent_runbook_file()
+
+        return wanted if wanted.is_file() else share_runbook()
+
+    def _say_which_runbook(self) -> None:
+        """Once at start: which runbook the agent will get, and whether the operator's own file was found"""
+        wanted = Path(self._runbook_given).expanduser() if self._runbook_given else agent_runbook_file()
+        found  = self._runbook_file()
+
+        if not wanted.is_file():
+            self.get_logger().warning(f'no runbook at {wanted}: the one the package installs is used')
+
+        if found.is_file():
+            self.get_logger().info(f'runbook: {found}')
+        else:
+            self.get_logger().warning(f'no runbook at {found} either: the agent gets no description of the robot')
 
     def _make_code(self) -> CodeRunner:
         """Code skills: Python in the sandbox that calls other skills back through this executor"""

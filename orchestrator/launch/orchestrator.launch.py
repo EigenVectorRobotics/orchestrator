@@ -58,6 +58,12 @@ def generate_launch_description():
             description='the skill contracts that load; the package has none, the agent writes or seeds them'
         ),
         DeclareLaunchArgument(
+            'runbook',
+            default_value=PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'runbook.md']),
+            description="what the robot is, in every task the agent opens. Default: the agent folder's runbook.md, "
+                        "else the one the package installs (orchestrator/agent/runbook.md)"
+        ),
+        DeclareLaunchArgument(
             'places_file',
             default_value=PythonExpression(["'", PathJoinSubstitution([FindPackageShare('orchestrator'), 'config', 'places.yaml']),
                                             "' if '", fake, "' == 'true' else ''"]),
@@ -85,7 +91,8 @@ def generate_launch_description():
             output='screen',
             parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]), 'mode': mode,
                                   'step_gate': step_gate, 'write_skill': LaunchConfiguration('write_skill'),
-                                  'task_agent': LaunchConfiguration('task_agent'), 'codex_model': LaunchConfiguration('codex_model')}]
+                                  'task_agent': LaunchConfiguration('task_agent'), 'codex_model': LaunchConfiguration('codex_model'),
+                                  'runbook': LaunchConfiguration('runbook')}]
         ),
         Node(package='orchestrator', executable='run_recorder', output='screen', parameters=shared, condition=IfCondition(record)),
         Node(

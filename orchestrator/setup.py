@@ -14,6 +14,7 @@ setup(
         (f'share/{PACKAGE_NAME}/launch', glob('launch/*.launch.py')),
         (f'share/{PACKAGE_NAME}/config', glob('config/*.yaml')),
         (f'share/{PACKAGE_NAME}/web', glob('web/*')),
+        (f'share/{PACKAGE_NAME}/agent', glob('agent/*.md')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

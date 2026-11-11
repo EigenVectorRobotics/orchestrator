@@ -64,7 +64,8 @@ def task_summary(task: dict) -> str:
         return f'no open task; the last one ({task["run_id"]}) ended: {task.get("end")}'
 
     places = ''.join(f'\n  {{{key}}} {place_text(info)}' for key, info in (task.get('places') or {}).items())
-    lines  = [
+    lines  = [task['runbook']] if task.get('runbook') else []        # what the robot is, before what it must do
+    lines += [
         f'task {task["run_id"]}' + (' (blind)' if task.get('blind') else '') + f': {task["task"]}',
         'places on the blackboard:' + (places or ' none'),
         f'scratch folder: {task.get("scratch")}',
@@ -135,7 +136,8 @@ class StepGate:
 
 class TaskDesk:
     def __init__(self, tasks: Tasks, publish_open: Callable[[dict], None], publish_reply: Callable[[dict], None],
-                 speak: Callable[[str], None], known: Callable[[], str] = lambda: '', max_steps: int = 40,
+                 speak: Callable[[str], None], known: Callable[[], str] = lambda: '',
+                 runbook: Callable[[], str] = lambda: '', max_steps: int = 40,
                  max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
                  gate: StepGate | None = None, writer: SkillWriter | None = None):
         self.tasks         = tasks
@@ -145,6 +147,7 @@ class TaskDesk:
         self.publish_reply = publish_reply
         self.speak         = speak
         self.known         = known                   # the knowledge store's prompt section, for the open task
+        self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
         self.max_steps     = max_steps
         self.max_task_s    = max_task_s
         self.idle_s        = idle_s
@@ -177,6 +180,7 @@ class TaskDesk:
             'blind':   blind,
             'places':  {key: {field: place[field] for field in PLACE_INFO if field in place} for key, place in sorted(context.blackboard.items())},
             'known':   self.known(),
+            'runbook': self.runbook(),
             'scratch': context.scratch_dir,
             'limits':  {'max_steps': self.max_steps, 'max_task_s': self.max_task_s},
         }
