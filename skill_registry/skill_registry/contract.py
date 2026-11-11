@@ -2,7 +2,7 @@ import re
 
 from string import Formatter
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 
 import yaml
 
@@ -10,6 +10,7 @@ import yaml
 KINDS         = ('action', 'condition', 'composite')
 TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip', 'code')
 READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip')         # the transports a condition may use
+ROS_TRANSPORTS = ('action', 'service', 'topic')                           # the transports that reach a ROS name
 # watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
 # graph: each listed topic has at most its allowed publishers. press_tip: where the end effector got to in the last press.
@@ -18,6 +19,7 @@ MATURITIES    = ('tested', 'wip', 'untested')
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
 NAME          = re.compile(r'^[a-z][a-z0-9_]{0,62}$')
+NAME_RULE     = 'a skill name is snake_case (a-z, 0-9, _), at most 63 characters'
 AGENT_MARK    = '# written by the agent with write_skill; a person may edit it, and then remove this line\n'
 # A contract file that starts with AGENT_MARK loads at maturity untested: the agent does not grade its own skills
 
@@ -25,9 +27,69 @@ AGENT_MARK    = '# written by the agent with write_skill; a person may edit it, 
 # A skill on any other device can drop out, so a tree must give it a recovery.
 DEFAULT_ESSENTIAL_DEVICES = frozenset({'nuc', 'orin'})
 
+FIELD_CHOICES = {'kind': KINDS, 'transport': TRANSPORTS, 'maturity': MATURITIES, 'type': PORT_TYPES}
+# The fields whose value is one of a list. A refusal and the agent's grammar (grammar.py) both name the list from
+# here, so what the agent is told and what the parser takes cannot drift apart.
+
 
 class ContractError(ValueError):
     pass
+
+
+def field_text(part) -> str:
+    """The fields of one contract part as text, for a refusal and for the grammar: the allowed values where there
+    are some, the type otherwise, and * on a field that a contract must give"""
+    return ', '.join(f'{item.name}{"*" if _needed(item) else ""}: {_value_text(item)}' for item in fields(part))
+
+
+def _needed(item) -> bool:
+    return item.default is MISSING and item.default_factory is MISSING
+
+
+def _value_text(item) -> str:
+    if item.name in FIELD_CHOICES:
+        return one_of(FIELD_CHOICES[item.name])
+
+    return str(item.type).replace("<class '", '').replace("'>", '').replace(f'{__name__}.', '').replace(' | None', '')
+
+
+def one_of(values) -> str:
+    return ' | '.join(values)
+
+
+def _build(part, raw: dict, where: str):
+    """One contract part from its mapping. A field it does not have, or a required one it misses, is refused with
+    the fields that part does have: the agent gets the vocabulary, never a Python TypeError"""
+    if not isinstance(raw, dict):
+        raise ContractError(f'{where} is a mapping ({field_text(part)}), not {raw!r}')
+
+    items   = fields(part)
+    unknown = sorted(set(raw) - {item.name for item in items})
+    missing = [item.name for item in items if _needed(item) and not _given(raw, item)]
+
+    if unknown:
+        raise ContractError(f'{where} has no field {", ".join(unknown)}; its fields are {field_text(part)}')
+
+    if missing:
+        raise ContractError(f'{where} needs {", ".join(missing)}')
+
+    for item in items:
+        if item.name in raw and not _fits(raw[item.name], item.type):
+            raise ContractError(f'{where}: {item.name} is a {_value_text(item)}, not {raw[item.name]!r}')
+
+    return part(**raw)
+
+
+def _fits(value, annotation) -> bool:
+    """A field written as a mapping or a list is one: a dict field given as text raises deep in the runner"""
+    kind = getattr(annotation, '__origin__', annotation)
+
+    return kind not in (dict, list) or isinstance(value, kind)
+
+
+def _given(raw: dict, item) -> bool:
+    """A required field is there and, for text, is not empty: an empty ros_type reaches ROS as 'Empty module name'"""
+    return item.name in raw and (item.type not in (str, 'str') or str(raw[item.name] or '').strip() != '')
 
 
 @dataclass
@@ -88,7 +150,7 @@ class Interface:
 
     def ros_names(self) -> set[str]:
         """Every ROS name the skill sends to or reads: the interface, the watched topic, capture and graph topics"""
-        names = {self.name} if self.transport in ('action', 'service', 'topic') else set()
+        names = {self.name} if self.transport in ROS_TRANSPORTS else set()
 
         if self.success_when:
             names.add(self.success_when.topic)
@@ -141,14 +203,17 @@ class Contract:
 
 
 def _parse_ports(raw_ports: list | None, skill_name: str) -> list[Port]:
-    ports = [Port(**raw_port) for raw_port in raw_ports or []]
+    if raw_ports and not isinstance(raw_ports, list):
+        raise ContractError(f'{skill_name}: inputs and outputs are lists of ports ({field_text(Port)})')
+
+    ports = [_build(Port, raw_port, f'{skill_name}: a port') for raw_port in raw_ports or []]
 
     for port in ports:
         if port.values and not port.choices:
             port.choices = list(port.values)
 
         if port.type not in PORT_TYPES:
-            raise ContractError(f'{skill_name}: port {port.name} has unknown type {port.type}')
+            raise ContractError(f'{skill_name}: port {port.name} has unknown type {port.type}; use {one_of(PORT_TYPES)}')
 
         if port.type == 'enum' and not port.choices:
             raise ContractError(f'{skill_name}: enum port {port.name} has no choices')
@@ -159,16 +224,17 @@ def _parse_ports(raw_ports: list | None, skill_name: str) -> list[Port]:
     return ports
 
 
-def _parse_interface(raw: dict) -> Interface:
+def _parse_interface(raw: dict, skill_name: str) -> Interface:
+    if not isinstance(raw, dict):
+        raise ContractError(f'{skill_name}: the interface is a mapping ({field_text(Interface)}), not {raw!r}')
+
     raw = dict(raw)
 
-    if raw.get('success_when'):
-        raw['success_when'] = Watch(**raw['success_when'])
+    for name, part in (('success_when', Watch), ('failure_when', HeldValue)):
+        if raw.get(name):
+            raw[name] = _build(part, raw[name], f'{skill_name}: {name}')
 
-    if raw.get('failure_when'):
-        raw['failure_when'] = HeldValue(**raw['failure_when'])
-
-    return Interface(**raw)
+    return _build(Interface, raw, f'{skill_name}: the interface')
 
 
 def parse_contract(raw: dict) -> Contract:
@@ -178,36 +244,34 @@ def parse_contract(raw: dict) -> Contract:
     name = raw['name']
 
     if not NAME.match(str(name)):
-        raise ContractError(f'{name}: a skill name is snake_case (a-z, 0-9, _), at most 63 characters')
+        raise ContractError(f'{name}: {NAME_RULE}')
 
-    try:
-        contract = Contract(
-            **{
-                **raw,
-                'interface': _parse_interface(raw['interface']),
-                'inputs':    _parse_ports(raw.get('inputs'), name),
-                'outputs':   _parse_ports(raw.get('outputs'), name),
-            }
-        )
-    except (KeyError, TypeError) as error:
-        raise ContractError(f'{name}: {error}') from error
+    parts = {'inputs': _parse_ports(raw.get('inputs'), name), 'outputs': _parse_ports(raw.get('outputs'), name)}
+
+    if 'interface' in raw:
+        parts['interface'] = _parse_interface(raw['interface'], name)
+
+    contract = _build(Contract, {**raw, **parts}, name)
 
     interface = contract.interface
 
     if contract.kind not in KINDS:
-        raise ContractError(f'{name}: unknown kind {contract.kind}')
+        raise ContractError(f'{name}: unknown kind {contract.kind}; use {one_of(KINDS)}')
 
     if interface.transport not in TRANSPORTS:
-        raise ContractError(f'{name}: unknown transport {interface.transport}')
+        raise ContractError(f'{name}: unknown transport {interface.transport}; use {one_of(TRANSPORTS)}')
 
     if contract.maturity not in MATURITIES:
-        raise ContractError(f'{name}: unknown maturity {contract.maturity}')
+        raise ContractError(f'{name}: unknown maturity {contract.maturity}; use {one_of(MATURITIES)}')
 
     if contract.timeout_s <= 0 and (contract.kind == 'action' or interface.transport == 'code'):
         raise ContractError(f'{name}: an action or code skill needs a timeout_s above 0')
 
     if contract.kind == 'condition' and interface.transport not in READ_ONLY:
-        raise ContractError(f'{name}: a condition must only read ({READ_ONLY}), not {interface.transport}')
+        raise ContractError(f'{name}: a condition must only read ({one_of(READ_ONLY)}), not {interface.transport}')
+
+    if interface.transport in ROS_TRANSPORTS and not (interface.name and interface.ros_type):
+        raise ContractError(f'{name}: a {interface.transport} skill needs the ROS name and the ros_type it takes')
 
     if interface.transport == 'watch' and interface.success_when is None:
         raise ContractError(f'{name}: a watch needs success_when')

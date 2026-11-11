@@ -4,6 +4,8 @@ import threading
 
 import pytest
 
+from skill_registry import contract_grammar
+
 from orchestrator.task_loop import CodexDecider, DeciderError, TaskLoop, build_prompt
 from orchestrator.behavior_tree import Status
 
@@ -143,7 +145,10 @@ def test_the_model_can_write_a_skill_and_the_desk_checks_it_as_it_checks_a_sessi
     assert written == [('name: greet\n', 'def run(skills, inputs):\n    return {}\n')]
 
 
-def test_the_system_prompt_tells_the_model_how_to_write_a_code_skill():
-    prompt = build_prompt({'state': 'open', 'task': 'x', 'run_id': 'r'}, 'say(text: string)', [])
+def test_the_prompt_says_how_to_decide_and_the_grammar_says_how_to_write_a_skill():
+    opened  = {'state': 'open', 'task': 'x', 'run_id': 'r'}
+    prompt  = build_prompt(opened, 'say(text: string)', [])
+    writing = build_prompt(opened | {'grammar': contract_grammar()}, 'say(text: string)', [])
 
-    assert 'write_skill' in prompt and 'transport: code' in prompt and 'def run(skills, inputs)' in prompt
+    assert 'write_skill' in prompt and 'transport: code' not in prompt           # the shape rides the grammar
+    assert 'transport: code' in writing and 'def run(skills, inputs)' in writing

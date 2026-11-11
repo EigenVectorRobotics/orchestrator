@@ -51,12 +51,6 @@ and you see the result in the next turn. Decisions (field op):
 - done: the task is done (give the evidence in reason). give_up: it cannot be done (say why). A capability the
   stack has that no skill reaches is a reason to write_skill, not a reason to give up.
 Use only the skills listed. Check the result of each step before the next one; do not repeat a failed step unchanged.
-
-A code skill is a skill whose body is Python: the contract has `interface: {transport: code}` and you put the
-Python in code, as `def run(skills, inputs)`. It calls `skills.run("<skill>", input=value)`, which gives back a
-result with .ok, .message and .outputs, and it returns a dict of its own outputs. Use it for a policy that needs a
-loop, a branch or arithmetic over several skills. It runs in a sandbox: no ROS, no network, no files of its own.
-The robot moves only through the skills it calls, and a person is asked again before any of those that move it.
 '''
 
 HISTORY_TURNS = 12         # the last turns in the prompt; older ones are summarized by count
@@ -73,7 +67,8 @@ class Decider(Protocol):
 
 
 def build_prompt(opened: dict, catalog: str, history: list[tuple[dict, dict]]) -> str:
-    """SYSTEM says how to decide; task_summary carries what the robot is (the runbook) and what it knows"""
+    """SYSTEM says how to decide; task_summary carries what the robot is (the runbook), what it knows, and how to
+    write a skill (the contract grammar)"""
     lines = [SYSTEM, task_summary(opened), '', 'Skills:', catalog, '']
     older = len(history) - HISTORY_TURNS
 

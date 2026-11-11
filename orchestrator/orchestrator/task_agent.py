@@ -35,6 +35,8 @@ from typing import Callable
 from pathlib import Path
 from dataclasses import asdict
 
+from skill_registry import contract_grammar
+
 from .places import PLACE_INFO
 from .tasks import Task, Tasks
 from .planner import describe_catalog
@@ -59,7 +61,8 @@ def place_text(info: dict) -> str:
 
 
 def task_summary(task: dict) -> str:
-    """The open message as text: what a session (agent_cli) and the task loop (task_loop.py) read"""
+    """The open message as text: what a session (agent_cli) and the task loop (task_loop.py) read. It carries the
+    runbook (what the robot is) and the contract grammar (what write_skill takes), so both agents get them"""
     if task['state'] != 'open':
         return f'no open task; the last one ({task["run_id"]}) ended: {task.get("end")}'
 
@@ -72,7 +75,7 @@ def task_summary(task: dict) -> str:
         f'limits: {task.get("limits")}',
     ]
 
-    return '\n'.join(lines + ([task['known']] if task.get('known') else []))
+    return '\n'.join(lines + [text for text in (task.get('known'), task.get('grammar')) if text])
 
 
 class StepGate:
@@ -181,6 +184,7 @@ class TaskDesk:
             'places':  {key: {field: place[field] for field in PLACE_INFO if field in place} for key, place in sorted(context.blackboard.items())},
             'known':   self.known(),
             'runbook': self.runbook(),
+            'grammar': contract_grammar() if self.writer else '',   # how to write a skill, if it may write one
             'scratch': context.scratch_dir,
             'limits':  {'max_steps': self.max_steps, 'max_task_s': self.max_task_s},
         }

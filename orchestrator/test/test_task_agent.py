@@ -4,6 +4,8 @@ import pytest
 
 from types import SimpleNamespace
 
+from skill_registry import contract_grammar
+
 from orchestrator.task_agent import LOST_SPEECH, StepGate, TaskDesk, task_summary
 from orchestrator.behavior_tree import Status
 
@@ -169,7 +171,10 @@ def test_the_session_gets_the_skills_the_executor_has(tmp_path):
     assert d.replies[0]['ok'] and '## navigate_to' in d.replies[0]['catalog']
 
 
-def test_the_open_task_carries_the_runbook_for_a_session_and_the_loop(tmp_path):
-    d = _desk(FakeRunner(), tmp_path, runbook=lambda: 'stanley has no hands wired up')
+def test_the_open_task_carries_the_runbook_and_the_grammar_for_a_session_and_the_loop(tmp_path):
+    d       = _desk(FakeRunner(), tmp_path, runbook=lambda: 'stanley has no hands wired up')
+    writing = _desk(FakeRunner(), tmp_path, writer=SimpleNamespace())
 
     assert 'stanley has no hands wired up' in task_summary(d.opened[0])
+    assert contract_grammar() not in task_summary(d.opened[0])              # write_skill is off without a writer
+    assert contract_grammar() in task_summary(writing.opened[0])
