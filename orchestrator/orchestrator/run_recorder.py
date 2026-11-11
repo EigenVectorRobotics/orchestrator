@@ -33,7 +33,7 @@ BAG_STOP_S   = 10.0                             # SIGINT, then this long to clos
 BAG_TOPICS = [
     TRACE_TOPIC, REQUEST_TOPIC, DECISION_TOPIC, REPLY_TOPIC,
     '/speak', '/route_goal', '/route_planner/status', '/nav_state', '/state_estimation', '/odom_base_link',
-    '/right_ee_pose', '/left_ee_pose', '/track_3d/is_tracking', '/track_3d/selected_target_3d', '/slam_elevatorlio/status',
+    '/track_3d/is_tracking', '/track_3d/selected_target_3d', '/slam_elevatorlio/status',
 ]
 
 

@@ -107,7 +107,7 @@ When you run inside the executor (`orchestrator/agent.py`), these are your tools
 
 | Tool | What it does |
 |---|---|
-| `get_failure()` | The last failed action call of this tree, as the tree recorded it: `skill`, `inputs` (for `press_button`: `target_description`, `left_arm`), `message` (the action's own result message, or the orchestrator's `timeout after 60 s` when it cancelled first), `outputs` (`final_distance`, `orientation_error_deg`), `elapsed_s`, and `feedback`: every feedback sample as `{t: seconds since the goal was sent, distance_to_goal, orientation_error_deg, tracking_lost, elapsed_time, current_goal}`, where `current_goal` is the target pose in `foot_world` |
+| `get_failure()` | The last failed action call of this tree, as the tree recorded it: `skill`, `inputs` (for `press_button`: `target_description`, `left_arm`), `message` (the action's own result message, or the orchestrator's `timeout after 60 s` when it cancelled first), `outputs` (`final_distance` and `orientation_error_deg`, at the closest approach to the goal: a press ends back at the pre-grasp), `elapsed_s`, and `feedback`: every feedback sample as `{t: seconds since the goal was sent, distance_to_goal, orientation_error_deg, tracking_lost, elapsed_time, current_goal}`, where `current_goal` is the target pose in `foot_world` |
 | `get_history()` | Every finished action call of this tree (without feedback) and your earlier decisions with their reasons and offsets, oldest first |
 | `read_file(path, offset, limit)` | Reads a text file or lists a directory, only under `/home/vector/eigen_vector_ws`, the agent skills directory and the scratch directory |
 | `ros_read(op, ...)` | `op: tf` with `target_frame`, `source_frame`: the latest transform, i.e. the pose of `source_frame` in `target_frame` (translation, quaternion, roll/pitch/yaw, age). `op: topic_once` with `topic`: the next message (images and point clouds are refused; use `get_image`). `op: topic_list`: topics and types |
@@ -145,7 +145,7 @@ track_anything does not run on the NUC; it runs on the Orin with the RealSense c
 | `/track_3d/selected_normal_pose_filtered/arm_upright` | The filtered, upright goal the arm is sent, in `foot_world` |
 | `/track_3d/is_tracking` | Whether the 2D tracker holds a mask (see "Perception facts") |
 | `/track_3d/tracked_overlay` | Camera image with the mask, box and tracker state text |
-| `/left_ee_pose`, `/right_ee_pose` | End-effector poses, in `foot_world` |
+| TF `left_ee`, `right_ee` | End-effector frames, fixed on `*_wrist_yaw_link` (static, from move_to_pose); look them up in `foot_world` |
 | `/odom_base_link` | The robot's pose in `map`, used by navigation |
 | `/route_planner/status` | JSON: `state` (`routing`, `arrived`, `blocked`), `dist_to_goal` |
 | TF `pelvis`, `torso_link`, `foot_world` | Body frames; `foot_world` is published by `body_ekf` |
@@ -179,7 +179,7 @@ Read the files for exact values; these are the points that matter most.
 
 - **The waist is effectively locked.** The active profile `arms_with_waist` limits waist yaw, roll and pitch to ±0.0001 rad, so the torso cannot lean to reach further. Legs and grippers are locked too.
 - **Shoulder joint limits are tighter than the URDF's.** `g1.yaml` overrides shoulder pitch, roll and yaw (`joint_limit_overrides`); use those, not the URDF limits.
-- **End effector:** `offset: [0.1847585, 0, 0]` from `*_wrist_yaw_joint`, the same point as TF `*_tcp`.
+- **End effector:** `offset: [0.1847585, 0, 0]` from `*_wrist_yaw_joint`, the same point as TF `right_ee` and `left_ee`.
 - **`collision_margin: -0.01`** in the active profile.
 - **The real planner uses a different solver from yours.** g1_pilot solves IK with CasADi in C++ (`Humanoid::solve_ik`); there is no Python binding. Your pinocchio check uses the same model and limits but another solver, so near the edge of the workspace the two can disagree. Say so in your reason when your result is marginal.
 
@@ -189,13 +189,23 @@ The result message tells you which stage stopped, but often not why. Use the fee
 
 | Message | Where it comes from | What it means |
 |---|---|---|
-| `Planning failed: empty trajectory` (or `no waypoints`) | move_to_pose initial plan | The planner returned no trajectory: IK for the pre-grasp failed, the joint-space search found no path, or IK failed partway along the final leg. The code does not say which |
+| `Planning failed: target out of reach: the arm ends X mm and Y deg from it` | move_to_pose initial plan | The best IK solution misses the target by more than 5 mm or 0.1 rad, so the arm did not move. Reposition: the right arm reaches about 3 cm left of the pelvis centreline at the panel, more at depth 0.38 to 0.44 m and height 0.22 to 0.34 m in `pelvis` |
+| `Planning failed: pre-grasp configuration is in collision or past the target surface` / `start configuration is in collision` / `no collision-free path to the pre-grasp` | move_to_pose initial plan | The joint-space search failed, for the reason given. A pre-grasp in collision usually means the robot stands too close |
+| `Planning failed: empty trajectory` (or `no waypoints`) | move_to_pose initial plan | The planner returned no trajectory and gave no reason |
 | `Planning failed: <other text>` | move_to_pose | An exception from the planner; read the text |
 | `Target pose transform failed` | move_to_pose | No TF from the goal frame to `pelvis` within 0.5 s |
 | `No joint feedback received yet` | move_to_pose | The arm controller is not publishing joint state |
+| `Joint feedback is stale (X s old)` / `Joint feedback is X s old` | move_to_pose | Joint state stopped arriving or carries old stamps (limit 0.5 s), before the plan or during the motion. The arm brakes and stops |
+| `Invalid target pose: ...` | move_to_pose | The goal had a non-finite position or a zero quaternion |
+| `Replan failed: <reason> (3 attempts)` / `Final-leg step N failed: <reason> (3 attempts)` | move_to_pose | Three plans in a row failed while the arm held still; the reason is one of the planning reasons above |
+| `Arm is not following the trajectory: a joint is X rad off` / `Arm stopped with a joint X rad from its commanded position` | move_to_pose | A joint stayed more than 0.2 rad off its command for 1 s, or ended that far off, more than 2 cm from the target: the arm is blocked or not enabled. Near the target a large error is expected while pressing and does not end the goal |
+| `Internal error: ...` | move_to_pose | An exception in the planner; the arm braked |
+| `Timed out braking the previous motion` | move_to_pose | A new goal came while an earlier motion did not finish braking within 5 s |
+| `No filtered target pose within 10 s of tracking` | servo node | track_anything tracks the button, but no filtered pose reached the arm (pose_filtering down, or no TF to `foot_world`) |
+| `move_to_pose action server not available` / `move_to_pose action server lost during the motion` | servo node | move_to_pose was not running for 5 s before the goal, or disappeared for 2 s during it |
 | `move_to_pose goal rejected` / `move_to_pose send failed: ...` | servo node | move_to_pose refused the goal or was unreachable |
 | `No target seed after N request(s)` | servo node | track_anything never started tracking. Each request waits `seed_timeout` 30 s; `seed_max_requests` is 2 |
-| `Trajectory cleared` | move_to_pose | Something cleared the trajectory (the cancel service) |
+| `Trajectory cleared` | move_to_pose | The trajectory was cleared without a cancel; not expected |
 | `Preempted by a newer goal` / `Cancelled` / `Cancelled while planning` | move_to_pose | Another goal or a cancel ended it |
 | `Action timed out` | servo node | `action_timeout` of 600 s |
 | `goal rejected` (orchestrator) | servo node | Another servo goal was active, or the call came within `post_goal_cooldown` 1.0 s of the last success |
@@ -205,7 +215,6 @@ The result message tells you which stage stopped, but often not why. Use the fee
 **When the orchestrator times out first.** `press_button` has `timeout_s: 60` (a press takes about 17 to 25 s on the current manipulation_stack), so the orchestrator cancels the action at 60 s, the leaf message is `timeout after 60 s`, and the action's own message is lost. Several failures end this way:
 
 - **Seed never arrived:** `distance_to_goal` stays `inf` the whole time, because there is no goal pose yet. The two seed requests together take up to 60 s, as long as the timeout, so either `No target seed after 2 request(s)` or the timeout can come first.
-- **Replanning keeps failing:** a failed replan does not end the goal. move_to_pose logs `Replan failed: ...; holding position` and the arm holds. A failed final-leg step does the same. `distance_to_goal` stops falling and stays flat at a nonzero value while `tracking_lost` stays false.
 - **Arm still moving:** `distance_to_goal` is still falling at the timeout. Joints move at most 0.5 rad/s (0.25 rad/s on the final leg), so a long reach can simply be slow.
 
 **Feedback fields.** `distance_to_goal` is the distance between the end-effector point and the upright goal, both in `foot_world`; it is `inf` until both exist. `tracking_lost` becomes true when no filtered target has arrived for `lost_timeout` 5 s. Feedback comes at 2 Hz.

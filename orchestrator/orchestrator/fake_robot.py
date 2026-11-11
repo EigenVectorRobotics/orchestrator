@@ -20,7 +20,8 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import Trigger
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped
+from tf2_ros import TransformBroadcaster
 
 from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS
 
@@ -56,7 +57,7 @@ class FakeRobot(Node):
         self._tracking  = self.create_publisher(Bool, '/track_3d/is_tracking', COMMAND_QOS)
         self._elevator  = self.create_publisher(Bool, '/LIO/in_elevator', COMMAND_QOS)
         self._camera    = self.create_publisher(Image, '/camera/camera/color/image_raw', 1)     # raw, as on the Orin
-        self._ee        = {arm: self.create_publisher(PoseStamped, f'/{arm}_ee_pose', COMMAND_QOS) for arm in ('right', 'left')}
+        self._ee        = TransformBroadcaster(self)                         # the end effector, as move_to_pose's TF frames
         self._make_camera()
 
         self.create_subscription(Bool, '/cancel_goal', self._on_cancel, COMMAND_QOS)
@@ -298,12 +299,13 @@ class FakeRobot(Node):
         return float(np.interp(phase, [point[0] for point in profile], [point[1] for point in profile]))
 
     def _publish_ee(self, arm: str, position: tuple):
-        pose                 = PoseStamped()
-        pose.header.frame_id = 'foot_world'
-        pose.header.stamp    = self.get_clock().now().to_msg()
-        pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = position
-        pose.pose.orientation.w = 1.0
-        self._ee[arm].publish(pose)
+        transform                 = TransformStamped()
+        transform.header.frame_id = 'foot_world'
+        transform.header.stamp    = self.get_clock().now().to_msg()
+        transform.child_frame_id  = f'{arm}_ee'
+        transform.transform.translation.x, transform.transform.translation.y, transform.transform.translation.z = position
+        transform.transform.rotation.w = 1.0
+        self._ee.sendTransform(transform)
 
     # ========== VLM ==========
 

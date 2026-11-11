@@ -11,5 +11,5 @@ interface:
     max_lateral_m: 0.008
 maturity: untested
 notes: >-
-  Judged from the end-effector pose (/right_ee_pose or /left_ee_pose, forward kinematics from the encoders) against the
+  Judged from the end-effector pose (TF right_ee or left_ee, forward kinematics from the encoders) against the
   goal the arm was sent, both in foot_world. The limits are first guesses: a button is about 20 mm across.

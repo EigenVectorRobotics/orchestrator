@@ -8,8 +8,8 @@ interface:
   ros_type: humanoid_manipulation_interfaces/action/VisualServoingArm
   capture:                                # three frames for button_lit: see orchestrator/press_capture.py
     kind: press
-    right_pose_topic: /right_ee_pose
-    left_pose_topic: /left_ee_pose
+    right_ee_frame: right_ee                 # sampled from TF in the goal's frame
+    left_ee_frame: left_ee
     approach_offset_m: 0.10
     press_delay_s: 0.005
     release_delay_s: 0.5

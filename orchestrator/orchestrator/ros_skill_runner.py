@@ -39,6 +39,7 @@ COMMAND_QOS = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durabi
 LATCHED_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 WATCH_HISTORY = 10                      # the most messages a watch keeps, for Watch.consecutive
 SENSOR_QOS  = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE)
+EE_SAMPLE_S = 0.01                      # how often a press capture samples the end effector from TF
 
 
 # ========== Messages ==========
@@ -275,7 +276,8 @@ class _ActionHandle(_ServerHandle):
 
         if self.capture is not None and goal is not None and goal.header.frame_id:
             position, rotation = goal.pose.position, goal.pose.orientation
-            self.capture.on_goal((position.x, position.y, position.z), (rotation.x, rotation.y, rotation.z, rotation.w))
+            self.capture.on_goal((position.x, position.y, position.z), (rotation.x, rotation.y, rotation.z, rotation.w),
+                                 goal.header.frame_id)
 
     def _poll_sent(self) -> Status:
         if self.status == Status.RUNNING and self.held is not None and self.held.expired(time.monotonic()):
@@ -496,7 +498,9 @@ class RosSkillRunner:
         self.frames        = FrameBuffer()
         self.boxes         = BoxBuffer()    # the target button's box per frame, from track_anything
         self.last_capture  = None           # the frames of the last press, for its check and the agent
-        self._pose_topics  = set()
+        self._ee_frames    = {}             # arm -> end-effector TF frame, from the capture contracts
+        self._ee_timer     = None
+        self._ee_stamp     = None           # stamp of the last TF sample fed to the capture
         self._box_topics   = set()
         self._target_id    = None
         self._box_seen     = None           # (monotonic receive time, box) of track_anything's latest target box
@@ -527,11 +531,12 @@ class RosSkillRunner:
             self._watch(interface.success_when)
 
         for arm in ('right', 'left'):
-            topic = interface.capture.get(f'{arm}_pose_topic')
+            if interface.capture.get(f'{arm}_ee_frame'):
+                self._ee_frames[arm] = interface.capture[f'{arm}_ee_frame']
 
-            if topic and topic not in self._pose_topics:
-                self._pose_topics.add(topic)
-                self.node.create_subscription(PoseStamped, topic, lambda message, arm=arm: self._on_ee_pose(arm, message), COMMAND_QOS)
+        if self._ee_frames and self._ee_timer is None:
+            self._tf()
+            self._ee_timer = self.node.create_timer(EE_SAMPLE_S, self._sample_ee)
 
         for source in (interface.capture, interface.target):
             if source.get('box_topic') and source['box_topic'] not in self._box_topics:
@@ -810,14 +815,27 @@ class RosSkillRunner:
         self.boxes.add(stamp or self.now(), corners)
         self._box_seen = (time.monotonic(), corners)    # by receive time: the Orin's stamps need not match this clock
 
-    def _on_ee_pose(self, arm: str, message: PoseStamped):
+    def _sample_ee(self):
+        """Feed the running press capture the end effector in the goal's frame, once per new TF stamp"""
         capture = self.last_capture
 
-        if capture is None or capture.left_arm != (arm == 'left') or capture.ended_t is not None:
+        if capture is None or capture.ended_t is not None or not capture.goal_frame:
             return
 
-        stamp    = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
-        position = message.pose.position
+        frame = self._ee_frames.get('left' if capture.left_arm else 'right')
+
+        try:
+            transform = self._tf().lookup_transform(capture.goal_frame, frame, Time())
+        except Exception:
+            return                                      # TF not there yet; the capture times out on its own
+
+        stamp = transform.header.stamp.sec + transform.header.stamp.nanosec * 1e-9
+
+        if stamp == self._ee_stamp:
+            return
+
+        self._ee_stamp = stamp
+        position       = transform.transform.translation
         capture.on_pose(stamp or self.now(), (position.x, position.y, position.z))
 
     def _watch(self, spec: Watch) -> TopicWatch:

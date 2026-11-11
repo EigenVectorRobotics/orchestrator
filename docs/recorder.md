@@ -59,7 +59,7 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 
 ### bag/
 
-- `ros2 bag record -s mcap` of: `/orchestrator/trace`, `/orchestrator/agent/*`, `/speak`, `/route_goal`, `/route_planner/status`, `/nav_state`, `/state_estimation`, `/odom_base_link`, `/right_ee_pose`, `/left_ee_pose`, `/track_3d/*`, `/slam_elevatorlio/status`, `/terrain_map` (low rate), the camera at 1 fps.
+- `ros2 bag record -s mcap` of: `/orchestrator/trace`, `/orchestrator/agent/*`, `/speak`, `/route_goal`, `/route_planner/status`, `/nav_state`, `/state_estimation`, `/odom_base_link`, `/track_3d/*`, `/slam_elevatorlio/status`, `/terrain_map` (low rate), the camera at 1 fps.
 - The camera at full rate is about 17 MB/s raw on the NUC; record it at full rate only around a press (the press frames already cover the closest point).
 - **One bag per task, not per session.** A task is one full rollout: from the task (or `send_tree`) to `finished`, `halted` or `error`. The recorder starts the bag when the tree starts and stops it when the tree ends. A bring-up with no task makes no bag, so testing the orchestrator does not fill the disk.
 

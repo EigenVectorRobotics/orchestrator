@@ -8,7 +8,7 @@ Each frame is judged on a crop around the button: track_anything's box for that 
 same stamp, or the latest before it), grown crop_scale times about its centre. A frame with no box of its own uses
 the baseline's box, since the hand covers the button during the push.
 
-The phases come from the end-effector pose (move_to_pose publishes it every control tick, 100 Hz) against the goal
+The phases come from the end-effector pose (TF from the goal's frame to right_ee or left_ee, sampled at 100 Hz) against the goal
 the arm was sent (the action feedback's current_goal): depth = (ee - goal) . x_goal is 0 at the press pose and
 -approach_offset at the pre-grasp. The deepest point is known once the depth has dropped retreat_drop below its
 maximum, so frames are kept in a short buffer and chosen afterwards. Times are ROS times (header stamps).
@@ -150,12 +150,14 @@ class PressCapture:
         self.frames   = {}              # name -> (ROS time, bytes)
         self.boxes    = {}              # name -> the button box of that frame, when there was one
         self.ended_t  = None            # when the action ended, success or not
+        self.goal_frame = None          # the goal's frame, where end-effector poses are looked up
         self.saved    = {}              # name -> path, once saved
         self._lock    = threading.Lock()
 
-    def on_goal(self, position, quaternion_xyzw):
+    def on_goal(self, position, quaternion_xyzw, frame: str | None = None):
         with self._lock:
             self.tracker.set_goal(position, quaternion_xyzw)
+            self.goal_frame = frame or self.goal_frame
 
     def on_pose(self, t: float, position):
         with self._lock:
