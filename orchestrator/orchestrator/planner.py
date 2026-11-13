@@ -7,7 +7,7 @@ from typing import Callable
 from pathlib import Path
 from dataclasses import dataclass, field
 
-from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Contract, Registry, TreeValidator, ValidatorConfig
+from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Contract, Registry, TreeValidator, ValidatorConfig, load_tree
 
 from .llm_backends import Backend, BackendError
 
@@ -18,7 +18,7 @@ REPLACE_PATTERN  = re.compile(r'<replace\s+subtree="([^"]+)"\s+with="([^"]+)"\s*
 BLOCK_PATTERN    = re.compile(r'<BehaviorTree\s+ID="([^"]+)"\s*>.*?</BehaviorTree>', re.DOTALL)
 ATTRIBUTE_PATTERN  = re.compile(r'(\w+)="([^"]*)"')
 PARAMETERS_PATTERN = re.compile(r'<Sequence\s+name="parameters"\s*>(.*?)</Sequence>', re.DOTALL)
-PARAMETER_PATTERN  = re.compile(r'<SetBlackboard\s+value="([^"]*)"\s+output_key="([^"]+)"\s*/>')
+PARAMETER_PATTERN  = re.compile(r'<SetBlackboard((?:\s+\w+="[^"]*")*)\s*/>')
 TREE_ID_PATTERN  = re.compile(r'<BehaviorTree\s+ID="([^"]+)"')
 COMMENT_PATTERN  = re.compile(r'<!--(.*?)-->', re.DOTALL)
 SUMMARY_CHARS    = 160
@@ -171,7 +171,11 @@ def tree_parameters(
     """Parameter name -> default value, from the SetBlackboard nodes in the Sequence named parameters"""
     block = PARAMETERS_PATTERN.search(xml)
 
-    return {name: value for value, name in PARAMETER_PATTERN.findall(block.group(1))} if block else {}
+    if not block:
+        return {}
+
+    attributes = [dict(ATTRIBUTE_PATTERN.findall(match)) for match in PARAMETER_PATTERN.findall(block.group(1))]
+    return {each['output_key']: each['value'] for each in attributes if 'output_key' in each and 'value' in each}
 
 
 def override_parameters(
@@ -180,12 +184,22 @@ def override_parameters(
 ) -> str:
     """The tree with the given parameters set to new values"""
     block = PARAMETERS_PATTERN.search(xml)
-    text  = PARAMETER_PATTERN.sub(
-        lambda match: match.group(0).replace(f'value="{match.group(1)}"', f'value="{values.get(match.group(2), match.group(1))}"', 1),
-        block.group(1)
-    )
+    text  = PARAMETER_PATTERN.sub(lambda match: _override_one(match.group(0), values), block.group(1))
 
     return xml[:block.start(1)] + text + xml[block.end(1):]
+
+
+def _override_one(
+    element: str,
+    values: dict[str, str],
+) -> str:
+    attributes = dict(ATTRIBUTE_PATTERN.findall(element))
+    name       = attributes.get('output_key')
+
+    if name not in values or 'value' not in attributes:
+        return element
+
+    return re.sub(r'(\svalue=)"[^"]*"', lambda match: f'{match.group(1)}"{values[name]}"', element, count=1)
 
 
 def fill_floor_parameters(
@@ -296,7 +310,7 @@ def load_tree_library(
     library = {}
 
     for path in sorted(Path(directory).glob('*.xml')):
-        xml              = path.read_text()
+        xml              = load_tree(path)
         tree_id, summary = summarize_tree(xml)
 
         if tree_id:

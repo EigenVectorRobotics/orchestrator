@@ -6,6 +6,7 @@ import rclpy
 from pathlib import Path
 
 from std_msgs.msg import String
+from skill_registry import load_tree
 
 
 def main():
@@ -13,6 +14,7 @@ def main():
     parser.add_argument('tree', type=Path)
     parser.add_argument('--blind', action='store_true', help='validate it as a tree that must run with no cloud link')
     arguments = parser.parse_args()
+    tree      = load_tree(arguments.tree)              # fails here, before ROS, on a missing or cyclic include
 
     rclpy.init()
     node      = rclpy.create_node('send_tree')
@@ -28,7 +30,7 @@ def main():
         print(f'no executor subscribes to {topic}', file=sys.stderr)
         sys.exit(1)
 
-    publisher.publish(String(data=arguments.tree.read_text()))
+    publisher.publish(String(data=tree))
     rclpy.spin_once(node, timeout_sec=0.5)
 
     node.destroy_node()

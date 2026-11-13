@@ -70,6 +70,9 @@ class TreeValidator:
         if root.tag != 'root' or root.get('BTCPP_format') != '4':
             return [Issue('error', '', 'root must be <root BTCPP_format="4">')]
 
+        if root.find('include') is not None:
+            return [Issue('error', '', '<include> is not resolved: load the file with skill_registry.load_tree')]
+
         self._trees = {tree.get('ID'): tree for tree in root.findall('BehaviorTree')}
 
         if not self._trees:

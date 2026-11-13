@@ -23,6 +23,7 @@ import rclpy
 
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
+from skill_registry import load_tree
 
 from .planner_external import ANSWER_TOPIC, REQUEST_TOPIC
 
@@ -102,7 +103,7 @@ def answer_text(
 
         return f'{arguments.note}\n<use_tree id="{arguments.use_tree}"{attributes}/>'
 
-    return f'{arguments.note}\n<tree>\n{Path(arguments.tree).read_text().strip()}\n</tree>'
+    return f'{arguments.note}\n<tree>\n{load_tree(arguments.tree).strip()}\n</tree>'
 
 
 def send_answer(

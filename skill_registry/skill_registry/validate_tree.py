@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .registry import Registry
 from .validator import TreeValidator, ValidatorConfig
+from .tree_files import IncludeError, load_tree
 
 
 SOURCE_CONTRACTS = Path(__file__).resolve().parent.parent / 'contracts'      # only there in the source tree
@@ -29,7 +30,12 @@ def main():
 
     registry  = Registry.from_directory(arguments.contracts or default_contracts())
     validator = TreeValidator(registry, ValidatorConfig(blind=arguments.blind))
-    issues    = validator.validate(arguments.tree.read_text())
+
+    try:
+        issues = validator.validate(load_tree(arguments.tree))
+    except IncludeError as error:
+        print(f'error    {error}')
+        sys.exit(1)
 
     for issue in issues:
         print(f'{issue.level:8} {issue.path}: {issue.message}')

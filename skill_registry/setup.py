@@ -13,6 +13,8 @@ setup(
         (f'share/{PACKAGE_NAME}', ['package.xml']),
         (f'share/{PACKAGE_NAME}/contracts', glob('contracts/*.yaml')),
         (f'share/{PACKAGE_NAME}/trees', glob('trees/*.xml')),
+        (f'share/{PACKAGE_NAME}/trees/subtrees', glob('trees/subtrees/*.xml')),
+        (f'share/{PACKAGE_NAME}/trees/tests', glob('trees/tests/*.xml')),
         (f'share/{PACKAGE_NAME}/preflight', glob('preflight/*.xml')),
         (f'share/{PACKAGE_NAME}/agent_skills', glob('agent_skills/*.md')),
     ],

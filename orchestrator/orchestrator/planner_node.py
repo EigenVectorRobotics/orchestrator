@@ -13,6 +13,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Int32, String
 from ament_index_python.packages import get_package_share_directory
+from skill_registry import load_tree
 
 from .trace import TRACE_QOS, TRACE_TOPIC, Tracer
 from .planner import Planner, load_tree_library, speech_left_s
@@ -56,7 +57,7 @@ class PlannerNode(Node):
 
         self.tracer      = Tracer(self, 'planner')
         self.library     = load_tree_library(self.tree_library) if self.tree_library else {}
-        self.preflight   = Path(self.preflight_tree).read_text() if self.preflight_tree else ''
+        self.preflight   = load_tree(self.preflight_tree) if self.preflight_tree else ''
         self._preflight_done   = threading.Event()
         self._preflight_status = ''
         self.live_skills = None
@@ -99,7 +100,7 @@ class PlannerNode(Node):
             return self._make_external_backend()
 
         if self.backend_name == 'scripted':
-            tree = Path(self.scripted_tree).read_text()
+            tree = load_tree(self.scripted_tree)
             return ScriptedBackend([f'Scripted plan from {Path(self.scripted_tree).name}.\n<tree>\n{tree}\n</tree>'])
 
         raise ValueError(f'unknown backend {self.backend_name}')
