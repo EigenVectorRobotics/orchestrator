@@ -255,7 +255,7 @@ class AgentLeaf(SkillLeaf):
     def _start_call(self) -> SkillHandle:
         decisions = [record for record in self.context.history if record.get('skill') == self.contract.name]
         gave_up   = next((record for record in decisions if record.get('decision') == 'ask_help'), None)
-        rounds    = sum(1 for record in decisions if record.get('phase') == 'diagnose')
+        rounds    = sum(1 for record in decisions if record.get('phase') == 'diagnose' and not record.get('rule'))
 
         if self.runner is None:
             return DoneHandle(False, 'no agent is configured (agent_backend)')
@@ -285,6 +285,7 @@ class AgentLeaf(SkillLeaf):
             'offset':   outputs.get('offset'),
             'goal':     outputs.get('goal'),
             'left_arm': outputs.get('left_arm'),
+            'rule':     bool(outputs.get('rule')),       # decided by the executor's rule, not the agent: outside max_rounds
         })
 
         checked = self.context.last_call
