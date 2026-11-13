@@ -1,7 +1,8 @@
 """agent_cli: answer the executor's agent calls from a session, e.g. Claude Code over ssh on the NUC.
 
-  agent_cli wait [--timeout S]          block until a call is open; print it
-  agent_cli show [--full]               the current call; --full adds the failure with its feedback, and the history
+  agent_cli wait [--timeout S] [--json] block until a call is open; print it
+  agent_cli show [--full] [--json]      the current call; --full adds the failure with its feedback, and the history;
+                                        --json prints the request, the summary and the skill document folder as JSON
   agent_cli tf TARGET SOURCE            the pose of SOURCE in TARGET
   agent_cli topic TOPIC                 the next message on TOPIC (not images or point clouds)
   agent_cli topics                      the topic list
@@ -186,7 +187,10 @@ def main():
 
     wait = commands.add_parser('wait')
     wait.add_argument('--timeout', type=float, default=3600.0)
-    commands.add_parser('show').add_argument('--full', action='store_true')
+    wait.add_argument('--json', action='store_true')
+    show = commands.add_parser('show')
+    show.add_argument('--full', action='store_true')
+    show.add_argument('--json', action='store_true')
     tf = commands.add_parser('tf')
     tf.add_argument('target')
     tf.add_argument('source')
@@ -256,7 +260,14 @@ def _run(node, arguments) -> int:
                 print('no call yet', file=sys.stderr)
                 return 1
 
-        print(_summary(holder[-1], getattr(arguments, 'full', False)))
+        summary = _summary(holder[-1], getattr(arguments, 'full', False))
+
+        if arguments.json:
+            skill_dir = Path(get_package_share_directory('skill_registry')) / 'agent_skills'
+            print(json.dumps({'request': holder[-1], 'summary': summary, 'skill_dir': str(skill_dir)}))
+        else:
+            print(summary)
+
         return 0
 
     # Reads wait in this thread while an executor spins the node in another, as in the executor node
