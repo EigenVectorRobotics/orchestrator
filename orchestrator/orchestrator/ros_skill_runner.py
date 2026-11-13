@@ -327,12 +327,17 @@ class _ActionHandle(_ServerHandle):
 
 
 class _ServiceHandle(_ServerHandle):
-    def __init__(self, client, request, contract: Contract, server_wait_s: float):
+    """A service call; with a watch, a successful response is done only once success_when holds on a later message"""
+
+    def __init__(self, client, request, contract: Contract, server_wait_s: float, watch: TopicWatch | None = None):
         super().__init__(contract, server_wait_s)
 
-        self.client  = client
-        self.request = request
-        self.future  = None
+        self.client        = client
+        self.request       = request
+        self.future        = None
+        self.watch         = watch
+        self.response_time = None
+        self.response_text = ''
 
     def _server_ready(self) -> bool:
         return self.client.service_is_ready()
@@ -341,6 +346,12 @@ class _ServiceHandle(_ServerHandle):
         self.future = self.client.call_async(self.request)
 
     def _poll_sent(self) -> Status:
+        if self.response_time is not None:
+            if self.watch.matches(self.contract.interface.success_when, after=self.response_time):
+                self._finish(True, self.response_text)
+
+            return self.status
+
         if self.future.done():
             response     = self.future.result()
             self.outputs = extract_outputs(self.contract, response)
@@ -349,6 +360,9 @@ class _ServiceHandle(_ServerHandle):
             if results is not None and all(hasattr(result, 'successful') for result in results):
                 failed = [result.reason for result in results if not result.successful]
                 self._finish(not failed, '; '.join(failed) or f'{len(results)} parameters set')
+            elif getattr(response, 'success', True) and self.watch is not None:
+                self.response_time = time.monotonic()
+                self.response_text = getattr(response, 'message', '')
             else:
                 self._finish(getattr(response, 'success', True), getattr(response, 'message', ''))
 
@@ -575,8 +589,9 @@ class RosSkillRunner:
             if interface.transport == 'service':
                 service_type = get_service(interface.ros_type)
                 request      = build_message(service_type.Request, contract, inputs, self.node)
+                watch        = self._watch(interface.success_when) if interface.success_when else None
 
-                return _ServiceHandle(self._service_client(interface.name, service_type), request, contract, self.server_wait_s)
+                return _ServiceHandle(self._service_client(interface.name, service_type), request, contract, self.server_wait_s, watch)
 
             if interface.transport == 'watch':
                 return self._check_watch(interface.success_when, inputs)

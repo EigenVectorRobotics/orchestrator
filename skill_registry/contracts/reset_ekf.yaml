@@ -1,0 +1,20 @@
+name: reset_ekf
+kind: action
+device: nuc
+description: Reset the body EKF and wait until it has recalibrated, so its yaw drift after a walk does not drag foot_world during a press
+interface:
+  transport: service
+  name: /body_ekf/reset
+  ros_type: std_srvs/srv/Trigger
+  success_when:
+    topic: /body_ekf/torso_pose
+    ros_type: geometry_msgs/msg/PoseStamped
+    field: header.frame_id
+    equals: foot_world
+timeout_s: 10
+maturity: wip
+source: manipulation_stack/g1_pilot/src/body_ekf.cpp (e63f2b8 or later)
+notes: >-
+  After the reset body_ekf publishes no torso pose until it has collected 2 s of stillness and logged "calibrated",
+  so the first pose after the response means it is done. Any motion restarts the still period; a robot that never
+  holds still fails at timeout_s. A yaw rate above 0.05 deg/s after the reset means it did not take (E-008).

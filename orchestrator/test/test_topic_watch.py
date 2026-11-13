@@ -9,7 +9,7 @@ pytest.importorskip('rclpy')
 from skill_registry.contract import Watch
 
 from orchestrator.behavior_tree import Status
-from orchestrator.ros_skill_runner import RosSkillRunner, TopicWatch
+from orchestrator.ros_skill_runner import RosSkillRunner, TopicWatch, _ServiceHandle
 
 
 NODE = SimpleNamespace(create_subscription=lambda *args: None)
@@ -64,3 +64,22 @@ def test_max_age_fails_a_watch_whose_latest_message_is_old():
 
     result = RosSkillRunner._check_watch(runner, spec, {})
     assert result.status == Status.FAILURE and 'for 1.0 s' in result.message
+
+
+def test_a_service_with_a_watch_ends_on_a_message_after_its_response():
+    spec     = Watch(topic='/body_ekf/torso_pose', ros_type='geometry_msgs/msg/PoseStamped', field='header.frame_id',
+                     equals='foot_world')
+    watch    = TopicWatch(NODE, spec.topic, spec.ros_type, False)
+    pose     = SimpleNamespace(header=SimpleNamespace(frame_id='foot_world'))
+    response = SimpleNamespace(success=True, message='collecting still period')
+    future   = SimpleNamespace(done=lambda: True, result=lambda: response)
+    client   = SimpleNamespace(service_is_ready=lambda: True, call_async=lambda request: future)
+    contract = SimpleNamespace(interface=SimpleNamespace(name='/body_ekf/reset', success_when=spec), outputs=[])
+    handle   = _ServiceHandle(client, None, contract, 1.0, watch)
+
+    watch._on_message(pose)                         # a pose from before the reset does not end it
+    assert handle.poll() == Status.RUNNING
+    assert handle.poll() == Status.RUNNING
+
+    watch._on_message(pose)                         # the first pose after the reset: body_ekf has recalibrated
+    assert handle.poll() == Status.SUCCESS and handle.message == 'collecting still period'

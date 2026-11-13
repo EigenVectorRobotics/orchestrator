@@ -13,4 +13,4 @@ maturity: untested
 source: manipulation_stack/humanoid_arm_skills/humanoid_arm_skills/pose_filtering.py
 notes: >-
   Run it with the robot standing at the panel, right before press_button, after the body EKF reset
-  (/body_ekf/reset).
+  (reset_ekf).
