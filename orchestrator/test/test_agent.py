@@ -9,7 +9,7 @@ import pytest
 from skill_registry import Registry
 
 from orchestrator import agent_backends
-from orchestrator.agent import Agent, AgentConfig, AgentSession, decision_outputs, offset_goal
+from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentConfig, AgentSession, decision_outputs, offset_goal, rule_offset
 from orchestrator.agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
 from orchestrator.agent_external import ExternalAgentBackend
 from orchestrator.agent_sandbox import SandboxConfig, run_python
@@ -200,6 +200,35 @@ def test_the_round_budget_stops_the_agent(tmp_path):
     assert len(backend.calls) == 2
 
 
+def test_rule_answers_do_not_spend_the_round_budget(tmp_path):
+    retry   = [['decide', {'decision': 'retry', 'reason': 'try again'}]]
+    backend = ScriptedAgentBackend([retry])
+    body    = ('<root BTCPP_format="4"><BehaviorTree ID="t">'
+               '<manipulation_recovery max_rounds="2" base_goal="{call_panel}"/></BehaviorTree></root>')
+    by_rule = {'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'offset_retry', 'rule': True}
+    by_agent = {**by_rule, 'decision': 'retry', 'rule': False}
+
+    tree = _tree(body, FakeRunner([]), Agent(backend, _config(tmp_path)))
+    tree.context.last_failure, tree.context.history = {'inputs': {}}, [by_rule, by_rule, by_agent]
+    assert _run(tree) == Status.SUCCESS and len(backend.calls) == 1        # 1 agent diagnosis of 2 spent
+
+    tree = _tree(body, FakeRunner([]), Agent(backend, _config(tmp_path)))
+    tree.context.last_failure, tree.context.history = {'inputs': {}}, [by_rule, by_agent, by_agent]
+    assert _run(tree) == Status.FAILURE and len(backend.calls) == 1        # 2 agent diagnoses: the budget is spent
+
+
+def test_the_executor_says_when_a_call_opens_and_what_was_decided(tmp_path):
+    spoken  = []
+    backend = ScriptedAgentBackend([[['decide', {'decision': 'retry', 'reason': 'a transient rejection'}]]])
+    body    = ('<root BTCPP_format="4"><BehaviorTree ID="t">'
+               '<manipulation_recovery base_goal="{call_panel}"/></BehaviorTree></root>')
+    tree    = _tree(body, FakeRunner([]), Agent(backend, _config(tmp_path), speak=spoken.append))
+    tree.context.last_failure = {'inputs': {}}
+
+    assert _run(tree) == Status.SUCCESS
+    assert spoken == [PHASE_SPEECH['diagnose'], DECISION_SPEECH['retry']]
+
+
 # ========== OpenAI-compatible backend ==========
 
 def test_openai_compatible_backend_sends_tool_results_back(monkeypatch, tmp_path):
@@ -300,6 +329,7 @@ def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path)
     assert recovery['failure']['checked_call']['skill'] == 'press_button'
     assert recovery['failure']['checked_call']['feedback']
     assert {'elapsed_s', 'status', 'message'} <= set(recovery['failure'])      # the executor's trace formats these
+    assert recovery['press'] == PRESS_EVIDENCE                                 # the depth and residual of the judged press
 
     backend.deliver({'id': recovery['id'], 'decision': 'ask_help', 'reason': 'r'})
     assert _run(tree) == Status.FAILURE
@@ -390,6 +420,7 @@ def test_stance_check_decisions(tmp_path):
 
     assert session.call('decide', {'decision': 'offset_retry', 'reason': 'x', 'ox': 0, 'oy': 0, 'oz': 0}).is_error
     assert session.call('decide', {'decision': 'ask_help', 'reason': 'x'}).is_error
+    assert session.call('decide', {'decision': 'switch_arm', 'reason': 'x', 'use_left_arm': True}).is_error   # the arm is chosen by rule
     assert session.call('decide', {'decision': 'reposition', 'reason': 'too close', 'dx': -0.25, 'dy': 0.0}).final
 
 
@@ -404,11 +435,47 @@ def test_a_failed_stance_check_is_recorded_for_the_agent():
     assert tree.context.last_failure['inputs'] == {'query': 'down button'}
 
 
-# ========== confirm ==========
-
+# ========== confirm ===
 def test_confirm_phase_relays_the_question():
     from orchestrator.agent import GOING_ON, PHASE_DECISIONS, _task
 
     assert PHASE_DECISIONS['confirm'] == ('confirmed', 'not_confirmed')
     assert 'confirmed' in GOING_ON and 'not_confirmed' not in GOING_ON
     assert 'Is the gantry removed?' in _task('confirm', {'question': 'Is the gantry removed?'})
+
+
+# ========== The offset rule before the agent ==========
+
+JUDGED_MISS = {'skill': 'press_judge', 'status': 'failure', 'checked_call': {'skill': 'press_button', 'inputs': {'left_arm': False}}}
+OFFSET_SET  = {'skill': 'set_press_offset', 'inputs': {'x': 0.005, 'y': 0.0075, 'z': 0.0034}}
+
+
+def test_a_first_miss_in_the_band_is_corrected_without_the_agent():
+    rule = rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, -0.0051, 0.0002])
+
+    assert rule['decision'] == 'offset_retry'
+    assert (rule['ox'], rule['oy'], rule['oz']) == (0.007, 0.0126, 0.0032)          # the offset in force minus the residual
+
+
+def test_the_rule_leaves_small_large_and_later_misses_to_the_agent():
+    assert rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, 0.003, 0.002]) is None     # 3.6 mm: inside 5 mm
+    assert rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, 0.040, 0.035]) is None     # 53 mm: outside 50 mm
+    low = {'skill': 'set_press_offset', 'inputs': {'x': 0.0, 'y': 0.0, 'z': -0.02}}
+    assert rule_offset(JUDGED_MISS, [low], [-0.002, 0.0, 0.040]) is None              # in the band, but the offset would pass 50 mm
+    earlier = {'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'offset_retry'}
+    assert rule_offset(JUDGED_MISS, [OFFSET_SET, earlier], [-0.002, 0.01, 0.0]) is None   # not the first diagnosis
+
+
+def test_the_rule_applies_again_after_a_press_at_another_panel():
+    earlier = [{'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'retry'},
+               {'skill': 'press_judge', 'decision': 'pressed'}, OFFSET_SET]
+
+    assert rule_offset(JUDGED_MISS, earlier, [-0.002, 0.01, 0.0]) is not None
+
+
+def test_the_rule_needs_a_judged_press_and_a_residual():
+    failed_press = {'skill': 'press_button', 'status': 'failure', 'message': 'Planning failed: target out of reach'}
+
+    assert rule_offset(failed_press, [], [-0.002, 0.01, 0.0]) is None
+    assert rule_offset(JUDGED_MISS, [], None) is None
+

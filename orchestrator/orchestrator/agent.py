@@ -43,6 +43,23 @@ STANCE_PHASES = ('diagnose', 'stance_check')
 PRESS_PHASES  = ('judge', 'diagnose')       # a diagnosis after a judged miss needs the press's depth and residual
 PRESS_FRAME   = 'foot_world'        # press_button's goal frame (move_to_pose planning_frame)
 
+# What the robot says when an agent call opens and when it is decided, so people near it know what comes next
+PHASE_SPEECH    = {
+    'diagnose':     'The press did not work. Checking why.',
+    'stance_check': 'I cannot see the button well from here. Checking where I stand.',
+    'judge':        'Checking whether the button was pressed.',
+}
+DECISION_SPEECH = {
+    'reposition':   'Moving to a better spot.',
+    'switch_arm':   'Switching to my other arm.',
+    'offset_retry': 'Correcting my aim and pressing again.',
+    'retry':        'Trying the press again.',
+    'abort':        'I cannot press this button. Stopping the task.',
+    'continue':     'My stance looks fine. Pressing now.',
+    'pressed':      'The button is pressed.',
+    'not_pressed':  'I missed the button.',
+}
+
 
 class AgentError(RuntimeError):
     pass
@@ -614,11 +631,14 @@ class Agent:
                                    skill=contract.interface.skill, run_id=context.run_id)
 
             self.on_event('agent_start', f'{contract.name} ({phase}) on {self.backend.name}', phase=phase)
+            self._say(PHASE_SPEECH.get(phase))
             self.backend.run(system, _task(phase, inputs), tool_specs(phase), session.call,
                              self.config.max_turns, stop.is_set, self.on_event, skill=contract.interface.skill)
 
             if session.decision is None:
                 raise AgentError('the agent ended without a decision')
+
+            self._say(DECISION_SPEECH.get(session.decision['decision']))
 
             if phase == 'judge' and session.decision['decision'] == 'pressed':
                 self._keep_reference(inputs, evidence.get('press') or {})
@@ -636,6 +656,9 @@ class Agent:
         press = self.press_evidence() or {}
         rule  = rule_offset(failure, evidence.get('history') or [], (press.get('capture') or {}).get('residual_m'),
                             press.get('press_offset_m'))
+
+        if rule is not None:
+            self._say('The press just missed the button. Correcting my aim and pressing again.')
 
         return rule
 
@@ -670,6 +693,11 @@ class Agent:
             })
         except Exception as error:                      # a missing transform costs the reference, never the press
             self.on_event('agent_tool', f'press reference not kept: {error}', level='warn')
+
+    def _say(self, text: str | None):
+        if text and self.speak:
+            self.speak(text)
+            self.on_event('agent_say', text)
 
     def shutdown(self):
         self._pool.shutdown(wait=False, cancel_futures=True)
