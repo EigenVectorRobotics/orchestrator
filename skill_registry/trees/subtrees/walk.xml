@@ -1,0 +1,48 @@
+<root BTCPP_format="4">
+  <!-- Walks into and out of the elevator cabin, clearing latched terrain when no path is free. -->
+
+  <!-- a walk that finds no free path (latched terrain points): clear the terrain map and walk again. Straight to the
+       panel place, with no inside preapproach -->
+  <BehaviorTree ID="walk_in">
+    <Sequence>
+      <set_autonomy enabled="true"/>
+      <RetryUntilSuccessful num_attempts="3">
+        <Fallback>
+          <navigate_to goal="{inside_panel}"/>
+          <ForceFailure>
+            <Sequence>
+              <say text="My path looks blocked. Clearing my map and trying again."/>
+              <clear_terrain_map/>
+              <Sleep msec="2000"/>
+            </Sequence>
+          </ForceFailure>
+        </Fallback>
+      </RetryUntilSuccessful>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- out of the cabin: stop 1 m out of the door and relocalize in place (the cabin matches poorly), then walk on.
+       A walk that finds no free path (latched terrain points): clear the terrain map and walk again -->
+  <BehaviorTree ID="walk_out">
+    <Sequence>
+      <set_autonomy enabled="true"/>
+      <navigate_to goal="{door_out}"/>
+      <Sleep msec="1000"/>
+      <say text="Stopping to relocalize."/>
+      <relocalize_here/>
+      <SetBlackboard output_key="exiting" value="no"/>
+      <RetryUntilSuccessful num_attempts="3">
+        <Fallback>
+          <navigate_to goal="{goal}"/>
+          <ForceFailure>
+            <Sequence>
+              <say text="My path looks blocked. Clearing my map and trying again."/>
+              <clear_terrain_map/>
+              <Sleep msec="2000"/>
+            </Sequence>
+          </ForceFailure>
+        </Fallback>
+      </RetryUntilSuccessful>
+    </Sequence>
+  </BehaviorTree>
+</root>

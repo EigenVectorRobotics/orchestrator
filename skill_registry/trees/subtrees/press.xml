@@ -1,0 +1,104 @@
+<?xml version="1.0"?>
+<root BTCPP_format="4">
+    <BehaviorTree ID="press_panel_button">
+        <Sequence>
+            <SetBlackboard output_key="stance_lost" value="no"/>
+            <Fallback>
+                <Sequence>
+                    <SubTree ID="stance_check" name="stance_check"/>
+                    <SubTree ID="press_and_recover"/>
+                    <release_arms/>
+                </Sequence>
+                <Sequence>
+                    <decision_is value="{stance_lost}" equals="no"/>
+                    <release_arms/>
+                    <say text="{press_ask}"/>
+                </Sequence>
+            </Fallback>
+        </Sequence>
+    </BehaviorTree>
+    <BehaviorTree ID="press_and_recover">
+        <Sequence>
+            <SetBlackboard output_key="pressed" value="no"/>
+            <SetBlackboard output_key="press_offset_x" value="0.0"/>
+            <SetBlackboard output_key="press_offset_y" value="0.0"/>
+            <SetBlackboard output_key="press_offset_z" value="0.0"/>
+            <RetryUntilSuccessful num_attempts="4">
+                <Fallback>
+                    <Sequence>
+                        <set_press_offset x="{press_offset_x}" y="{press_offset_y}" z="{press_offset_z}"/>
+                        <SubTree ID="prepare_arm"/>
+                        <press_button target_description="{button}" left_arm="{press_left_arm}"/>
+                        <press_judge target_description="{button}"/>
+                        <SetBlackboard output_key="pressed" value="yes"/>
+                    </Sequence>
+                    <SubTree ID="recover_once"/>
+                </Fallback>
+            </RetryUntilSuccessful>
+            <decision_is value="{pressed}" equals="yes"/>
+        </Sequence>
+    </BehaviorTree>
+    <BehaviorTree ID="recover_once">
+        <Fallback>
+            <Inverter>
+                <manipulation_recovery phase="diagnose" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}" left_arm="{press_left_arm}" offset_x="{press_offset_x}" offset_y="{press_offset_y}" offset_z="{press_offset_z}"/>
+            </Inverter>
+            <Sequence>
+                <decision_is value="{decision}" equals="reposition"/>
+                <ForceSuccess>              <!-- the arms may be released already -->
+                    <release_arms/>
+                </ForceSuccess>
+                <Inverter>
+                    <RetryUntilSuccessful num_attempts="3">
+                        <SubTree ID="look"/>
+                    </RetryUntilSuccessful>
+                </Inverter>
+                <SetBlackboard output_key="stance_lost" value="yes"/>
+            </Sequence>
+            <AlwaysFailure/>
+        </Fallback>
+    </BehaviorTree>
+    <BehaviorTree ID="stance_check">
+        <Sequence>
+            <SetBlackboard output_key="recovery_goal" value="{press_panel}"/>
+            <RetryUntilSuccessful num_attempts="4">
+                <Fallback>
+                    <SubTree ID="look"/>
+                    <Sequence>
+                        <manipulation_recovery phase="stance_check" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}"/>
+                        <decision_is value="{decision}" equals="continue"/>
+                    </Sequence>
+                </Fallback>
+            </RetryUntilSuccessful>
+        </Sequence>
+    </BehaviorTree>
+    <BehaviorTree ID="look">
+        <Sequence>
+            <set_autonomy enabled="true"/>
+            <navigate_to goal="{recovery_goal}"/>
+            <set_autonomy enabled="false"/>
+            <Sleep msec="2500"/>            <!-- the G1 settles up to 2.5 s after it stops: 6.5 cm and 11 deg on floor 2 -->
+            <button_in_view query="{button}" left_arm_min_y_m="{press_arm_min_y}" left_arm="{press_left_arm}"/>
+        </Sequence>
+    </BehaviorTree>
+    <BehaviorTree ID="ekf_hold">
+        <Sequence>
+            <say text="Holding still to reset my balance estimate."/>
+            <reset_ekf/>
+        </Sequence>
+    </BehaviorTree>
+    <BehaviorTree ID="prepare_arm">
+        <Sequence>
+            <Fallback>
+                <Inverter>
+                    <in_high_level/>
+                </Inverter>
+                <set_mode mode="idle"/>
+            </Fallback>
+            <set_mode mode="high_level"/>
+            <SubTree ID="ekf_hold"/>
+            <set_profile profile="visual_servo"/>
+            <reset_filters/>
+        </Sequence>
+    </BehaviorTree>
+</root>

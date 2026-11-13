@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from skill_registry import Registry
+from skill_registry import Registry, load_tree
 
 from orchestrator import agent_backends
 from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentConfig, AgentSession, decision_outputs, offset_goal, rule_offset
@@ -442,6 +442,217 @@ def test_confirm_phase_relays_the_question():
     assert PHASE_DECISIONS['confirm'] == ('confirmed', 'not_confirmed')
     assert 'confirmed' in GOING_ON and 'not_confirmed' not in GOING_ON
     assert 'Is the gantry removed?' in _task('confirm', {'question': 'Is the gantry removed?'})
+
+
+# ========== The library ride tree with the press checks ==========
+
+LIBRARY_RIDE  = ROOT / 'skill_registry' / 'trees' / 'freight_elevator_go_to_place.xml'
+LIBRARY_PLACES = ('freight_elevator_call_panel_floor_1', 'inside_freight_elevator_button_panel_floor_1',
+                  'freight_elevator_door_out_floor_2', 'target_floor_2')
+
+
+class LibraryRideRunner(FakeRunner):
+    """The robot starts on floor 1. The door opens once the call press is judged, the cabin is reached by the walk in, and
+    floor 2 comes (door open) once the floor press is judged. judges: press_judge results in order (True pressed); stance:
+    the results of button_in_view in order (True in view); hold_judge: the first press_judge stays running (the door
+    opens meanwhile)."""
+
+    def __init__(self, presses: list[tuple], judges: list[bool] = (), stance: list[bool] = (), decisions: list[dict] = (),
+                 hold_judge: bool = False, arms: list[bool] = ()):
+        super().__init__(presses)
+        self.arms = list(arms)
+        self.judges, self.stance, self.decisions = list(judges), list(stance), list(decisions)
+        self.hold_judge, self.door, self.inside, self.floor = hold_judge, False, False, '1'
+
+    def start(self, contract, inputs):
+        name = contract.name
+
+        if name in ('door_open', 'inside_cabin', 'at_floor'):
+            held = {'door_open': self.door, 'inside_cabin': self.inside, 'at_floor': str(inputs.get('floor')) == self.floor}[name]
+            return FakeHandle(Status.SUCCESS if held else Status.FAILURE)
+
+        if name == 'in_elevator':
+            return FakeHandle(Status.FAILURE)                   # LIO has left elevator mode
+
+        if name not in ('manipulation_recovery', 'press_judge', 'button_in_view'):
+            return self._other(name, contract, inputs)
+
+        self.calls.append((name, inputs))
+
+        if name == 'button_in_view':
+            in_view  = self.stance.pop(0) if self.stance else True
+            left_arm = self.arms.pop(0) if self.arms and in_view else False
+            return FakeHandle(Status.SUCCESS if in_view else Status.FAILURE, 'in view' if in_view else 'not in view',
+                              {'left_arm': left_arm})
+
+        if name == 'manipulation_recovery':
+            decision = self.decisions.pop(0) if self.decisions else {'decision': 'continue', 'left_arm': False}
+            return FakeHandle(Status.SUCCESS if decision['decision'] != 'abort' else Status.FAILURE, decision['decision'],
+                              {'reason': 'test', **decision})
+
+        if name == 'press_judge':
+            if self.hold_judge:
+                self.hold_judge, self.door = False, True            # the door opens while the session judges
+                return FakeHandle(Status.RUNNING)
+
+            pressed = self.judges.pop(0) if self.judges else True
+
+            if pressed and inputs['target_description'] == 'down button':
+                self.door = True
+            if pressed and inputs['target_description'] == 'floor 2':
+                self.floor, self.door = '2', True
+
+            decision = 'pressed' if pressed else 'not_pressed'
+            return FakeHandle(Status.SUCCESS if pressed else Status.FAILURE, decision, {'decision': decision, 'reason': 'test'})
+
+    def _other(self, name, contract, inputs):
+        if name == 'navigate_to' and inputs['goal']['x'] == 3.0:    # the inside panel: the robot is in the cabin
+            self.inside, self.door = True, False
+
+        return super().start(contract, inputs)
+
+    def names(self) -> list[str]:
+        return [name for name, _ in self.calls]
+
+
+def _library_ride(runner: FakeRunner) -> BehaviorTree:
+    now     = [0.0]
+    clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]
+    places  = {name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'} for name in LIBRARY_PLACES}
+    places['inside_freight_elevator_button_panel_floor_1']['x'] = 3.0
+    context = Context(blackboard=places, clock=clock)
+
+    agent   = type('FakeAgent', (), {'start': lambda self, contract, inputs, context: runner.start(contract, inputs)})()
+
+    return BehaviorTree(load_tree(LIBRARY_RIDE), make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
+
+
+def _press_steps(names: list[str]) -> list[str]:
+    return [name for name in names if name in ('button_in_view', 'press_button', 'press_judge')]
+
+
+def test_each_press_checks_the_stance_then_presses_and_judges():
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 2)
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    assert _press_steps(runner.names()) == ['button_in_view', 'press_button', 'press_judge'] * 2
+    assert 'track' not in runner.names()
+    presses = [inputs for name, inputs in runner.calls if name == 'press_button']
+    assert [press['target_description'] for press in presses] == ['down button', 'floor 2']
+    offsets = [inputs for name, inputs in runner.calls if name == 'set_press_offset']
+    assert [(o['x'], o['y'], o['z']) for o in offsets] == [(0.0, 0.0, 0.0)] * 2                # no offset before a first press
+    says  = [(index, inputs['text']) for index, (name, inputs) in enumerate(runner.calls) if name == 'say']
+    holds = [index for index, text in says if text == 'Holding still to reset my balance estimate.']
+    assert len(holds) == 2                                                                  # before each press
+    assert all(runner.names().index('press_button', index) > index for index in holds)
+    assert 'manipulation_recovery' not in runner.names()
+
+
+def test_a_press_judged_not_pressed_goes_to_manipulation_recovery_and_is_judged_again():
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 3, judges=[False, True, True],
+                               decisions=[{'decision': 'retry', 'left_arm': False}])
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    names    = runner.names()
+    recovery = names.index('manipulation_recovery')
+    assert runner.calls[recovery][1]['phase'] == 'diagnose'
+    assert runner.calls[recovery][1]['base_goal']['x'] == 1.0                              # the call panel, copied as a pose
+    assert names[recovery + 1:].index('press_button') < names[recovery + 1:].index('press_judge')
+
+
+def test_an_offset_retry_presses_again_with_the_offset_the_agent_gave():
+    offset = {'decision': 'offset_retry', 'left_arm': False, 'offset_x': 0.012, 'offset_y': 0.0126, 'offset_z': 0.0032}
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 3, judges=[False, True, True], decisions=[offset])
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    offsets = [(o['x'], o['y'], o['z']) for name, o in runner.calls if name == 'set_press_offset']
+    assert offsets == [(0.0, 0.0, 0.0), (0.012, 0.0126, 0.0032), (0.0, 0.0, 0.0)]   # call press, its retry, the floor press
+    assert runner.names().count('press_button') == 3
+
+
+def test_a_reposition_after_a_press_looks_again_and_presses_without_asking_the_agent():
+    goal   = {'decision': 'reposition', 'left_arm': False, 'goal': {'x': 0.7, 'y': 2.0, 'z': -0.46, 'yaw': 0.0}}
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 3, judges=[False, True, True], decisions=[goal])
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    phases = [inputs['phase'] for name, inputs in runner.calls if name == 'manipulation_recovery']
+    names  = runner.names()
+    after  = names[names.index('manipulation_recovery'):]
+    assert phases == ['diagnose']                                       # the look after the walk asks no agent
+    assert after.index('release_arms') < after.index('navigate_to') < after.index('button_in_view') < after.index('press_button')
+
+
+def test_a_reposition_whose_three_looks_fail_ends_the_task_without_asking():
+    goal   = {'decision': 'reposition', 'left_arm': False, 'goal': {'x': 0.7, 'y': 2.0, 'z': -0.46, 'yaw': 0.0}}
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])], judges=[False], decisions=[goal], stance=[True, False, False, False])
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.FAILURE
+    names = runner.names()
+    says  = [inputs['text'] for name, inputs in runner.calls if name == 'say']
+    assert names.count('button_in_view') == 4                           # the stance check, then three looks after the reposition
+    assert 'Please press the call button for me.' not in says
+    assert names.count('press_button') == 1
+
+
+def test_a_failed_stance_check_keeps_the_arm_the_rule_chose():
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 2, stance=[False, False],
+                               decisions=[{'decision': 'continue', 'left_arm': True}, {'decision': 'continue', 'left_arm': True}])
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    stance  = [inputs for name, inputs in runner.calls if name == 'manipulation_recovery']
+    presses = [inputs for name, inputs in runner.calls if name == 'press_button']
+    assert [call['phase'] for call in stance] == ['stance_check', 'stance_check']
+    assert [press['left_arm'] for press in presses] == [False, False]      # the agent's left_arm is not taken
+
+def test_the_arm_button_in_view_chooses_is_the_arm_that_presses():
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 2, arms=[True, False])
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    presses = [inputs for name, inputs in runner.calls if name == 'press_button']
+    assert [press['left_arm'] for press in presses] == [True, False]
+
+
+def _walks_before_first_press(runner) -> int:
+    names = runner.names()
+    return names[:names.index('press_button')].count('navigate_to')
+
+
+def test_the_stance_loop_walks_again_after_a_reposition_until_the_button_is_in_view():
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 2, stance=[False, True],
+                               decisions=[{'decision': 'reposition', 'left_arm': False, 'goal': {'x': 0.7, 'y': 2.0, 'z': -0.46, 'yaw': 0.0}}])
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    stance = [inputs for name, inputs in runner.calls if name == 'manipulation_recovery']
+    walks  = [inputs['goal'] for name, inputs in runner.calls if name == 'navigate_to']
+    assert [call['phase'] for call in stance] == ['stance_check']
+    assert _walks_before_first_press(runner) == 3                       # the call panel, the stance at offset 0, the reposition
+    assert walks[2]['x'] == 0.7
+
+
+def test_the_stance_loop_gives_up_after_three_repositions_and_asks_for_help():
+    goal   = {'decision': 'reposition', 'left_arm': False, 'goal': {'x': 0.7, 'y': 2.0, 'z': -0.46, 'yaw': 0.0}}
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])], stance=[False] * 4, decisions=[goal] * 4)
+    tree   = _library_ride(runner)
+
+    _run(tree, max_ticks=40000)
+    names  = runner.names()
+    stance = [inputs for name, inputs in runner.calls if name == 'manipulation_recovery' and inputs['phase'] == 'stance_check']
+    says   = [inputs['text'] for name, inputs in runner.calls if name == 'say']
+    assert len(stance) == 4                                             # one after each of the four looks
+    assert names[:names.index('say', names.index('manipulation_recovery'))].count('navigate_to') == 5   # panel, offset 0, 3 repositions
+    assert 'Please press the call button for me.' in says
+    assert names.index('release_arms') < names.index('say', names.index('manipulation_recovery'))
+    assert 'press_button' not in names[:names.index('release_arms')]    # no blind press at the call panel
+
+
+def test_a_door_that_opens_during_the_judge_halts_the_press_and_walks_in():
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 2, hold_judge=True)
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    names = runner.names()
+    assert names.count('press_judge') == 2                                                 # the halted one, then floor 1
+    assert 'manipulation_recovery' not in names
+    assert names.index('release_arms') > names.index('press_judge')
 
 
 # ========== The offset rule before the agent ==========

@@ -1,12 +1,13 @@
 from pathlib import Path
 
-from skill_registry import Registry
+from skill_registry import Registry, load_tree
 
 from orchestrator.planner import Planner, build_system_prompt, extract_tree, load_tree_library, summarize_tree, tree_parameters
 from orchestrator.llm_backends import BackendError, Reply, ScriptedBackend
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
+TREES      = Path(__file__).resolve().parents[2] / 'skill_registry' / 'trees'
 TEST_TREES = Path(__file__).resolve().parents[2] / 'orchestrator' / 'test_trees'
 PLACES    = {'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}
 
@@ -167,6 +168,63 @@ def test_speech_left_waits_for_the_last_sentence():
     assert speech_left_s(text, 100.0, 100.0) == 26 / SPEECH_CHARS_PER_S + SPEECH_GAP_S
     assert speech_left_s(text, 100.0, 105.0) == 0.0
     assert speech_left_s('', 0.0, 100.0) == 0.0
+
+
+RIDE = load_tree(TREES / 'freight_elevator_go_to_place.xml')
+
+
+def test_system_prompt_lists_a_tree_with_its_parameters():
+    prompt = build_system_prompt(Registry.from_directory(CONTRACTS), {'nuc', 'orin'}, load_tree_library(TREES))
+
+    assert '- freight_elevator_go_to_place(goal="{target_floor_2}", goal_floor="2"): ' in prompt
+
+
+def test_use_tree_overrides_parameters_and_keeps_the_others():
+    events     = []
+    planner, _ = _planner(['Floor 1.\n<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}" goal_floor="1"/>'], events, load_tree_library(TREES))
+    result     = planner.plan('go to floor 1', PLACES)
+
+    assert result.reused == 'freight_elevator_go_to_place'
+    assert tree_parameters(result.tree) == {'goal': '{target_floor_1}', 'goal_floor': '1'}
+    assert result.tree.replace('output_key="goal" value="{target_floor_1}"', 'output_key="goal" value="{target_floor_2}"').replace('output_key="goal_floor" value="1"', 'output_key="goal_floor" value="2"') == RIDE
+
+
+def test_unknown_parameter_goes_back_to_the_model():
+    planner, backend = _planner(['<use_tree id="freight_elevator_go_to_place" lobby="2"/>', 'I cannot.'], library=load_tree_library(TREES))
+    planner.plan('ride to floor 2', PLACES)
+
+    assert 'The tree "freight_elevator_go_to_place" has no parameter lobby' in backend.calls[1]
+
+
+BY_HAND = ('<root BTCPP_format="4">\n  <!-- Ask a person to press the button -->\n'
+           '  <BehaviorTree ID="press_by_hand">\n    <SubTree ID="ask_press"/>\n  </BehaviorTree>\n'
+           '  <BehaviorTree ID="ask_press">\n    <say text="{press_ask}"/>\n  </BehaviorTree>\n</root>\n')
+
+
+def test_system_prompt_lists_subtrees_with_their_keys():
+    prompt = build_system_prompt(Registry.from_directory(CONTRACTS), {'nuc', 'orin'}, load_tree_library(TREES))
+
+    assert '  - subtree walk_out (reads door_out, goal; writes exiting)' in prompt
+    assert '  - subtree press_panel_button (reads press_ask, press_panel, button, press_arm_min_y; ' in prompt
+    assert '  - subtree stance_check (reads press_panel, button, press_arm_min_y; writes recovery_goal, decision, press_left_arm)' in prompt
+
+
+def test_use_tree_replaces_a_subtree_with_another_tree():
+    library    = {**load_tree_library(TREES), 'press_by_hand': ('Ask a person to press the button', BY_HAND)}
+    planner, _ = _planner(['<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}" goal_floor="1"><replace subtree="press_panel_button" with="press_by_hand"/></use_tree>'], library=library)
+    result     = planner.plan('go to floor 1', PLACES)
+
+    assert result.reused == 'freight_elevator_go_to_place'
+    assert '<BehaviorTree ID="press_panel_button">\n    <SubTree ID="ask_press"/>\n  </BehaviorTree>' in result.tree
+    assert '<BehaviorTree ID="ask_press">' in result.tree and result.tree.rstrip().endswith('</root>')
+    assert tree_parameters(result.tree)['goal_floor'] == '1'
+
+
+def test_unknown_subtree_goes_back_to_the_model():
+    planner, backend = _planner(['<use_tree id="freight_elevator_go_to_place"><replace subtree="lobby" with="call_elevator"/></use_tree>', 'I cannot.'], library=load_tree_library(TREES))
+    planner.plan('ride to floor 2', PLACES)
+
+    assert 'The tree "freight_elevator_go_to_place" has no subtree lobby.' in backend.calls[1]
 
 
 FLOORS = {'call_panel': '2', 'lobby': '1'}

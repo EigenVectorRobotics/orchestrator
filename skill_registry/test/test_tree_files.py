@@ -59,3 +59,8 @@ def test_the_validator_refuses_an_unresolved_include():
     assert TreeValidator(Registry.from_directory(CONTRACTS), ValidatorConfig()).validate(text)[0].message.startswith('<include> is not resolved')
 
 
+def test_the_library_ride_is_valid_once_its_subtrees_are_included():
+    text = load_tree(PACKAGE / 'trees' / 'freight_elevator_go_to_place.xml')
+
+    assert '<include' not in text
+    assert TreeValidator(Registry.from_directory(CONTRACTS), ValidatorConfig()).is_valid(text)
