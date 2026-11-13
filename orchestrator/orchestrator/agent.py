@@ -31,7 +31,8 @@ PHASE_DECISIONS = {
     'confirm':    ('confirmed', 'not_confirmed'),
 }
 GOING_ON = {'reposition', 'switch_arm', 'offset_retry', 'retry', 'continue', 'pressed', 'confirmed'}
-MAX_PRESS_OFFSET_M = 0.03               # an offset_retry corrects millimetres; a larger miss needs another decision
+MAX_PRESS_OFFSET_M = 0.05               # an offset_retry corrects millimetres; a larger miss needs another decision
+RULE_MISS_M        = (0.005, 0.050)     # a first miss this far from the goal in the button plane is corrected without the agent
 
 MAX_READ_BYTES = 200_000
 MAX_TOOL_TEXT  = 40_000
@@ -39,6 +40,7 @@ MAX_SPEECH     = 200                    # characters said at once
 SPEECH_GAP_S   = 3.0                    # unitree_interface speaks each message at once, so space them out
 
 STANCE_PHASES = ('diagnose', 'stance_check')
+PRESS_PHASES  = ('judge', 'diagnose')       # a diagnosis after a judged miss needs the press's depth and residual
 PRESS_FRAME   = 'foot_world'        # press_button's goal frame (move_to_pose planning_frame)
 
 
@@ -95,7 +97,7 @@ def tool_specs(phase: str) -> list[dict]:
     """The tools in a neutral form: name, description, JSON schema. decide lists only this phase's decisions"""
     specs = _tool_specs(phase)
 
-    if phase == 'judge':
+    if phase in PRESS_PHASES:
         specs.insert(0, {
             'name':         'get_press',
             'description':  'The last press, as the executor kept it: the saved frames (baseline at the pre-grasp, press '
@@ -258,6 +260,40 @@ def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
         goal['z'] = float(base['z'])
 
     return goal
+
+
+def rule_offset(last_failure: dict | None, history: list[dict], residual: list | None) -> dict | None:
+    """offset_retry without the agent: the first diagnosis after a press that reached its goal and missed the button
+    by RULE_MISS_M in its plane. The new offset is the offset in force minus the residual, as the agent would set it"""
+    failure = last_failure or {}
+    pressed = [index for index, record in enumerate(history) if record.get('skill') == 'press_judge' and record.get('decision') == 'pressed']
+    since   = history[pressed[-1] + 1:] if pressed else history
+
+    if failure.get('skill') != 'press_judge' or not failure.get('checked_call') or residual is None or len(residual) != 3:
+        return None
+
+    if any(record.get('skill') == 'manipulation_recovery' and record.get('phase') == 'diagnose' for record in since):
+        return None
+
+    miss = math.hypot(residual[1], residual[2])
+
+    if not RULE_MISS_M[0] < miss < RULE_MISS_M[1]:
+        return None
+
+    offsets   = [record.get('inputs', {}) for record in since if record.get('skill') == 'set_press_offset']
+    in_force  = [float(offsets[-1].get(axis, 0.0)) if offsets else 0.0 for axis in 'xyz']
+    corrected = [round(force - miss_axis, 4) for force, miss_axis in zip(in_force, residual)]
+
+    if max(abs(value) for value in corrected) > MAX_PRESS_OFFSET_M:
+        return None
+
+    return {
+        'decision': 'offset_retry',
+        'reason':   f'rule: the press reached its goal and missed by {miss * 1000:.1f} mm in the button plane '
+                    f'(residual {[round(value * 1000, 1) for value in residual]} mm); offset {[round(v * 1000, 1) for v in in_force]} '
+                    f'-> {[round(v * 1000, 1) for v in corrected]} mm',
+        'ox': corrected[0], 'oy': corrected[1], 'oz': corrected[2],
+    }
 
 
 def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None) -> dict:
@@ -554,11 +590,18 @@ class Agent:
             if phase == 'judge':                # waits until the press's frames are chosen, then saves them
                 evidence['press'] = self.press_evidence() if self.press_evidence else None
 
+            if phase == 'diagnose' and (evidence['last_failure'] or {}).get('skill') == 'press_judge' and self.press_evidence:
+                evidence['press'] = self.press_evidence()      # the judged press: its frames are chosen already
+
             if phase in STANCE_PHASES:
                 try:
                     evidence['stance'] = self._stance(inputs, evidence)
                 except Exception as error:              # a missing transform leaves the call without a stance, not failed
                     evidence['stance'] = {'error': str(error)}
+
+            if phase == 'diagnose' and (rule := self._rule(evidence)) is not None:
+                self.on_event('agent_rule', rule['reason'], phase=phase)
+                return {**decision_outputs(rule, inputs, evidence['last_failure']), 'rule': True}
 
             system  = (Path(self.config.skills_dir) / f'{contract.interface.skill}.md').read_text()
             known   = self.config.knowledge.prompt_section(observations=True) if self.config.knowledge else ''
@@ -579,6 +622,17 @@ class Agent:
             return decision_outputs(session.decision, inputs, evidence['last_failure'])
 
         return AgentHandle(self._pool, work)
+
+    def _rule(self, evidence: dict) -> dict | None:
+        failure = evidence.get('last_failure') or {}
+
+        if failure.get('skill') != 'press_judge' or not self.press_evidence:
+            return None
+
+        press = self.press_evidence() or {}
+        rule  = rule_offset(failure, evidence.get('history') or [], (press.get('capture') or {}).get('residual_m'))
+
+        return rule
 
     def _stance(self, inputs: dict, evidence: dict) -> dict | None:
         """get_stance: the robot against the base goal and against the last press on this button that worked"""
