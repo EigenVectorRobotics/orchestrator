@@ -1,0 +1,182 @@
+<root BTCPP_format="4">
+  <!-- Elevator steps of a ride: call the elevator and wait for the door, press the floor button and wait for
+       the floor. -->
+
+  <!-- from goal_floor, the places and buttons of the ride; the robot must stand on the other floor (at_floor) -->
+  <BehaviorTree ID="floor_settings">
+    <Fallback>
+      <Sequence>                          <!-- down: floor 2 to floor 1 -->
+        <decision_is value="{goal_floor}" equals="1"/>
+        <at_floor floor="2"/>
+        <SetBlackboard output_key="call_panel_preapproach" value="{freight_elevator_call_panel_preapproach}"/>
+        <SetBlackboard output_key="call_panel"             value="{freight_elevator_call_panel}"/>
+        <SetBlackboard output_key="call_button"            value="down button"/>
+        <SetBlackboard output_key="inside_panel"           value="{inside_freight_elevator_button_panel}"/>
+        <SetBlackboard output_key="floor_button"           value="floor 1"/>
+        <SetBlackboard output_key="door_out"               value="{freight_elevator_door_out_floor_1}"/>
+      </Sequence>
+      <Sequence>                          <!-- up: floor 1 to floor 2 -->
+        <decision_is value="{goal_floor}" equals="2"/>
+        <at_floor floor="1"/>
+        <SetBlackboard output_key="call_panel_preapproach" value="none"/>   <!-- floor 1 has no preapproach place -->
+        <SetBlackboard output_key="call_panel"             value="{freight_elevator_call_panel_floor_1}"/>
+        <SetBlackboard output_key="call_button"            value="down button"/>   <!-- "up button" grounds the light above it (E-003) -->
+        <SetBlackboard output_key="inside_panel"           value="{inside_freight_elevator_button_panel_floor_1}"/>
+        <SetBlackboard output_key="floor_button"           value="floor 2"/>
+        <SetBlackboard output_key="door_out"               value="{freight_elevator_door_out_floor_2}"/>
+      </Sequence>
+      <ForceFailure>
+        <say text="My goal is not on the other floor from me, so I will not take the elevator."/>
+      </ForceFailure>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- walk to the call panel and press the call button; the arms are released at the end -->
+  <BehaviorTree ID="call_elevator">
+    <Sequence>
+      <set_autonomy enabled="true"/>
+      <Fallback>
+        <decision_is value="{call_panel_preapproach}" equals="none"/>   <!-- no preapproach on this floor -->
+        <Sequence>
+          <navigate_to goal="{call_panel_preapproach}"/>
+          <Sleep msec="3000"/>
+        </Sequence>
+      </Fallback>
+      <navigate_to goal="{call_panel}"/>
+      <set_autonomy enabled="false"/>
+      <SetBlackboard output_key="button" value="{call_button}"/>
+      <SetBlackboard output_key="press_panel" value="{call_panel}"/>
+      <SetBlackboard output_key="press_left_arm" value="false"/>
+      <SetBlackboard output_key="press_arm_min_y" value="0.0"/>   <!-- outside, the arm on the button's side (E-007) -->
+      <SetBlackboard output_key="press_ask" value="Please press the call button for me."/>
+      <SubTree ID="press_panel_button"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- call the elevator, then wait for the door. Halted when the door opens; fails when the door stays closed -->
+  <BehaviorTree ID="call_and_wait">
+    <Sequence>
+      <SubTree ID="call_elevator"/>
+      <say text="Waiting for the elevator door."/>
+      <Sleep msec="60000"/>
+      <say text="The elevator door did not open within one minute."/>
+      <AlwaysFailure/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- in the cabin: press the goal floor button, wait for the ride. Halted at the goal floor with the door open; fails after three minutes -->
+  <BehaviorTree ID="press_and_ride">
+    <!-- slam_elevatorlio starts LIO's elevator mode when the door closes with the robot in the cabin -->
+    <Sequence>
+      <SubTree ID="press_floor_button"/>
+      <say text="Waiting for my floor."/>
+      <Sleep msec="180000"/>
+      <say text="I did not reach my floor within three minutes."/>
+      <AlwaysFailure/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- in the cabin: press the floor button -->
+  <BehaviorTree ID="press_floor_button">
+    <Sequence>
+      <SetBlackboard output_key="button" value="{floor_button}"/>
+      <SetBlackboard output_key="press_panel" value="{inside_panel}"/>
+      <SetBlackboard output_key="press_left_arm" value="false"/>   <!-- inside: the right arm (E-007) -->
+      <SetBlackboard output_key="press_arm_min_y" value="0.10"/>
+      <SetBlackboard output_key="press_ask" value="Please press my floor button for me."/>
+      <SubTree ID="press_panel_button"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- the ride to goal on goal_floor (both set by the caller): floor settings, the call, the walk in, the press and the ride,
+       the walk out and on to goal, with the SLAM guard. freight_elevator_go_to_place runs it once; a test can chain rides -->
+  <BehaviorTree ID="ride_to_goal">
+    <Sequence>
+      <SubTree ID="floor_settings"/>      <!-- from goal_floor; the robot must stand on the other floor -->
+      <SetBlackboard output_key="exiting" value="no"/>
+      <Fallback>
+        <!-- the SLAM guard: outside the cabin, an unhealthy SLAM (a LIO divergence, lost tracking) halts the task at once;
+             in the cabin it is let through (no matching on a ride; the exit relocalization resets localized) -->
+        <!-- exiting: from the door open at the target floor until the relocalization out of the door -->
+        <ReactiveSequence>
+          <Fallback>
+            <slam_healthy/>
+            <inside_cabin/>
+            <decision_is value="{exiting}" equals="yes"/>   <!-- the walk out on the robot's own guess, until it relocalizes -->
+          </Fallback>
+        <Sequence>
+          <Fallback>                    <!-- a transition to the current mode fails -->
+            <in_high_level/>
+            <set_mode mode="high_level"/>
+          </Fallback>
+          <clear_stop/>
+          <ReactiveFallback>
+            <door_open/>
+            <SubTree ID="call_and_wait"/>
+          </ReactiveFallback>
+          <say text="The door is open. Walking into the elevator."/>
+          <Parallel success_count="2" failure_count="1">
+            <ForceSuccess>              <!-- the arms may be released already -->
+              <release_arms/>
+            </ForceSuccess>
+            <Delay delay_msec="1000">     <!-- start the walk 1 s after the release starts -->
+              <SubTree ID="walk_in"/>
+            </Delay>
+          </Parallel>
+          <set_autonomy enabled="false"/>
+          <ReactiveFallback>
+            <Sequence>
+              <inside_cabin/>
+              <at_floor floor="{goal_floor}"/>
+              <door_open/>
+            </Sequence>
+            <SubTree ID="press_and_ride"/>
+          </ReactiveFallback>
+          <SetBlackboard output_key="exiting" value="yes"/>
+          <say text="I am at my floor and the door is open. Walking out."/>
+          <Parallel success_count="2" failure_count="1">
+            <ForceSuccess>              <!-- the arms first, at once -->
+              <release_arms/>
+            </ForceSuccess>
+            <Sequence>                  <!-- the walk once z is on the goal floor -->
+              <RetryUntilSuccessful num_attempts="20">   <!-- slam_elevatorlio ends LIO's elevator mode at the open door -->
+                <Delay delay_msec="500">
+                  <Inverter>
+                    <in_elevator/>
+                  </Inverter>
+                </Delay>
+              </RetryUntilSuccessful>
+              <Sleep msec="1500"/>      <!-- the snap resets localized; ~/status comes once a second -->
+              <Fallback>
+                <RetryUntilSuccessful num_attempts="20">
+                  <Delay delay_msec="500">
+                    <localized/>
+                  </Delay>
+                </RetryUntilSuccessful>
+                <ForceFailure>
+                  <say text="I could not relocalize on my floor."/>
+                </ForceFailure>
+              </Fallback>
+              <SubTree ID="walk_out"/>
+            </Sequence>
+          </Parallel>
+          <set_autonomy enabled="false"/>
+          <say text="I am at my goal."/>
+        </Sequence>
+        </ReactiveSequence>
+        <ForceFailure>
+          <Sequence>
+            <Inverter>
+              <Fallback>
+                <slam_healthy/>
+                <inside_cabin/>
+                <decision_is value="{exiting}" equals="yes"/>
+              </Fallback>
+            </Inverter>
+            <say text="My localization failed. Please relocalize me."/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </Sequence>
+  </BehaviorTree>
+</root>

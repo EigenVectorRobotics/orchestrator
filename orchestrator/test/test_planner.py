@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from skill_registry import Registry
+from skill_registry import Registry, load_tree
 
 from orchestrator.planner import Planner, build_system_prompt, extract_tree, load_tree_library, summarize_tree, tree_parameters
 from orchestrator.llm_backends import BackendError, Reply, ScriptedBackend
@@ -170,31 +170,30 @@ def test_speech_left_waits_for_the_last_sentence():
     assert speech_left_s('', 0.0, 100.0) == 0.0
 
 
-RIDE = (TREES / 'freight_elevator_ride.xml').read_text()
+RIDE = load_tree(TREES / 'freight_elevator_go_to_place.xml')
 
 
 def test_system_prompt_lists_a_tree_with_its_parameters():
     prompt = build_system_prompt(Registry.from_directory(CONTRACTS), {'nuc', 'orin'}, load_tree_library(TREES))
 
-    assert '- freight_elevator_ride(call_panel_preapproach="{freight_elevator_call_panel_preapproach}", ' in prompt
-    assert 'floor="1", ' in prompt
+    assert '- freight_elevator_go_to_place(goal="{target_floor_2}", goal_floor="2"): ' in prompt
 
 
 def test_use_tree_overrides_parameters_and_keeps_the_others():
     events     = []
-    planner, _ = _planner(['Floor 2.\n<use_tree id="freight_elevator_ride" floor="2" floor_button="floor 2"/>'], events, load_tree_library(TREES))
-    result     = planner.plan('ride to floor 2', PLACES)
+    planner, _ = _planner(['Floor 1.\n<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}" goal_floor="1"/>'], events, load_tree_library(TREES))
+    result     = planner.plan('go to floor 1', PLACES)
 
-    assert result.reused == 'freight_elevator_ride'
-    assert tree_parameters(result.tree) == {**tree_parameters(RIDE), 'floor': '2', 'floor_button': 'floor 2'}
-    assert result.tree.replace('value="2" output_key="floor"', 'value="1" output_key="floor"').replace('value="floor 2"', 'value="floor 1"') == RIDE
+    assert result.reused == 'freight_elevator_go_to_place'
+    assert tree_parameters(result.tree) == {'goal': '{target_floor_1}', 'goal_floor': '1'}
+    assert result.tree.replace('output_key="goal" value="{target_floor_1}"', 'output_key="goal" value="{target_floor_2}"').replace('output_key="goal_floor" value="1"', 'output_key="goal_floor" value="2"') == RIDE
 
 
 def test_unknown_parameter_goes_back_to_the_model():
-    planner, backend = _planner(['<use_tree id="freight_elevator_ride" lobby="2"/>', 'I cannot.'], library=load_tree_library(TREES))
+    planner, backend = _planner(['<use_tree id="freight_elevator_go_to_place" lobby="2"/>', 'I cannot.'], library=load_tree_library(TREES))
     planner.plan('ride to floor 2', PLACES)
 
-    assert 'The tree "freight_elevator_ride" has no parameter lobby' in backend.calls[1]
+    assert 'The tree "freight_elevator_go_to_place" has no parameter lobby' in backend.calls[1]
 
 
 BY_HAND = ('<root BTCPP_format="4">\n  <!-- Ask a person to press the button -->\n'
@@ -205,27 +204,27 @@ BY_HAND = ('<root BTCPP_format="4">\n  <!-- Ask a person to press the button -->
 def test_system_prompt_lists_subtrees_with_their_keys():
     prompt = build_system_prompt(Registry.from_directory(CONTRACTS), {'nuc', 'orin'}, load_tree_library(TREES))
 
-    assert '  - subtree walk_out (reads door_out, target; writes exiting)' in prompt
-    assert '  - subtree press_panel_button (reads press_offset_x, press_offset_y, press_offset_z, button, press_ask, reach_min, reach_max, press_panel; ' in prompt
-    assert '  - subtree stance_check (reads button, reach_min, reach_max, press_panel; writes decision, recovery_goal, stance_left_arm, press_left_arm)' in prompt
+    assert '  - subtree walk_out (reads door_out, goal; writes exiting)' in prompt
+    assert '  - subtree press_panel_button (reads press_ask, press_panel, button, press_arm_min_y; ' in prompt
+    assert '  - subtree stance_check (reads press_panel, button, press_arm_min_y; writes recovery_goal, decision, press_left_arm)' in prompt
 
 
 def test_use_tree_replaces_a_subtree_with_another_tree():
     library    = {**load_tree_library(TREES), 'press_by_hand': ('Ask a person to press the button', BY_HAND)}
-    planner, _ = _planner(['<use_tree id="freight_elevator_ride" floor="2"><replace subtree="press_panel_button" with="press_by_hand"/></use_tree>'], library=library)
-    result     = planner.plan('ride to floor 2', PLACES)
+    planner, _ = _planner(['<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}" goal_floor="1"><replace subtree="press_panel_button" with="press_by_hand"/></use_tree>'], library=library)
+    result     = planner.plan('go to floor 1', PLACES)
 
-    assert result.reused == 'freight_elevator_ride'
+    assert result.reused == 'freight_elevator_go_to_place'
     assert '<BehaviorTree ID="press_panel_button">\n    <SubTree ID="ask_press"/>\n  </BehaviorTree>' in result.tree
     assert '<BehaviorTree ID="ask_press">' in result.tree and result.tree.rstrip().endswith('</root>')
-    assert tree_parameters(result.tree)['floor'] == '2'
+    assert tree_parameters(result.tree)['goal_floor'] == '1'
 
 
 def test_unknown_subtree_goes_back_to_the_model():
-    planner, backend = _planner(['<use_tree id="freight_elevator_ride"><replace subtree="lobby" with="call_elevator"/></use_tree>', 'I cannot.'], library=load_tree_library(TREES))
+    planner, backend = _planner(['<use_tree id="freight_elevator_go_to_place"><replace subtree="lobby" with="call_elevator"/></use_tree>', 'I cannot.'], library=load_tree_library(TREES))
     planner.plan('ride to floor 2', PLACES)
 
-    assert 'The tree "freight_elevator_ride" has no subtree lobby.' in backend.calls[1]
+    assert 'The tree "freight_elevator_go_to_place" has no subtree lobby.' in backend.calls[1]
 
 
 FLOORS = {'call_panel': '2', 'lobby': '1'}
