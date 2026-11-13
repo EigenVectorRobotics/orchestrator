@@ -79,6 +79,62 @@ def test_the_capture_chooses_the_three_frames_at_6_fps():
     assert tracker.release_t + 0.5 <= times['release'] < tracker.release_t + 0.5 + 1 / 6
 
 
+def test_each_frame_is_written_as_soon_as_it_is_chosen(tmp_path):
+    buffer  = FrameBuffer()
+    capture = PressCapture(CaptureConfig(), buffer, left_arm=False, directory=str(tmp_path))
+    pushed  = 0.6 * DURATION                        # before the deepest point, only the baseline can be chosen
+    _play(capture, buffer, profile=[point for point in PRESS if point[0] <= 0.6] + [(1.0, -0.05)], after_s=0.0)
+
+    written = sorted(path.name for path in tmp_path.iterdir())
+    assert capture.tracker.pregrasp_t < pushed and capture.tracker.deepest_t is None
+    assert len(written) == 1 and written[0].endswith('_baseline.jpg')
+    assert capture.saved == {'baseline': str(tmp_path / written[0])}
+
+    _play(capture, buffer)
+    assert {Path(path).name.rsplit('_', 1)[1] for path in capture.save(str(tmp_path)).values()} == {'baseline.jpg', 'press.jpg', 'release.jpg'}
+    assert not [path for path in tmp_path.iterdir() if path.name.endswith('.part')]
+
+
+def test_a_press_that_ends_at_the_button_still_gets_its_frames():
+    # move_to_pose ends a press with no target update without a retreat: the arm stays on the button
+    buffer  = FrameBuffer()
+    capture = PressCapture(CaptureConfig(), buffer, left_arm=False)
+    _play(capture, buffer, profile=[(0.0, -0.40), (0.4, -0.10), (0.5, -0.10), (0.9, 0.0), (1.0, 0.0)])
+
+    assert capture.tracker.deepest_t == pytest.approx(0.9 * DURATION, abs=0.02)
+    assert capture.tracker.release_t == pytest.approx(DURATION)
+    assert capture.ready(DURATION + 1.0) and set(capture.frames) == {'baseline', 'press', 'release'}
+
+
+def test_a_deeper_press_offset_still_finds_the_pregrasp():
+    # move_to_pose puts the pre-grasp 0.10 m in front of the offset goal: 20 mm deeper, it sits at -0.08 m from the goal
+    # The hand comes in from the side and lines up only at the pre-grasp, as on the robot
+    def path(t):
+        if t < 1.0:
+            return (-0.08, 0.20)
+        if t < 1.5:
+            return (-0.08, 0.0)
+        if t < 2.1:
+            return (-0.08 + 0.10 * (t - 1.5) / 0.6, 0.0)
+        return (0.02 - 0.10 * min(1.0, (t - 2.1) / 0.6), 0.0)
+
+    captures = {'told': PressCapture(CaptureConfig(), FrameBuffer(), left_arm=False, press_offset=(0.02, 0.0, 0.0)),
+                'untold': PressCapture(CaptureConfig(), FrameBuffer(), left_arm=False)}
+
+    for capture in captures.values():
+        capture.on_goal(GOAL, (0, 0, 0, 1))
+        for step in range(301):
+            t = step / 100
+            if step % 17 == 0:
+                capture.buffer.add(t, _jpeg((step % 255, 0, 0)))
+            depth, side = path(t)
+            capture.on_pose(t, (GOAL[0] + depth, GOAL[1] + side, GOAL[2]))
+
+    assert captures['told'].tracker.pregrasp_t == pytest.approx(1.0, abs=0.02) and 'baseline' in captures['told'].frames
+    assert captures['untold'].tracker.pregrasp_t is None
+    assert captures['told'].residual()[0] == pytest.approx(0.02, abs=1e-3)       # the residual stays against the goal itself
+
+
 def test_a_press_that_never_pushed_is_ready_after_the_settle_time():
     buffer  = FrameBuffer()
     capture = PressCapture(CaptureConfig(settle_s=0.5), buffer, left_arm=False)
