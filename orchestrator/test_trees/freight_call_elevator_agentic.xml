@@ -1,0 +1,52 @@
+<root BTCPP_format="4">
+  <!-- call_elevator_agentic for the robot: the freight elevator call panel from the team's map places file
+       (~/maps/two_floor_clean_cabin2.places.yaml, "freight elevator call panel" -> {freight_elevator_call_panel}).
+       Run the executor with places_file:= that file. Online only: the agent is a session, and the VLM is on the Thor. -->
+  <BehaviorTree ID="freight_call_elevator_agentic">
+    <Sequence>
+      <navigate_to goal="{freight_elevator_call_panel}"/>
+      <Fallback>
+        <SubTree ID="press_up"/>
+        <RetryUntilSuccessful num_attempts="3">
+          <SubTree ID="recover_press"/>
+        </RetryUntilSuccessful>
+        <say text="Please press the up button for me."/>
+      </Fallback>
+      <Fallback>
+        <RetryUntilSuccessful num_attempts="60">
+          <Delay delay_msec="1000">
+            <door_open/>
+          </Delay>
+        </RetryUntilSuccessful>
+        <ForceFailure>
+          <say text="The elevator door did not open."/>
+        </ForceFailure>
+      </Fallback>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="press_up">
+    <Sequence>
+      <press_button target_description="up button"/>
+      <button_lit target_description="up button"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="recover_press">
+    <Sequence>
+      <manipulation_recovery phase="diagnose" target_description="up button" base_goal="{freight_elevator_call_panel}"
+                             decision="{decision}" goal="{recovery_goal}" left_arm="{recovery_left_arm}"/>
+      <Fallback>
+        <Inverter>
+          <decision_is value="{decision}" equals="reposition"/>
+        </Inverter>
+        <Sequence>
+          <navigate_to goal="{recovery_goal}"/>
+          <button_in_view query="up button"/>
+        </Sequence>
+      </Fallback>
+      <press_button target_description="up button" left_arm="{recovery_left_arm}"/>
+      <button_lit target_description="up button"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

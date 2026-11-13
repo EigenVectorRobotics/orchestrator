@@ -1,0 +1,114 @@
+<root BTCPP_format="4">
+  <!-- Repeatability test inside the freight elevator, floor 2: five cycles of walk in to the inside panel, EKF hold,
+       press floor 1, floor 2 and floor 3, walk out to the door-out place. Each press is judged by the agent
+       (press_judge) and never retried, so every cycle gives one press per button. The stance checks are recorded but do
+       not stop a press. Keep the cabin on floor 2 with the door open (hold it or use independent service). Places and
+       map: ~/maps/two_floor_clean.places.yaml and two_floor_clean.pcd. Run with start_cycle.sh (docs/operations.md,
+       "Repeatability test inside the elevator") -->
+  <BehaviorTree ID="freight_elevator_floor_press_repeat">
+    <Repeat num_cycles="5">
+      <Sequence>
+        <Fallback>                    <!-- a transition to the current mode fails -->
+          <in_high_level/>
+          <set_mode mode="high_level"/>
+        </Fallback>
+        <clear_stop/>
+        <set_autonomy enabled="true"/>
+        <SubTree ID="walk_out"/>
+        <Sleep msec="3000"/>
+        <SubTree ID="walk_in"/>
+        <set_autonomy enabled="false"/>
+        <SubTree ID="ekf_hold"/>
+        <SetBlackboard value="floor 1" output_key="button"/>
+        <SubTree ID="press_once"/>
+        <SetBlackboard value="floor 2" output_key="button"/>
+        <SubTree ID="press_once"/>
+        <SetBlackboard value="floor 3" output_key="button"/>
+        <SubTree ID="press_once"/>
+        <set_mode mode="idle"/>       <!-- walking needs a mode change after release_arms -->
+        <set_mode mode="high_level"/>
+        <clear_stop/>
+        <set_autonomy enabled="true"/>
+        <SubTree ID="walk_out"/>
+        <set_autonomy enabled="false"/>
+        <set_mode mode="idle"/>
+      </Sequence>
+    </Repeat>
+  </BehaviorTree>
+
+  <!-- a walk that finds no free path (latched terrain points): clear the terrain map and walk again -->
+  <BehaviorTree ID="walk_in">
+    <RetryUntilSuccessful num_attempts="3">
+      <Fallback>
+        <navigate_to goal="{inside_freight_elevator_button_panel}"/>
+        <ForceFailure>
+          <Sequence>
+            <say text="My path looks blocked. Clearing my map and trying again."/>
+            <clear_terrain_map/>
+            <Sleep msec="2000"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </RetryUntilSuccessful>
+  </BehaviorTree>
+
+  <BehaviorTree ID="walk_out">
+    <RetryUntilSuccessful num_attempts="3">
+      <Fallback>
+        <navigate_to goal="{freight_elevator_door_out_floor_2}"/>
+        <ForceFailure>
+          <Sequence>
+            <say text="My path looks blocked. Clearing my map and trying again."/>
+            <clear_terrain_map/>
+            <Sleep msec="2000"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </RetryUntilSuccessful>
+  </BehaviorTree>
+
+  <!-- one press of {button} with the right arm and the inside-panel offset (E-012), judged, then the arms released; it
+       succeeds whatever the judge says -->
+  <BehaviorTree ID="press_once">
+    <Sequence>
+      <ForceSuccess>
+        <Sequence>
+          <ForceSuccess>              <!-- recorded for the run records only -->
+            <Sequence>
+              <button_in_view query="{button}"/>
+            </Sequence>
+          </ForceSuccess>
+          <set_press_offset x="0.005" y="0.0075" z="0.0034"/>
+          <SubTree ID="prepare_arm"/>
+          <reset_filters/>
+          <press_button target_description="{button}" left_arm="false"/>
+          <press_judge target_description="{button}"/>
+        </Sequence>
+      </ForceSuccess>
+      <release_arms/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here (E-008) -->
+  <BehaviorTree ID="ekf_hold">
+    <Sequence>
+      <say text="Holding still to reset my balance estimate."/>
+      <reset_ekf/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Arm commands stay blocked after release_arms until the next mode change, and a transition to the current mode
+       fails: so go to Idle first when in HighLevel, then HighLevel, then the VisualServo gains -->
+  <BehaviorTree ID="prepare_arm">
+    <Sequence>
+      <Fallback>
+        <Inverter>
+          <in_high_level/>
+        </Inverter>
+        <set_mode mode="idle"/>
+      </Fallback>
+      <set_mode mode="high_level"/>
+      <set_profile profile="visual_servo"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

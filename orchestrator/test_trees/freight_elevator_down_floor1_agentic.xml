@@ -1,0 +1,286 @@
+<root BTCPP_format="4">
+  <!-- Full cycle at the freight elevator: walk to the call panel, press the down button, wait for the door, walk into
+       the cabin, press floor 1 with the right arm (E-007). After each press, press_judge: the executor saves the
+       frames of the press and a session looks at the frame at the fingertip's closest point to the button and decides
+       pressed or not_pressed (in place of press_reached / button_lit). A not_pressed goes to manipulation_recovery.
+       Before each press the tree resets the body EKF and holds still until it has recalibrated (ekf_hold, E-008). Before the first press at each panel, a stance
+       check: button_in_view (it seeds the tracker, in the executor, no cloud); only when it fails
+       does manipulation_recovery look (phase stance_check), because a poor stance comes from the walk, not from the
+       press (E-001, E-015).
+       Places from ~/maps/two_floor_clean_cabin2.places.yaml. -->
+  <BehaviorTree ID="freight_elevator_down_floor1_agentic">
+    <Sequence>
+      <!-- outside: walking state, preapproach, call panel (as freight_call_elevator_down_agentic) -->
+      <Fallback>
+        <in_high_level/>
+        <set_mode mode="high_level"/>
+      </Fallback>
+      <clear_stop/>
+      <set_autonomy enabled="true"/>
+      <SubTree ID="walk_preapproach"/>
+      <Sleep msec="3000"/>
+      <SubTree ID="walk_call_panel"/>
+      <set_autonomy enabled="false"/>
+      <SubTree ID="ekf_hold"/>
+      <SetBlackboard value="false" output_key="press_left_arm"/>
+      <SubTree ID="stance_down"/>
+      <Fallback>
+        <SubTree ID="press_down"/>
+        <RetryUntilSuccessful num_attempts="3">
+          <SubTree ID="recover_down"/>
+        </RetryUntilSuccessful>
+        <ForceFailure>
+          <release_arms/>
+        </ForceFailure>
+        <say text="Please press the down button for me."/>
+      </Fallback>
+      <release_arms/>
+      <set_mode mode="idle"/>
+
+      <!-- wait for the cabin: up to about 3 minutes -->
+      <say text="I called the elevator. Waiting for the door to open."/>
+      <Fallback>
+        <RetryUntilSuccessful num_attempts="120">
+          <Delay delay_msec="1000">
+            <door_open/>
+          </Delay>
+        </RetryUntilSuccessful>
+        <ForceFailure>
+          <say text="The elevator door did not open."/>
+        </ForceFailure>
+      </Fallback>
+
+      <!-- inside: walk to the floor panel, press floor 1 -->
+      <say text="The door is open. Walking into the elevator."/>
+      <set_mode mode="high_level"/>
+      <clear_stop/>
+      <set_autonomy enabled="true"/>
+      <SubTree ID="walk_in"/>
+      <set_autonomy enabled="false"/>
+      <SubTree ID="ekf_hold"/>
+      <SetBlackboard value="false" output_key="press_left_arm"/>   <!-- inside: the right arm (E-007) -->
+      <SubTree ID="stance_floor1"/>
+      <Fallback>
+        <SubTree ID="press_floor1"/>
+        <RetryUntilSuccessful num_attempts="3">
+          <SubTree ID="recover_floor1"/>
+        </RetryUntilSuccessful>
+        <ForceFailure>
+          <release_arms/>
+        </ForceFailure>
+        <say text="Please press floor one for me."/>
+      </Fallback>
+      <release_arms/>
+      <set_mode mode="idle"/>
+      <say text="Floor one is pressed."/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- a walk that finds no free path (latched terrain points): clear the terrain map and walk again -->
+  <BehaviorTree ID="walk_preapproach">
+    <RetryUntilSuccessful num_attempts="3">
+      <Fallback>
+        <navigate_to goal="{freight_elevator_call_panel_preapproach}"/>
+        <ForceFailure>
+          <Sequence>
+            <say text="My path looks blocked. Clearing my map and trying again."/>
+            <clear_terrain_map/>
+            <Sleep msec="2000"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </RetryUntilSuccessful>
+  </BehaviorTree>
+  <!-- a walk that finds no free path (latched terrain points): clear the terrain map and walk again -->
+  <BehaviorTree ID="walk_call_panel">
+    <RetryUntilSuccessful num_attempts="3">
+      <Fallback>
+        <navigate_to goal="{freight_elevator_call_panel}"/>
+        <ForceFailure>
+          <Sequence>
+            <say text="My path looks blocked. Clearing my map and trying again."/>
+            <clear_terrain_map/>
+            <Sleep msec="2000"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </RetryUntilSuccessful>
+  </BehaviorTree>
+  <!-- a walk that finds no free path (latched terrain points): clear the terrain map and walk again -->
+  <BehaviorTree ID="walk_in">
+    <RetryUntilSuccessful num_attempts="3">
+      <Fallback>
+        <navigate_to goal="{inside_freight_elevator_button_panel}"/>
+        <ForceFailure>
+          <Sequence>
+            <say text="My path looks blocked. Clearing my map and trying again."/>
+            <clear_terrain_map/>
+            <Sleep msec="2000"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </RetryUntilSuccessful>
+  </BehaviorTree>
+
+  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here (E-008) -->
+  <BehaviorTree ID="ekf_hold">
+    <Sequence>
+      <say text="Holding still to reset my balance estimate."/>
+      <reset_ekf/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Arm commands stay blocked after release_arms until the next mode change, and a transition to the current mode
+       fails: so go to Idle first when in HighLevel, then HighLevel, then the VisualServo gains -->
+  <BehaviorTree ID="prepare_arm">
+    <Sequence>
+      <Fallback>
+        <Inverter>
+          <in_high_level/>
+        </Inverter>
+        <set_mode mode="idle"/>
+      </Fallback>
+      <set_mode mode="high_level"/>
+      <set_profile profile="visual_servo"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- before the first press: a fresh track, then the button in view and in reach. A failed
+       check goes to the agent, which may move the robot or switch the arm first. Without an agent, or when its walk
+       fails, the press goes ahead as before and a failure goes to recover_* -->
+  <BehaviorTree ID="stance_down">
+    <Fallback>
+      <Sequence>
+        <button_in_view query="down button"/>
+      </Sequence>
+      <Sequence>
+        <manipulation_recovery phase="stance_check" target_description="down button" base_goal="{freight_elevator_call_panel}"
+                               decision="{decision}" goal="{recovery_goal}"/>
+        <Fallback>
+          <Inverter>
+            <decision_is value="{decision}" equals="reposition"/>
+          </Inverter>
+          <Sequence>
+            <set_autonomy enabled="true"/>
+            <navigate_to goal="{recovery_goal}"/>
+            <set_autonomy enabled="false"/>
+            <SubTree ID="ekf_hold"/>
+            <button_in_view query="down button"/>
+          </Sequence>
+        </Fallback>
+      </Sequence>
+      <AlwaysSuccess/>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="press_down">
+    <Sequence>
+      <set_press_offset x="0.0" y="0.0" z="0.0"/>      <!-- outside call panel: no offset seen to help yet -->
+      <SubTree ID="prepare_arm"/>
+      <reset_filters/>
+      <press_button target_description="down button" left_arm="{press_left_arm}"/>
+      <press_judge target_description="down button"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="recover_down">
+    <Sequence>
+      <manipulation_recovery phase="diagnose" target_description="down button" base_goal="{freight_elevator_call_panel}"
+                             decision="{decision}" goal="{recovery_goal}" left_arm="{recovery_left_arm}"
+                             offset_x="{offset_x}" offset_y="{offset_y}" offset_z="{offset_z}"/>
+      <Fallback>
+        <Inverter>
+          <decision_is value="{decision}" equals="offset_retry"/>
+        </Inverter>
+        <set_press_offset x="{offset_x}" y="{offset_y}" z="{offset_z}"/>
+      </Fallback>
+      <Fallback>
+        <Inverter>
+          <decision_is value="{decision}" equals="reposition"/>
+        </Inverter>
+        <Sequence>
+          <release_arms/>
+          <set_autonomy enabled="true"/>
+          <navigate_to goal="{recovery_goal}"/>
+          <set_autonomy enabled="false"/>
+          <SubTree ID="ekf_hold"/>
+          <button_in_view query="down button"/>
+        </Sequence>
+      </Fallback>
+      <SubTree ID="prepare_arm"/>
+      <reset_filters/>
+      <press_button target_description="down button" left_arm="{recovery_left_arm}"/>
+      <press_judge target_description="down button"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- before the first press: a fresh track, then the button in view and in reach. A failed
+       check goes to the agent, which may move the robot or switch the arm first. Without an agent, or when its walk
+       fails, the press goes ahead as before and a failure goes to recover_* -->
+  <BehaviorTree ID="stance_floor1">
+    <Fallback>
+      <Sequence>
+        <button_in_view query="floor 1"/>
+      </Sequence>
+      <Sequence>
+        <manipulation_recovery phase="stance_check" target_description="floor 1" base_goal="{inside_freight_elevator_button_panel}"
+                               decision="{decision}" goal="{recovery_goal}"/>
+        <Fallback>
+          <Inverter>
+            <decision_is value="{decision}" equals="reposition"/>
+          </Inverter>
+          <Sequence>
+            <set_autonomy enabled="true"/>
+            <navigate_to goal="{recovery_goal}"/>
+            <set_autonomy enabled="false"/>
+            <SubTree ID="ekf_hold"/>
+            <button_in_view query="floor 1"/>
+          </Sequence>
+        </Fallback>
+      </Sequence>
+      <AlwaysSuccess/>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- inside: the right arm (E-007) -->
+  <BehaviorTree ID="press_floor1">
+    <Sequence>
+      <set_press_offset x="0.005" y="0.0075" z="0.0034"/>   <!-- inside panel, right arm (E-012) -->
+      <SubTree ID="prepare_arm"/>
+      <reset_filters/>
+      <press_button target_description="floor 1" left_arm="{press_left_arm}"/>
+      <press_judge target_description="floor 1"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="recover_floor1">
+    <Sequence>
+      <manipulation_recovery phase="diagnose" target_description="floor 1" base_goal="{inside_freight_elevator_button_panel}"
+                             decision="{decision}" goal="{recovery_goal}" left_arm="{recovery_left_arm}"
+                             offset_x="{offset_x}" offset_y="{offset_y}" offset_z="{offset_z}"/>
+      <Fallback>
+        <Inverter>
+          <decision_is value="{decision}" equals="offset_retry"/>
+        </Inverter>
+        <set_press_offset x="{offset_x}" y="{offset_y}" z="{offset_z}"/>
+      </Fallback>
+      <Fallback>
+        <Inverter>
+          <decision_is value="{decision}" equals="reposition"/>
+        </Inverter>
+        <Sequence>
+          <release_arms/>
+          <set_autonomy enabled="true"/>
+          <navigate_to goal="{recovery_goal}"/>
+          <set_autonomy enabled="false"/>
+          <SubTree ID="ekf_hold"/>
+          <button_in_view query="floor 1"/>
+        </Sequence>
+      </Fallback>
+      <SubTree ID="prepare_arm"/>
+      <reset_filters/>
+      <press_button target_description="floor 1" left_arm="{recovery_left_arm}"/>
+      <press_judge target_description="floor 1"/>
+    </Sequence>
+  </BehaviorTree>
+</root>
