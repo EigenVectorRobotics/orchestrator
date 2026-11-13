@@ -32,6 +32,9 @@ from .stance_checks import judge_arm, judge_view, transform_pose
 from .preflight_checks import judge_alive, run_command, url_answers
 
 
+PRESS_OFFSET_SKILL = 'set_press_offset'      # its inputs move move_to_pose's pre-grasp, which the press capture watches for
+
+
 MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
 
 # The fake robot and the elevator_sim bridge use the same profiles; keep them in step.
@@ -583,6 +586,7 @@ class RosSkillRunner:
         self.frames        = FrameBuffer()
         self.boxes         = BoxBuffer()    # the target button's box per frame, from track_anything
         self.last_capture  = None           # the frames of the last press, for its check and the agent
+        self.press_offset  = (0.0, 0.0, 0.0)  # the last set_press_offset, which moves move_to_pose's pre-grasp
         self._ee_frames    = {}             # arm -> end-effector TF frame, from the capture contracts
         self._ee_timer     = None
         self._ee_stamp     = None           # stamp of the last TF sample fed to the capture
@@ -643,6 +647,9 @@ class RosSkillRunner:
     def start(self, contract: Contract, inputs: dict):
         interface = contract.interface
 
+        if contract.name == PRESS_OFFSET_SKILL:          # move_to_pose keeps it until the next one; the capture needs it
+            self.press_offset = tuple(float(inputs.get(axis, 0.0)) for axis in 'xyz')
+
         try:
             if interface.transport == 'action':
                 action_type = get_action(interface.ros_type)
@@ -652,7 +659,8 @@ class RosSkillRunner:
 
                 if interface.capture:
                     capture           = PressCapture(CaptureConfig.from_contract(interface.capture), self.frames,
-                                                     bool(inputs.get('left_arm', False)), self.boxes)
+                                                     bool(inputs.get('left_arm', False)), self.boxes, self.capture_dir,
+                                                     self.press_offset)
                     self.last_capture = capture
 
                 return _ActionHandle(self._action_client(interface.name, action_type), goal, contract, self.server_wait_s, capture, self.now)

@@ -11,7 +11,8 @@ the baseline's box, since the hand covers the button during the push.
 The phases come from the end-effector pose (TF from the goal's frame to right_ee or left_ee, sampled at 100 Hz) against the goal
 the arm was sent (the action feedback's current_goal): depth = (ee - goal) . x_goal is 0 at the press pose and
 -approach_offset at the pre-grasp. The deepest point is known once the depth has dropped retreat_drop below its
-maximum, so frames are kept in a short buffer and chosen afterwards. Times are ROS times (header stamps).
+maximum, or when the action ends after a push without a retreat, so frames are kept in a short buffer and chosen afterwards. Given a directory, each frame is written there
+as soon as it is chosen, so whoever judges the press can copy it before the press ends. Times are ROS times (header stamps).
 """
 
 import io
@@ -54,6 +55,16 @@ def x_axis(quaternion_xyzw) -> np.ndarray:
     return np.array([1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)])
 
 
+def rotation(quaternion_xyzw) -> np.ndarray:
+    x, y, z, w = quaternion_xyzw
+
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+        [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+        [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+    ])
+
+
 class PhaseTracker:
     """When the end effector reached the pre-grasp, pushed deepest, and began to retreat"""
 
@@ -61,6 +72,7 @@ class PhaseTracker:
         self.config     = config
         self.goal       = None
         self.axis       = None
+        self.shift      = np.zeros(3)
         self.pregrasp_t = None
         self.deepest_t  = None
         self.release_t  = None
@@ -69,8 +81,11 @@ class PhaseTracker:
         self.offset_at_max  = None    # end effector minus goal at the deepest point, in map-like axes (foot_world)
         self._max_t     = None
 
-    def set_goal(self, position, quaternion_xyzw):
+    def set_goal(self, position, quaternion_xyzw, press_offset=(0.0, 0.0, 0.0)):
+        """press_offset: the press offset move_to_pose adds in the goal's own frame. The pre-grasp sits approach_offset in
+        front of the offset goal; depth, lateral and the residual stay measured against the goal itself"""
         self.goal, self.axis = np.asarray(position, dtype=float), x_axis(quaternion_xyzw)
+        self.shift = rotation(quaternion_xyzw) @ np.asarray(press_offset, dtype=float)
 
     def update(self, t: float, position):
         if self.goal is None or self.release_t is not None:
@@ -79,9 +94,11 @@ class PhaseTracker:
         offset  = np.asarray(position, dtype=float) - self.goal
         depth   = float(offset @ self.axis)
         lateral = float(np.linalg.norm(offset - depth * self.axis))
+        planned = offset - self.shift
+        plan_depth = float(planned @ self.axis)
 
-        if (self.pregrasp_t is None and abs(depth + self.config.approach_offset_m) < self.config.pregrasp_tolerance_m
-                and lateral < self.config.lateral_tolerance_m):
+        if (self.pregrasp_t is None and abs(plan_depth + self.config.approach_offset_m) < self.config.pregrasp_tolerance_m
+                and float(np.linalg.norm(planned - plan_depth * self.axis)) < self.config.lateral_tolerance_m):
             self.pregrasp_t = t
 
         # Before the pre-grasp the hand is still swinging up from its rest pose and can pass the goal depth far beside
@@ -96,6 +113,12 @@ class PhaseTracker:
         pushed = self.max_depth > -self.config.approach_offset_m / 2
 
         if pushed and depth < self.max_depth - self.config.retreat_drop_m:
+            self.deepest_t, self.release_t = self._max_t, t
+
+    def end(self, t: float):
+        """The action ended. move_to_pose ends a press without a retreat when no target update came during the approach,
+        so a push not seen to retreat takes its deepest point so far, and the end of the action stands for the retreat"""
+        if self.release_t is None and self._max_t is not None and self.max_depth > -self.config.approach_offset_m / 2:
             self.deepest_t, self.release_t = self._max_t, t
 
 
@@ -141,8 +164,11 @@ class BoxBuffer:
 class PressCapture:
     """One press: fed poses and goals while the arm moves; ready once its frames are chosen or time ran out"""
 
-    def __init__(self, config: CaptureConfig, buffer: FrameBuffer, left_arm: bool, boxes: BoxBuffer | None = None):
+    def __init__(self, config: CaptureConfig, buffer: FrameBuffer, left_arm: bool, boxes: BoxBuffer | None = None,
+                 directory: str | None = None, press_offset=(0.0, 0.0, 0.0)):
         self.config   = config
+        self.press_offset = tuple(press_offset)
+        self.directory = directory      # where each frame is written once chosen; None: only on save()
         self.buffer   = buffer
         self.left_arm = left_arm
         self.tracker  = PhaseTracker(config)
@@ -156,7 +182,7 @@ class PressCapture:
 
     def on_goal(self, position, quaternion_xyzw, frame: str | None = None):
         with self._lock:
-            self.tracker.set_goal(position, quaternion_xyzw)
+            self.tracker.set_goal(position, quaternion_xyzw, self.press_offset)
             self.goal_frame = frame or self.goal_frame
 
     def on_pose(self, t: float, position):
@@ -166,6 +192,9 @@ class PressCapture:
         self.choose()
 
     def on_action_end(self, t: float):
+        with self._lock:
+            self.tracker.end(t)
+
         self.ended_t = t
         self.choose()
 
@@ -183,16 +212,20 @@ class PressCapture:
         return wanted
 
     def choose(self):
-        for name, t in self.wanted_times().items():
-            if name not in self.frames:
-                frame = self.buffer.first_after(t)
+        with self._lock:
+            for name, t in self.wanted_times().items():
+                if name not in self.frames:
+                    frame = self.buffer.first_after(t)
 
-                if frame is not None:
-                    self.frames[name] = frame
-                    box = self.box_feed.at(frame[0], self.config.box_max_age_s) if self.box_feed else None
+                    if frame is not None:
+                        self.frames[name] = frame
+                        box = self.box_feed.at(frame[0], self.config.box_max_age_s) if self.box_feed else None
 
-                    if box is not None:
-                        self.boxes[name] = box
+                        if box is not None:
+                            self.boxes[name] = box
+
+                        if self.directory:
+                            self._write(name, self.directory)
 
     def crop(self, name: str) -> tuple[bytes, tuple | None]:
         """The frame cropped around its button box, or the baseline's box; the whole frame if neither exists"""
@@ -208,26 +241,24 @@ class PressCapture:
         return len(self.frames) == len(FRAMES) or (self.ended_t is not None and now - self.ended_t > self.config.settle_s)
 
     def save(self, directory: str) -> dict:
-        """Write the chosen frames once, as <directory>/press_<time>_<name>.jpg; return name -> path"""
-        from pathlib import Path
+        """Write each chosen frame not written yet, as <directory>/press_<time>_<name>.jpg; return name -> path"""
+        with self._lock:
+            for name in list(self.frames):
+                if name not in self.saved:
+                    self._write(name, directory)
 
-        if not self.saved and self.frames:
-            folder = Path(directory).expanduser()
-            folder.mkdir(parents=True, exist_ok=True)
+            return dict(self.saved)
 
-            for name, (t, data) in self.frames.items():
-                path = folder / f'press_{t:.3f}_{name}.jpg'
-                path.write_bytes(data)
-                self.saved[name] = str(path)
+    def _write(self, name: str, directory: str):
+        folder = Path(directory).expanduser()
+        folder.mkdir(parents=True, exist_ok=True)
+        t, data = self.frames[name]
+        cropped, box = self.crop(name)
 
-                cropped, box = self.crop(name)
+        self.saved[name] = _write_whole(folder / f'press_{t:.3f}_{name}.jpg', data)
 
-                if box is not None:
-                    crop_path = folder / f'press_{t:.3f}_{name}_crop.jpg'
-                    crop_path.write_bytes(cropped)
-                    self.saved[f'{name}_crop'] = str(crop_path)
-
-        return dict(self.saved)
+        if box is not None:
+            self.saved[f'{name}_crop'] = _write_whole(folder / f'press_{t:.3f}_{name}_crop.jpg', cropped)
 
     def residual(self) -> list | None:
         """End effector minus goal at the deepest point, in the goal's frame as move_to_pose applies the press offset:
@@ -260,6 +291,15 @@ class PressCapture:
 
 
 # ========== Images ==========
+
+def _write_whole(path: Path, data: bytes) -> str:
+    """Write under a temporary name, then rename, so a reader never sees half a file"""
+    part = path.with_name(f'.{path.name}.part')
+    part.write_bytes(data)
+    part.replace(path)
+
+    return str(path)
+
 
 def crop_around(data: bytes, box: tuple, scale: float, min_side_px: float = 48.0) -> bytes:
     """A JPEG of the region around box (x_min, y_min, x_max, y_max): the box grown scale times about its centre,
