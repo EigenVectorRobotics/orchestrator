@@ -85,8 +85,6 @@ class RegistryNode(Node):
                 subscribed.add(name)
             elif interface.transport == 'in_view':
                 published.add(interface.target['box_topic'])
-            elif interface.transport == 'in_reach':
-                published.add(interface.target['pose_topic'])
 
             if interface.success_when is not None:
                 published.add(interface.success_when.topic)

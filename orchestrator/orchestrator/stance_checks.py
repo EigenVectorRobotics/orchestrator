@@ -1,16 +1,11 @@
-"""Before the first press: is the button in the camera's view, and within the arm's reach from where the robot stands?
+"""Before the first press: is the button in the camera's view from where the robot stands, and which arm presses it?
 
-A poor stance comes from the walk before the press (experience E-001, E-015, E-006): the robot stopped too close, so
+A poor stance comes from the walk before the press (experience E-001, E-015): the robot stopped too close, so
 the button fell below the frame, or too far, so the arm stops short. These checks catch it before press_button
 fails. They run in the executor on what track_anything already publishes (its 2D box, its 3D target pose) and TF,
-with no cloud and no VLM call of their own; the track that feeds them is seeded by the track skill.
+with no VLM call of their own; button_in_view seeds the track that feeds them.
 
   in_view   the target's latest box is fresh and lies inside the image, a margin away from each edge
-  in_reach  the target's latest pose, in the pelvis, is ahead of it within [min_ahead_m, max_ahead_m], within
-            max_sideways_m to the side, and the panel faces the robot within max_slant_deg
-
-The reach limits are a box around what worked on each panel (E-006), not inverse kinematics: a pass means "like
-the stances that worked", and a fail means "look before pressing". The agent's stance_check decides from there.
 
 This module needs no ROS.
 """
@@ -19,7 +14,7 @@ import math
 
 
 VIEW_DEFAULTS  = {'max_age_s': 1.0, 'margin_frac': 0.05}
-REACH_DEFAULTS = {'max_age_s': 1.0, 'min_ahead_m': 0.33, 'max_ahead_m': 0.48, 'max_sideways_m': 0.15, 'max_slant_deg': 45.0}
+ARM_DEFAULTS   = {'left_arm_min_y_m': 0.10}
 
 
 def _limits(defaults: dict, limits: dict | None, inputs: dict | None) -> dict:
@@ -64,6 +59,17 @@ def judge_view(box: tuple | None, box_age_s: float | None, image_size: tuple | N
     return True, f'in view: {where}', outputs
 
 
+def judge_arm(position: tuple, limits: dict | None = None, inputs: dict | None = None) -> tuple[bool, str]:
+    """True for the left arm: the button sits more than left_arm_min_y_m to the robot's left (E-007); a tree sets it per panel"""
+    threshold = _limits(ARM_DEFAULTS, limits, inputs)['left_arm_min_y_m']
+    y         = position[1]
+
+    if y > threshold:
+        return True, f'left arm: the button is {y:+.3f} m to the side, past {threshold:+.2f}'
+
+    return False, f'right arm: the button is {y:+.3f} m to the side, not past {threshold:+.2f}'
+
+
 # ========== Poses ==========
 
 def rotate(quaternion: tuple, vector: tuple) -> tuple:
@@ -92,46 +98,3 @@ def transform_pose(position: tuple, quaternion: tuple, translation: tuple, rotat
 
     return tuple(m + t for m, t in zip(moved, translation)), product
 
-
-def judge_reach(position: tuple | None, normal: tuple | None, pose_age_s: float | None, limits: dict | None = None,
-                inputs: dict | None = None, frame: str = 'pelvis') -> tuple[bool, str, dict]:
-    """position of the button in the robot's frame (x ahead, y left, z up); normal: the direction into the panel,
-    in the same frame. The limits say what worked; outside them is a stance to look at before pressing"""
-    limit = _limits(REACH_DEFAULTS, limits, inputs)
-
-    if position is None or pose_age_s is None or pose_age_s > limit['max_age_s']:
-        age = 'never' if pose_age_s is None else f'{pose_age_s:.1f} s ago'
-        return False, (f'no fresh 3D pose of the target (last {age}; needs {limit["max_age_s"]:g} s): not tracking, '
-                       'or too close for depth (the D435 sees nothing nearer than about 0.28 m)'), {}
-
-    ahead, sideways, up = position
-    slant_deg           = math.degrees(abs(math.atan2(normal[1], normal[0]))) if normal is not None else 0.0
-    outputs             = {
-        'frame':      frame,
-        'ahead_m':    round(ahead, 3),
-        'sideways_m': round(sideways, 3),
-        'up_m':       round(up, 3),
-        'slant_deg':  round(slant_deg, 1),
-        'limits':     {key: limit[key] for key in ('min_ahead_m', 'max_ahead_m', 'max_sideways_m', 'max_slant_deg')},
-    }
-    problems = []
-
-    if ahead < limit['min_ahead_m']:
-        problems.append(f'too close: {ahead:.3f} m ahead (needs >= {limit["min_ahead_m"]:.2f})')
-
-    if ahead > limit['max_ahead_m']:
-        problems.append(f'too far: {ahead:.3f} m ahead (needs <= {limit["max_ahead_m"]:.2f})')
-
-    if abs(sideways) > limit['max_sideways_m']:
-        side = 'left' if sideways > 0 else 'right'
-        problems.append(f'{abs(sideways):.3f} m to the {side} (needs <= {limit["max_sideways_m"]:.2f})')
-
-    if slant_deg > limit['max_slant_deg']:
-        problems.append(f'the panel is at {slant_deg:.0f} deg to the robot (needs <= {limit["max_slant_deg"]:.0f})')
-
-    where = f'button at {ahead:+.3f} ahead, {sideways:+.3f} left, {up:+.3f} up m in {frame}'
-
-    if problems:
-        return False, f'{"; ".join(problems)}: {where}', outputs
-
-    return True, f'in the reach that worked: {where}', outputs

@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from orchestrator.stance_checks import judge_reach, judge_view, rotate, transform_pose
+from orchestrator.stance_checks import judge_arm, judge_view, rotate, transform_pose
 
 
 IMAGE = (1280, 720)
@@ -38,44 +38,6 @@ def test_the_tree_can_narrow_the_margin():
     assert judge_view(box, 0.2, IMAGE, inputs={'margin_frac': 0.02})[0]
 
 
-# ========== In reach ==========
-
-def test_a_button_in_the_range_that_worked_is_in_reach():
-    success, message, outputs = judge_reach((0.40, -0.05, 0.22), (1.0, 0.0, 0.0), 0.1)
-
-    assert success and 'in the reach that worked' in message
-    assert outputs['ahead_m'] == pytest.approx(0.40) and outputs['slant_deg'] == pytest.approx(0.0)
-
-
-@pytest.mark.parametrize('position, normal, problem', [
-    ((0.55, 0.0, 0.2), (1.0, 0.0, 0.0), 'too far: 0.550'),                 # E-018: 0.55 m from floor 1
-    ((0.25, 0.0, 0.2), (1.0, 0.0, 0.0), 'too close: 0.250'),
-    ((0.40, -0.20, 0.2), (1.0, 0.0, 0.0), '0.200 m to the right'),
-    ((0.40, 0.0, 0.2), (math.cos(math.radians(60)), math.sin(math.radians(60)), 0.0), 'at 60 deg'),
-])
-def test_a_stance_outside_the_range_fails_with_what_is_wrong(position, normal, problem):
-    success, message, _ = judge_reach(position, normal, 0.1)
-
-    assert not success and problem in message
-
-
-def test_no_fresh_pose_points_at_no_track_or_no_depth():
-    """E-005: closer than about 0.28 m the D435 gives no depth, so there is no 3D pose"""
-    success, message, outputs = judge_reach(None, None, None)
-
-    assert not success and 'too close for depth' in message and outputs == {}
-    assert not judge_reach((0.4, 0.0, 0.2), (1.0, 0.0, 0.0), 2.5)[0]
-
-
-def test_a_panel_range_given_by_the_tree_overrides_the_contract():
-    """E-006: 0.48 m worked outside; inside, 0.46 m is the far end"""
-    limits = {'min_ahead_m': 0.33, 'max_ahead_m': 0.48}
-
-    assert judge_reach((0.47, 0.0, 0.2), (1.0, 0.0, 0.0), 0.1, limits)[0]
-    assert not judge_reach((0.47, 0.0, 0.2), (1.0, 0.0, 0.0), 0.1, limits, {'min_ahead_m': 0.38, 'max_ahead_m': 0.46})[0]
-    assert judge_reach((0.47, 0.0, 0.2), (1.0, 0.0, 0.0), 0.1, limits, {'max_ahead_m': None})[0]     # unset input
-
-
 # ========== Poses ==========
 
 def test_rotate_and_transform_a_pose_into_another_frame():
@@ -87,3 +49,12 @@ def test_rotate_and_transform_a_pose_into_another_frame():
 
     assert position == pytest.approx((0.5, 1.0, 0.2))
     assert rotate(rotation, (1.0, 0.0, 0.0)) == pytest.approx((0.0, 1.0, 0.0))
+
+
+def test_the_left_arm_only_past_the_threshold_to_the_left():
+    assert judge_arm((0.42, 0.15, 0.2))[0] is True
+    assert judge_arm((0.42, 0.06, 0.2))[0] is False                         # inside: the right arm reached y +0.05 to +0.07
+    assert judge_arm((0.42, -0.12, 0.2))[0] is False
+    assert judge_arm((0.42, 0.06, 0.2), {'left_arm_min_y_m': 0.05})[0] is True
+    assert judge_arm((0.40, 0.04, 0.25), None, {'left_arm_min_y_m': 0.0})[0] is True       # the call panel: by side
+    assert judge_arm((0.40, -0.04, 0.25), None, {'left_arm_min_y_m': 0.0})[0] is False

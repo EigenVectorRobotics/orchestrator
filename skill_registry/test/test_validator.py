@@ -231,17 +231,24 @@ def test_failure_when_reads_action_feedback_only():
 def test_the_stance_checks_need_their_topics_and_only_conditions_record():
     base = {'name': 'x', 'kind': 'condition', 'device': 'nuc'}
 
-    with pytest.raises(ContractError, match='box_topic'):
-        parse_contract({**base, 'interface': {'transport': 'in_view'}})
+    view = {'transport': 'in_view', 'name': '/keyboard_input', 'ros_type': 'std_msgs/msg/String',
+            'success_when': {'topic': '/track_3d/is_tracking', 'ros_type': 'std_msgs/msg/Bool', 'field': 'data', 'equals': True},
+            'target': {'box_topic': '/b', 'pose_topic': '/p'}}
+    seek = {**base, 'kind': 'action', 'timeout_s': 15, 'inputs': [{'name': 'query', 'type': 'string'}]}
 
-    with pytest.raises(ContractError, match='pose_topic and target.frame'):
-        parse_contract({**base, 'interface': {'transport': 'in_reach', 'target': {'pose_topic': '/p'}}})
+    with pytest.raises(ContractError, match='a condition must only read'):
+        parse_contract({**base, 'interface': view})
+
+    with pytest.raises(ContractError, match='target.pose_topic and a query input'):
+        parse_contract({**seek, 'interface': {**view, 'target': {'box_topic': '/b'}}})
+
+    assert parse_contract({**seek, 'interface': view}).interface.target['pose_topic'] == '/p'
 
     with pytest.raises(ContractError, match='record is for conditions'):
         parse_contract({**base, 'kind': 'action', 'timeout_s': 1, 'record': True,
                         'interface': {'transport': 'topic', 'name': '/t', 'ros_type': 'std_msgs/msg/Empty'}})
 
-    assert parse_contract({**base, 'record': True, 'interface': {'transport': 'in_view', 'target': {'box_topic': '/b'}}}).record
+    assert parse_contract({**base, 'record': True, 'interface': {'transport': 'press_tip'}}).record
 
 
 def test_a_watch_equals_input_names_an_input():

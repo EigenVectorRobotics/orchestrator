@@ -565,18 +565,15 @@ def _task(phase: str, inputs: dict) -> str:
                      'the fingertip at its closest point to the button) and judge whether the button was pressed, '
                      'following the skill document, and end with decide: pressed or not_pressed.')
     elif phase == 'diagnose':
-        lines.append('The press did not work: press_button failed, or it succeeded and its check (button_lit) failed; '
+        lines.append('The press did not work: press_button failed, or it succeeded and press_judge said not_pressed; '
                      'get_failure says which. Work out why, following "How to work", and end with decide.')
     elif phase == 'confirm':
         lines.append(f'Ask the operator, and decide from their reply only: {inputs.get("question", "")} '
                      'confirmed when they say yes; not_confirmed when they say no. Without a reply the call times out.')
     elif phase == 'stance_check':
-        lines.append('The walk to the panel has arrived and nothing has been pressed yet. A stance check failed: the '
-                     'track, button_in_view or button_in_reach; get_failure says which and what it measured. Check the '
+        lines.append('The walk to the panel has arrived and nothing has been pressed yet. button_in_view failed: '
+                     'get_failure says what it measured. Check the '
                      'stance, following "Before the first press", and end with decide.')
-    else:
-        lines.append('The walk to the stance you chose has arrived. Do the view check in "After the reposition walk", '
-                     'and end with decide.')
 
     if inputs.get('target_description'):
         lines.append(f'Button: {inputs["target_description"]}.')

@@ -28,7 +28,7 @@ from .images import ImageError, image_to_jpeg
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
 from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
-from .stance_checks import judge_reach, judge_view, rotate, transform_pose
+from .stance_checks import judge_arm, judge_view, transform_pose
 from .preflight_checks import judge_alive, run_command, url_answers
 
 
@@ -450,6 +450,77 @@ class _VlmHandle(_Handle):
         return self.status
 
 
+class _InViewHandle(_Handle):
+    """Seed the tracker with the query, then judge the first box and 3D pose that arrive after the seed"""
+
+    def __init__(self, runner: 'RosSkillRunner', contract: Contract, inputs: dict):
+        super().__init__()
+
+        interface      = contract.interface
+        self.runner    = runner
+        self.contract  = contract
+        self.inputs    = inputs
+        self.publisher = runner._publisher(interface.name, interface.ros_type)
+        self.watch     = runner._watch(interface.success_when)
+        self.wait_s    = float(interface.limits.get('max_wait_s', 10.0))
+        self.deadline  = time.monotonic() + runner.server_wait_s
+        self.seeded    = None
+
+    def poll(self) -> Status:
+        if self.status != Status.RUNNING:
+            return self.status
+
+        now = time.monotonic()
+
+        if self.seeded is None:
+            self._seed(now)
+            return self.status
+
+        interface = self.contract.interface
+        tracking  = self.watch.matches(interface.success_when, after=self.seeded)
+        box       = self.runner._box_seen
+        pose      = self.runner._targets.get(interface.target['pose_topic'])
+        has_box   = box is not None and box[0] > self.seeded
+        has_pose  = pose is not None and pose[0] > self.seeded
+
+        if tracking and has_box and has_pose:
+            success, message, self.outputs = judge_view(box[1], now - box[0], self.runner._image_size, interface.limits, self.inputs)
+            position = pose[1].pose.position
+            self.outputs['pose_camera'] = [round(position.x, 3), round(position.y, 3), round(position.z, 3)]
+            self.outputs['left_arm']    = False
+            message += self._choose_arm(pose[1]) if success else '; right arm'
+            self._finish(success, message)
+        elif now - self.seeded > self.wait_s:
+            missing = [what for what, held in (('no track', tracking), ('no 2D box', has_box),
+                                               ('no 3D pose: too close for depth, or no depth points', has_pose)) if not held]
+            self.outputs = {'left_arm': False}
+            self._finish(False, f'{self.wait_s:g} s after seeding "{self.inputs["query"]}": {", ".join(missing)}; right arm')
+
+        return self.status
+
+    def _choose_arm(self, pose: PoseStamped) -> str:
+        frame = self.contract.interface.target.get('frame', 'pelvis')
+
+        try:
+            position, _ = self.runner._pose_in(pose, frame)
+        except Exception as error:                      # tf2 raises several kinds; all mean "not available"
+            return f'; right arm: no transform {frame} <- {pose.header.frame_id} ({error})'
+
+        left_arm, reason = judge_arm(position, self.contract.interface.limits, self.inputs)
+        self.outputs.update({'left_arm': left_arm, f'position_{frame}': [round(value, 3) for value in position]})
+
+        return f'; {reason}'
+
+    def _seed(self, now: float):
+        if self.publisher.get_subscription_count() > 0:
+            message      = get_message(self.contract.interface.ros_type)()
+            message.data = str(self.inputs['query'])
+            self.publisher.publish(message)
+            self.seeded = now
+        elif now > self.deadline:
+            self._finish(False, f'nobody subscribes to {self.contract.interface.name}')
+
+
 class _PressCheckHandle(_Handle):
     """A VLM check on the frames a press kept: waits until they are chosen, then asks about each later frame
     beside the baseline. Lit in either is success"""
@@ -519,7 +590,7 @@ class RosSkillRunner:
         self._target_id    = None
         self._box_seen     = None           # (monotonic receive time, box) of track_anything's latest target box
         self._image_size   = None           # (width, height) of the last camera frame
-        self._targets      = {}             # in_reach pose topic -> (monotonic receive time, PoseStamped)
+        self._targets      = {}             # in_view pose topic -> (monotonic receive time, PoseStamped)
         self._target_topics = set()
         self._tf_buffer    = None
 
@@ -556,7 +627,7 @@ class RosSkillRunner:
             if source.get('box_topic') and source['box_topic'] not in self._box_topics:
                 self._subscribe_boxes(source['box_topic'], source.get('target_topic', ''))
 
-        if interface.transport == 'in_reach':
+        if interface.target.get('pose_topic'):
             self._subscribe_target(interface.target['pose_topic'])
 
         try:
@@ -564,7 +635,7 @@ class RosSkillRunner:
                 self._action_client(interface.name, get_action(interface.ros_type))
             elif interface.transport == 'service':
                 self._service_client(interface.name, get_service(interface.ros_type))
-            elif interface.transport == 'topic':
+            elif interface.transport in ('topic', 'in_view'):
                 self._publisher(interface.name, interface.ros_type)
         except (AttributeError, ValueError, ModuleNotFoundError) as error:
             self.node.get_logger().warn(f'{contract.name}: {error}; it fails if a tree uses it')
@@ -602,23 +673,17 @@ class RosSkillRunner:
 
                 return _TopicHandle(self._publisher(interface.name, interface.ros_type), message, contract, watch, self.server_wait_s)
 
-            if interface.transport == 'graph':
-                return self._check_graph(interface.topics)
-
             if interface.transport == 'press_tip':
                 return self._check_press_tip(interface.limits)
 
             if interface.transport == 'in_view':
-                return self._check_in_view(interface.limits, inputs)
+                return _InViewHandle(self, contract, inputs)
 
             if interface.transport == 'alive':
                 return _FutureHandle(self._command_pool.submit(self._check_alive, interface.alive))
 
             if interface.transport == 'command':
                 return _FutureHandle(self._command_pool.submit(run_command, interface.command, contract.timeout_s or 60.0))
-
-            if interface.transport == 'in_reach':
-                return self._check_in_reach(interface, inputs)
 
             if interface.transport == 'vlm':
                 return self._ask_vlm(contract, inputs)
@@ -630,20 +695,6 @@ class RosSkillRunner:
             return _DoneHandle(False, f'cannot call {contract.name}: {error}')
 
         return _DoneHandle(False, f'transport {interface.transport} is not supported by this runner')
-
-    def _check_graph(self, topics: dict):
-        """Each topic has no more publishers than allowed, not counting the executor's own: a leftover process would fight the stack's"""
-        extra = []
-
-        for topic, allowed in topics.items():
-            own   = (self.node.get_name(), self.node.get_namespace())
-            names = [f'{info.node_namespace.rstrip("/")}/{info.node_name}' for info in self.node.get_publishers_info_by_topic(topic)
-                     if (info.node_name, info.node_namespace) != own]
-
-            if len(names) > int(allowed):
-                extra.append(f'{topic}: {len(names)} publishers {sorted(names)}')
-
-        return _DoneHandle(not extra, '; '.join(extra) if extra else f'{len(topics)} topics with their own publishers only')
 
     def _check_press_tip(self, limits: dict):
         """Where the end effector got to in the last press: deep enough, and close enough to the goal sideways"""
@@ -659,40 +710,17 @@ class RosSkillRunner:
         return _DoneHandle(reached, f'deepest {depth * 1000:+.1f} mm along the button normal (needs >= {min_depth * 1000:+.1f}), '
                                     f'{lateral * 1000:.1f} mm sideways there (needs <= {max_lateral * 1000:.1f})')
 
-    def _check_in_view(self, limits: dict, inputs: dict):
-        """The tracked target's latest box is fresh and away from the image edges"""
-        seen = self._box_seen
-        age  = None if seen is None else time.monotonic() - seen[0]
-        success, message, outputs = judge_view(None if seen is None else seen[1], age, self._image_size, limits, inputs)
-
-        return _DoneHandle(success, message, outputs)
-
-    def _check_in_reach(self, interface, inputs: dict):
-        """The tracked target's latest pose, in the robot's frame, is within the reach that worked"""
-        target = interface.target
-        seen   = self._targets.get(target['pose_topic'])
-
-        if seen is None:
-            return _DoneHandle(*judge_reach(None, None, None, interface.limits, inputs, target['frame']))
-
-        received, message = seen
-        pose              = message.pose
-
-        try:
-            transform = self._tf().lookup_transform(target['frame'], message.header.frame_id, Time())
-        except Exception as error:                      # tf2 raises several kinds; all mean "not available"
-            return _DoneHandle(False, f'no transform {target["frame"]} <- {message.header.frame_id}: {error}')
-
+    def _pose_in(self, message: PoseStamped, frame: str) -> tuple[tuple, tuple]:
+        """The stamped pose's position and rotation in frame, through the latest TF; raises when TF has no transform"""
+        pose        = message.pose
+        transform   = self._tf().lookup_transform(frame, message.header.frame_id, Time())
         shift, turn = transform.transform.translation, transform.transform.rotation
-        position, rotation = transform_pose(
+
+        return transform_pose(
             (pose.position.x, pose.position.y, pose.position.z),
             (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w),
             (shift.x, shift.y, shift.z), (turn.x, turn.y, turn.z, turn.w)
         )
-        axis   = rotate(rotation, (1.0, 0.0, 0.0))
-        inward = axis if target.get('normal', 'out') == 'in' else tuple(-value for value in axis)   # track_anything: +X out of the panel
-
-        return _DoneHandle(*judge_reach(position, inward, time.monotonic() - received, interface.limits, inputs, target['frame']))
 
     def _subscribe_target(self, topic: str):
         if topic in self._target_topics:

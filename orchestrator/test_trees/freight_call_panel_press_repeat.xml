@@ -35,10 +35,7 @@
         <Sequence>
           <ForceSuccess>              <!-- recorded for the run records only -->
             <Sequence>
-              <track query="{button}"/>
-              <Sleep msec="1000"/>
-              <button_in_view/>
-              <button_in_reach min_ahead_m="0.30" max_ahead_m="0.48"/>
+              <button_in_view query="{button}"/>
             </Sequence>
           </ForceSuccess>
           <set_press_offset x="0.0" y="0.0" z="0.0"/>

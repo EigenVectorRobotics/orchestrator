@@ -165,18 +165,15 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- before the first press: the inside panel's range (E-006); only a failed check calls the agent -->
+  <!-- before the first press: the inside panel's range; only a failed check calls the agent -->
   <BehaviorTree ID="stance_target">
     <Fallback>
       <Sequence>
-        <track query="{target_button}"/>
-        <Sleep msec="1000"/>                   <!-- the first box and 3D pose after the seed -->
-        <button_in_view/>
-        <button_in_reach min_ahead_m="0.38" max_ahead_m="0.46"/>
+        <button_in_view query="{target_button}"/>
       </Sequence>
       <Sequence>
         <manipulation_recovery phase="stance_check" target_description="{target_button}" base_goal="{inside_freight_elevator_button_panel}"
-                               decision="{decision}" goal="{recovery_goal}" left_arm="{press_left_arm}"/>
+                               decision="{decision}" goal="{recovery_goal}"/>
         <Fallback>
           <Inverter>
             <decision_is value="{decision}" equals="reposition"/>
