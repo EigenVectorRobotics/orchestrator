@@ -9,7 +9,7 @@ import pytest
 from skill_registry import Registry, TreeValidator, ValidatorConfig
 
 from orchestrator import agent_backends
-from orchestrator.agent import Agent, AgentConfig, AgentSession, decision_outputs, offset_goal
+from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentConfig, AgentSession, decision_outputs, offset_goal, rule_offset
 from orchestrator.agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
 from orchestrator.agent_external import ExternalAgentBackend
 from orchestrator.agent_sandbox import SandboxConfig, run_python
@@ -105,9 +105,9 @@ def test_decision_outputs_keep_the_arm_unless_switched():
 
 
 def test_decide_checks_the_phase_and_the_fields(tmp_path):
-    session = AgentSession('view_check', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
+    session = AgentSession('stance_check', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
 
-    assert session.call('decide', {'decision': 'reposition', 'reason': 'x'}).is_error
+    assert session.call('decide', {'decision': 'retry', 'reason': 'x'}).is_error
     assert session.call('decide', {'decision': 'continue', 'reason': ''}).is_error
     assert session.call('decide', {'decision': 'continue', 'reason': 'button in view'}).final
     assert session.call('decide', {'decision': 'abort', 'reason': 'again'}).is_error
@@ -188,7 +188,6 @@ def test_polled_conditions_are_not_recorded():
 def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(tmp_path):
     backend = ScriptedAgentBackend([
         [['get_failure', {}], ['decide', {'decision': 'reposition', 'reason': 'stalled 0.13 m short', 'dx': 0.15, 'dy': 0.0}]],
-        [['decide', {'decision': 'continue', 'reason': 'button in view'}]],
     ])
     runner  = FakeRunner([MISS, (True, 'Controller reached target', [])])
     tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
@@ -199,7 +198,9 @@ def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(t
 
     assert len(walks) == 2 and walks[1]['y'] == pytest.approx(2.15)
     assert 'Planning failed' in backend.calls[0][2].text                   # the agent saw the recorded failure
-    assert [record['decision'] for record in tree.context.history if 'decision' in record] == ['reposition', 'continue']
+    assert [record['decision'] for record in tree.context.history if 'decision' in record] == ['reposition']
+    names = [name for name, _ in runner.calls]
+    assert names.index('navigate_to', 1) < names.index('button_in_view') < names.index('press_button', names.index('navigate_to', 1))
 
 
 def test_abort_ends_the_tree_at_once(tmp_path):
@@ -234,6 +235,35 @@ def test_the_round_budget_stops_the_agent(tmp_path):
 
     assert _run(tree) == Status.FAILURE
     assert len(backend.calls) == 2
+
+
+def test_rule_answers_do_not_spend_the_round_budget(tmp_path):
+    retry   = [['decide', {'decision': 'retry', 'reason': 'try again'}]]
+    backend = ScriptedAgentBackend([retry])
+    body    = ('<root BTCPP_format="4"><BehaviorTree ID="t">'
+               '<manipulation_recovery max_rounds="2" base_goal="{call_panel}"/></BehaviorTree></root>')
+    by_rule = {'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'offset_retry', 'rule': True}
+    by_agent = {**by_rule, 'decision': 'retry', 'rule': False}
+
+    tree = _tree(body, FakeRunner([]), Agent(backend, _config(tmp_path)))
+    tree.context.last_failure, tree.context.history = {'inputs': {}}, [by_rule, by_rule, by_agent]
+    assert _run(tree) == Status.SUCCESS and len(backend.calls) == 1        # 1 agent diagnosis of 2 spent
+
+    tree = _tree(body, FakeRunner([]), Agent(backend, _config(tmp_path)))
+    tree.context.last_failure, tree.context.history = {'inputs': {}}, [by_rule, by_agent, by_agent]
+    assert _run(tree) == Status.FAILURE and len(backend.calls) == 1        # 2 agent diagnoses: the budget is spent
+
+
+def test_the_executor_says_when_a_call_opens_and_what_was_decided(tmp_path):
+    spoken  = []
+    backend = ScriptedAgentBackend([[['decide', {'decision': 'retry', 'reason': 'a transient rejection'}]]])
+    body    = ('<root BTCPP_format="4"><BehaviorTree ID="t">'
+               '<manipulation_recovery base_goal="{call_panel}"/></BehaviorTree></root>')
+    tree    = _tree(body, FakeRunner([]), Agent(backend, _config(tmp_path), speak=spoken.append))
+    tree.context.last_failure = {'inputs': {}}
+
+    assert _run(tree) == Status.SUCCESS
+    assert spoken == [PHASE_SPEECH['diagnose'], DECISION_SPEECH['retry']]
 
 
 def test_the_agentic_tree_validates_online_only():
@@ -374,6 +404,7 @@ def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path)
     assert recovery['failure']['checked_call']['skill'] == 'press_button'
     assert recovery['failure']['checked_call']['feedback']
     assert {'elapsed_s', 'status', 'message'} <= set(recovery['failure'])      # the executor's trace formats these
+    assert recovery['press'] == PRESS_EVIDENCE                                 # the depth and residual of the judged press
 
     backend.deliver({'id': recovery['id'], 'decision': 'ask_help', 'reason': 'r'})
     assert _run(tree) == Status.FAILURE
@@ -386,7 +417,7 @@ def test_offset_retry_needs_the_whole_offset_within_30_mm(tmp_path):
     session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
 
     assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.005}).is_error
-    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.05, 'oy': 0.0, 'oz': 0.0}).is_error
+    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.06, 'oy': 0.0, 'oz': 0.0}).is_error
     assert not session.call('decide', {'decision': 'offset_retry', 'reason': 'rim', 'ox': 0.005, 'oy': 0.0075, 'oz': 0.0034}).is_error
 
     outputs = decision_outputs(session.decision, {}, {'inputs': {'left_arm': False}})
@@ -481,30 +512,30 @@ def test_stance_check_decisions(tmp_path):
 
     assert session.call('decide', {'decision': 'offset_retry', 'reason': 'x', 'ox': 0, 'oy': 0, 'oz': 0}).is_error
     assert session.call('decide', {'decision': 'ask_help', 'reason': 'x'}).is_error
+    assert session.call('decide', {'decision': 'switch_arm', 'reason': 'x', 'use_left_arm': True}).is_error   # the arm is chosen by rule
     assert session.call('decide', {'decision': 'reposition', 'reason': 'too close', 'dx': -0.25, 'dy': 0.0}).final
 
 
 def test_a_failed_stance_check_is_recorded_for_the_agent():
-    runner = FakeRunner([], failing=('button_in_reach',))
-    body   = ('<root BTCPP_format="4"><BehaviorTree ID="t"><Sequence><track query="down button"/><button_in_view/>'
-              '<button_in_reach max_ahead_m="0.46"/></Sequence></BehaviorTree></root>')
+    runner = FakeRunner([], failing=('button_in_view',))
+    body   = ('<root BTCPP_format="4"><BehaviorTree ID="t"><Sequence><button_in_view query="down button"/>'
+              '</Sequence></BehaviorTree></root>')
     tree   = _tree(body, runner, None)
 
     assert _run(tree) == Status.FAILURE
-    assert tree.context.last_failure['skill'] == 'button_in_reach'
-    assert tree.context.last_failure['inputs'] == {'max_ahead_m': 0.46}
+    assert tree.context.last_failure['skill'] == 'button_in_view'
+    assert tree.context.last_failure['inputs'] == {'query': 'down button'}
 
 
 def test_a_poor_stance_is_fixed_before_the_first_press(tmp_path):
-    """The reach check fails at both panels: outside the agent repositions before pressing, inside it presses as is"""
+    """The view check fails at both panels: outside the agent repositions before pressing, inside it presses as is"""
     backend = ScriptedAgentBackend([
         [['get_failure', {}], ['decide', {'decision': 'reposition', 'reason': 'stopped 17 cm past', 'dx': -0.3, 'dy': 0.0}]],
-        [['decide', {'decision': 'continue', 'reason': 'button in view'}]],
         [['decide', {'decision': 'pressed', 'reason': 'lit'}]],
         [['get_failure', {}], ['decide', {'decision': 'continue', 'reason': 'IK reaches both poses'}]],
         [['decide', {'decision': 'pressed', 'reason': 'lit'}]],
     ])
-    runner  = FakeRunner([(True, 'Controller reached target', []), (True, 'Controller reached target', [])], failing=('button_in_reach',))
+    runner  = FakeRunner([(True, 'Controller reached target', []), (True, 'Controller reached target', [])], failing=('button_in_view',))
     tree    = _full_tree(runner, Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE))
 
     assert _run(tree, max_ticks=3000) == Status.SUCCESS
@@ -513,11 +544,11 @@ def test_a_poor_stance_is_fixed_before_the_first_press(tmp_path):
     walks   = [inputs['goal'] for name, inputs in runner.calls if name == 'navigate_to']
     phases  = [record['phase'] for record in tree.context.history if 'decision' in record]
 
-    assert phases == ['stance_check', 'view_check', 'judge', 'stance_check', 'judge']
+    assert phases == ['stance_check', 'judge', 'stance_check', 'judge']
     assert walks[2]['x'] == pytest.approx(0.7) and walks[2]['z'] == pytest.approx(-0.46)   # 0.3 m back, same storey
-    assert names.index('navigate_to', names.index('button_in_reach')) < names.index('press_button')
+    assert names.index('navigate_to', names.index('button_in_view')) < names.index('press_button')
     assert names.count('press_button') == 2
-    assert 'button_in_reach' in backend.calls[0][2].text                                  # the agent saw which check failed
+    assert 'button_in_view' in backend.calls[0][2].text                                  # the agent saw which check failed
 
 
 def test_without_an_agent_a_failed_stance_check_still_presses():
@@ -737,3 +768,40 @@ def test_a_door_that_opens_during_the_judge_halts_the_press_and_walks_in():
     assert names.count('press_judge') == 2                                                 # the halted one, then floor 1
     assert 'manipulation_recovery' not in names
     assert names.index('release_arms') > names.index('press_judge')
+
+
+# ========== The offset rule before the agent ==========
+
+JUDGED_MISS = {'skill': 'press_judge', 'status': 'failure', 'checked_call': {'skill': 'press_button', 'inputs': {'left_arm': False}}}
+OFFSET_SET  = {'skill': 'set_press_offset', 'inputs': {'x': 0.005, 'y': 0.0075, 'z': 0.0034}}
+
+
+def test_a_first_miss_in_the_band_is_corrected_without_the_agent():
+    rule = rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, -0.0051, 0.0002])
+
+    assert rule['decision'] == 'offset_retry'
+    assert (rule['ox'], rule['oy'], rule['oz']) == (0.007, 0.0126, 0.0032)          # the offset in force minus the residual
+
+
+def test_the_rule_leaves_small_large_and_later_misses_to_the_agent():
+    assert rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, 0.003, 0.002]) is None     # 3.6 mm: inside 5 mm
+    assert rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, 0.040, 0.035]) is None     # 53 mm: outside 50 mm
+    low = {'skill': 'set_press_offset', 'inputs': {'x': 0.0, 'y': 0.0, 'z': -0.02}}
+    assert rule_offset(JUDGED_MISS, [low], [-0.002, 0.0, 0.040]) is None              # in the band, but the offset would pass 50 mm
+    earlier = {'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'offset_retry'}
+    assert rule_offset(JUDGED_MISS, [OFFSET_SET, earlier], [-0.002, 0.01, 0.0]) is None   # not the first diagnosis
+
+
+def test_the_rule_applies_again_after_a_press_at_another_panel():
+    earlier = [{'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'retry'},
+               {'skill': 'press_judge', 'decision': 'pressed'}, OFFSET_SET]
+
+    assert rule_offset(JUDGED_MISS, earlier, [-0.002, 0.01, 0.0]) is not None
+
+
+def test_the_rule_needs_a_judged_press_and_a_residual():
+    failed_press = {'skill': 'press_button', 'status': 'failure', 'message': 'Planning failed: target out of reach'}
+
+    assert rule_offset(failed_press, [], [-0.002, 0.01, 0.0]) is None
+    assert rule_offset(JUDGED_MISS, [], None) is None
+
