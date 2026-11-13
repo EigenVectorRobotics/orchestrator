@@ -6,7 +6,7 @@ interface:
   transport: command
   command: |
     tmux has-session -t run_viewer 2>/dev/null && exit 0
-    tmux new-session -d -s run_viewer "env -u LD_PRELOAD python3 ~/run_viewer/scripts/start_viewer.py --robot local --port 8780 2>&1 | tee ~/run_viewer.log"
+    tmux new-session -d -s run_viewer "env -u LD_PRELOAD python3 ~/run_viewer/scripts/start_viewer.py --robot local --port 8780 --host 127.0.0.1 --host $(tailscale ip -4 | head -1) 2>&1 | tee ~/run_viewer.log"
 timeout_s: 15
 maturity: untested
 source: orchestrator/orchestrator/preflight_checks.py (run_command); viewer in ~/run_viewer (jean_dev/run_viewer on the laptop)

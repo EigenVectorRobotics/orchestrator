@@ -22,6 +22,7 @@ cd ~/orchestrator_ws && source env.sh && colcon build --packages-select skill_re
 - What reads what, and when: the executor, the planner and the registry read the contracts and the places file at start; the planner reads the tree library and the preflight tree at start; `send_tree` reads the tree file you give it each time. So a contract, places, library or Python change needs a restart of the orchestrator (step 2); a test tree passed to `send_tree` by its source path needs nothing.
 - Run the tests from each package's own directory (`cd ~/orchestrator_ws/src/orchestrator/orchestrator && python3 -m pytest -q test`, the same in `skill_registry`): from the repository root, the import finds the installed package and the tests check the old code.
 - Check a tree before sending it: `ros2 run skill_registry validate_tree <tree.xml>` (0 errors).
+- A tree file can pull subtrees from other files with `<include path="subtrees/press.xml"/>`, relative to the file. `send_tree`, `validate_tree`, `planner_cli --tree` and the planner's tree library inline them before anything else reads the tree. Shared subtrees live in `skill_registry/trees/subtrees/`.
 
 ## 2. Start the orchestrator
 
@@ -33,7 +34,6 @@ tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 la
 
 - It starts the registry, the executor, the recorder and the planner. `planner_backend:=external` makes a Claude Code session answer the planner (`planner_cli`); the launch default is `claude` (the API).
 - Ready when `~/orchestrator.log` shows `planner up: external ..., N existing trees` and the recorder's `recording to <session>`. The executor refuses trees until the recorder is ready (`record:=false` turns recording off).
-- **Start the EKF-reset watcher** once the log shows `recording to` (it follows the newest session): `tmux new -d -s ekf_watch ~/watch_records_20261108.sh` on the NUC. On each `ekf_hold` say ("Holding still to reset my balance estimate.") in the run records it runs `~/ekf_reset.sh`, which calls `/body_ekf/reset`; its output goes to `<session>/helpers/ekf_watch.txt`. Without it the trees hold still but the EKF is not reset. The script is only on the NUC (`docs/deployment.md`).
 - Parameters come from `orchestrator/config/orchestrator.yaml`; `params_file:=` gives another file. The planner's tree library is the installed `skill_registry/trees/` (parameter `tree_library`), and its preflight tree `skill_registry/preflight/preflight.xml` (`preflight_tree`; empty for none).
 - A restart of the orchestrator ends the run in progress: cancel the tree first, and never restart while an agent call is open.
 
@@ -41,7 +41,7 @@ tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 la
 
 One session answers the agent calls, and the same or another session answers the planner. Only one session may answer agent calls: another `agent_cli wait` sees every call too (`pgrep -fa agent_cli`).
 
-1. **The agent session** runs `ros2 run orchestrator agent_cli wait` in the background, and answers each call by its skill document in `skill_registry/agent_skills/`: `operator_confirm` (preflight's gantry question), `press_judge` (after every press), `manipulation_recovery` (a failed stance check, a failed press, the view after a reposition).
+1. **The agent session** is a lean Claude session per call: `scripts/agent_responder.py run <tree on the robot>` sends the tree, answers its `press_judge` and `manipulation_recovery` calls with `claude -p` (Sonnet 5, low effort; `--model`, `--effort`), and stops when the tree ends. `agent_responder.py serve` answers calls until stopped, for a task sent through the planner. Each answer, with its prompt, time and cost, is in `~/agent_calls/<call id>/responder.json`. Other calls, such as `operator_confirm`, stay open for a person: answer them with `scripts/agent_session.py decide ... --send`, which then waits for the next call. `get_stance` (in the call) gives the stance numbers; the executor keeps each press judged pressed in `~/.ros/orchestrator_press_references.jsonl` on the NUC.
 2. **Send the task:**
 
    ```bash
@@ -57,10 +57,10 @@ One session answers the agent calls, and the same or another session answers the
 
    ```bash
    ros2 run orchestrator planner_cli wait          # prints the call; the system prompt goes to ~/.ros/planner_system.md
-   ros2 run orchestrator planner_cli answer --use-tree freight_elevator_ride --note "Floor 2 to floor 1 with the existing tree."
+   ros2 run orchestrator planner_cli answer --use-tree freight_elevator_go_to_place --param goal={target_floor_1} --note "To floor 1 by the elevator."
    ```
 
-   `--use-tree` reuses a library tree with its default parameters (`freight_elevator_ride`: floor 2 to floor 1). `planner_cli` cannot set parameters yet: for another ride, write the tree with its `parameters` block changed and answer `--tree FILE`. Floor 1 to floor 2: `call_panel_preapproach` `{freight_elevator_call_panel_preapproach_floor_1}` (not the call panel itself: a second walk to the place the robot stands on times out), `call_panel` `{freight_elevator_call_panel_floor_1}`, `call_button` `down button` (floor 1 has one grey call button below a black round light; the grounding calls the lower round button down and the light up), `inside_panel` `{inside_freight_elevator_button_panel_floor_1}`, `floor_button` `floor 2`, `floor` `2`, `door_out` `{freight_elevator_door_out_floor_2}`, `target` `{target_floor_2}`.
+   `--use-tree` reuses a library tree; `--param` sets its parameters. `freight_elevator_go_to_place` needs only `goal`, a place on the other floor: the planner fills `goal_floor` from the place's z, and the tree derives the panels, the floor button and the door-out place from it. With no `--param` it rides from floor 1 to `{target_floor_2}`.
 5. **During the ride** the agent session answers each call as it comes. A call waits up to 600 s; then the agent skill fails and the tree goes on as after any failure of that step (in the end, a person is asked to press).
 6. **Results** are under `~/orch_runs/<session>/runs/<n>-<tree>/`: `tree.xml` (what ran), `records.jsonl`, `outcome.json`, the bag. The session folder holds `events.jsonl`, the whole trace.
 
@@ -70,7 +70,7 @@ One session answers the agent calls, and the same or another session answers the
 ros2 run orchestrator send_tree <tree.xml>                 # add --blind for a tree that must run with no cloud
 ```
 
-Or, with the trace echo, `agent_cli wait` and the EKF-reset watcher (it calls `/body_ekf/reset` on each `ekf_hold` say; `ekf_watch.txt` shows `trigger` and `success=True`) started beside it, each writing to `~/orch_runs/run_<HHMMSS>/`:
+Or, with the trace echo and `agent_cli wait` started beside it, each writing to `~/orch_runs/run_<HHMMSS>/`:
 
 ```bash
 ~/orchestrator_ws/src/orchestrator/scripts/start_cycle.sh [TREE.xml]     # default: test_trees/freight_elevator_down_floor1_agentic.xml
@@ -165,7 +165,7 @@ The grounding is up when the log has `grounding service on /vlm_ground_server/gr
    ros2 service call /unitree_interface/change_mode unitree_interface_msgs/srv/ChangeControlMode "{requested_mode: 1}"
    ```
 
-4. Stop the orchestrator (`tmux kill-session -t orchestrator`) and any helpers (`tmux kill-session -t ekf_watch`, `stop_cycle.sh`); then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
+4. Stop the orchestrator (`tmux kill-session -t orchestrator`) and any helpers (`stop_cycle.sh`); then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
 
 The next tree clears `/stop` itself. Never use `ready_locomotion` on a standing robot: it damps the robot, then stands it up again.
 

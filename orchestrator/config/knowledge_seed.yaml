@@ -20,22 +20,10 @@
   evidence: [E-001, E-015, E-016]
 
 - text: >-
-    At the call panel, presses worked with the button 0.33 to 0.48 m ahead of the pelvis and within 0.15 m to the
-    side; the operator called 0.338 and 0.354 m good.
-  about: {place: freight_elevator_call_panel, skill: press_button}
-  evidence: [E-006]
-
-- text: >-
-    At the inside panel, presses worked with the button about 0.38 to 0.46 m ahead of the pelvis and within 0.15 m to
-    the side; 0.52 to 0.53 m was too far, and at 0.38 m floor 1 can fall out of the frame.
-  about: {place: inside_freight_elevator_button_panel, skill: press_button}
-  evidence: [E-006, E-003]
-
-- text: >-
     From 13 cm behind the inside place, about 0.55 m from floor 1, press_button reported success but the fingertip
     stopped 67 mm short and 39 mm beside the goal: out of reach, and the action did not say so.
   about: {place: inside_freight_elevator_button_panel, skill: press_button}
-  evidence: [E-018, E-006]
+  evidence: [E-018]
 
 - text: >-
     In frames from stances that pressed well, the down button sat near y 540 of 720 at the call panel; when the robot
