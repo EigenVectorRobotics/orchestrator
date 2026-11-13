@@ -2,7 +2,7 @@
 
 What the team has seen on the robot about walking, localization and the processes that navigation needs: symptoms, causes, and what helped. No agent skill reads this file yet; `docs/troubleshooting.md` points to its entries, and a navigation recovery skill would read it the way `manipulation_recovery` reads `manipulation_recovery.experience.md`.
 
-Facts that hold by construction (code, configs) belong in the skill documents and the contracts (for navigation: "Navigation facts" in `manipulation_recovery.md`). This file holds what was observed: it can depend on conditions, and an entry can be wrong.
+Facts that hold by construction (code, configs) belong in the skill documents and the contracts (for navigation: "Navigation facts" in `manipulation_recovery.reference.md`). This file holds what was observed: it can depend on conditions, and an entry can be wrong.
 
 Some navigation observations are in `manipulation_recovery.experience.md`, because the press recovery uses them, and stay there: E-001 (where a walk stops), E-002 and E-016 (a goal close to the robot ends without a step), E-013 (local moves), E-017 (latched terrain points block the walk into the cabin).
 
@@ -71,7 +71,7 @@ Some navigation observations are in `manipulation_recovery.experience.md`, becau
 - Conditions: walking out of the freight elevator cabin after a ride, navigation_stack `jean/elevator-side`
 - What was seen: on 2026-11-07 the pose at the exit of the floor-2 cabin was 0.5 m off; tracking rejected every correction outside the cabin and SLAM went lost. In the runs of 2026-11-08 the robot stopped about 1 m out of the door and relocalized in place (`relocalize_here`): it moved 0.02 m with structure inliers 0.97, and the walk to the target went on
 - Cause: a re-search about the current pose accepts a larger correction than tracking does; the cabin itself matches poorly
-- What helped: stop about 1 m out of the door and run `relocalize_here` before walking on (`freight_elevator_ride`, subtree `walk_out`)
+- What helped: stop about 1 m out of the door and run `relocalize_here` before walking on (`freight_elevator_go_to_place`, subtree `walk_out`)
 - Evidence: `skill_registry/contracts/relocalize_here.yaml`; `~/orch_runs/20261108T185515Z-07dfe9/RUNS.md` on the NUC (run 002)
 - Source: Jinyao, 2026-11-07 and 2026-11-08
 

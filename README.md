@@ -38,7 +38,7 @@ Write one YAML file in `skill_registry/contracts/`. No code is necessary if the 
 
 ## Agent skills
 
-An agent skill is an LLM with read-only tools that decides how a tree recovers. Its contract has `transport: agent` and names a document in `skill_registry/agent_skills/`, which is the agent's system prompt. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort; before the first press, when `button_in_view` fails, it decides continue, reposition or abort. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press").
+An agent skill is an LLM with read-only tools that decides how a tree recovers. Its contract has `transport: agent` and names a document in `skill_registry/agent_skills/`, which is the agent's system prompt. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort; before the first press, when `button_in_view` fails, it decides continue, reposition or abort. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). See `skill_registry/trees/freight_elevator_go_to_place.xml` and its subtrees in `skill_registry/trees/subtrees/`.
 
 - **Evidence.** Every finished action call is recorded in the tree's history; a failure keeps the action's feedback over time. Both go to the trace as `record` events, and to the agent through `get_failure` and `get_history`.
 - **Tools.** `read_file`, `ros_read` (TF, one message, the topic list), `get_image`, `run_python` (numpy, scipy, pinocchio, coal), `decide`. Nothing publishes. `run_python` runs under an audit hook (no ROS, network, processes, or writes outside its scratch directory): a guard against mistakes, not a security boundary, since the NUC allows no user namespaces.
@@ -133,7 +133,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - Arrivals are poor: the robot has stopped up to 24 cm past a place, and an arrival 8 cm or more past puts the button out of view (E-001, E-015). Set `path_follower` `slow_down_distance_threshold` 0.7 again (a relaunch resets it to 0.4) and compare, or move the places back by the mean overshoot.
 - A reposition 0.18 m away ended at once without a step; why is not known (E-016).
 - The inside press starts at the offset (+5.0, +7.5, +3.4) mm; one press lit only at (+12, +12.6, +3.2) mm. Start there once a second press confirms it.
-- The EKF reset before each press is the `reset_ekf` skill in the tree: it calls `/body_ekf/reset` and waits for the first torso pose after body_ekf's 2 s still period. No watcher runs beside the tree.
+- The `ekf_hold` subtree resets the body EKF before each press (`reset_ekf`, `/body_ekf/reset`). The skill ends when body_ekf publishes its torso pose again, which it does only once it has recalibrated.
 - `press_judge` needs a person or a session to look at frames; the VLM could judge the floor buttons' ring alone (`button_lit`), not the call panel.
 
 - `places.yaml` has zeros. Measure the poses on the prior map.
@@ -144,6 +144,6 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - `body_ekf` recalibrates in place through `/body_ekf/reset` (`std_srvs/Trigger`): call it at the panel right before a press (docs/troubleshooting.md, "Pressing").
 - A failed `press_reached` does not reach `manipulation_recovery`: `get_failure` records only failed actions, failed `button_lit` checks and `press_judge` `not_pressed`, so the agent sees `failure: none recorded`. The trees use `press_judge` instead.
 - The executor reads the raw camera topic (`image_topic`, default `/camera/camera/color/image_raw`), because the Orin has no compressed image transport installed, and encodes the frames it keeps to JPEG. That brings the raw stream to the NUC: about 2.8 MB a frame, about 17 MB/s at 6 fps.
-- `thor_up` checks the grounding service and the VLM endpoint together, and preflight now stops when the Thor is not up. A Thor with the grounding up and the VLM endpoint down (the endpoint is not needed by the ride, which uses the grounding and press_judge) stops the task too. Split the check, or check the grounding only.
+- `thor_up` checks the grounding service and the VLM endpoint together, and preflight now stops when the Thor is not up. A Thor with the grounding up and the VLM endpoint down (the endpoint is not needed by `freight_elevator_go_to_place`) stops the task too. Split the check, or check the grounding only.
 - `planner_cli answer --use-tree` cannot set a library tree's parameters or swap its subtrees; any ride other than the default needs `--tree FILE`.
 - On hold: in blind mode, every action skill must have a fallback.

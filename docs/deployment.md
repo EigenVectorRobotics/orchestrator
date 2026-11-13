@@ -71,7 +71,7 @@ Running when checked: on the Thor, the tmux session `eigen_vector_bringup` (`gro
 | NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two: robot interface, arm control and foxglove (`tmux -L eigen_vector`); navigation and SLAM (`tmux -L nav`, log `~/nav_launch.log`) | what ran on 2026-11-08 evening; not in any repository |
 | NUC | `~/maps/two_floor_clean_cabin2.pcd`, `~/maps/two_floor_clean_cabin2.places.yaml` (backups `*.bak_*`) | the map in use and its places and areas (`freight elevator cabin`, `freight elevator hall`) | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
 | NUC | `~/fake_button_pose.py` | fixed button poses for `press_button` with no Thor | disabled: do not start it |
-| NUC | `~/watch_records_*.sh`, `~/ekf_reset.sh` | the EKF reset outside the trees: the watcher follows the newest session's run records and, on each `ekf_hold` say, runs `~/ekf_reset.sh`, which calls `/body_ekf/reset` | not used any more: the trees reset the EKF with `reset_ekf`; do not start the watcher beside such a tree, or the EKF is reset twice. `~/ekf_reset.sh.restart_bak` is the old restart, not used |
+| NUC | `~/watch_records_*.sh`, `~/ekf_reset.sh` | an old EKF reset outside the trees | not used: `ekf_hold` calls `reset_ekf` |
 | NUC | `~/places_markers.py` | publishes the places as markers for Foxglove (`tmux -L places`) | optional; stops with a reboot |
 | NUC | `~/orch_runs/` | run records: one folder per bring-up session, `runs/<n>-<tree>/` each | the operator clears old runs by hand |
 

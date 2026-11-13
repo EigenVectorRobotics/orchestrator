@@ -22,7 +22,7 @@ resources:
 - arms
 timeout_s: 5
 maturity: untested
-source: manipulation_stack g1_pilot/src/move_to_pose/planning.cpp (to_pelvis_frame_); manipulation_recovery.md ("Safety offset")
+source: manipulation_stack g1_pilot/src/move_to_pose/planning.cpp (to_pelvis_frame_); manipulation_recovery.reference.md ("Pose conventions")
 notes: >-
   Set it per panel and per arm before each press (the offsets that work differ: experience E-012), and after a
   manipulation_recovery offset_retry. Inside panel, right arm, floor 1: 0 hit the rim, (+0.005, +0.0075, +0.0034)

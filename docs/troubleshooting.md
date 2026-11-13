@@ -23,7 +23,7 @@ What to check and what to do when something goes wrong on the robot. Each row is
 | A match landed near the edge of the yaw search window (about +-30 deg from the map origin) | `python3 ~/orchestrator_ws/src/orchestrator/scripts/scan_fit.py` in the robot environment: a right match has a median about 3 cm, 75 to 80 % of points within 10 cm, and the share falling when the scan is turned 5 or 10 deg either way | Send `/initialpose` when the check fails [N-005] |
 | The robot walked off course | `localized` and the inlier ratio | Check localization before the next goal; relocalize first [N-004] |
 | `slam_healthy` stays false; `/registered_scan` looks wrong; `door_state` says OPEN at a closed door | a LIO divergence in the SLAM log | Restart SLAM (the NUC stack); `/initialpose` does not clear it [N-007] |
-| Localization is lost after walking out of the cabin | was there a relocalization in place about 1 m out of the door? | `relocalize_here` there, standing still (the ride tree's walk out should do it) [N-006] |
+| Localization is lost after walking out of the cabin | was there a relocalization in place about 1 m out of the door? | `relocalize_here` there, standing still (`freight_elevator_go_to_place` does it) [N-006] |
 
 ## Walking
 
@@ -45,10 +45,10 @@ What to check and what to do when something goes wrong on the robot. Each row is
 | `press_button` times out at 60 s with `distance_to_goal` inf throughout | the camera: is the requested button in the frame and well above its bottom edge? `ground_server`'s log: `0 box(es)`? `/track_3d/selected_target_3d` publishing? | Button below the frame: step back [E-015]. Button in frame but no track: seed again, up to twice [E-004]. A large, close button with no track: the robot is under about 0.28 m, step back [E-005] |
 | The tracked target is a different button from the one asked for | the frame: the asked button out of view or at the edge | Move until it is in view before seeding again [E-003] |
 | The seed is refused | `press_button`'s `target_description` | Use a name the grounding accepts: `up button`, `down button`, `floor 1`, `floor 2`, `floor 3`. `ground_server` refuses `object:<description>` ("unsupported query"). Its call-button prompt calls the upper round button up and the lower one down: on floor 1, whose panel has one grey call button below a black round light, ask for `down button` |
-| `press_button` succeeded, but the fingertip ended far short | the press's deepest point (`press_reached`'s numbers, `agent_cli show`) | Out of reach: reposition closer [E-006, E-018] |
+| `press_button` succeeded, but the fingertip ended far short | the press's deepest point (`press_reached`'s numbers, `agent_cli show`) | Out of reach: reposition closer [E-018] |
 | The finger lands beside, short of, or on the rim of the button, by millimetres | `residual_m` of a clean press (no step, steady track) [E-009] | `offset_retry`: the new offset is the offset in force minus the residual; on floor buttons push the depth further [E-011, E-012, E-020] |
-| The target wanders in `foot_world` while the camera-frame track is steady | the body EKF: was it reset after the walk? | Reset it with the robot still, right before the press: `reset_ekf` in the tree [E-008] |
-| The press runs without an EKF reset: no `reset_ekf` in the trace, or it fails | Does the tree call `reset_ekf` before the press? `ros2 service list \| grep body_ekf` | Add `reset_ekf` to the tree. `/body_ekf/reset` exists in body_ekf from manipulation_stack `e63f2b8` or later; it recalibrates after 2 s of stillness, and any motion restarts that, so a robot that keeps moving fails `reset_ekf` at its 10 s timeout |
+| The target wanders in `foot_world` while the camera-frame track is steady | the body EKF: was it reset after the walk? | Reset it with the robot still, right before the press: `ekf_hold` calls `reset_ekf` [E-008] |
+| `reset_ekf` fails | `ros2 service list \| grep body_ekf` | `/body_ekf/reset` exists in body_ekf from manipulation_stack `e63f2b8` or later; it recalibrates after 2 s of stillness, and any motion restarts that |
 | `release_arms` times out | how long the call takes (about 5 to 6 s) | Its contract timeout is 12 s; a shorter one fails |
 
 ## The orchestrator
