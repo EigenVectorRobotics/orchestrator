@@ -20,13 +20,13 @@ from skill_registry import Contract
 from .behavior_tree import Context, Status
 from .knowledge import KnowledgeStore, Sighting
 from .agent_sandbox import SandboxConfig, run_python
+from . import stance
 
 
 # The decisions each phase may end with, and the ones that let the tree go on
 PHASE_DECISIONS = {
     'diagnose':     ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help', 'abort'),
-    'stance_check': ('continue', 'reposition', 'switch_arm', 'abort'),
-    'view_check':   ('continue', 'abort'),
+    'stance_check': ('continue', 'reposition', 'abort'),
     'judge':      ('pressed', 'not_pressed'),
     'confirm':    ('confirmed', 'not_confirmed'),
 }
@@ -37,6 +37,9 @@ MAX_READ_BYTES = 200_000
 MAX_TOOL_TEXT  = 40_000
 MAX_SPEECH     = 200                    # characters said at once
 SPEECH_GAP_S   = 3.0                    # unitree_interface speaks each message at once, so space them out
+
+STANCE_PHASES = ('diagnose', 'stance_check')
+PRESS_FRAME   = 'foot_world'        # press_button's goal frame (move_to_pose planning_frame)
 
 
 class AgentError(RuntimeError):
@@ -99,6 +102,16 @@ def tool_specs(phase: str) -> list[dict]:
                             'at the fingertip\'s closest point to the button, release 0.5 s after the retreat began, and '
                             'their crops around the button), the phase times, the deepest point along the button normal '
                             'and the sideways distance there, and the arm.',
+            'input_schema': {'type': 'object', 'properties': {}},
+        })
+
+    if phase in STANCE_PHASES:
+        specs.insert(0, {
+            'name':         'get_stance',
+            'description':  'Where the robot stands, computed by the executor: its pose from the base goal, the press target '
+                            'in pelvis and the arm, the last press on this button that was judged pressed (its target in '
+                            'pelvis and its stance), and match: the reposition (dx, dy, dyaw from the base goal) that puts '
+                            'the target where that press had it, and whether navigate_to would walk it.',
             'input_schema': {'type': 'object', 'properties': {}},
         })
 
@@ -333,6 +346,11 @@ class AgentSession:
 
         return ToolOutput(_json(press, whole) if press else 'no press frames were kept')
 
+    def _tool_get_stance(self, whole: bool = False) -> ToolOutput:
+        found = self.evidence.get('stance')
+
+        return ToolOutput(_json(found, whole) if found else 'no stance: TF or the base goal was not available')
+
     def _tool_get_history(self, whole: bool = False) -> ToolOutput:
         return ToolOutput(_json(self.evidence.get('history', []), whole))
 
@@ -536,6 +554,12 @@ class Agent:
             if phase == 'judge':                # waits until the press's frames are chosen, then saves them
                 evidence['press'] = self.press_evidence() if self.press_evidence else None
 
+            if phase in STANCE_PHASES:
+                try:
+                    evidence['stance'] = self._stance(inputs, evidence)
+                except Exception as error:              # a missing transform leaves the call without a stance, not failed
+                    evidence['stance'] = {'error': str(error)}
+
             system  = (Path(self.config.skills_dir) / f'{contract.interface.skill}.md').read_text()
             known   = self.config.knowledge.prompt_section(observations=True) if self.config.knowledge else ''
             system += f'\n\n{known}\n' if known else ''
@@ -549,9 +573,44 @@ class Agent:
             if session.decision is None:
                 raise AgentError('the agent ended without a decision')
 
+            if phase == 'judge' and session.decision['decision'] == 'pressed':
+                self._keep_reference(inputs, evidence.get('press') or {})
+
             return decision_outputs(session.decision, inputs, evidence['last_failure'])
 
         return AgentHandle(self._pool, work)
+
+    def _stance(self, inputs: dict, evidence: dict) -> dict | None:
+        """get_stance: the robot against the base goal and against the last press on this button that worked"""
+        if self.ros is None:
+            return None
+
+        failure = evidence.get('last_failure') or {}
+        goal    = stance.last_goal(failure)
+        call    = failure.get('checked_call') or failure
+        robot   = stance.pose_2d(self.ros.tf('map', 'pelvis', 1.0))
+        button  = inputs.get('target_description', '')
+
+        return stance.evidence(inputs.get('base_goal'), robot,
+                               stance.transform_point(self.ros.tf('pelvis', PRESS_FRAME, 1.0), goal) if goal else None,
+                               stance.transform_point(self.ros.tf('map', PRESS_FRAME, 1.0), goal) if goal else None,
+                               (call.get('inputs') or {}).get('left_arm'), button, stance.load_references())
+
+    def _keep_reference(self, inputs: dict, press: dict):
+        """A press judged pressed becomes the reference for later presses on this button"""
+        if self.ros is None or not press.get('goal'):
+            return
+
+        try:
+            stance.save_reference({
+                'button':        inputs.get('target_description', ''),
+                'left_arm':      bool(press.get('left_arm')),
+                'robot':         stance.pose_2d(self.ros.tf('map', 'pelvis', 1.0)),
+                'target_pelvis': stance.transform_point(self.ros.tf('pelvis', PRESS_FRAME, 1.0), press['goal']),
+                'target_map':    stance.transform_point(self.ros.tf('map', PRESS_FRAME, 1.0), press['goal']),
+            })
+        except Exception as error:                      # a missing transform costs the reference, never the press
+            self.on_event('agent_tool', f'press reference not kept: {error}', level='warn')
 
     def shutdown(self):
         self._pool.shutdown(wait=False, cancel_futures=True)

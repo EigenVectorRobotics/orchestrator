@@ -66,6 +66,9 @@ class ExternalAgentBackend:
         if any(tool['name'] == 'get_press' for tool in tools):
             request['press'] = _evidence(call_tool, 'get_press')
 
+        if any(tool['name'] == 'get_stance' for tool in tools):
+            request['stance'] = _evidence(call_tool, 'get_stance')
+
         while not self._decisions.empty():         # decisions sent before this call opened are stale
             self._decisions.get_nowait()
 

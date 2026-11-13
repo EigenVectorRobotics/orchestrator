@@ -102,6 +102,11 @@ def _summary(request: dict, full: bool) -> str:
     elif 'press' in request:
         lines.append('press: no frames were kept')
 
+    stance = request.get('stance')
+
+    if stance:
+        lines.append(f'stance (executor): {json.dumps(stance)}')
+
     if full:
         lines += ['--- failure', json.dumps(failure, indent=1), '--- history', json.dumps(request.get('history'), indent=1)]
 
