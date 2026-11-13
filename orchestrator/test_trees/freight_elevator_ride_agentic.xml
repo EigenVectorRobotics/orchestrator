@@ -49,7 +49,6 @@
 
       <!-- press the target floor -->
       <SubTree ID="ekf_hold"/>
-      <no_stale_publishers/>
       <SetBlackboard value="false" output_key="press_left_arm"/>
       <SubTree ID="stance_target"/>
       <Fallback>
@@ -140,13 +139,11 @@
     </RetryUntilSuccessful>
   </BehaviorTree>
 
-  <!-- the watcher keys on this exact text: on it, a watcher outside the tree calls /body_ekf/reset (start_cycle.sh, or
-       ~/watch_records_*.sh on the NUC in a planner run). body_ekf then recalibrates after 2 s of stillness, so the robot
-       holds still here (E-008). -->
+  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here (E-008) -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to reset my balance estimate."/>
-      <Sleep msec="15000"/>
+      <reset_ekf/>
     </Sequence>
   </BehaviorTree>
 
@@ -183,7 +180,7 @@
             <navigate_to goal="{recovery_goal}"/>
             <set_autonomy enabled="false"/>
             <SubTree ID="ekf_hold"/>
-            <manipulation_recovery phase="view_check" target_description="{target_button}"/>
+            <button_in_view query="{target_button}"/>
           </Sequence>
         </Fallback>
       </Sequence>
@@ -223,7 +220,7 @@
           <navigate_to goal="{recovery_goal}"/>
           <set_autonomy enabled="false"/>
           <SubTree ID="ekf_hold"/>
-          <manipulation_recovery phase="view_check" target_description="{target_button}"/>
+          <button_in_view query="{target_button}"/>
         </Sequence>
       </Fallback>
       <SubTree ID="prepare_arm"/>

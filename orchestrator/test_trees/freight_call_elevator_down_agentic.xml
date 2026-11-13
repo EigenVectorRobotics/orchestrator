@@ -17,7 +17,6 @@
       <navigate_to goal="{freight_elevator_call_panel}"/>
       <set_autonomy enabled="false"/>
       <Sleep msec="1000"/>
-      <no_stale_publishers/>
       <Fallback>
         <SubTree ID="press_down"/>
         <RetryUntilSuccessful num_attempts="3">
@@ -82,7 +81,7 @@
           <navigate_to goal="{recovery_goal}"/>
           <set_autonomy enabled="false"/>
           <Sleep msec="1000"/>
-          <manipulation_recovery phase="view_check" target_description="down button"/>
+          <button_in_view query="down button"/>
         </Sequence>
       </Fallback>
       <SubTree ID="prepare_arm"/>

@@ -19,7 +19,6 @@
         <SubTree ID="walk_in"/>
         <set_autonomy enabled="false"/>
         <SubTree ID="ekf_hold"/>
-        <no_stale_publishers/>
         <SetBlackboard value="floor 1" output_key="button"/>
         <SubTree ID="press_once"/>
         <SetBlackboard value="floor 2" output_key="button"/>
@@ -90,11 +89,11 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- start_cycle.sh resets the EKF when the trace shows this say, so the text must stay as it is -->
+  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here (E-008) -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to reset my balance estimate."/>
-      <Sleep msec="10000"/>
+      <reset_ekf/>
     </Sequence>
   </BehaviorTree>
 

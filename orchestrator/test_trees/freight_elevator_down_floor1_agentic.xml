@@ -22,7 +22,6 @@
       <SubTree ID="walk_call_panel"/>
       <set_autonomy enabled="false"/>
       <SubTree ID="ekf_hold"/>
-      <no_stale_publishers/>
       <SetBlackboard value="false" output_key="press_left_arm"/>
       <SubTree ID="stance_down"/>
       <Fallback>
@@ -59,7 +58,6 @@
       <SubTree ID="walk_in"/>
       <set_autonomy enabled="false"/>
       <SubTree ID="ekf_hold"/>
-      <no_stale_publishers/>
       <SetBlackboard value="false" output_key="press_left_arm"/>   <!-- inside: the right arm (E-007) -->
       <SubTree ID="stance_floor1"/>
       <Fallback>
@@ -124,13 +122,11 @@
     </RetryUntilSuccessful>
   </BehaviorTree>
 
-  <!-- the watcher keys on this exact text: on it, a watcher outside the tree calls /body_ekf/reset (start_cycle.sh, or
-       ~/watch_records_*.sh on the NUC in a planner run). body_ekf then recalibrates after 2 s of stillness, so the robot
-       holds still here (E-008). -->
+  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here (E-008) -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to reset my balance estimate."/>
-      <Sleep msec="15000"/>
+      <reset_ekf/>
     </Sequence>
   </BehaviorTree>
 
@@ -169,7 +165,7 @@
             <navigate_to goal="{recovery_goal}"/>
             <set_autonomy enabled="false"/>
             <SubTree ID="ekf_hold"/>
-            <manipulation_recovery phase="view_check" target_description="down button"/>
+            <button_in_view query="down button"/>
           </Sequence>
         </Fallback>
       </Sequence>
@@ -208,7 +204,7 @@
           <navigate_to goal="{recovery_goal}"/>
           <set_autonomy enabled="false"/>
           <SubTree ID="ekf_hold"/>
-          <manipulation_recovery phase="view_check" target_description="down button"/>
+          <button_in_view query="down button"/>
         </Sequence>
       </Fallback>
       <SubTree ID="prepare_arm"/>
@@ -238,7 +234,7 @@
             <navigate_to goal="{recovery_goal}"/>
             <set_autonomy enabled="false"/>
             <SubTree ID="ekf_hold"/>
-            <manipulation_recovery phase="view_check" target_description="floor 1"/>
+            <button_in_view query="floor 1"/>
           </Sequence>
         </Fallback>
       </Sequence>
@@ -278,7 +274,7 @@
           <navigate_to goal="{recovery_goal}"/>
           <set_autonomy enabled="false"/>
           <SubTree ID="ekf_hold"/>
-          <manipulation_recovery phase="view_check" target_description="floor 1"/>
+          <button_in_view query="floor 1"/>
         </Sequence>
       </Fallback>
       <SubTree ID="prepare_arm"/>
