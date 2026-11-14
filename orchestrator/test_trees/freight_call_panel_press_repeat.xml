@@ -2,7 +2,7 @@
   <!-- Repeatability test at the freight elevator call panel, floor 2: five cycles of walk in, EKF hold, press the down
        button, press the up button. Each press is judged by the agent (press_judge) and never retried, so every cycle
        gives one press per button. The stance checks are recorded but do not stop a press. Places and map:
-       ~/maps/two_floor_clean_cabin2.places.yaml and two_floor_clean_cabin2.pcd. Run with start_cycle.sh
+       ~/maps/two_floor_clean_cabin2.places.yaml and two_floor_clean_cabin2.pcd. Run with send_tree
        (docs/operations.md, "Repeatability test at the call panel") -->
   <BehaviorTree ID="freight_call_panel_press_repeat">
     <Repeat num_cycles="5">

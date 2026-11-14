@@ -2,7 +2,7 @@
 name: press_judge
 description: press_button reported success. Look at the frames of the press and judge whether the button was pressed.
 runs_when: [press_button succeeded]
-runs_on: a Claude Code session through agent_cli (default), or a model inside the executor on the NUC
+runs_on: the agent bridge on the laptop (mission_control/agent_bridge.py), through the Claude Agent SDK
 decisions: [pressed, not_pressed]
 ---
 
@@ -23,7 +23,7 @@ waits up to 600 s. The executor tells people near the robot that the press is be
 
 ## The evidence
 
-`get_press` (in a session, the `press:` lines of `agent_cli show`, and `agent_cli show --full` for the rest) gives:
+`get_press` (in the call the bridge gets, `press`) gives:
 
 - **frames**: JPEG files the executor saved (`~/.ros/orchestrator_captures/press_<time>_<name>.jpg` on the computer that runs it):
   - `baseline`: the first frame once the fingertip reached the pre-grasp, 0.10 m before the button. The button is not pressed yet.
@@ -38,7 +38,7 @@ The camera runs at 6 fps, so the `press` frame can be up to about 0.17 s after t
 
 ## How to judge
 
-1. Look at `press` and `press_crop` first, then `baseline` and `release`. In a session, `agent_session.py wait` has already copied them; open the local paths it printed. The crops are sometimes too dark or off the finger; then judge from the full frames (E-019).
+1. Look at `press` and `press_crop` first, then `baseline` and `release`. The bridge attaches them as images. The crops are sometimes too dark or off the finger; then judge from the full frames (E-019).
 2. **Pressed** only when the requested button's own light comes on: lit in `press` or `release`, not lit in `baseline`. A button that stays dark is `not_pressed`, wherever the fingertip sits. This holds on both panels.
    - **Floor buttons** light a blue ring at once. A ring in `press` or `release` that is not lit in `baseline` is the evidence. A finger on the face with no ring is not a press (E-011): the residual depth alone does not tell a press from a touch. Only the requested button's own ring counts: a card reader, a floor display or another button that changes is never evidence (E-025).
    - **The call panel**: the call button lights when the call registers. Judge it the same way: lit in `press` or `release`, dark in `baseline`. The hand often covers the button in `press`; the `release` frame, with the finger backing off, often shows the light. Presses there have landed about 5 mm high, on the upper rim (E-023).
@@ -48,14 +48,4 @@ The camera runs at 6 fps, so the `press` frame can be up to about 0.17 s after t
 
 ## Recording what you learn
 
-When a press shows something new about a panel (it lights, it does not, where presses land), record it as in `manipulation_recovery.md` ("Recording what you learn"): `note` inside the executor, or a draft for the user in a session.
-
-## In a session
-
-| Tool | In a session |
-|---|---|
-| `get_press` | `agent_session.py show` (local frame paths), `agent_session.py show --full` |
-| `say` | `agent_session.py say "..."` |
-| `decide` | `agent_session.py decide pressed|not_pressed --reason "..." --send` |
-
-`mission_control/agent_session.py` runs each `agent_cli` command on the robot from the laptop and copies the frames for you (`manipulation_recovery.md`, "When you are a Claude Code session"). The same session answers every agent call in a run, `manipulation_recovery` included, so earlier presses are in your context. Judge each press from its own frames. "What is known" is not sent to a session: print it with `ros2 run orchestrator knowledge prompt`. The rules of `manipulation_recovery.md` ("Rules for a session") apply: `decide --send` and `say` are the only things you publish. Whether the user's go is needed before `--send` is the user's call for the run.
+When a press shows something new about a panel (it lights, it does not, where presses land), record it as in `manipulation_recovery.md` ("Recording what you learn"): a draft for the user.

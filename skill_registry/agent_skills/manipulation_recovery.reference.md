@@ -4,20 +4,20 @@ Facts that hold by construction: tools, paths, topics, the press pipeline and it
 
 ## Tools
 
-None of these moves the robot. Only `say` publishes, and only speech. In a session, run each command through `mission_control/agent_session.py` on the laptop, with the same arguments; it copies frames, images and Python files between the laptop and the robot for you.
+None of these moves the robot. Only `say` publishes, and only speech.
 
-| Tool (executor) | In a session | What it gives |
-|---|---|---|
-| `get_failure()` | `agent_cli show --full` (`show` alone: summary) | The last failure: `skill`, `inputs`, `message` (or `timeout after 60 s` when the orchestrator cancelled first), `outputs` (`final_distance`, `orientation_error_deg` at the closest approach), `elapsed_s`, and every feedback sample `{t, distance_to_goal, orientation_error_deg, tracking_lost, current_goal}`. A failed check carries `checked_call`. A press's `residual_m` is on the `press:` line |
-| `get_history()` | same | Every finished call of this tree, including each `set_press_offset`, and your earlier decisions, oldest first |
-| `read_file(path, offset, limit)` | `cat`, `sed -n` (read-only) | Only under `/home/vector/eigen_vector_ws`, the agent skills directory and the scratch directory |
-| `ros_read(op: tf, target_frame, source_frame)` | `agent_cli tf TARGET SOURCE` | Pose of `source_frame` in `target_frame`, with age |
-| `ros_read(op: topic_once \| topic_list)` | `agent_cli topic TOPIC`, `agent_cli topics` | The next message (no images or clouds), or the topic list |
-| `get_image(source)` | `agent_cli image camera\|overlay OUT.jpg` (the wrapper saves OUT on the laptop); press frames: `show` prints their local paths | `camera`: last color frame, 1280x720 at 6 fps. `overlay`: tracker mask and state. `press_baseline`, `press_press`, `press_release`: the last press's frames |
-| `run_python(code)` | write a file, then `agent_cli python FILE` | Python 3.12 with numpy, scipy, pinocchio 4.1.0 and coal. Runs in the scratch directory, which is on `sys.path`. Limits: 60 s, 4 GB |
-| `say(text)` | `agent_cli say "..."` | One sentence on `/speak`; ≤ 200 characters, ≥ 3 s apart |
-| `note(text, about, key, value, evidence)` | none: draft it for the user | Adds an observation to the knowledge store |
-| `decide(...)` | `agent_cli decide DECISION --reason "..." [--dx --dy --dyaw] [--ox --oy --oz] [--left-arm\|--right-arm] [--send]` | Ends the call. Without `--send` it only prints |
+| Tool | What it gives |
+|---|---|
+| `get_failure()` | The last failure: `skill`, `inputs`, `message` (or `timeout after 60 s` when the orchestrator cancelled first), `outputs` (`final_distance`, `orientation_error_deg` at the closest approach), `elapsed_s`, and every feedback sample `{t, distance_to_goal, orientation_error_deg, tracking_lost, current_goal}`. A failed check carries `checked_call`. A press's `residual_m` is in the call's `press` |
+| `get_history()` | Every finished call of this tree, including each `set_press_offset`, and your earlier decisions, oldest first |
+| `read_file(path, offset, limit)` | Only under `/home/vector/eigen_vector_ws`, the agent skills directory and the scratch directory |
+| `ros_read(op: tf, target_frame, source_frame)` | Pose of `source_frame` in `target_frame`, with age |
+| `ros_read(op: topic_once \| topic_list)` | The next message (no images or clouds), or the topic list |
+| `get_image(source)` | `camera`: last color frame, 1280x720 at 6 fps. `overlay`: tracker mask and state. `press_baseline`, `press_press`, `press_release`: the last press's frames |
+| `run_python(code)` | Python 3.12 with numpy, scipy, pinocchio 4.1.0 and coal. Runs in the scratch directory, which is on `sys.path`. Limits: 60 s, 4 GB |
+| `say(text)` | One sentence on `/speak`; ≤ 200 characters, ≥ 3 s apart |
+| `note(text, about, key, value, evidence)` | Adds an observation to the knowledge store |
+| `decide(...)` | Ends the call. The executor checks it and replies accepted, or why not |
 
 `run_python` blocks ROS client imports, network, new processes and writes outside scratch. It guards against mistakes only. Use `ros_read` for ROS data.
 
@@ -135,4 +135,4 @@ Facts above were read from these versions. Update this file when they change.
 - track_anything `main` @ `f5a1f47`: `track_3d.py`, `track_3d_parameters.yaml`, `launch/track_3d.launch.py`
 - navigation_stack `main` @ `6242b3e`: `route_planner_node.py`, `local_planner.cpp`, `{local_planner,route_planner}/config/unitree_g1.yaml`
 - NUC: `src/bringup/launch/nuc.launch.py`
-- orchestrator: `orchestrator/agent.py`, `agent_cli.py`, `skill_registry/contracts/{press_button,set_press_offset,manipulation_recovery}.yaml`, `skill_registry/trees/freight_elevator_go_to_place.xml`
+- orchestrator: `orchestrator/agent.py`, `agent_push.py`, `skill_registry/contracts/{press_button,set_press_offset,manipulation_recovery}.yaml`, `skill_registry/trees/freight_elevator_go_to_place.xml`

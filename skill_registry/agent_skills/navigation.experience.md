@@ -30,7 +30,7 @@ Some navigation observations are in `manipulation_recovery.experience.md`, becau
 
 ### N-001 New processes cannot join DDS: goals, probes and trees never start
 - Status: confirmed (agent trial; again on 2026-11-08)
-- Conditions: the NUC, unitree_sdk2's CycloneDDS 0.10.2; the stack alone runs about 25 processes, plus the executor, `agent_cli`, the ros2 daemon, CLI calls, and on 2026-11-08 the recorder's bag
+- Conditions: the NUC, unitree_sdk2's CycloneDDS 0.10.2; the stack alone runs about 25 processes, plus the executor, the agent session's CLI, the ros2 daemon, CLI calls, and on 2026-11-08 the recorder's bag
 - Signs: a new process fails with `Failed to find a free participant index for domain 0`; a nav goal, a probe or `send_tree` never starts, so a walk looks like it routes but never moves
 - Cause: CycloneDDS gives each process an automatic participant index from a limited range (32 by default), and the range was full. Orphaned processes hold an index too (on 2026-11-04 an orphaned `ros2 topic echo /orchestrator/trace`)
 - What helped: `<Discovery><MaxAutoParticipantIndex>120</MaxAutoParticipantIndex></Discovery>` in `bringup/config/cyclonedds.xml` (eigen_vector); a process reads it when it starts. On domain 99 with 50 participants, 18 failed with the old file and none with the new one. Kill leftover processes (`ss -ulpn | grep -E ':74[0-9][0-9] '` gives one pair of ports per process; a process whose parent is `init` is a leftover)
@@ -61,8 +61,8 @@ Some navigation observations are in `manipulation_recovery.experience.md`, becau
 ### N-005 With no initial pose, the first match can land at the edge of the yaw search window
 - Status: confirmed (agent trial, twice; 2026-11-08, once rejected)
 - Conditions: localization started without `/initialpose`; it assumes the robot near the map origin and searches yaw within +-30 deg
-- What was seen: in the agent trial both launches matched on their own at yaw -30.1 and -25.7 deg, near the edge; both passed `scripts/scan_fit.py` (0.76 and 0.80 of the scan within 10 cm at 0 deg, 0.56 to 0.66 at +-10 deg; a later check in the cabin gave 0.79). A match at -33.7 deg, outside the window, was suspect. On 2026-11-08 the first match was rejected (structure inliers 0.28), and the operator sent `/initialpose`; the relocalization in place that followed moved 0.01 m with structure inliers 0.95
-- What helped: check a match with `scan_fit.py` (a right match: median about 3 cm, 75 to 80 % of points within 10 cm, the share falling when the scan is turned 5 or 10 deg either way), or look whether `/registered_scan` lies on `/route_planner/terrain` in Foxglove; send `/initialpose` when it does not
+- What was seen: in the agent trial both launches matched on their own at yaw -30.1 and -25.7 deg, near the edge; both passed a scan fit check (0.76 and 0.80 of the scan within 10 cm at 0 deg, 0.56 to 0.66 at +-10 deg; a later check in the cabin gave 0.79). A match at -33.7 deg, outside the window, was suspect. On 2026-11-08 the first match was rejected (structure inliers 0.28), and the operator sent `/initialpose`; the relocalization in place that followed moved 0.01 m with structure inliers 0.95
+- What helped: a right match has a median about 3 cm, 75 to 80 % of points within 10 cm, and the share falling when the scan is turned 5 or 10 deg either way. Look whether `/registered_scan` lies on `/route_planner/terrain` in Foxglove; send `/initialpose` when it does not
 - Evidence: `~/orch_runs/20261108T185515Z-07dfe9/RUNS.md` on the NUC (run 001)
 - Source: agent trial, 2026-11-04; Jinyao, 2026-11-08
 

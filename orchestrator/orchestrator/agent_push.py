@@ -1,14 +1,19 @@
-"""The push agent backend: the executor sends each call, evidence and frames included, to a bridge on the laptop
-(mission_control/agent_bridge.py) over one TCP connection it keeps open, and waits for the decision on it.
+"""The agent backend: the executor sends each call, evidence and frames included, to a bridge on the laptop
+(mission_control/agent_bridge.py) over one TCP connection it keeps open, and waits for the decision on it. The bridge
+asks the model for press_judge and manipulation_recovery, and the operator in its terminal for operator_confirm.
 
 A message is a header of two big-endian uint32 (the JSON length, then the length of the binary after it), the JSON,
 then the images back to back, as its "images" list gives them ({name, media_type, size}). The executor sends call,
 reply (accepted or why not) and cancel; the bridge sends started (model and prompt), decision and failed. Both send
 ping every PING_S; a link silent for DEAD_S is closed and opened again, and the open call is sent again on it.
+
+Each call is also published as a request (latched JSON on REQUEST_TOPIC: opened, then closed) and each reply on
+REPLY_TOPIC, for the run recorder and the Run Viewer.
 """
 
 import json
 import time
+import uuid
 import queue
 import socket
 import struct
@@ -18,9 +23,11 @@ from typing import Callable
 from pathlib import Path
 
 from .agent import AgentError, ToolOutput
-from .agent_external import DECISION_FIELDS, AgentStopped, open_request
 
 
+REQUEST_TOPIC   = '/orchestrator/agent/request'
+REPLY_TOPIC     = '/orchestrator/agent/reply'
+DECISION_FIELDS = ('decision', 'reason', 'dx', 'dy', 'dyaw', 'use_left_arm', 'ox', 'oy', 'oz')
 HEADER      = struct.Struct('!II')
 MAX_JSON    = 16_000_000
 MAX_BINARY  = 64_000_000
@@ -28,12 +35,47 @@ PING_S      = 5.0
 DEAD_S      = 20.0
 RETRY_S     = 2.0
 MAX_REFUSED = 3                         # decisions refused in one call before it fails
-PUSHED      = ('press_judge', 'manipulation_recovery')     # the bridge's skills; others go to the fallback, e.g. a person
 RECORDS     = Path.home() / 'orch_runs'
+
+
+class AgentStopped(AgentError):
+    pass
 
 
 class LinkClosed(ConnectionError):
     pass
+
+
+def _evidence(call_tool: Callable[[str, dict], ToolOutput], name: str):
+    output = call_tool(name, {'whole': True})        # the bridge gets all of it: a 60 s press is over 40 kB
+
+    try:
+        return json.loads(output.text)
+    except json.JSONDecodeError:
+        return None                                 # e.g. "no action has failed in this tree"
+
+
+def open_request(task: str, tools: list[dict], call_tool: Callable[[str, dict], ToolOutput], skill: str) -> dict:
+    """The call as the bridge gets it: the task, the allowed decisions and all the evidence"""
+    decide  = next(tool for tool in tools if tool['name'] == 'decide')
+    request = {
+        'id':        uuid.uuid4().hex[:8],
+        'state':     'open',
+        'skill':     skill,
+        'opened':    time.time(),
+        'task':      task,
+        'decisions': decide['input_schema']['properties']['decision']['enum'],
+        'failure':   _evidence(call_tool, 'get_failure'),
+        'history':   _evidence(call_tool, 'get_history'),
+    }
+
+    if any(tool['name'] == 'get_press' for tool in tools):
+        request['press'] = _evidence(call_tool, 'get_press')
+
+    if any(tool['name'] == 'get_stance' for tool in tools):
+        request['stance'] = _evidence(call_tool, 'get_stance')
+
+    return request
 
 
 def send_message(sock: socket.socket, header: dict, blobs: list[bytes] = ()):
@@ -212,18 +254,14 @@ class PushAgentBackend:
     name = 'push'
 
     def __init__(self, link: PushLink, publish_request: Callable[[dict], None] = lambda request: None,
-                 publish_reply: Callable[[dict], None] = lambda reply: None, records: Path = RECORDS, fallback=None):
+                 publish_reply: Callable[[dict], None] = lambda reply: None, records: Path = RECORDS):
         self.link             = link
-        self.fallback         = fallback
         self.records          = Path(records)
         self._publish_request = publish_request
         self._publish_reply   = publish_reply
 
     def run(self, system: str, task: str, tools: list[dict], call_tool: Callable[[str, dict], ToolOutput],
             max_turns: int, should_stop: Callable[[], bool], on_event: Callable[..., None], skill: str = ''):
-        if skill not in PUSHED and self.fallback is not None:
-            return self.fallback.run(system, task, tools, call_tool, max_turns, should_stop, on_event, skill=skill)
-
         # (1) The call with all its evidence and frames, sent now and again on each reconnect
         request = open_request(task, tools, call_tool, skill)
         images  = call_images(request, call_tool, tools)
@@ -254,7 +292,7 @@ class PushAgentBackend:
                 if message.get('id') != request['id']:
                     continue
 
-                # (3) Act on it: a decision goes through decide like any other, and a refusal goes back to the model
+                # (3) Act on it: a decision goes through decide like any other, and a refusal goes back to the bridge
                 if message['type'] == 'started':
                     record.update({key: message.get(key) for key in ('model', 'effort', 'prompt')})
                     self._record(record)

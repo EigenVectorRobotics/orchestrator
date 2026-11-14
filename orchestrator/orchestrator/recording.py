@@ -217,7 +217,7 @@ class Recorder:
             self._note_captures(request)
 
     def on_agent_message(self, kind: str, message: dict):
-        """A decision from the session, or the executor's reply to it"""
+        """The executor's reply to a decision from the agent bridge"""
         folder = self._agent_folder(message.get('id'))
 
         if folder is not None:

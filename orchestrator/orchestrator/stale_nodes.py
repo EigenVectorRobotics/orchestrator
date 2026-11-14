@@ -15,7 +15,6 @@ HOSTS         = {
 }
 HELPERS       = {                       # pattern: age in s below which an orphan may be the current run's own helper
     'ros2 topic echo': 600,
-    'agent_cli wait':  600,
     'ros2 bag record': 3 * 3600,
 }
 SHELLS        = ('bash', 'sh', 'tmux', 'nohup', 'ssh', 'timeout')

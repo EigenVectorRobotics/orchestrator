@@ -20,7 +20,7 @@ What to check and what to do when something goes wrong on the robot. Each row is
 | Symptom | Check | Fix |
 |---|---|---|
 | `/slam_elevatorlio/status` is not `"localized": true`, or the first match was rejected (structure inlier ratio below 0.80) | Does `/registered_scan` lie on `/route_planner/terrain` in Foxglove? | Send `/initialpose` from Foxglove (`ws://vector-nuc:8765`) [N-005] |
-| A match landed near the edge of the yaw search window (about +-30 deg from the map origin) | `python3 ~/orchestrator_ws/src/orchestrator/scripts/scan_fit.py` in the robot environment: a right match has a median about 3 cm, 75 to 80 % of points within 10 cm, and the share falling when the scan is turned 5 or 10 deg either way | Send `/initialpose` when the check fails [N-005] |
+| A match landed near the edge of the yaw search window (about +-30 deg from the map origin) | Does `/registered_scan` lie on `/route_planner/terrain` in Foxglove? | Send `/initialpose` when the check fails [N-005] |
 | The robot walked off course | `localized` and the inlier ratio | Check localization before the next goal; relocalize first [N-004] |
 | `slam_healthy` stays false; `/registered_scan` looks wrong; `door_state` says OPEN at a closed door | a LIO divergence in the SLAM log | Restart SLAM (the NUC stack); `/initialpose` does not clear it [N-007] |
 | Localization is lost after walking out of the cabin | was there a relocalization in place about 1 m out of the door? | `relocalize_here` there, standing still (`freight_elevator_go_to_place` does it) [N-006] |
@@ -45,7 +45,7 @@ What to check and what to do when something goes wrong on the robot. Each row is
 | `press_button` times out at 60 s with `distance_to_goal` inf throughout | the camera: is the requested button in the frame and well above its bottom edge? `ground_server`'s log: `0 box(es)`? `/track_3d/selected_target_3d` publishing? | Button below the frame: step back [E-015]. Button in frame but no track: seed again, up to twice [E-004]. A large, close button with no track: the robot is under about 0.28 m, step back [E-005] |
 | The tracked target is a different button from the one asked for | the frame: the asked button out of view or at the edge | Move until it is in view before seeding again [E-003] |
 | The seed is refused | `press_button`'s `target_description` | Use a name the grounding accepts: `up button`, `down button`, `floor 1`, `floor 2`, `floor 3`. `ground_server` refuses `object:<description>` ("unsupported query"). Its call-button prompt calls the upper round button up and the lower one down: on floor 1, whose panel has one grey call button below a black round light, ask for `down button` |
-| `press_button` succeeded, but the fingertip ended far short | the press's deepest point (`press_reached`'s numbers, `agent_cli show`) | Out of reach: reposition closer [E-018] |
+| `press_button` succeeded, but the fingertip ended far short | the press's deepest point (`press_reached`'s numbers, the call's `press` in `~/agent_calls/<call id>/call.json`) | Out of reach: reposition closer [E-018] |
 | The finger lands beside, short of, or on the rim of the button, by millimetres | `residual_m` of a clean press (no step, steady track) [E-009] | `offset_retry`: the new offset is the offset in force minus the residual; on floor buttons push the depth further [E-011, E-012, E-020] |
 | The target wanders in `foot_world` while the camera-frame track is steady | the body EKF: was it reset after the walk? | Reset it with the robot still, after the mode change and before `check_reach`: each look runs `ekf_hold`, which calls `reset_ekf` [E-008] |
 | `reset_ekf` fails | `ros2 service list \| grep body_ekf` | `/body_ekf/reset` exists in body_ekf from manipulation_stack `e63f2b8` or later; it recalibrates after 2 s of stillness, and any motion restarts that |
@@ -57,5 +57,4 @@ What to check and what to do when something goes wrong on the robot. Each row is
 |---|---|---|
 | A tree is rejected | the trace's `validation` lines; `ros2 run skill_registry validate_tree <tree.xml>` | Fix the errors. A skill whose contract has `maturity: disabled` is refused; the executor also refuses trees while the recorder is not ready |
 | Preflight fails and the planner does not plan | the trace: which subtree, and what it said | Fix that machine or check (sections above); then send the task again |
-| Two sessions answer the same agent call | `pgrep -fa agent_cli` | Keep one `agent_cli wait` |
-| An agent call goes unanswered | `agent_cli show` says how long it has been open | At 600 s the skill fails and the tree goes on without it |
+| An agent call goes unanswered | the trace's `agent_link` lines: is the executor connected to the agent bridge? The bridge window: is an `operator_confirm` question waiting? | Start the bridge on the laptop, or answer `y` or `n` in its window. At the contract timeout the skill fails and the tree goes on without it |

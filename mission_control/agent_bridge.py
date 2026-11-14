@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 import json
 import time
@@ -16,17 +17,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import agent_prompts as prompts
 
 
-USAGE = '''Answer the executor's press_judge and manipulation_recovery calls on the laptop (agent_backend:=push).
+USAGE = '''Answer every agent call of the executor on the laptop.
 
 The executor keeps one TCP link to this bridge and pushes each call with its evidence and frames. The bridge keeps
-each call in <local>/<call id>/ (call.json, the frames, bridge.json) and asks the model with the evidence as text and
-the frames as images, no tools. A refused decision goes back to the model, at most twice. One warm model process waits
-per kind of call, so a call starts without process startup. Run it in the venv that has claude-agent-sdk.'''
+each call in <local>/<call id>/ (call.json, the frames, bridge.json). For press_judge and manipulation_recovery it asks
+the model with the evidence as text and the frames as images, no tools. A refused decision goes back to the model, at
+most twice. One warm model process waits per kind of call, so a call starts without process startup. An
+operator_confirm call never goes to the model: the bridge rings the bell, prints the question here, and sends the y or
+n typed in this terminal. Run it in the venv that has claude-agent-sdk.'''
 
 HEADER        = struct.Struct('!II')
 PING_S        = 5.0
 MAX_RETRIES   = 2
 MODEL_TIMEOUT = 120.0
+CONFIRM_S     = 120.0                                   # operator_confirm's timeout_s: the executor gives up then
+ANSWERS       = {'y': 'confirmed', 'yes': 'confirmed', 'n': 'not_confirmed', 'no': 'not_confirmed'}
 SYSTEMS       = {'press_judge': prompts.JUDGE_SYSTEM, 'manipulation_recovery': prompts.RECOVERY_SYSTEM}
 KINDS         = [                                       # warmed at start: the executor's PHASE_DECISIONS
     ('press_judge', 'judge', ('pressed', 'not_pressed')),
@@ -125,16 +130,64 @@ class Model:
         return result.structured_output, meta
 
 
+class Operator:
+    """operator_confirm: the question in this terminal with the bell, and the answer read from stdin without blocking
+    the link"""
+
+    def __init__(self, fd: int):
+        self.fd     = fd
+        self.buffer = b''
+        self.lines  = asyncio.Queue()
+        self.lock   = asyncio.Lock()
+        asyncio.get_running_loop().add_reader(fd, self._read)
+
+    def _read(self):
+        data = os.read(self.fd, 4096)
+
+        if not data:
+            asyncio.get_running_loop().remove_reader(self.fd)
+            print('stdin closed: operator_confirm calls cannot be answered here', flush=True)
+            return
+
+        *lines, self.buffer = (self.buffer + data).split(b'\n')
+
+        for line in lines:
+            self.lines.put_nowait(line.decode(errors='replace').strip())
+
+    async def ask(self, call: str, question: str) -> dict:
+        async with self.lock:
+            while not self.lines.empty():           # typed before the question: not an answer to it
+                self.lines.get_nowait()
+
+            print(f'\a\n===== operator_confirm, call {call} =====\n{question}\n'
+                  f'Type y or n, then an optional reason, and Enter. The robot waits up to {CONFIRM_S:g} s.', flush=True)
+
+            try:
+                while True:
+                    word, _, reason = (await self.lines.get()).partition(' ')
+
+                    if word.lower() in ANSWERS:
+                        return {'decision': ANSWERS[word.lower()], 'reason': f'Operator: {reason.strip() or word.lower()}'}
+
+                    print('Type y or n, then an optional reason.', flush=True)
+            except asyncio.CancelledError:
+                print(f'{call}: question dropped (cancelled or timed out)', flush=True)
+                raise
+
+
 class Bridge:
     def __init__(self, arguments):
         self.arguments = arguments
         self.writer    = None
+        self.operator  = None
         self.spares    = {}
         self.running   = {}                 # call id -> its task
         self.replies   = {}                 # call id -> the executor's replies
         self.last      = {}                 # call id -> the last message sent, sent again when the call comes again
 
     async def serve(self):
+        self.operator = Operator(sys.stdin.fileno())
+
         for skill, phase, decisions in KINDS:
             self.spares[(skill, decisions)] = self._model(skill, decisions)
 
@@ -216,12 +269,29 @@ class Bridge:
 
         (folder / 'call.json').write_text(json.dumps(call, indent=1, default=str))
 
-        # (2) Ask the warm model; a refused decision goes back to it with the executor's reason
+        # (2) A person answers operator_confirm; the model answers every other call
+        log = {'call': call['id'], 'skill': call['skill'], 'phase': call.get('phase'), 'received': received, 'answers': []}
+
+        try:
+            if call['skill'] == 'operator_confirm':
+                await self._ask_operator(call, log)
+            else:
+                await self._ask_model(call, images, log)
+        except asyncio.CancelledError:
+            log['cancelled'] = time.time()
+        except Exception as error:                      # the model process or a timeout: the executor fails the call
+            self.last[call['id']] = {'type': 'failed', 'id': call['id'], 'error': f'{error.__class__.__name__}: {error}'[:300]}
+            await self.send(self.last[call['id']])
+            log['error'] = self.last[call['id']]['error']
+        finally:
+            self.running.pop(call['id'], None)
+            self._log(folder, log)
+
+    async def _ask_model(self, call: dict, images: dict, log: dict):
         decisions    = tuple(call['decisions'])
         model        = self._take(call['skill'], decisions)
         text, blocks = content(call, images)
-        log          = {'call': call['id'], 'skill': call['skill'], 'phase': call.get('phase'), 'model': self.arguments.model,
-                        'effort': self.arguments.effort, 'received': received, 'answers': []}
+        log.update({'model': self.arguments.model, 'effort': self.arguments.effort, 'prompt': text})
         await self.send({'type': 'started', 'id': call['id'], 'model': self.arguments.model, 'effort': self.arguments.effort, 'prompt': text})
         log['model_start'] = time.time()
         message = blocks
@@ -234,35 +304,49 @@ class Bridge:
                     self.last[call['id']] = {'type': 'failed', 'id': call['id'], **meta}
                     await self.send(self.last[call['id']])
                     log['answers'].append({**meta, 'sent': time.time()})
-                    break
+                    return
 
-                self.last[call['id']] = {'type': 'decision', 'id': call['id'], **decision, **meta}
-                await self.send(self.last[call['id']])
-                log['answers'].append({'decision': decision, **meta, 'sent': time.time()})
-                reply = await self.replies[call['id']].get()
-                log['answers'][-1]['reply'] = reply
+                reply = await self._decide(call['id'], decision, meta, log)
 
                 if reply.get('accepted'):
-                    break
+                    return
 
                 message = f'The executor refused that decision: {reply.get("message")}. Decide again, same schema.'
-        except asyncio.CancelledError:
-            log['cancelled'] = time.time()
-        except Exception as error:                      # the model process or a timeout: the executor fails the call
-            self.last[call['id']] = {'type': 'failed', 'id': call['id'], 'error': f'{error.__class__.__name__}: {error}'[:300]}
-            await self.send(self.last[call['id']])
-            log['error'] = self.last[call['id']]['error']
         finally:
             model.close()
-            self.running.pop(call['id'], None)
-            self._log(folder, text, log)
 
-    def _log(self, folder: Path, text: str, log: dict):
+    async def _ask_operator(self, call: dict, log: dict):
+        question = prompts.task_field(call, 'Question') or call['task']
+        log.update({'model': 'operator', 'effort': None, 'prompt': question})
+        await self.send({'type': 'started', 'id': call['id'], 'model': 'operator', 'effort': None, 'prompt': question})
+        log['model_start'] = time.time()
+
+        while True:
+            decision = await asyncio.wait_for(self.operator.ask(call['id'], question), CONFIRM_S)
+            reply    = await self._decide(call['id'], decision, {}, log)
+
+            if reply.get('accepted'):
+                print(f'{call["id"]}: sent {decision["decision"]}', flush=True)
+                return
+
+            print(f'{call["id"]}: the executor refused it: {reply.get("message")}', flush=True)
+
+    async def _decide(self, call: str, decision: dict, meta: dict, log: dict) -> dict:
+        """Send the decision, again on each reconnect, and wait for the executor's reply"""
+        self.last[call] = {'type': 'decision', 'id': call, **decision, **meta}
+        await self.send(self.last[call])
+        log['answers'].append({'decision': decision, **meta, 'sent': time.time()})
+        reply = await self.replies[call].get()
+        log['answers'][-1]['reply'] = reply
+
+        return reply
+
+    def _log(self, folder: Path, log: dict):
         first   = log['answers'][0] if log['answers'] else {}
-        timings = {'receive_to_model_s': round(log['model_start'] - log['received'], 3),
+        timings = {'receive_to_model_s': round(log['model_start'] - log['received'], 3) if 'model_start' in log else None,
                    'model_s': first.get('model_s'),
                    'receive_to_reply_s': round(first['sent'] - log['received'], 3) if first else None}
-        (folder / 'bridge.json').write_text(json.dumps({**log, **timings, 'prompt': text}, indent=1, default=str))
+        (folder / 'bridge.json').write_text(json.dumps({**log, **timings}, indent=1, default=str))
 
         with (self.arguments.local / 'bridge_timing.jsonl').open('a') as file:
             file.write(json.dumps({'call': log['call'], 'skill': log['skill'], 'time': log['received'], **timings}) + '\n')

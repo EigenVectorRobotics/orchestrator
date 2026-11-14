@@ -44,6 +44,5 @@ timeout_s: 600
 maturity: untested
 source: orchestrator/orchestrator/agent.py
 notes: >-
-  The agent reads the failure, the history, files, TF and topics; it never publishes and never moves the robot.
-  With agent_backend external (default), a Claude Code session answers with agent_cli; with openai_compatible on
-  the Thor it needs no cloud, but the contract assumes the session.
+  The agent reads the failure, the history and the stance; it never publishes and never moves the robot. The agent
+  bridge on the laptop answers through the Claude Agent SDK, with the camera image attached.
