@@ -7,14 +7,15 @@ import yaml
 
 KINDS         = ('action', 'condition', 'composite')
 TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'press_tip',
-                 'in_view', 'alive', 'command')
-READ_ONLY     = ('watch', 'vlm', 'compare', 'press_tip', 'alive')   # the transports a condition may use
+                 'in_view', 'alive', 'command', 'reach')
+READ_ONLY     = ('watch', 'vlm', 'compare', 'press_tip', 'alive', 'reach')   # the transports a condition may use
 # watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
 # press_tip: where the end effector got to in the last press.
 # in_view: seed the tracker with the query, then judge the first 2D box and 3D pose after the seed: inside the image.
 # alive: each listed topic has a publisher, each service exists, each URL answers. command: run the contract's fixed
-# shell command on the executor's machine; success is exit code 0.
+# shell command on the executor's machine; success is exit code 0. reach: ask the IK check service (g1_pilot ik_server)
+# whether the arm reaches the latest pose on target.pose_topic, as move_to_pose would plan it; it never moves the arm.
 MATURITIES    = ('tested', 'wip', 'untested', 'disabled')   # disabled: kept for later, hidden from the planner, refused in a tree
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
@@ -111,7 +112,7 @@ class Contract:
     maturity:    str = 'untested'
     source:      str = ''                                   # code the skill wraps
     notes:       str = ''
-    record:      bool = False   # a condition: record its failure for the agent even when it checks no action
+    record:      bool = False   # a condition: record every answer for the agent, even when it checks no action
 
     def input(self, name: str) -> Port | None:
         return next((port for port in self.inputs if port.name == name), None)

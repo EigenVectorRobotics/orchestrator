@@ -79,7 +79,7 @@ class RegistryNode(Node):
 
             if interface.transport == 'action':
                 services.add(f'{name}/_action/send_goal')
-            elif interface.transport == 'service':
+            elif interface.transport in ('service', 'reach'):
                 services.add(name)
             elif interface.transport == 'topic':
                 subscribed.add(name)
