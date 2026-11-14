@@ -18,6 +18,7 @@ Agentic planning for the G1. An LLM writes a behavior tree, a validator checks i
 | `skill_registry/agent_skills/manipulation_recovery.experience.md` | What the team has observed about presses (E-xxx): symptoms, conditions, causes, what helped, evidence |
 | `skill_registry/agent_skills/navigation.experience.md` | The same for walking, localization and the processes navigation needs (N-xxx) |
 | `skill_registry/trees/*.xml` | The tree library the planner reuses; each file's first comment says what the tree does and its parameters |
+| `docs/demo.md` | How to run the elevator demo, step by step |
 | `mission_control/README.md` | The agent bridge on the laptop: set it up, run it, answer `operator_confirm` |
 | `docs/knowledge.md`, `docs/recorder.md`, `docs/skill-packages.md` | Designs: the knowledge store (claims), run recording, skill packages and graduation |
 
