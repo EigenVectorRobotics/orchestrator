@@ -1,6 +1,6 @@
 # Reasoning areas, knowledge graduation and map annotation (design, not built)
 
-Built: `orchestrator/knowledge.py` (claims, open `about` tags, tiers, rules, log) and the `knowledge` CLI. `agent.py` has a `note` tool and appends the facts and beliefs to the skill document, but no call path uses them: the agent bridge builds its own prompts and gives the model no tools. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, `scratch/<run_id>/`, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
+Built: `orchestrator/knowledge.py` (claims, open `about` tags, tiers, rules, log) and the `knowledge` CLI. No agent call reads or writes claims: the agent bridge builds its own prompts and gives the model no tools. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, `scratch/<run_id>/`, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
 
 Built rules: observation → belief at 2 runs and 2 sources; a belief is ready for a fact when the Wilson lower bound (z = 1.645) is at least 0.8, that is 11 confirmations with no contradiction; the operator approves it with `knowledge approve`, at a terminal only.
 
@@ -24,7 +24,7 @@ The graduation rules are in one place, the orchestrator. `map_info` does not jud
 
 ## Reasoning areas
 
-On the NUC, under `~/orch_knowledge/` (a parameter):
+On the NUC, under `~/orch_knowledge/` (the `knowledge` CLI's `--dir`):
 
 | Area | Lifetime | Who writes | Holds |
 |---|---|---|---|
@@ -64,7 +64,7 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 
 ### Where claims come from
 
-- The agent: a tool `note(text, about, key, value, evidence)` adds an observation. It cannot set the tier. The tool exists in `agent.py`, but the bridge's model has no tools, so no agent adds claims now.
+- The agent (not built): an observation it reports, never a tier. The bridge's model has no tools and returns only a decision, so no agent adds claims now.
 - The retrospection operator (`retrospect`): from a run, for example the arrival error at each place, or the offset that made a press light.
 - A person: by hand, for example from the experience log (`manipulation_recovery.experience.md`).
 

@@ -1,25 +1,21 @@
-"""Agent skills: an LLM with read-only tools, guided by a skill document, that decides how a tree recovers.
+"""Agent skills: one decision of a tree, handed to a model or to the operator through the agent bridge.
 
-The tree calls an agent skill like any other leaf (AgentLeaf in skill_leaf). The agent reads the failure the tree
-recorded, the history, files, TF, topics and camera images, runs its own checks in a sandbox, and ends with one call
-to decide. It never publishes and never moves the robot: the tree acts on the decision.
+The tree calls an agent skill like any other leaf (AgentLeaf in skill_leaf). The executor gathers the evidence once
+(the failure the tree recorded, the history, the press frames, the stance, the camera image), the backend sends it
+with the task, and one decision comes back. The executor checks it, and the tree acts on it.
 """
 
 import json
 import math
-import time
 import threading
 
 from typing import Callable, Protocol
-from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 
 from skill_registry import Contract
 
 from .behavior_tree import Context, Status
-from .knowledge import KnowledgeStore, Sighting
-from .agent_sandbox import SandboxConfig, run_python
 from . import stance
 
 
@@ -41,11 +37,6 @@ STANCE_RULE_MAX      = 2                # base goals re-sent per press before th
 REPOSITION_LIMITS_M  = {'forward': 0.15, 'back': 0.60, 'side': 0.25}   # from the base goal; it stands near the panel
 REACH_RULE_MAX       = 2                # reach moves per press before the agent decides
 STANCE_CHANGED_M     = 0.03             # the press target moved this much in pelvis since a passed check_reach: the stance changed
-
-MAX_READ_BYTES = 200_000
-MAX_TOOL_TEXT  = 40_000
-MAX_SPEECH     = 200                    # characters said at once
-SPEECH_GAP_S   = 3.0                    # unitree_interface speaks each message at once, so space them out
 
 STANCE_PHASES = ('diagnose', 'stance_check')
 PRESS_PHASES  = ('judge', 'diagnose')       # a diagnosis after a judged miss needs the press's depth and residual
@@ -79,15 +70,13 @@ class ToolOutput:
     image:      bytes | None = None
     media_type: str = 'image/jpeg'
     is_error:   bool = False
-    final:      bool = False        # decide succeeded: the agent's turn is over
+    final:      bool = False        # decide accepted the decision: the call is over
 
 
 class RosAccess(Protocol):
     """Read-only access to the robot, from the executor's node"""
 
     def tf(self, target_frame: str, source_frame: str, timeout_s: float) -> dict: ...
-    def topic_once(self, topic: str, timeout_s: float) -> dict: ...
-    def topic_list(self) -> list[dict]: ...
     def image(self, source: str) -> tuple[bytes, str]: ...
 
 
@@ -96,178 +85,13 @@ class AgentBackend(Protocol):
 
     def run(
         self,
-        system: str,
+        skill: str,
+        phase: str,
         task: str,
-        tools: list[dict],
         call_tool: Callable[[str, dict], ToolOutput],
-        max_turns: int,
         should_stop: Callable[[], bool],
-        on_event: Callable[..., None],
-        skill: str = ''
+        on_event: Callable[..., None]
     ): ...
-
-
-@dataclass
-class AgentConfig:
-    skills_dir: str
-    read_roots: list[str] = field(default_factory=list)     # read_file sees only these trees (and the scratch dir)
-    max_turns:  int = 30
-    sandbox:    SandboxConfig = field(default_factory=SandboxConfig)
-    knowledge:  KnowledgeStore | None = None                 # note writes here; its facts and beliefs go in the prompt
-
-
-# ========== Tools ==========
-
-def tool_specs(phase: str) -> list[dict]:
-    """The tools in a neutral form: name, description, JSON schema. decide lists only this phase's decisions"""
-    specs = _tool_specs(phase)
-
-    if phase in PRESS_PHASES:
-        specs.insert(0, {
-            'name':         'get_press',
-            'description':  'The last press, as the executor kept it: the saved frames (baseline at the pre-grasp, press '
-                            'at the fingertip\'s closest point to the button, release 0.5 s after the retreat began, and '
-                            'their crops around the button), the phase times, the deepest point along the button normal '
-                            'and the sideways distance there, and the arm.',
-            'input_schema': {'type': 'object', 'properties': {}},
-        })
-
-    if phase in STANCE_PHASES:
-        specs.insert(0, {
-            'name':         'get_stance',
-            'description':  'Where the robot stands, computed by the executor: its pose from the base goal, the press target '
-                            'in pelvis and the arm, the last press on this button that was judged pressed (its target in '
-                            'pelvis and its stance), and match: the reposition (dx, dy, dyaw from the base goal) that puts '
-                            'the target where that press had it, and whether navigate_to would walk it.',
-            'input_schema': {'type': 'object', 'properties': {}},
-        })
-
-    return specs
-
-
-def _tool_specs(phase: str) -> list[dict]:
-    return [
-        {
-            'name':         'get_failure',
-            'description':  'The last failure of this tree: a failed action call (skill, inputs, message, outputs, '
-                            'elapsed time, every feedback sample {t: seconds since the goal was sent, ...fields}), or a '
-                            'failed check such as press_judge, whose checked_call is the action call it checked.',
-            'input_schema': {'type': 'object', 'properties': {}},
-        },
-        {
-            'name':         'get_history',
-            'description':  'Every finished action call of this tree and your earlier decisions, oldest first, without feedback.',
-            'input_schema': {'type': 'object', 'properties': {}},
-        },
-        {
-            'name':         'read_file',
-            'description':  'Read a text file, or list a directory, on the robot computer. Lines are numbered from 1.',
-            'input_schema': {
-                'type':       'object',
-                'properties': {
-                    'path':   {'type': 'string', 'description': 'absolute path'},
-                    'offset': {'type': 'integer', 'description': 'first line, default 1'},
-                    'limit':  {'type': 'integer', 'description': 'number of lines, default all that fit'},
-                },
-                'required':   ['path'],
-            },
-        },
-        {
-            'name':         'ros_read',
-            'description':  'Read-only ROS. op tf: the latest transform of source_frame in target_frame. op topic_once: '
-                            'the next message on a topic (not images or point clouds; use get_image). op topic_list: '
-                            'the topics and their types.',
-            'input_schema': {
-                'type':       'object',
-                'properties': {
-                    'op':           {'type': 'string', 'enum': ['tf', 'topic_once', 'topic_list']},
-                    'target_frame': {'type': 'string'},
-                    'source_frame': {'type': 'string'},
-                    'topic':        {'type': 'string'},
-                    'timeout_s':    {'type': 'number', 'description': 'default 2'},
-                },
-                'required':   ['op'],
-            },
-        },
-        {
-            'name':         'get_image',
-            'description':  'An image. camera: the latest color frame. overlay: track_anything\'s overlay with the '
-                            'tracked mask and the tracker state. press_baseline, press_press, press_release: the frames '
-                            'the last press kept (at the pre-grasp, at the deepest push, after the release).',
-            'input_schema': {
-                'type':       'object',
-                'properties': {'source': {'type': 'string', 'enum': ['camera', 'overlay', 'press_baseline', 'press_press', 'press_release']}},
-                'required':   ['source'],
-            },
-        },
-        {
-            'name':         'say',
-            'description':  'Say one short sentence through the robot\'s speaker, so the people around know what you '
-                            'are doing: what you check, what you found, what you will try. At most 200 characters, '
-                            'and at least 3 s after the last one.',
-            'input_schema': {
-                'type':       'object',
-                'properties': {'text': {'type': 'string'}},
-                'required':   ['text'],
-            },
-        },
-        {
-            'name':         'run_python',
-            'description':  'Run Python 3 with numpy, scipy, pinocchio and coal; returns stdout, stderr and the exit '
-                            'code. No ROS, no network, no new processes; files can be written only in the scratch '
-                            'directory, which is also on sys.path for your own helpers. Print what you need.',
-            'input_schema': {
-                'type':       'object',
-                'properties': {'code': {'type': 'string'}},
-                'required':   ['code'],
-            },
-        },
-        {
-            'name':         'note',
-            'description':  'Keep one thing you found, for later calls and runs: an observation in the knowledge store. '
-                            'It goes up to a belief and a fact only when other runs and sources confirm it, and only the '
-                            'operator makes a fact. Note what is true of a place or a skill (e.g. "the call panel does not '
-                            'light when pressed", or the press offset that worked), not this call\'s decision. With a key '
-                            'and a value, a later note with the same about and key confirms or contradicts it.',
-            'input_schema': {
-                'type':       'object',
-                'properties': {
-                    'text':        {'type': 'string', 'description': 'one sentence'},
-                    'claim':       {'type': 'string', 'description': 'the id of a claim in "What is known" that this confirms or contradicts'},
-                    'contradicts': {'type': 'boolean', 'description': 'with claim: true if what you found disagrees with it'},
-                    'about':       {'type': 'object', 'additionalProperties': {'type': 'string'},
-                                    'description': 'what it is about, as kind: name, e.g. {"place": "freight_elevator_call_panel"} '
-                                                   '(the name the blackboard uses), {"skill": "press_button"}, {"device": "thor"}, '
-                                                   '{"object": "freight_elevator"}; leave out for something general'},
-                    'key':         {'type': 'string', 'description': 'for a value, e.g. lights_when_pressed or press_offset'},
-                    'value':       {'description': 'a number, a list of numbers, true/false, or a word'},
-                    'evidence':    {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1,
-                                    'description': 'what shows it, e.g. "record:3" (get_history index), "frame:press", "E-019"'},
-                    'valid_for_s': {'type': 'number', 'description': 'for something that changes, how long it holds'},
-                },
-                'required':   ['text', 'evidence'],
-            },
-        },
-        {
-            'name':         'decide',
-            'description':  'End your turn with your decision. Call it exactly once.',
-            'input_schema': {
-                'type':       'object',
-                'properties': {
-                    'decision':     {'type': 'string', 'enum': list(PHASE_DECISIONS[phase])},
-                    'reason':       {'type': 'string', 'description': 'two to four sentences: evidence, computation, conclusion'},
-                    'dx':           {'type': 'number', 'description': 'reposition: metres forward along the base goal yaw'},
-                    'dy':           {'type': 'number', 'description': 'reposition: metres to the left of the base goal'},
-                    'dyaw':         {'type': 'number', 'description': 'reposition: radians, counterclockwise'},
-                    'use_left_arm': {'type': 'boolean', 'description': 'switch_arm: the arm for the next press'},
-                    'ox':           {'type': 'number', 'description': 'offset_retry: the whole press offset to use, metres along the button normal (positive deeper)'},
-                    'oy':           {'type': 'number', 'description': 'offset_retry: metres sideways in the button frame (positive left)'},
-                    'oz':           {'type': 'number', 'description': 'offset_retry: metres up'},
-                },
-                'required':   ['decision', 'reason'],
-            },
-        },
-    ]
 
 
 WALK_MIN_M      = 0.10      # navigate_to ends a shorter walk without a step (E-002/E-016)
@@ -441,31 +265,20 @@ def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None, ro
     return outputs
 
 
-def _json(value, whole: bool = False) -> str:
-    text = json.dumps(value, indent=1, default=str)
-
-    return text if whole or len(text) <= MAX_TOOL_TEXT else text[:MAX_TOOL_TEXT] + f'\n... [{len(text) - MAX_TOOL_TEXT} characters cut]'
+def _json(value) -> str:
+    return json.dumps(value, indent=1, default=str)
 
 
 class AgentSession:
-    """One agent call: the evidence it was given, its tools, and its decision once made"""
+    """One agent call: the evidence gathered for it, the camera, and the decision once the executor accepts it"""
 
-    def __init__(self, phase: str, inputs: dict, evidence: dict, ros: RosAccess | None, config: AgentConfig, on_event,
-                 speak: Callable[[str], None] | None = None, clock: Callable[[], float] = time.monotonic,
-                 skill: str = '', run_id: str | None = None):
-        self.skill    = skill
-        self.run_id   = run_id
-        self.speak    = speak
-        self.clock    = clock
-        self.spoke_at = -math.inf
+    def __init__(self, phase: str, inputs: dict, evidence: dict, ros: RosAccess | None, on_event):
         self.phase    = phase
         self.inputs   = inputs
         self.evidence = evidence
         self.ros      = ros
-        self.config   = config
         self.on_event = on_event
         self.decision = None
-        self.roots    = [Path(root).resolve() for root in [*config.read_roots, config.sandbox.scratch_dir]]
 
     def call(self, name: str, arguments: dict) -> ToolOutput:
         self.on_event('agent_tool', f'{name} {_brief(arguments)}', tool=name, arguments=arguments)
@@ -479,7 +292,7 @@ class AgentSession:
             output = handler(**arguments)
         except TypeError as error:
             output = ToolOutput(f'bad arguments for {name}: {error}', is_error=True)
-        except Exception as error:                      # a tool failure goes back to the model, not up the stack
+        except Exception as error:                      # a failed read or a bad decision goes back to the backend, not up the stack
             output = ToolOutput(f'{name} failed: {error}', is_error=True)
 
         if output.is_error:
@@ -487,62 +300,25 @@ class AgentSession:
 
         return output
 
-    # ----- the tools -----
+    # ----- the evidence and the decision -----
 
-    def _tool_get_failure(self, whole: bool = False) -> ToolOutput:
+    def _tool_get_failure(self) -> ToolOutput:
         failure = self.evidence.get('last_failure')
 
-        return ToolOutput(_json(failure, whole) if failure else 'no action has failed in this tree')
+        return ToolOutput(_json(failure) if failure else 'no action has failed in this tree')
 
-    def _tool_get_press(self, whole: bool = False) -> ToolOutput:
+    def _tool_get_press(self) -> ToolOutput:
         press = self.evidence.get('press')
 
-        return ToolOutput(_json(press, whole) if press else 'no press frames were kept')
+        return ToolOutput(_json(press) if press else 'no press frames were kept')
 
-    def _tool_get_stance(self, whole: bool = False) -> ToolOutput:
+    def _tool_get_stance(self) -> ToolOutput:
         found = self.evidence.get('stance')
 
-        return ToolOutput(_json(found, whole) if found else 'no stance: TF or the base goal was not available')
+        return ToolOutput(_json(found) if found else 'no stance: TF or the base goal was not available')
 
-    def _tool_get_history(self, whole: bool = False) -> ToolOutput:
-        return ToolOutput(_json(self.evidence.get('history', []), whole))
-
-    def _tool_read_file(self, path: str, offset: int = 1, limit: int | None = None) -> ToolOutput:
-        real = Path(path).resolve()
-
-        if not any(real == root or root in real.parents for root in self.roots):
-            return ToolOutput(f'{path} is outside the readable trees: {", ".join(map(str, self.roots))}', is_error=True)
-
-        if real.is_dir():
-            entries = sorted(f'{entry.name}/' if entry.is_dir() else entry.name for entry in real.iterdir())
-            return ToolOutput('\n'.join(entries))
-
-        data = real.read_bytes()[:MAX_READ_BYTES]
-
-        if b'\0' in data[:4096]:
-            return ToolOutput(f'{path} is a binary file ({real.stat().st_size} bytes)', is_error=True)
-
-        lines = data.decode(errors='replace').splitlines()
-        start = max(offset, 1) - 1
-        end   = len(lines) if limit is None else start + limit
-        body  = '\n'.join(f'{number}\t{line}' for number, line in enumerate(lines[start:end], start=start + 1))
-
-        return ToolOutput(body[:MAX_TOOL_TEXT] or '(empty)')
-
-    def _tool_ros_read(self, op: str, target_frame: str = '', source_frame: str = '', topic: str = '', timeout_s: float = 2.0) -> ToolOutput:
-        if self.ros is None:
-            return ToolOutput('ROS access is not available here', is_error=True)
-
-        if op == 'tf':
-            return ToolOutput(_json(self.ros.tf(target_frame, source_frame, timeout_s)))
-
-        if op == 'topic_once':
-            return ToolOutput(_json(self.ros.topic_once(topic, timeout_s)))
-
-        if op == 'topic_list':
-            return ToolOutput(_json(self.ros.topic_list()))
-
-        return ToolOutput(f'unknown op {op}', is_error=True)
+    def _tool_get_history(self) -> ToolOutput:
+        return ToolOutput(_json(self.evidence.get('history', [])))
 
     def _tool_get_image(self, source: str) -> ToolOutput:
         if self.ros is None:
@@ -551,54 +327,6 @@ class AgentSession:
         data, media_type = self.ros.image(source)
 
         return ToolOutput(f'{source} image, {len(data)} bytes', image=data, media_type=media_type)
-
-    def _tool_say(self, text: str) -> ToolOutput:
-        text = ' '.join(text.split())
-
-        if self.speak is None:
-            return ToolOutput('there is no speaker here', is_error=True)
-
-        if not text or len(text) > MAX_SPEECH:
-            return ToolOutput(f'say 1 to {MAX_SPEECH} characters, not {len(text)}', is_error=True)
-
-        waited = self.clock() - self.spoke_at
-
-        if waited < SPEECH_GAP_S:
-            return ToolOutput(f'you spoke {waited:.1f} s ago; wait {SPEECH_GAP_S - waited:.1f} s', is_error=True)
-
-        self.speak(text)
-        self.spoke_at = self.clock()
-        self.on_event('agent_say', text)
-
-        return ToolOutput(f'said: {text}')
-
-    def _tool_run_python(self, code: str) -> ToolOutput:
-        result = run_python(code, self.config.sandbox)
-        text   = f'exit code {result["exit_code"]}' + (' (timed out)' if result['timed_out'] else '')
-        text  += f'\n--- stdout\n{result["stdout"]}' + (f'\n--- stderr\n{result["stderr"]}' if result['stderr'] else '')
-
-        return ToolOutput(text, is_error=result['exit_code'] != 0)
-
-    def _tool_note(self, text: str, evidence: list, about: dict | None = None, key: str = '', value=None,
-                   valid_for_s: float | None = None, claim: str = '', contradicts: bool = False) -> ToolOutput:
-        if self.config.knowledge is None:
-            return ToolOutput('there is no knowledge store here', is_error=True)
-
-        if not text.strip() or not evidence:
-            return ToolOutput('a note needs a sentence and at least one piece of evidence', is_error=True)
-
-        store    = self.config.knowledge
-        sighting = Sighting(by=f'agent:{self.skill}', time=time.time(), run=self.run_id, evidence=list(evidence), value=value)
-
-        if claim:
-            change = (store.contradict if contradicts else store.confirm)(claim, sighting)
-            found  = store.get(claim)
-        else:
-            found, change = store.note(text, sighting, about, key or None, valid_for_s)
-
-        self.on_event('knowledge', f'{found.id} {change}: {found.text}', claim=found.id, change=change, tier=found.tier)
-
-        return ToolOutput(f'{found.id}: {change} ({found.tier})')
 
     def _tool_decide(self, decision: str, reason: str, dx: float | None = None, dy: float | None = None,
                      dyaw: float | None = None, use_left_arm: bool | None = None, ox: float | None = None,
@@ -667,7 +395,7 @@ def _brief(arguments: dict) -> str:
 # ========== Running a call ==========
 
 class AgentHandle:
-    """One running agent call, polled by the leaf. Cancelling stops it at its next turn"""
+    """One running agent call, polled by the leaf. Cancelling tells the backend to drop it"""
 
     def __init__(self, pool: ThreadPoolExecutor, work: Callable[[threading.Event], dict]):
         self.status    = Status.RUNNING
@@ -699,11 +427,10 @@ class AgentHandle:
 class Agent:
     """Runs agent skills for the executor: one call at a time, each in a thread"""
 
-    def __init__(self, backend: AgentBackend, config: AgentConfig, ros: RosAccess | None = None, on_event=None,
+    def __init__(self, backend: AgentBackend, ros: RosAccess | None = None, on_event=None,
                  speak: Callable[[str], None] | None = None, press_evidence: Callable[[], dict | None] | None = None):
         self.press_evidence = press_evidence    # the last press's saved frames and numbers, for the judge phase
         self.backend  = backend
-        self.config   = config
         self.ros      = ros
         self.speak    = speak
         self.on_event = on_event or (lambda kind, text, **data: None)
@@ -714,6 +441,7 @@ class Agent:
         evidence = json.loads(json.dumps({'last_failure': context.last_failure, 'history': context.history}, default=str))
 
         def work(stop: threading.Event) -> dict:
+            # (1) The evidence, gathered once
             if phase == 'judge':                # waits until the press's frames are chosen, then saves them
                 evidence['press'] = self.press_evidence() if self.press_evidence else None
 
@@ -726,6 +454,7 @@ class Agent:
                 except Exception as error:              # a missing transform leaves the call without a stance, not failed
                     evidence['stance'] = {'error': str(error)}
 
+            # (2) A rule decides without the agent when the evidence makes the answer plain
             if phase == 'diagnose' and (rule := self._rule(evidence)) is not None:
                 self.on_event('agent_rule', rule['reason'], phase=phase)
                 return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True}
@@ -740,16 +469,12 @@ class Agent:
                 self._say('The button is just out of my reach. Stepping closer to it.')
                 return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True}
 
-            system  = (Path(self.config.skills_dir) / f'{contract.interface.skill}.md').read_text()
-            known   = self.config.knowledge.prompt_section(observations=True) if self.config.knowledge else ''
-            system += f'\n\n{known}\n' if known else ''
-            session = AgentSession(phase, inputs, evidence, self.ros, self.config, self.on_event, self.speak,
-                                   skill=contract.interface.skill, run_id=context.run_id)
+            # (3) The call: the backend sends the evidence and brings back one decision that decide accepted
+            session = AgentSession(phase, inputs, evidence, self.ros, self.on_event)
 
             self.on_event('agent_start', f'{contract.name} ({phase}) on {self.backend.name}', phase=phase)
             self._say(PHASE_SPEECH.get(phase))
-            self.backend.run(system, _task(phase, inputs), tool_specs(phase), session.call,
-                             self.config.max_turns, stop.is_set, self.on_event, skill=contract.interface.skill)
+            self.backend.run(contract.interface.skill, phase, _task(phase, inputs), session.call, stop.is_set, self.on_event)
 
             if session.decision is None:
                 raise AgentError('the agent ended without a decision')
@@ -832,21 +557,20 @@ def _task(phase: str, inputs: dict) -> str:
     lines = [f'Phase: {phase}.']
 
     if phase == 'judge':
-        lines.append('press_button reported success. Look at the frames of the press (get_press; the press frame is '
-                     'the fingertip at its closest point to the button) and judge whether the button was pressed, '
-                     'following the skill document, and end with decide: pressed or not_pressed.')
+        lines.append('press_button reported success. Judge from the press frames whether the button was pressed; the '
+                     'press frame is the fingertip at its closest point to the button.')
     elif phase == 'diagnose':
         lines.append('The press did not work: press_button failed, or it succeeded and press_judge said not_pressed; '
-                     'get_failure says which. The press ran only after button_in_view and check_reach passed: get_stance '
-                     'reach. Work out why, following "How to work", and end with decide.')
+                     'the failure says which. The press ran only after button_in_view and check_reach passed: the stance '
+                     'reach. Decide why it failed and what the tree does next.')
     elif phase == 'confirm':
         lines += [f'Question: {inputs.get("question", "")}',
                   'The operator answers in the agent bridge: confirmed when they say yes, not_confirmed when they say no. '
                   'Without a reply the call times out.']
     elif phase == 'stance_check':
         lines.append('The walk to the panel has arrived and nothing has been pressed yet. button_in_view or check_reach '
-                     'failed: get_failure says which and what it measured; get_stance reach_move is the reposition the IK '
-                     'miss asks for. Check the stance, following "Before the first press", and end with decide.')
+                     'failed: the failure says which and what it measured; the stance reach_move is the reposition the IK '
+                     'miss asks for. Decide whether the robot stands where it can press.')
 
     if inputs.get('target_description'):
         lines.append(f'Button: {inputs["target_description"]}.')

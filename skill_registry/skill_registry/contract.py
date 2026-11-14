@@ -9,7 +9,7 @@ KINDS         = ('action', 'condition', 'composite')
 TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'in_view', 'alive', 'command',
                  'reach')
 READ_ONLY     = ('watch', 'vlm', 'compare', 'alive', 'reach')   # the transports a condition may use
-# watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
+# watch: read a topic, never publish. agent: one decision from the agent bridge's model or operator, on gathered evidence.
 # compare: the input value equals the input equals; nothing leaves the executor.
 # in_view: seed the tracker with the query, then judge the first 2D box and 3D pose after the seed: inside the image.
 # alive: each listed topic has a publisher, each service exists, each URL answers. command: run the contract's fixed
@@ -80,7 +80,7 @@ class Interface:
     question:        str = ''               # vlm: may hold {input} fields
     choices:         list[str] = field(default_factory=list)   # vlm: the only answers; empty means the 'choices' input
     success_answer:  str = ''               # vlm: the answer that means success; empty means any answer
-    skill:           str = ''               # agent: the agent skill document, agent_skills/<skill>.md
+    skill:           str = ''               # agent: the skill the bridge answers as, documented in agent_skills/<skill>.md
     capture:         dict = field(default_factory=dict)       # action: frames to keep around the call, e.g. {kind: press}
     limits:          dict = field(default_factory=dict)       # in_view, reach: the thresholds
     target:          dict = field(default_factory=dict)       # in_view: box_topic, target_topic, pose_topic
@@ -221,7 +221,7 @@ def parse_contract(raw: dict) -> Contract:
         raise ContractError(f'{name}: record is for conditions; actions are always recorded')
 
     if interface.transport == 'agent' and not interface.skill:
-        raise ContractError(f'{name}: an agent skill needs the skill document it follows')
+        raise ContractError(f'{name}: an agent skill needs the skill the bridge answers as')
 
     if interface.transport == 'compare' and {'value', 'equals'} - {port.name for port in contract.inputs}:
         raise ContractError(f'{name}: a compare skill needs the inputs value and equals')

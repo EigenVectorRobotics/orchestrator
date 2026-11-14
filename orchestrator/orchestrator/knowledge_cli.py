@@ -8,10 +8,10 @@
     knowledge approve C-0007 [--text "the exact text"]       the operator only, at a terminal
     knowledge refuse C-0007 --reason "..."
     knowledge retire C-0007 --reason "..."
-    knowledge prompt                                          what the planner and the agent see
+    knowledge prompt                                          the facts and beliefs as prompt text
     knowledge seed FILE [--by person:experience_log]          load claims written by hand (config/knowledge_seed.yaml)
 
---dir (default ~/orch_knowledge) is the executor's knowledge_dir. A value is read as JSON when it can be
+--dir (default ~/orch_knowledge) holds the claims and the log. A value is read as JSON when it can be
 (0.012, [0.005, 0.0075, 0.0034], true), else as a word.
 """
 

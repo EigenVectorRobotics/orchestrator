@@ -14,7 +14,7 @@ Agentic planning for the G1. An LLM writes a behavior tree, a validator checks i
 | `docs/operations.md` | How to run it on the robot: deploy on the NUC, start the orchestrator, run a task through the planner, run one tree, bring a machine up by hand, stop, watch a run |
 | `docs/troubleshooting.md` | Symptom, checks, fix: machines and processes, localization, walking, pressing, the orchestrator |
 | `docs/deployment.md` | A snapshot of what runs where: each machine's access, workspace, repositories and branches, local changes, and files that exist only on a machine |
-| `skill_registry/agent_skills/<skill>.md` | What an agent skill decides and how the tree uses it: `manipulation_recovery`, `press_judge`, `operator_confirm`. The model's prompts are in `mission_control/agent_prompts.py` |
+| `skill_registry/agent_skills/<skill>.md` | What an agent skill decides and how the tree uses it: `manipulation_recovery`, `press_judge`, `operator_confirm`. These are documentation for people; the model's prompts are in `mission_control/agent_prompts.py` |
 | `skill_registry/agent_skills/manipulation_recovery.experience.md` | What the team has observed about presses (E-xxx): symptoms, conditions, causes, what helped, evidence |
 | `skill_registry/agent_skills/navigation.experience.md` | The same for walking, localization and the processes navigation needs (N-xxx) |
 | `skill_registry/trees/*.xml` | The tree library the planner reuses; each file's first comment says what the tree does and its parameters |
@@ -39,16 +39,16 @@ Write one YAML file in `skill_registry/contracts/`. No code is necessary if the 
 
 ## Agent skills
 
-An agent skill hands one decision of the tree to a model or to the operator. Its contract has `transport: agent` and names a document in `skill_registry/agent_skills/`; the executor reads it at each call, so each agent skill needs one. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort. Before the first press, when a look fails (`button_in_view` or `check_reach`), it checks the stance and decides continue, reposition or abort. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). See `orchestrator/test_trees/freight_elevator_floor1_press_agentic.xml` and, on the robot, `skill_registry/trees/freight_elevator_go_to_place.xml`.
+An agent skill hands one decision of the tree to a model or to the operator. Its contract has `transport: agent` and names a document in `skill_registry/agent_skills/`. The document is for people: no call reads it. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort. Before the first press, when a look fails (`button_in_view` or `check_reach`), it checks the stance and decides continue, reposition or abort. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). See `orchestrator/test_trees/freight_elevator_floor1_press_agentic.xml` and, on the robot, `skill_registry/trees/freight_elevator_go_to_place.xml`.
 
-- **Evidence.** Every finished action call is recorded in the tree's history; a failure keeps the action's feedback over time. Both go to the trace as `record` events, and to the agent call as its `failure` and `history`.
+- **Evidence.** Every finished action call is recorded in the tree's history; a failure keeps the action's feedback over time. Both go to the trace as `record` events, and to the agent call as its `failure` and `history`. The executor gathers the evidence once per call: the failure, the history, the press for `judge` and `diagnose`, the stance for `diagnose` and `stance_check`, and the camera image for `manipulation_recovery`.
 - **No tools.** The bridge's model gets the evidence as text and the frames as images, and answers with one decision. It never publishes and never moves the robot. The executor checks the decision and refuses one outside the limits.
 - **Rules before the model.** The executor answers some calls itself, with a reason that starts `rule:`. `rule_offset` corrects a near miss after a reached goal. `rule_stance` sends the robot back onto its target stance. `rule_reach` steps by the IK miss of a failed `check_reach`. The limits are constants in `orchestrator/agent.py`.
 - **Branching.** `decision_is` compares a blackboard value (`value="{decision}" equals="reposition"`). `abort` fails the whole tree at once with the agent's reason. After `ask_help`, or after `max_rounds` diagnoses, the agent skill fails without a call.
 - **Who answers.** The agent bridge on the laptop (`mission_control/agent_bridge.py`) answers every call. The executor pushes each call with its evidence and frames over one TCP link and waits up to the contract timeout. The bridge asks the model (Claude Agent SDK) for `press_judge` and `manipulation_recovery`. It asks the operator in its terminal for `operator_confirm`. `agent_backend:=none` runs without an agent: agent skills then fail.
-- **The request is whole.** The executor takes the failure, the history and the press from the tools with `whole`, so a 60 s press (120 feedback samples, over 40 kB) reaches the bridge.
+- **The request is whole.** The executor sends the failure, the history and the press uncut, so a 60 s press (120 feedback samples, over 40 kB) reaches the bridge.
 - **Recorded.** Each call also goes out on `/orchestrator/agent/request` (opened, then closed) and each reply on `/orchestrator/agent/reply`. The run recorder and the Run Viewer read them.
-- **Executor parameters.** `agent_backend` (`push` or `none`), `agent_push_host`, `agent_push_port`, `agent_skills_dir`, `knowledge_dir`.
+- **Executor parameters.** `agent_backend` (`push` or `none`), `agent_push_host`, `agent_push_port`.
 
 ### Standard recoveries
 
@@ -92,7 +92,7 @@ The rest of this section is how the frames are chosen.
 
 ## Knowledge store
 
-What the robot learns is kept as claims in `knowledge_dir` (executor parameter, default `~/orch_knowledge`): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). Claims come from the operator and the seed file; no model reads or writes them now, since the bridge builds its own prompts. Only the operator makes a fact, at a terminal:
+What the robot learns is kept as claims in `~/orch_knowledge` (the `knowledge` CLI's `--dir`): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). Claims come from the operator and the seed file; no model reads or writes them now, since the bridge builds its own prompts. Only the operator makes a fact, at a terminal:
 
 ```bash
 ros2 run orchestrator knowledge list --ready                  # beliefs that can become facts

@@ -3,24 +3,19 @@
 import json
 import uuid
 
-from pathlib import Path
-
 import rclpy
 
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
-from ament_index_python.packages import get_package_share_directory
 
 from skill_registry import TreeValidator, ValidatorConfig
 
-from .agent import Agent, AgentConfig
+from .agent import Agent
 from .agent_push import REPLY_TOPIC, REQUEST_TOPIC, PushAgentBackend, PushLink
 from .trace import Tracer
 from .agent_ros import RosReader
-from .agent_sandbox import SandboxConfig
-from .knowledge import KnowledgeStore
 from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
@@ -75,13 +70,7 @@ class ExecutorNode(Node):
 
     def _make_agent(self) -> Agent | None:
         """The runner of agent skills, or None if agent_backend is none or unknown"""
-        backend_name   = self.declare_parameter('agent_backend', 'push').value            # push | none
-        skills_dir     = self.declare_parameter('agent_skills_dir', str(Path(get_package_share_directory('skill_registry')) / 'agent_skills')).value
-        read_roots     = self.declare_parameter('agent_read_roots', ['/home/vector/eigen_vector_ws', skills_dir]).value
-        scratch_dir    = self.declare_parameter('agent_scratch_dir', SandboxConfig.scratch_dir).value
-        python_timeout = self.declare_parameter('agent_python_timeout_s', 60.0).value
-        max_turns      = self.declare_parameter('agent_max_turns', 30).value
-        knowledge_dir  = self.declare_parameter('knowledge_dir', str(Path.home() / 'orch_knowledge')).value     # claims.yaml, log.jsonl
+        backend_name = self.declare_parameter('agent_backend', 'push').value            # push | none
 
         if backend_name == 'none':
             return None
@@ -90,18 +79,10 @@ class ExecutorNode(Node):
             self.get_logger().warn(f'no agent: unknown agent_backend {backend_name}')
             return None
 
-        config = AgentConfig(
-            skills_dir=skills_dir,
-            read_roots=list(read_roots),
-            max_turns=max_turns,
-            sandbox=SandboxConfig(scratch_dir=scratch_dir, timeout_s=python_timeout),
-            knowledge=KnowledgeStore(knowledge_dir)
-        )
-
         speaker = self.create_publisher(String, '/speak', 10)                  # unitree_interface's TTS (remapped ~/tts)
         speak   = lambda text: speaker.publish(String(data=text))
 
-        return Agent(self._make_push_backend(), config, RosReader(self, self.runner.latest_image, self.runner.capture_frames),
+        return Agent(self._make_push_backend(), RosReader(self, self.runner.latest_image),
                      on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
 
     def _make_push_backend(self) -> PushAgentBackend:

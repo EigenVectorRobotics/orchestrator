@@ -22,7 +22,7 @@ import threading
 from typing import Callable
 from pathlib import Path
 
-from .agent import AgentError, ToolOutput
+from .agent import PHASE_DECISIONS, PRESS_PHASES, STANCE_PHASES, AgentError, ToolOutput
 
 
 REQUEST_TOPIC   = '/orchestrator/agent/request'
@@ -47,7 +47,7 @@ class LinkClosed(ConnectionError):
 
 
 def _evidence(call_tool: Callable[[str, dict], ToolOutput], name: str):
-    output = call_tool(name, {'whole': True})        # the bridge gets all of it: a 60 s press is over 40 kB
+    output = call_tool(name, {})
 
     try:
         return json.loads(output.text)
@@ -55,24 +55,23 @@ def _evidence(call_tool: Callable[[str, dict], ToolOutput], name: str):
         return None                                 # e.g. "no action has failed in this tree"
 
 
-def open_request(task: str, tools: list[dict], call_tool: Callable[[str, dict], ToolOutput], skill: str) -> dict:
+def open_request(skill: str, phase: str, task: str, call_tool: Callable[[str, dict], ToolOutput]) -> dict:
     """The call as the bridge gets it: the task, the allowed decisions and all the evidence"""
-    decide  = next(tool for tool in tools if tool['name'] == 'decide')
     request = {
         'id':        uuid.uuid4().hex[:8],
         'state':     'open',
         'skill':     skill,
         'opened':    time.time(),
         'task':      task,
-        'decisions': decide['input_schema']['properties']['decision']['enum'],
+        'decisions': list(PHASE_DECISIONS[phase]),
         'failure':   _evidence(call_tool, 'get_failure'),
         'history':   _evidence(call_tool, 'get_history'),
     }
 
-    if any(tool['name'] == 'get_press' for tool in tools):
+    if phase in PRESS_PHASES:
         request['press'] = _evidence(call_tool, 'get_press')
 
-    if any(tool['name'] == 'get_stance' for tool in tools):
+    if phase in STANCE_PHASES:
         request['stance'] = _evidence(call_tool, 'get_stance')
 
     return request
@@ -230,7 +229,7 @@ class PushLink:
                 self.messages.put(message[0])
 
 
-def call_images(request: dict, call_tool: Callable[[str, dict], ToolOutput], tools: list[dict]) -> list[tuple[str, str, bytes]]:
+def call_images(request: dict, call_tool: Callable[[str, dict], ToolOutput]) -> list[tuple[str, str, bytes]]:
     """The images a call carries, as (name, media type, bytes): the press frames it names, and for a recovery the
     camera image now"""
     images = []
@@ -241,7 +240,7 @@ def call_images(request: dict, call_tool: Callable[[str, dict], ToolOutput], too
         except OSError:
             continue
 
-    if request['skill'] == 'manipulation_recovery' and any(tool['name'] == 'get_image' for tool in tools):
+    if request['skill'] == 'manipulation_recovery':
         output = call_tool('get_image', {'source': 'camera'})
 
         if output.image:
@@ -260,12 +259,12 @@ class PushAgentBackend:
         self._publish_request = publish_request
         self._publish_reply   = publish_reply
 
-    def run(self, system: str, task: str, tools: list[dict], call_tool: Callable[[str, dict], ToolOutput],
-            max_turns: int, should_stop: Callable[[], bool], on_event: Callable[..., None], skill: str = ''):
+    def run(self, skill: str, phase: str, task: str, call_tool: Callable[[str, dict], ToolOutput],
+            should_stop: Callable[[], bool], on_event: Callable[..., None]):
         # (1) The call with all its evidence and frames, sent now and again on each reconnect
-        request = open_request(task, tools, call_tool, skill)
-        images  = call_images(request, call_tool, tools)
-        header  = {**request, 'type': 'call', 'phase': task.split('.', 1)[0].removeprefix('Phase: '),
+        request = open_request(skill, phase, task, call_tool)
+        images  = call_images(request, call_tool)
+        header  = {**request, 'type': 'call', 'phase': phase,
                    'images': [{'name': name, 'media_type': media, 'size': len(data)} for name, media, data in images]}
         record  = {'call': request['id'], 'skill': skill, 'model': None, 'effort': None, 'started': round(request['opened'], 1),
                    'state': 'thinking', 'prompt': None, 'decision': None}
@@ -292,7 +291,7 @@ class PushAgentBackend:
                 if message.get('id') != request['id']:
                     continue
 
-                # (3) Act on it: a decision goes through decide like any other, and a refusal goes back to the bridge
+                # (3) Act on it: a decision goes through decide, and a refusal goes back to the bridge
                 if message['type'] == 'started':
                     record.update({key: message.get(key) for key in ('model', 'effort', 'prompt')})
                     self._record(record)
