@@ -52,7 +52,8 @@ track_anything runs on the Orin and its VLM on the Thor. You can read their topi
 | TF `pelvis`, `torso_link`, `foot_world` | Body frames; `body_ekf` publishes `foot_world` |
 | TF `left_ee`, `right_ee` | End-effector points, 0.1847585 m along X of `*_wrist_yaw_link` |
 | TF `camera_link` | Fixed on `torso_link`; the RealSense frames hang below it |
-| TF `base_link` | Navigation base |
+| TF `base_link` | Navigation base: `sensor` (the lidar on the torso) 0.35 m lower, with the lidar's yaw. `navigate_to` puts it on the goal; `get_stance` measures `pelvis`, 1 to 2 cm and about 2° plus the waist yaw away |
+| Service `/check_reach` | ik_server: move_to_pose's IK verdict for a pose, without moving the arm; its miss in `pelvis` |
 
 The live target is often gone when you look. The servo node resets track_anything after a cancel, a timeout, a failed seed or a success. After `Planning failed` the tracker may still publish. Trust `current_goal` in the failure record.
 
@@ -100,6 +101,8 @@ The live target is often gone when you look. The servo node resets track_anythin
 | `goal rejected` (orchestrator) | Another servo goal active, or within 1 s of the last success |
 | `button_lit` failed | Goal reached, but the VLM saw no light in the press or release frame. `outputs` has per-frame answers, frames, `capture.max_depth_m` (≈ 0: the push reached the goal) and boxes. A missing frame means that phase was not seen |
 | `press_judge` `not_pressed` | A judge looked at the frames and saw no press. Its reason says where the finger sat |
+| `check_reach` `target out of reach: the arm ends X mm and Y deg from it; miss in the pelvis frame ...` | The same IK test as the press, from the arm at rest after the stance's mode change and EKF reset (`look_here`), on press_button's goal plus the offset in force |
+| `check_reach` `no target pose on ... look first` / `planning failed: ...` | No fresh filtered goal within 2 s, or no plan at all: no miss to walk by |
 
 **Orchestrator timeout.** `press_button` times out at 60 s; a press takes 17 to 25 s. The action's own message is then lost. Read the feedback:
 

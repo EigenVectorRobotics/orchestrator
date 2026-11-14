@@ -48,6 +48,9 @@
       <SetBlackboard output_key="press_panel" value="{call_panel}"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>
       <SetBlackboard output_key="press_arm_min_y" value="0.0"/>   <!-- outside, the arm on the button's side (E-007) -->
+      <SetBlackboard output_key="press_base_offset_x" value="0.0"/>
+      <SetBlackboard output_key="press_base_offset_y" value="0.0"/>
+      <SetBlackboard output_key="press_base_offset_z" value="0.0"/>
       <SetBlackboard output_key="press_ask" value="Please press the call button for me."/>
       <SubTree ID="press_panel_button"/>
     </Sequence>
@@ -83,6 +86,10 @@
       <SetBlackboard output_key="press_panel" value="{inside_panel}"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>   <!-- inside: the right arm (E-007) -->
       <SetBlackboard output_key="press_arm_min_y" value="0.10"/>
+      <!-- the inside panel needs the press 3 mm deeper, left and up (2026-11-14) -->
+      <SetBlackboard output_key="press_base_offset_x" value="0.003"/>
+      <SetBlackboard output_key="press_base_offset_y" value="0.003"/>
+      <SetBlackboard output_key="press_base_offset_z" value="0.003"/>
       <SetBlackboard output_key="press_ask" value="Please press my floor button for me."/>
       <SubTree ID="press_panel_button"/>
     </Sequence>

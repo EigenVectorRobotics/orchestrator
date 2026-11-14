@@ -20,14 +20,14 @@
     <BehaviorTree ID="press_and_recover">
         <Sequence>
             <SetBlackboard output_key="pressed" value="no"/>
-            <SetBlackboard output_key="press_offset_x" value="0.0"/>
-            <SetBlackboard output_key="press_offset_y" value="0.0"/>
-            <SetBlackboard output_key="press_offset_z" value="0.0"/>
+            <SetBlackboard output_key="press_offset_x" value="{press_base_offset_x}"/>
+            <SetBlackboard output_key="press_offset_y" value="{press_base_offset_y}"/>
+            <SetBlackboard output_key="press_offset_z" value="{press_base_offset_z}"/>
             <RetryUntilSuccessful num_attempts="4">
                 <Fallback>
                     <Sequence>
                         <set_press_offset x="{press_offset_x}" y="{press_offset_y}" z="{press_offset_z}"/>
-                        <SubTree ID="prepare_arm"/>
+                        <reset_filters/>        <!-- no mode change or EKF reset: the look's reset holds from check_reach to the press -->
                         <press_button target_description="{button}" left_arm="{press_left_arm}"/>
                         <press_judge target_description="{button}"/>
                         <SetBlackboard output_key="pressed" value="yes"/>
@@ -41,7 +41,7 @@
     <BehaviorTree ID="recover_once">
         <Fallback>
             <Inverter>
-                <manipulation_recovery phase="diagnose" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}" left_arm="{press_left_arm}" offset_x="{press_offset_x}" offset_y="{press_offset_y}" offset_z="{press_offset_z}"/>
+                <manipulation_recovery phase="diagnose" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}" approach="{recovery_approach}" walk_in="{recovery_walk_in}" left_arm="{press_left_arm}" offset_x="{press_offset_x}" offset_y="{press_offset_y}" offset_z="{press_offset_z}"/>
             </Inverter>
             <Sequence>
                 <decision_is value="{decision}" equals="reposition"/>
@@ -61,12 +61,15 @@
     <BehaviorTree ID="stance_check">
         <Sequence>
             <SetBlackboard output_key="recovery_goal" value="{press_panel}"/>
+            <SetBlackboard output_key="recovery_walk_in" value="no"/>
+            <SetBlackboard output_key="stance_reset" value="no"/>
             <RetryUntilSuccessful num_attempts="4">
                 <Fallback>
                     <SubTree ID="look"/>
                     <Sequence>
-                        <manipulation_recovery phase="stance_check" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}"/>
+                        <manipulation_recovery phase="stance_check" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}" approach="{recovery_approach}" walk_in="{recovery_walk_in}"/>
                         <decision_is value="{decision}" equals="continue"/>
+                        <SubTree ID="look_here"/>   <!-- continue presses only after both checks pass from here; a failure counts as a failed look -->
                     </Sequence>
                 </Fallback>
             </RetryUntilSuccessful>
@@ -74,11 +77,36 @@
     </BehaviorTree>
     <BehaviorTree ID="look">
         <Sequence>
+            <SetBlackboard output_key="stance_reset" value="no"/>   <!-- a walk, even a failed one, needs a new EKF reset -->
             <set_autonomy enabled="true"/>
+            <ForceSuccess>              <!-- a short reposition walks out first, so the walk onto the goal takes steps -->
+                <Fallback>
+                    <Inverter>
+                        <decision_is value="{recovery_walk_in}" equals="yes"/>
+                    </Inverter>
+                    <navigate_to goal="{recovery_approach}"/>
+                </Fallback>
+            </ForceSuccess>
             <navigate_to goal="{recovery_goal}"/>
             <set_autonomy enabled="false"/>
             <Sleep msec="2500"/>            <!-- the G1 settles up to 2.5 s after it stops: 6.5 cm and 11 deg on floor 2 -->
+            <SubTree ID="look_here"/>
+        </Sequence>
+    </BehaviorTree>
+    <BehaviorTree ID="look_here">
+        <Sequence>
+            <Fallback>                      <!-- one EKF reset per stance: mode and profile first, so it holds until the press -->
+                <decision_is value="{stance_reset}" equals="yes"/>
+                <Sequence>
+                    <set_autonomy enabled="false"/>
+                    <SubTree ID="prepare_arm"/>
+                    <SubTree ID="ekf_hold"/>
+                    <SetBlackboard output_key="stance_reset" value="yes"/>
+                </Sequence>
+            </Fallback>
+            <reset_filters/>
             <button_in_view query="{button}" left_arm_min_y_m="{press_arm_min_y}" left_arm="{press_left_arm}"/>
+            <check_reach left_arm="{press_left_arm}"/>   <!-- IK only, on the arm button_in_view chose: no arm motion when out of reach -->
         </Sequence>
     </BehaviorTree>
     <BehaviorTree ID="ekf_hold">
@@ -96,9 +124,7 @@
                 <set_mode mode="idle"/>
             </Fallback>
             <set_mode mode="high_level"/>
-            <SubTree ID="ekf_hold"/>
             <set_profile profile="visual_servo"/>
-            <reset_filters/>
         </Sequence>
     </BehaviorTree>
 </root>
