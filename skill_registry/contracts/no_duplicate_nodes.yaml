@@ -1,0 +1,16 @@
+name: no_duplicate_nodes
+kind: action
+device: nuc
+description: >-
+  No robot-control node (unitree_interface, path_follower, cmd_vel_mux, local_planner, route_planner,
+  slam_elevatorlio, lio_node) runs twice, in the ROS graph or as processes on the NUC and the Orin. Read only.
+interface:
+  transport: command
+  command: python3 -m orchestrator.stale_nodes duplicates
+timeout_s: 45
+maturity: untested
+source: orchestrator/orchestrator/stale_nodes.py (judge, duplicate_findings)
+notes: >-
+  Two copies of a control node both command the robot or publish the same topics, e.g. a second unitree_interface
+  from another workspace. Reads ros2 node list (timeout 15 s) and ps on the NUC and, over ssh, on the Orin. The
+  message names each copy with its host, pid and workspace.

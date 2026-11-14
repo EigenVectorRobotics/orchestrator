@@ -6,6 +6,7 @@
     <Sequence>
       <SubTree ID="viewer"/>
       <SubTree ID="stacks_up"/>
+      <SubTree ID="stale_nodes"/>
       <SubTree ID="localization_up"/>
       <SubTree ID="robot_up"/>
       <!-- localized is not enough: a full search about the current pose removes drift, with the robot standing still -->
@@ -126,6 +127,27 @@
         <AlwaysFailure/>
       </Sequence>
     </Fallback>
+  </BehaviorTree>
+
+  <!-- two copies of a control node both command the robot: stop. A node outside the launch or an orphaned helper only warns -->
+  <BehaviorTree ID="stale_nodes">
+    <Sequence>
+      <Fallback>
+        <no_duplicate_nodes/>
+        <Sequence>
+          <say text="Task aborted: a robot control node runs twice. Stop the extra copy; the trace names it."/>
+          <AlwaysFailure/>
+        </Sequence>
+      </Fallback>
+      <Fallback>
+        <no_stray_processes/>
+        <Sequence>
+          <say text="Some nodes run outside the launch or are left over. Going on; the trace lists them."/>
+          <Sleep msec="4500"/>
+          <AlwaysSuccess/>
+        </Sequence>
+      </Fallback>
+    </Sequence>
   </BehaviorTree>
 
   <!-- SLAM must be localized and healthy. If not, the robot asks to be relocalized (Foxglove /initialpose; after a LIO
