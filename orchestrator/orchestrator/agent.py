@@ -33,6 +33,14 @@ PHASE_DECISIONS = {
 GOING_ON = {'reposition', 'switch_arm', 'offset_retry', 'retry', 'continue', 'pressed', 'confirmed'}
 MAX_PRESS_OFFSET_M = 0.05               # an offset_retry corrects millimetres; a larger miss needs another decision
 RULE_MISS_M        = (0.005, 0.050)     # a first miss this far from the goal in the button plane is corrected without the agent
+RULE_SHORT_M       = 0.003              # a press that stopped this far short along the button normal, aimed well, goes deeper
+RULE_DEPTH_MARGIN_M = 0.005             # pushed this much past the shortfall
+STANCE_TOLERANCE_M   = 0.06             # farther than this from the base goal, the executor sends the base goal again
+STANCE_TOLERANCE_RAD = 0.15             # or turned more than this from it (8.6 deg)
+STANCE_RULE_MAX      = 2                # base goals re-sent per press before the agent decides
+REPOSITION_LIMITS_M  = {'forward': 0.15, 'back': 0.60, 'side': 0.25}   # from the base goal; it stands near the panel
+REACH_RULE_MAX       = 2                # reach moves per press before the agent decides
+STANCE_CHANGED_M     = 0.03             # the press target moved this much in pelvis since a passed check_reach: the stance changed
 
 MAX_READ_BYTES = 200_000
 MAX_TOOL_TEXT  = 40_000
@@ -55,7 +63,7 @@ DECISION_SPEECH = {
     'offset_retry': 'Correcting my aim and pressing again.',
     'retry':        'Trying the press again.',
     'abort':        'I cannot press this button. Stopping the task.',
-    'continue':     'My stance looks fine. Pressing now.',
+    'continue':     'My stance looks fine. Looking at the button again from here.',
     'pressed':      'The button is pressed.',
     'not_pressed':  'I missed the button.',
 }
@@ -262,6 +270,10 @@ def _tool_specs(phase: str) -> list[dict]:
     ]
 
 
+WALK_MIN_M      = 0.10      # navigate_to ends a shorter walk without a step (E-002/E-016)
+APPROACH_BACK_M = 0.15      # a short reposition walks out this far behind its goal, then onto it
+
+
 def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
     """base moved by (dx, dy) in its own frame (x along its yaw) and turned by dyaw"""
     yaw = float(base.get('yaw', 0.0))
@@ -282,7 +294,8 @@ def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
 def rule_offset(last_failure: dict | None, history: list[dict], residual: list | None,
                 press_offset: list | None = None) -> dict | None:
     """offset_retry without the agent: the first diagnosis after a press that reached its goal and missed the button
-    by RULE_MISS_M in its plane. The new offset is the offset in force minus the residual, as the agent would set it.
+    by RULE_MISS_M in its plane, or hit it in the plane but stopped over RULE_SHORT_M short along its normal. The new
+    offset is the offset in force minus the residual, as the agent would set it, and RULE_DEPTH_MARGIN_M deeper if short.
     press_offset: the offset the press used, from its capture; without it, the last set_press_offset since the last
     press judged pressed (0 when there is none), which misses an offset set before that press"""
     failure = last_failure or {}
@@ -295,30 +308,111 @@ def rule_offset(last_failure: dict | None, history: list[dict], residual: list |
     if any(record.get('skill') == 'manipulation_recovery' and record.get('phase') == 'diagnose' for record in since):
         return None
 
-    miss = math.hypot(residual[1], residual[2])
+    miss  = math.hypot(residual[1], residual[2])
+    short = residual[0] < -RULE_SHORT_M
 
-    if not RULE_MISS_M[0] < miss < RULE_MISS_M[1]:
+    if not (RULE_MISS_M[0] < miss < RULE_MISS_M[1] or (miss <= RULE_MISS_M[0] and short)):
         return None
 
     offsets   = [record.get('inputs', {}) for record in since if record.get('skill') == 'set_press_offset']
     in_force  = ([float(value) for value in press_offset] if press_offset is not None and len(press_offset) == 3 else
                  [float(offsets[-1].get(axis, 0.0)) if offsets else 0.0 for axis in 'xyz'])
     corrected = [round(force - miss_axis, 4) for force, miss_axis in zip(in_force, residual)]
+    corrected[0] = round(corrected[0] + (RULE_DEPTH_MARGIN_M if short else 0.0), 4)
 
     if max(abs(value) for value in corrected) > MAX_PRESS_OFFSET_M:
         return None
 
+    found = f'missed by {miss * 1000:.1f} mm in the button plane' if miss > RULE_MISS_M[0] else 'hit the button in its plane'
+    depth = f' and stopped {-residual[0] * 1000:.1f} mm short (pushing {RULE_DEPTH_MARGIN_M * 1000:g} mm past it)' if short else ''
+
     return {
         'decision': 'offset_retry',
-        'reason':   f'rule: the press reached its goal and missed by {miss * 1000:.1f} mm in the button plane '
+        'reason':   f'rule: the press reached its goal, {found}{depth} '
                     f'(residual {[round(value * 1000, 1) for value in residual]} mm); offset {[round(v * 1000, 1) for v in in_force]} '
                     f'-> {[round(v * 1000, 1) for v in corrected]} mm',
         'ox': corrected[0], 'oy': corrected[1], 'oz': corrected[2],
     }
 
 
-def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None) -> dict:
-    """What the tree gets: decision, reason, goal (base_goal, moved for a reposition), left_arm, offset"""
+def rule_stance(evidence: dict | None, history: list[dict]) -> dict | None:
+    """reposition onto the target stance without the agent, when the robot stands off it by more than the stance tolerance.
+    The target is the offset of the last reposition since the last press judged pressed, else the base goal. At most
+    STANCE_RULE_MAX times; then the agent decides"""
+    off     = (evidence or {}).get('stance_from_base_goal')
+    pressed = [index for index, record in enumerate(history) if record.get('skill') == 'press_judge' and record.get('decision') == 'pressed']
+    since   = history[pressed[-1] + 1:] if pressed else history
+    sent    = [record for record in since if record.get('skill') == 'manipulation_recovery' and record.get('rule')
+               and str(record.get('reason', '')).startswith('rule: the robot stands')]
+    moved   = [record.get('offset') for record in since if record.get('skill') == 'manipulation_recovery'
+               and record.get('decision') == 'reposition' and isinstance(record.get('offset'), dict)]
+
+    if off is None or len(sent) >= STANCE_RULE_MAX:
+        return None
+
+    # The agent may have asked to stand off the base goal on purpose (a back-off for the camera): that stance is the target
+    target   = {key: float((moved[-1] if moved else {}).get(key, 0.0)) for key in ('dx', 'dy', 'dyaw')}
+    forward  = off['forward_m'] - target['dx']
+    left     = off['left_m'] - target['dy']
+    yaw      = math.atan2(math.sin(off['yaw_rad'] - target['dyaw']), math.cos(off['yaw_rad'] - target['dyaw']))
+    distance = math.hypot(forward, left)
+
+    if distance <= STANCE_TOLERANCE_M and abs(yaw) <= STANCE_TOLERANCE_RAD:
+        return None
+
+    goal = 'the base goal' if not moved else f'the target stance (dx {target["dx"]:+.3f}, dy {target["dy"]:+.3f})'
+
+    return {
+        'decision': 'reposition',
+        'reason':   f'rule: the robot stands {distance:.3f} m and {math.degrees(yaw):+.1f} deg off {goal} '
+                    f'(forward {forward:+.3f}, left {left:+.3f}): sending it again',
+        **target,
+    }
+
+
+def rule_reach(evidence: dict | None, history: list[dict], last_failure: dict | None) -> dict | None:
+    """reposition by the IK miss without the agent: a failed check_reach at this stance whose miss walking can fix
+    within REPOSITION_LIMITS_M. At most REACH_RULE_MAX times since the last press judged pressed; then the agent decides"""
+    move    = (evidence or {}).get('reach_move') or {}
+    reach   = (evidence or {}).get('reach') or {}
+    pressed = [index for index, record in enumerate(history) if record.get('skill') == 'press_judge' and record.get('decision') == 'pressed']
+    since   = history[pressed[-1] + 1:] if pressed else history
+    sent    = [record for record in since if record.get('skill') == 'manipulation_recovery' and record.get('rule')
+               and str(record.get('reason', '')).startswith('rule: the IK check')]
+
+    if (last_failure or {}).get('skill') != 'check_reach' or not move.get('fixable') or not move.get('within_limits'):
+        return None
+
+    if len(sent) >= REACH_RULE_MAX:
+        return None
+
+    miss = reach['pelvis_error_m']
+
+    return {
+        'decision': 'reposition',
+        'reason':   f'rule: the IK check missed by x {miss["x"] * 1000:+.0f} y {miss["y"] * 1000:+.0f} z {miss["z"] * 1000:+.0f} mm '
+                    f'in pelvis (arm end minus target): stepping {move["step_pelvis_m"]} m in pelvis, to dx {move["dx"]:+.3f} '
+                    f'dy {move["dy"]:+.3f} dyaw {move["dyaw"]:+.3f} from the base goal',
+        'dx': move['dx'], 'dy': move['dy'], 'dyaw': move['dyaw'],
+    }
+
+
+def stance_unchanged(evidence: dict | None) -> str:
+    """Why a diagnosis may not reposition: the press ran from a stance check_reach passed, and its target has not moved
+    in pelvis since. Empty when a reposition is open"""
+    reach = (evidence or {}).get('reach') or {}
+    moved = reach.get('target_moved_since_check_m')
+
+    if not reach.get('reachable') or moved is None or moved['norm'] >= STANCE_CHANGED_M:
+        return ''
+
+    return (f'check_reach passed from this stance ({reach.get("message", "")}), and the press target has moved only '
+            f'{moved["norm"] * 1000:.0f} mm in pelvis since (under {STANCE_CHANGED_M * 1000:.0f} mm): the stance did not '
+            'change, so walking does not fix this press. Look at tracking, the target, aim or a step instead')
+
+
+def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None, robot: dict | None = None) -> dict:
+    """What the tree gets: decision, reason, goal (base_goal, moved for a reposition), approach, walk_in, left_arm, offset"""
     failed_call   = (last_failure or {}).get('checked_call') or last_failure or {}     # a failed check: the call it checked
     failed_inputs = failed_call.get('inputs', {})
     base_goal     = inputs.get('base_goal')
@@ -326,6 +420,7 @@ def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None) ->
         'decision': decision['decision'],
         'reason':   decision['reason'],
         'left_arm': bool(failed_inputs.get('left_arm', False)),
+        'walk_in':  'no',
     }
 
     if base_goal is not None:
@@ -335,6 +430,11 @@ def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None) ->
         offset            = {key: float(decision.get(key, 0.0)) for key in ('dx', 'dy', 'dyaw')}
         outputs['offset'] = offset
         outputs['goal']   = offset_goal(base_goal, offset['dx'], offset['dy'], offset['dyaw'])
+        outputs['approach'] = outputs['goal']
+
+        if robot is not None and math.hypot(outputs['goal']['x'] - robot['x'], outputs['goal']['y'] - robot['y']) < WALK_MIN_M:
+            outputs['walk_in']  = 'yes'
+            outputs['approach'] = offset_goal(outputs['goal'], -APPROACH_BACK_M, 0.0, 0.0)
 
     if decision['decision'] == 'switch_arm':
         outputs['left_arm'] = bool(decision['use_left_arm'])
@@ -525,6 +625,16 @@ class AgentSession:
             if dx is None or dy is None:
                 return ToolOutput('reposition needs dx and dy (dyaw defaults to 0)', is_error=True)
 
+            if self.phase == 'diagnose' and (unchanged := stance_unchanged(self.evidence.get('stance'))):
+                return ToolOutput(unchanged, is_error=True)
+
+            if dx > REPOSITION_LIMITS_M['forward'] or dx < -REPOSITION_LIMITS_M['back'] or abs(dy) > REPOSITION_LIMITS_M['side']:
+                return ToolOutput(f'a reposition stays within {REPOSITION_LIMITS_M["forward"]:g} m past the base goal, '
+                                  f'{REPOSITION_LIMITS_M["back"]:g} m behind it and {REPOSITION_LIMITS_M["side"]:g} m to the side: '
+                                  'the base goal stands close to the panel, so more puts the robot into it. A target that '
+                                  'looks farther than that is a wrong detection, not a wrong stance: choose another decision',
+                                  is_error=True)
+
         if decision == 'switch_arm' and use_left_arm is None:
             return ToolOutput('switch_arm needs use_left_arm', is_error=True)
 
@@ -622,7 +732,17 @@ class Agent:
 
             if phase == 'diagnose' and (rule := self._rule(evidence)) is not None:
                 self.on_event('agent_rule', rule['reason'], phase=phase)
-                return {**decision_outputs(rule, inputs, evidence['last_failure']), 'rule': True}
+                return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True}
+
+            if phase in STANCE_PHASES and (rule := rule_stance(evidence.get('stance'), evidence['history'])) is not None:
+                self.on_event('agent_rule', rule['reason'], phase=phase)
+                self._say('I am not standing where I should. Walking to my spot again.')
+                return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True}
+
+            if phase == 'stance_check' and (rule := rule_reach(evidence.get('stance'), evidence['history'], evidence['last_failure'])):
+                self.on_event('agent_rule', rule['reason'], phase=phase)
+                self._say('The button is just out of my reach. Stepping closer to it.')
+                return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True}
 
             system  = (Path(self.config.skills_dir) / f'{contract.interface.skill}.md').read_text()
             known   = self.config.knowledge.prompt_section(observations=True) if self.config.knowledge else ''
@@ -643,7 +763,7 @@ class Agent:
             if phase == 'judge' and session.decision['decision'] == 'pressed':
                 self._keep_reference(inputs, evidence.get('press') or {})
 
-            return decision_outputs(session.decision, inputs, evidence['last_failure'])
+            return decision_outputs(session.decision, inputs, evidence['last_failure'], self._robot())
 
         return AgentHandle(self._pool, work)
 
@@ -676,7 +796,17 @@ class Agent:
         return stance.evidence(inputs.get('base_goal'), robot,
                                stance.transform_point(self.ros.tf('pelvis', PRESS_FRAME, 1.0), goal) if goal else None,
                                stance.transform_point(self.ros.tf('map', PRESS_FRAME, 1.0), goal) if goal else None,
-                               (call.get('inputs') or {}).get('left_arm'), button, stance.load_references())
+                               (call.get('inputs') or {}).get('left_arm'), button, stance.load_references(),
+                               stance.latest_reach(failure, evidence.get('history')), REPOSITION_LIMITS_M)
+
+    def _robot(self) -> dict | None:
+        if self.ros is None:
+            return None
+
+        try:
+            return stance.pose_2d(self.ros.tf('map', 'pelvis', 1.0))
+        except Exception:                               # no transform: the tree walks straight to the goal
+            return None
 
     def _keep_reference(self, inputs: dict, press: dict):
         """A press judged pressed becomes the reference for later presses on this button"""
@@ -712,14 +842,15 @@ def _task(phase: str, inputs: dict) -> str:
                      'following the skill document, and end with decide: pressed or not_pressed.')
     elif phase == 'diagnose':
         lines.append('The press did not work: press_button failed, or it succeeded and press_judge said not_pressed; '
-                     'get_failure says which. Work out why, following "How to work", and end with decide.')
+                     'get_failure says which. The press ran only after button_in_view and check_reach passed: get_stance '
+                     'reach. Work out why, following "How to work", and end with decide.')
     elif phase == 'confirm':
         lines.append(f'Ask the operator, and decide from their reply only: {inputs.get("question", "")} '
                      'confirmed when they say yes; not_confirmed when they say no. Without a reply the call times out.')
     elif phase == 'stance_check':
-        lines.append('The walk to the panel has arrived and nothing has been pressed yet. button_in_view failed: '
-                     'get_failure says what it measured. Check the '
-                     'stance, following "Before the first press", and end with decide.')
+        lines.append('The walk to the panel has arrived and nothing has been pressed yet. button_in_view or check_reach '
+                     'failed: get_failure says which and what it measured; get_stance reach_move is the reposition the IK '
+                     'miss asks for. Check the stance, following "Before the first press", and end with decide.')
 
     if inputs.get('target_description'):
         lines.append(f'Button: {inputs["target_description"]}.')

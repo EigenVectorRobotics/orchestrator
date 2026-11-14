@@ -10,7 +10,7 @@
        1. Walk to the call panel (floor 2: through its preapproach; floor 1 has none) and press the call button (the
           operator may press it too). door_open (lidar) is checked on every tick: once the door opens, the walk or the
           press is halted, the arms are released and, 1 s later, the robot walks straight to the inside panel.
-       2. In the cabin: EKF hold and press the goal floor button. Checked on every tick: inside_cabin, at_floor
+       2. In the cabin: press the goal floor button (each look resets the EKF). Checked on every tick: inside_cabin, at_floor
           {goal_floor} and door_open. Once all three hold, the press or the wait is halted and the arms are released;
           LIO leaves elevator mode and, once localized, the robot walks out: the door-out place of the goal floor, a
           relocalization there, then {goal}.

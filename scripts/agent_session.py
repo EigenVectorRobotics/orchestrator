@@ -23,10 +23,12 @@ USAGE = '''Run agent_cli on the robot from the laptop, for a Claude Code session
 wait and show sync the skill documents into <local>/skills/ before the call, saying whether they changed since the last
 call, and put the press frames of a judge call in <local>/<call id>/, printing their local paths. wait pulls each frame
 as soon as the executor saves it, so a judge call finds them here. All commands share one ssh connection. Every command
-is timed into <local>/timing.jsonl.'''
+is timed into <local>/timing.jsonl. wait and decide --send write the call's record for the Run Viewer, as
+agent_responder.py does, and keep it in <local>/<call id>/session.json.'''
 
-FRAME_WAIT_S = 30.0
-SSH = ['-o', 'ControlMaster=auto', '-o', 'ControlPath=~/.ssh/agent_session_%C', '-o', 'ControlPersist=900']
+FRAME_WAIT_S  = 30.0
+SESSION_MODEL = 'claude-code session'
+SSH           = ['-o', 'ControlMaster=auto', '-o', 'ControlPath=~/.ssh/agent_session_%C', '-o', 'ControlPersist=900']
 
 # Prints each new press frame on the robot once it is whole (a JPEG ends with FF D9)
 WATCH = '''
@@ -67,8 +69,9 @@ def main():
     arguments.args = [arg for arg in arguments.args if arg != '--no-wait']
     status         = timed(arguments)
 
-    if chain and status == 0:
-        print('decision sent; waiting for the next call', flush=True)
+    # A failed send (the call already closed: the ride ended it, or it timed out) waits too, or the next call finds nobody
+    if chain:
+        print('decision sent; waiting for the next call' if status == 0 else 'decision not taken; waiting for the next call', flush=True)
         last                              = arguments.local / 'last_call'
         arguments.answered                = last.read_text().strip() if last.is_file() else ''
         arguments.command, arguments.args = 'wait', []
@@ -93,11 +96,24 @@ def run(arguments) -> int:
     if arguments.command in ('wait', 'show'):
         status, call = fetch_call(arguments)
 
+        # A wait returns only with a call: a timeout or a lost connection waits again
+        while arguments.command == 'wait' and call is None:
+            time.sleep(1.0)
+            status, call = fetch_call(arguments, sync=False)
+
         if call:
             print(call['summary'])
             print(call['docs_line'])
 
+            if arguments.command == 'wait':
+                open_record(arguments, call)
+
         return status
+
+    if arguments.command == 'decide' and '--send' in arguments.args:
+        result = remote_cli(arguments, [arguments.command, *arguments.args], echo=True)
+        close_record(arguments, result)
+        return result.returncode
 
     if arguments.command == 'image' and len(arguments.args) == 2:
         remote = f'/tmp/agent_session_{int(time.time() * 1000)}.jpg'
@@ -180,6 +196,46 @@ def fetch_call(arguments, prefetching: bool = False, sync: bool = True) -> tuple
             summary     = summary.replace(remote, local[name])
 
     return 0, {'request': request, 'summary': summary, 'docs_line': docs_line, 'frames': local}
+
+
+def open_record(arguments, call: dict):
+    request = call['request']
+    folder  = arguments.local / request['id']
+    folder.mkdir(parents=True, exist_ok=True)
+    head    = {'call': request['id'], 'skill': request['skill'], 'model': SESSION_MODEL, 'effort': None,
+               'started': round(time.time(), 1), 'prompt': call['summary']}
+    (folder / 'session.json').write_text(json.dumps(head, indent=1))
+    publish(arguments, {**head, 'state': 'thinking'})
+
+
+def close_record(arguments, result: subprocess.CompletedProcess):
+    last   = arguments.local / 'last_call'
+    record = arguments.local / (last.read_text().strip() if last.is_file() else '') / 'session.json'
+
+    if not last.is_file() or not record.is_file():
+        return
+
+    # agent_cli decide prints the decision it sends as JSON, before the executor's reply
+    head     = json.loads(record.read_text())
+    output   = result.stdout
+    decision = json.JSONDecoder().raw_decode(output[output.index('{'):])[0] if '{' in output else None
+    lines    = (result.stdout + result.stderr).strip().splitlines()
+
+    if decision:
+        decision.pop('id', None)
+
+    log = {**head, 'state': 'answered' if result.returncode == 0 else 'failed', 'decision': decision,
+           'sent': lines[-1] if lines else f'decide exited {result.returncode}', 'seconds': round(time.time() - head['started'], 1)}
+    record.write_text(json.dumps(log, indent=1))
+    publish(arguments, log)
+
+
+def publish(arguments, log: dict):
+    """The call's record next to the newest recorder session on the robot, where the Run Viewer reads it"""
+    command = ('session=$(dirname "$(ls -t ~/orch_runs/*/events.jsonl 2>/dev/null | head -1)") && '
+               f'mkdir -p "$session/agent_calls" && cat > "$session/agent_calls/{log["call"]}.json"')
+    subprocess.run(['ssh', *SSH, arguments.host, f'bash -lc {shlex.quote(command)}'], input=json.dumps(log, indent=1),
+                   capture_output=True, text=True)
 
 
 def remote_skill_dir(arguments) -> str:

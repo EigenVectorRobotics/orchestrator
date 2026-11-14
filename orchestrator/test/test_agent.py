@@ -9,7 +9,7 @@ import pytest
 from skill_registry import Registry, TreeValidator, ValidatorConfig, load_tree
 
 from orchestrator import agent_backends
-from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentConfig, AgentSession, decision_outputs, offset_goal, rule_offset
+from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentConfig, AgentSession, decision_outputs, offset_goal, rule_offset, rule_reach, rule_stance
 from orchestrator.agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
 from orchestrator.agent_external import ExternalAgentBackend
 from orchestrator.agent_sandbox import SandboxConfig, run_python
@@ -97,6 +97,13 @@ def test_offset_goal_moves_in_the_goal_frame():
 
 def test_decision_outputs_keep_the_arm_unless_switched():
     failure = {'inputs': {'left_arm': True}}
+    near    = decision_outputs({'decision': 'reposition', 'reason': 'r', 'dx': 0.05, 'dy': 0.0}, {'base_goal': PANEL}, failure,
+                               {'x': PANEL['x'], 'y': PANEL['y'], 'yaw': PANEL['yaw']})
+    far     = decision_outputs({'decision': 'reposition', 'reason': 'r', 'dx': 0.4, 'dy': 0.0}, {'base_goal': PANEL}, failure,
+                               {'x': PANEL['x'], 'y': PANEL['y'], 'yaw': PANEL['yaw']})
+    assert near['walk_in'] == 'yes' and math.isclose(math.dist((near['approach']['x'], near['approach']['y']),
+                                                             (near['goal']['x'], near['goal']['y'])), 0.15)
+    assert far['walk_in'] == 'no' and far['approach'] == far['goal']
     retry   = decision_outputs({'decision': 'retry', 'reason': 'r'}, {'base_goal': PANEL}, failure)
     switch  = decision_outputs({'decision': 'switch_arm', 'reason': 'r', 'use_left_arm': False}, {'base_goal': PANEL}, failure)
 
@@ -116,7 +123,7 @@ def test_decide_checks_the_phase_and_the_fields(tmp_path):
     diagnose = AgentSession('diagnose', {'base_goal': PANEL}, {}, None, _config(tmp_path), lambda *a, **k: None)
 
     assert diagnose.call('decide', {'decision': 'reposition', 'reason': 'far', 'dx': 0.2}).is_error   # no dy
-    assert diagnose.call('decide', {'decision': 'reposition', 'reason': 'far', 'dx': 0.2, 'dy': 0.0}).final
+    assert diagnose.call('decide', {'decision': 'reposition', 'reason': 'far', 'dx': 0.1, 'dy': 0.0}).final
 
 
 def test_read_file_stays_inside_its_roots(tmp_path):
@@ -186,6 +193,64 @@ def test_polled_conditions_are_not_recorded():
     assert tree.context.history == [] and tree.context.last_failure is None
 
 
+def test_check_reach_records_every_answer():
+    body   = ('<root BTCPP_format="4"><BehaviorTree ID="t"><Sequence><check_reach left_arm="false"/>'
+              '<check_reach left_arm="true"/></Sequence></BehaviorTree></root>')
+    passed = _tree(body, FakeRunner([]), None)
+    failed = _tree(body, FakeRunner([], failing=('check_reach',)), None)
+
+    assert _run(passed) == Status.SUCCESS and [record['status'] for record in passed.context.history] == ['success', 'success']
+    assert _run(failed) == Status.FAILURE and failed.context.last_failure['skill'] == 'check_reach'
+
+
+def test_a_look_resets_the_ekf_after_the_mode_change_and_before_the_check_and_the_press_does_not():
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 2)
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    names = runner.names()
+    press = names.index('press_button')
+    assert names.index('set_mode') < names.index('reset_ekf') < names.index('check_reach') < press
+    assert names[names.index('check_reach'):press].count('reset_ekf') == 0 and 'set_mode' not in names[names.index('check_reach'):press]
+
+
+def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(tmp_path):
+    backend = ScriptedAgentBackend([
+        [['get_failure', {}], ['decide', {'decision': 'reposition', 'reason': 'stalled 0.13 m short', 'dx': 0.15, 'dy': 0.0}]],
+    ])
+    runner  = FakeRunner([MISS, (True, 'Controller reached target', [])])
+    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
+
+    assert _run(tree) == Status.SUCCESS
+
+    walks = [inputs['goal'] for name, inputs in runner.calls if name == 'navigate_to']
+
+    assert len(walks) == 2 and walks[1]['y'] == pytest.approx(2.15)
+    assert 'Planning failed' in backend.calls[0][2].text                   # the agent saw the recorded failure
+    assert [record['decision'] for record in tree.context.history if 'decision' in record] == ['reposition']
+    names = [name for name, _ in runner.calls]
+    assert names.index('navigate_to', 1) < names.index('button_in_view') < names.index('press_button', names.index('navigate_to', 1))
+
+
+def test_abort_ends_the_tree_at_once(tmp_path):
+    backend = ScriptedAgentBackend([[['decide', {'decision': 'abort', 'reason': 'button not in view'}]]])
+    runner  = FakeRunner([MISS])
+    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
+
+    assert _run(tree) == Status.FAILURE
+    assert 'button not in view' in tree.context.abort_reason
+    assert 'say' not in [name for name, _ in runner.calls]                 # no fallback ran after the abort
+
+
+def test_after_ask_help_the_agent_is_not_called_again(tmp_path):
+    backend = ScriptedAgentBackend([[['decide', {'decision': 'ask_help', 'reason': 'wrong object tracked'}]]])
+    runner  = FakeRunner([MISS])
+    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
+
+    assert _run(tree) == Status.SUCCESS                                    # a person is asked; the door then opens
+    assert len(backend.calls) == 1
+    assert 'say' in [name for name, _ in runner.calls]
+
+
 def test_the_round_budget_stops_the_agent(tmp_path):
     retry   = [['decide', {'decision': 'retry', 'reason': 'try again'}]]
     backend = ScriptedAgentBackend([retry])
@@ -227,44 +292,6 @@ def test_the_executor_says_when_a_call_opens_and_what_was_decided(tmp_path):
 
     assert _run(tree) == Status.SUCCESS
     assert spoken == [PHASE_SPEECH['diagnose'], DECISION_SPEECH['retry']]
-
-
-def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(tmp_path):
-    backend = ScriptedAgentBackend([
-        [['get_failure', {}], ['decide', {'decision': 'reposition', 'reason': 'stalled 0.13 m short', 'dx': 0.15, 'dy': 0.0}]],
-    ])
-    runner  = FakeRunner([MISS, (True, 'Controller reached target', [])])
-    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
-
-    assert _run(tree) == Status.SUCCESS
-
-    walks = [inputs['goal'] for name, inputs in runner.calls if name == 'navigate_to']
-
-    assert len(walks) == 2 and walks[1]['y'] == pytest.approx(2.15)
-    assert 'Planning failed' in backend.calls[0][2].text                   # the agent saw the recorded failure
-    assert [record['decision'] for record in tree.context.history if 'decision' in record] == ['reposition']
-    names = [name for name, _ in runner.calls]
-    assert names.index('navigate_to', 1) < names.index('button_in_view') < names.index('press_button', names.index('navigate_to', 1))
-
-
-def test_abort_ends_the_tree_at_once(tmp_path):
-    backend = ScriptedAgentBackend([[['decide', {'decision': 'abort', 'reason': 'button not in view'}]]])
-    runner  = FakeRunner([MISS])
-    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
-
-    assert _run(tree) == Status.FAILURE
-    assert 'button not in view' in tree.context.abort_reason
-    assert 'say' not in [name for name, _ in runner.calls]                 # no fallback ran after the abort
-
-
-def test_after_ask_help_the_agent_is_not_called_again(tmp_path):
-    backend = ScriptedAgentBackend([[['decide', {'decision': 'ask_help', 'reason': 'wrong object tracked'}]]])
-    runner  = FakeRunner([MISS])
-    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
-
-    assert _run(tree) == Status.SUCCESS                                    # a person is asked; the door then opens
-    assert len(backend.calls) == 1
-    assert 'say' in [name for name, _ in runner.calls]
 
 
 def test_the_agentic_tree_validates_online_only():
@@ -755,7 +782,7 @@ def test_each_press_checks_the_stance_then_presses_and_judges():
     presses = [inputs for name, inputs in runner.calls if name == 'press_button']
     assert [press['target_description'] for press in presses] == ['down button', 'floor 2']
     offsets = [inputs for name, inputs in runner.calls if name == 'set_press_offset']
-    assert [(o['x'], o['y'], o['z']) for o in offsets] == [(0.0, 0.0, 0.0)] * 2                # no offset before a first press
+    assert [(o['x'], o['y'], o['z']) for o in offsets] == [(0.0, 0.0, 0.0), (0.003, 0.003, 0.003)]  # each panel's base offset before a first press
     says  = [(index, inputs['text']) for index, (name, inputs) in enumerate(runner.calls) if name == 'say']
     holds = [index for index, text in says if text == 'Holding still to reset my balance estimate.']
     assert len(holds) == 2                                                                  # before each press
@@ -781,7 +808,7 @@ def test_an_offset_retry_presses_again_with_the_offset_the_agent_gave():
 
     assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
     offsets = [(o['x'], o['y'], o['z']) for name, o in runner.calls if name == 'set_press_offset']
-    assert offsets == [(0.0, 0.0, 0.0), (0.012, 0.0126, 0.0032), (0.0, 0.0, 0.0)]   # call press, its retry, the floor press
+    assert offsets == [(0.0, 0.0, 0.0), (0.012, 0.0126, 0.0032), (0.003, 0.003, 0.003)]   # call press, its retry, the floor press
     assert runner.names().count('press_button') == 3
 
 
@@ -810,7 +837,7 @@ def test_a_reposition_whose_three_looks_fail_ends_the_task_without_asking():
 
 
 def test_a_failed_stance_check_keeps_the_arm_the_rule_chose():
-    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 2, stance=[False, False],
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 2, stance=[False, True, False, True],
                                decisions=[{'decision': 'continue', 'left_arm': True}, {'decision': 'continue', 'left_arm': True}])
 
     assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
@@ -853,11 +880,45 @@ def test_the_stance_loop_gives_up_after_three_repositions_and_asks_for_help():
     names  = runner.names()
     stance = [inputs for name, inputs in runner.calls if name == 'manipulation_recovery' and inputs['phase'] == 'stance_check']
     says   = [inputs['text'] for name, inputs in runner.calls if name == 'say']
+    ask    = next(index for index, (name, inputs) in enumerate(runner.calls) if name == 'say' and inputs['text'].startswith('Please press'))
     assert len(stance) == 4                                             # one after each of the four looks
-    assert names[:names.index('say', names.index('manipulation_recovery'))].count('navigate_to') == 5   # panel, offset 0, 3 repositions
+    assert names[:ask].count('navigate_to') == 5                        # panel, offset 0, 3 repositions
     assert 'Please press the call button for me.' in says
-    assert names.index('release_arms') < names.index('say', names.index('manipulation_recovery'))
+    assert names.index('release_arms') < ask
     assert 'press_button' not in names[:names.index('release_arms')]    # no blind press at the call panel
+
+
+class FirstLookWalkFails(LibraryRideRunner):
+    def _other(self, name, contract, inputs):
+        if name == 'navigate_to' and self.names().count('navigate_to') == 1:     # the walk to the call panel, then the look's
+            self.calls.append((name, inputs))
+            return FakeHandle(Status.FAILURE, 'blocked')
+
+        return super()._other(name, contract, inputs)
+
+
+def test_continue_after_a_failed_walk_resets_the_ekf_and_checks_before_the_press():
+    runner = FirstLookWalkFails([(True, 'Controller reached target', [])] * 2)
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    names = runner.names()
+    first = names[:names.index('press_button')]
+    agent = first.index('manipulation_recovery')
+    assert 'reset_ekf' not in first[:agent]                                              # the look's walk failed before any reset
+    assert first[agent:].count('reset_ekf') == 1
+    assert first.index('reset_ekf', agent) < first.index('button_in_view', agent) < first.index('check_reach', agent)
+
+
+def test_continue_after_a_failed_check_looks_again_without_a_second_reset():
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 2, stance=[False, False, True])
+
+    assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
+    first = runner.names()[:runner.names().index('press_button')]
+    agent = first.index('manipulation_recovery')
+    walk  = first.index('navigate_to', agent)
+    assert first[agent:walk].count('reset_ekf') == 0 and 'button_in_view' in first[agent:walk]   # continue looks here, reset kept
+    assert first[walk:].count('reset_ekf') == 1                                                     # the next look walks: a new reset
+    assert first.count('button_in_view') == 3 and 'check_reach' in first[walk:]
 
 
 def test_a_door_that_opens_during_the_judge_halts_the_press_and_walks_in():
@@ -905,3 +966,83 @@ def test_the_rule_needs_a_judged_press_and_a_residual():
     assert rule_offset(failed_press, [], [-0.002, 0.01, 0.0]) is None
     assert rule_offset(JUDGED_MISS, [], None) is None
 
+
+def test_the_stance_rule_sends_the_base_goal_again_when_the_robot_stands_off_it():
+    far    = {'stance_from_base_goal': {'forward_m': -0.286, 'left_m': 0.22, 'yaw_rad': -0.421}}
+    turned = {'stance_from_base_goal': {'forward_m': -0.02, 'left_m': 0.01, 'yaw_rad': 0.2}}
+    near   = {'stance_from_base_goal': {'forward_m': -0.04, 'left_m': 0.03, 'yaw_rad': -0.1}}
+
+    rule = rule_stance(far, [])
+    assert rule['decision'] == 'reposition' and (rule['dx'], rule['dy'], rule['dyaw']) == (0.0, 0.0, 0.0)
+    assert rule_stance(turned, [])['decision'] == 'reposition'
+    assert rule_stance(near, []) is None
+    assert rule_stance({'stance_from_base_goal': None}, []) is None
+
+
+def test_the_stance_rule_gives_way_to_the_agent_after_two_resends_until_a_press_works():
+    far     = {'stance_from_base_goal': {'forward_m': -0.3, 'left_m': 0.0, 'yaw_rad': 0.0}}
+    resent  = {'skill': 'manipulation_recovery', 'rule': True, 'reason': rule_stance(far, [])['reason']}
+    pressed = {'skill': 'press_judge', 'decision': 'pressed'}
+
+    assert rule_stance(far, [resent]) is not None
+    assert rule_stance(far, [resent, resent]) is None
+    assert rule_stance(far, [resent, resent, pressed]) is not None
+
+
+def test_a_reposition_into_the_panel_is_refused(tmp_path):
+    session = AgentSession('diagnose', {'base_goal': PANEL}, {}, None, _config(tmp_path), lambda *a, **k: None)
+
+    assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.39, 'dy': 0.1}).is_error
+    assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.0, 'dy': 0.3}).is_error
+    assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': -0.7, 'dy': 0.0}).is_error
+    assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': -0.05}).final
+
+
+REACH_MISS = {'skill': 'check_reach', 'status': 'failure', 'outputs': {}}
+REACH_MOVE = {'reach': {'reachable': False, 'pelvis_error_m': {'x': -0.08, 'y': 0.01, 'z': 0.0}},
+              'reach_move': {'fixable': True, 'within_limits': True, 'dx': 0.1, 'dy': -0.01, 'dyaw': 0.0, 'step_pelvis_m': [0.1, -0.01]}}
+
+
+def test_the_reach_rule_walks_by_the_ik_miss_after_a_failed_check():
+    rule = rule_reach(REACH_MOVE, [], REACH_MISS)
+
+    assert rule['decision'] == 'reposition' and (rule['dx'], rule['dy'], rule['dyaw']) == (0.1, -0.01, 0.0)
+    assert rule_reach(REACH_MOVE, [], {'skill': 'button_in_view'}) is None
+    assert rule_reach({**REACH_MOVE, 'reach_move': {**REACH_MOVE['reach_move'], 'within_limits': False}}, [], REACH_MISS) is None
+    assert rule_reach({**REACH_MOVE, 'reach_move': {'fixable': False}}, [], REACH_MISS) is None
+
+
+def test_the_reach_rule_gives_way_to_the_agent_after_two_moves():
+    moved = {'skill': 'manipulation_recovery', 'rule': True, 'reason': rule_reach(REACH_MOVE, [], REACH_MISS)['reason']}
+
+    assert rule_reach(REACH_MOVE, [moved], REACH_MISS) is not None
+    assert rule_reach(REACH_MOVE, [moved, moved], REACH_MISS) is None
+
+
+def test_a_diagnosis_may_not_reposition_from_a_stance_the_reach_check_passed(tmp_path):
+    def session(moved):
+        reach = {'reachable': True, 'message': 'in reach', 'target_moved_since_check_m': {'xyz': [moved, 0.0, 0.0], 'norm': moved}}
+        return AgentSession('diagnose', {'base_goal': PANEL}, {'stance': {'reach': reach}}, None, _config(tmp_path), lambda *a, **k: None)
+
+    assert session(0.01).call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': 0.0}).is_error
+    assert session(0.01).call('decide', {'decision': 'retry', 'reason': 'r'}).final
+    assert session(0.05).call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': 0.0}).final
+
+
+def test_the_stance_rule_keeps_the_stance_a_reposition_asked_for():
+    backed  = {'skill': 'manipulation_recovery', 'decision': 'reposition', 'offset': {'dx': -0.17, 'dy': 0.0, 'dyaw': 0.0}}
+    there   = {'stance_from_base_goal': {'forward_m': -0.15, 'left_m': 0.01, 'yaw_rad': 0.02}}
+    drifted = {'stance_from_base_goal': {'forward_m': -0.47, 'left_m': 0.29, 'yaw_rad': -0.37}}
+
+    assert rule_stance(there, [backed]) is None
+    rule = rule_stance(drifted, [backed])
+    assert rule['decision'] == 'reposition' and (rule['dx'], rule['dy'], rule['dyaw']) == (-0.17, 0.0, 0.0)
+
+
+def test_a_press_that_hit_the_button_but_stopped_short_goes_deeper_without_the_agent():
+    rule = rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.0087, 0.0002, 0.0012])
+
+    assert rule['decision'] == 'offset_retry' and 'stopped 8.7 mm short' in rule['reason']
+    assert (rule['ox'], rule['oy'], rule['oz']) == (0.0187, 0.0073, 0.0022)       # 8.7 mm deeper plus the 5 mm margin
+    assert rule_offset(JUDGED_MISS, [], [-0.002, 0.001, 0.001]) is None           # short by under 3 mm: the agent looks
+    assert rule_offset(JUDGED_MISS, [{'skill': 'set_press_offset', 'inputs': {'x': 0.04}}], [-0.009, 0.0, 0.0]) is None   # past 50 mm
