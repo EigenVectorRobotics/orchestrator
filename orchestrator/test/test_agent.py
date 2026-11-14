@@ -8,16 +8,14 @@ import pytest
 
 from skill_registry import Registry, TreeValidator, ValidatorConfig, load_tree
 
-from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentConfig, AgentSession, decision_outputs, offset_goal, rule_offset, rule_reach, rule_stance
+from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentSession, decision_outputs, offset_goal, rule_offset, rule_reach, rule_stance
 from orchestrator.agent_push import PushAgentBackend
-from orchestrator.agent_sandbox import SandboxConfig, run_python
 from orchestrator.behavior_tree import BehaviorTree, Context, Status
 from orchestrator.skill_leaf import make_leaf_factory
 
 
 ROOT       = Path(__file__).resolve().parents[2]
 CONTRACTS  = ROOT / 'skill_registry' / 'contracts'
-SKILLS_DIR = ROOT / 'skill_registry' / 'agent_skills'
 TREES      = ROOT / 'orchestrator' / 'test_trees'
 PANEL      = {'x': 1.0, 'y': 2.0, 'yaw': math.pi / 2, 'frame': 'map'}
 AGENTIC    = '''<root BTCPP_format="4">
@@ -137,10 +135,6 @@ def _push(tmp_path: Path, answers: list[dict] = (), requests: list | None = None
     return PushAgentBackend(ScriptedLink(answers), (requests if requests is not None else []).append, records=tmp_path / 'orch_runs')
 
 
-def _config(tmp_path: Path) -> AgentConfig:
-    return AgentConfig(skills_dir=str(SKILLS_DIR), read_roots=[str(ROOT)], sandbox=SandboxConfig(scratch_dir=str(tmp_path / 'scratch')))
-
-
 def _run(tree: BehaviorTree, max_ticks: int = 500) -> Status:
     for _ in range(max_ticks):
         status = tree.tick()
@@ -185,8 +179,8 @@ def test_decision_outputs_keep_the_arm_unless_switched():
     assert switch['left_arm'] is False
 
 
-def test_decide_checks_the_phase_and_the_fields(tmp_path):
-    session = AgentSession('stance_check', {'base_goal': PANEL}, {}, None, _config(tmp_path), lambda *a, **k: None)
+def test_decide_checks_the_phase_and_the_fields():
+    session = AgentSession('stance_check', {'base_goal': PANEL}, {}, None, lambda *a, **k: None)
 
     assert session.call('decide', {'decision': 'reposition', 'reason': 'x'}).is_error                  # no dx, dy
     assert session.call('decide', {'decision': 'switch_arm', 'reason': 'x', 'use_left_arm': True}).is_error
@@ -194,38 +188,10 @@ def test_decide_checks_the_phase_and_the_fields(tmp_path):
     assert session.call('decide', {'decision': 'continue', 'reason': 'button in view'}).final
     assert session.call('decide', {'decision': 'abort', 'reason': 'again'}).is_error
 
-    diagnose = AgentSession('diagnose', {'base_goal': PANEL}, {}, None, _config(tmp_path), lambda *a, **k: None)
+    diagnose = AgentSession('diagnose', {'base_goal': PANEL}, {}, None, lambda *a, **k: None)
 
     assert diagnose.call('decide', {'decision': 'reposition', 'reason': 'far', 'dx': 0.2}).is_error   # no dy
     assert diagnose.call('decide', {'decision': 'reposition', 'reason': 'far', 'dx': 0.1, 'dy': 0.0}).final
-
-
-def test_read_file_stays_inside_its_roots(tmp_path):
-    session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
-
-    assert '1\t---' in session.call('read_file', {'path': str(SKILLS_DIR / 'manipulation_recovery.md'), 'limit': 1}).text
-    assert session.call('read_file', {'path': '/etc/passwd'}).is_error
-
-
-# ========== Sandbox ==========
-
-def test_run_python_runs_code_and_blocks_ros_writes_and_processes(tmp_path):
-    config = SandboxConfig(scratch_dir=str(tmp_path / 'scratch'), timeout_s=20)
-
-    assert run_python('import numpy; print(numpy.ones(2).sum())', config)['stdout'].strip() == '2.0'
-
-    for code, error in [
-        ('import rclpy', 'blocked in the agent sandbox'),
-        (f'open({str(tmp_path / "outside.txt")!r}, "w")', 'writes only under'),
-        ('import subprocess; subprocess.run(["true"])', 'subprocess.Popen is blocked'),
-        ('import socket; socket.create_connection(("127.0.0.1", 9))', 'no network'),
-    ]:
-        result = run_python(code, config)
-        assert result['exit_code'] != 0 and error in result['stderr'], code
-
-    assert run_python('open("helper.py", "w").write("X = 3")', config)['exit_code'] == 0
-    assert run_python('import helper; print(helper.X)', config)['stdout'].strip() == '3'
-    assert run_python('while True: pass', SandboxConfig(scratch_dir=config.scratch_dir, timeout_s=1))['timed_out']
 
 
 # ========== In a tree ==========
@@ -273,7 +239,7 @@ def test_a_look_resets_the_ekf_after_the_mode_change_and_before_the_check_and_th
 def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(tmp_path):
     backend = _push(tmp_path, [{'decision': 'reposition', 'reason': 'stalled 0.13 m short', 'dx': 0.15, 'dy': 0.0}])
     runner  = FakeRunner([MISS, (True, 'Controller reached target', [])])
-    tree    = _tree(AGENTIC, runner, Agent(backend, _config(tmp_path)))
+    tree    = _tree(AGENTIC, runner, Agent(backend))
 
     assert _run(tree) == Status.SUCCESS
 
@@ -289,7 +255,7 @@ def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(t
 def test_abort_ends_the_tree_at_once(tmp_path):
     backend = _push(tmp_path, [{'decision': 'abort', 'reason': 'button not in view'}])
     runner  = FakeRunner([MISS])
-    tree    = _tree(AGENTIC, runner, Agent(backend, _config(tmp_path)))
+    tree    = _tree(AGENTIC, runner, Agent(backend))
 
     assert _run(tree) == Status.FAILURE
     assert 'button not in view' in tree.context.abort_reason
@@ -299,7 +265,7 @@ def test_abort_ends_the_tree_at_once(tmp_path):
 def test_after_ask_help_the_agent_is_not_called_again(tmp_path):
     backend = _push(tmp_path, [{'decision': 'ask_help', 'reason': 'wrong object tracked'}])
     runner  = FakeRunner([MISS])
-    tree    = _tree(AGENTIC, runner, Agent(backend, _config(tmp_path)))
+    tree    = _tree(AGENTIC, runner, Agent(backend))
 
     assert _run(tree) == Status.SUCCESS                                    # a person is asked; the door then opens
     assert len(backend.link.calls) == 1
@@ -312,7 +278,7 @@ def test_the_round_budget_stops_the_agent(tmp_path):
     body    = ('<root BTCPP_format="4"><BehaviorTree ID="t"><RetryUntilSuccessful num_attempts="3"><Sequence>'
                '<manipulation_recovery max_rounds="2" base_goal="{call_panel}"/><press_button target_description="up"/>'
                '</Sequence></RetryUntilSuccessful></BehaviorTree></root>')
-    tree    = _tree(body, runner, Agent(backend, _config(tmp_path)))
+    tree    = _tree(body, runner, Agent(backend))
     tree.context.last_failure = {'inputs': {}}
 
     assert _run(tree) == Status.FAILURE
@@ -326,11 +292,11 @@ def test_rule_answers_do_not_spend_the_round_budget(tmp_path):
     by_rule = {'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'offset_retry', 'rule': True}
     by_agent = {**by_rule, 'decision': 'retry', 'rule': False}
 
-    tree = _tree(body, FakeRunner([]), Agent(backend, _config(tmp_path)))
+    tree = _tree(body, FakeRunner([]), Agent(backend))
     tree.context.last_failure, tree.context.history = {'inputs': {}}, [by_rule, by_rule, by_agent]
     assert _run(tree) == Status.SUCCESS and len(backend.link.calls) == 1        # 1 agent diagnosis of 2 spent
 
-    tree = _tree(body, FakeRunner([]), Agent(backend, _config(tmp_path)))
+    tree = _tree(body, FakeRunner([]), Agent(backend))
     tree.context.last_failure, tree.context.history = {'inputs': {}}, [by_rule, by_agent, by_agent]
     assert _run(tree) == Status.FAILURE and len(backend.link.calls) == 1        # 2 agent diagnoses: the budget is spent
 
@@ -340,7 +306,7 @@ def test_the_executor_says_when_a_call_opens_and_what_was_decided(tmp_path):
     backend = _push(tmp_path, [{'decision': 'retry', 'reason': 'a transient rejection'}])
     body    = ('<root BTCPP_format="4"><BehaviorTree ID="t">'
                '<manipulation_recovery base_goal="{call_panel}"/></BehaviorTree></root>')
-    tree    = _tree(body, FakeRunner([]), Agent(backend, _config(tmp_path), speak=spoken.append))
+    tree    = _tree(body, FakeRunner([]), Agent(backend, speak=spoken.append))
     tree.context.last_failure = {'inputs': {}}
 
     assert _run(tree) == Status.SUCCESS
@@ -360,7 +326,7 @@ def test_a_call_waits_for_the_bridge_checks_its_decision_and_closes(tmp_path):
     requests = []
     backend  = _push(tmp_path, requests=requests)
     runner   = FakeRunner([MISS])
-    tree     = _tree(AGENTIC, runner, Agent(backend, _config(tmp_path)))
+    tree     = _tree(AGENTIC, runner, Agent(backend))
     call     = _wait_call(tree, backend.link, 1)
 
     assert requests[0]['state'] == 'open' and call['skill'] == 'manipulation_recovery'
@@ -375,22 +341,6 @@ def test_a_call_waits_for_the_bridge_checks_its_decision_and_closes(tmp_path):
     assert [reply['accepted'] for reply in backend.link.sent if reply['type'] == 'reply'] == [False, True]
     assert requests[-1]['state'] == 'closed'
     assert 'say' in [name for name, _ in runner.calls]
-
-
-# ========== say ==========
-
-def test_say_speaks_short_sentences_spaced_out(tmp_path):
-    spoken, now = [], [0.0]
-    session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None, spoken.append, lambda: now[0])
-
-    assert not session.call('say', {'text': 'Checking   the  reach.'}).is_error
-    assert session.call('say', {'text': 'Too soon.'}).is_error                 # under 3 s after the last one
-    now[0] = 3.5
-    assert session.call('say', {'text': 'x' * 201}).is_error                   # too long
-    assert not session.call('say', {'text': 'Stepping back 20 centimetres.'}).is_error
-    assert spoken == ['Checking the reach.', 'Stepping back 20 centimetres.']
-
-    assert AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None).call('say', {'text': 'hi'}).is_error
 
 
 # ========== press_judge: the check after a press, with an agent in the loop ==========
@@ -422,7 +372,7 @@ def _wait_call(tree, link: ScriptedLink, count: int) -> dict:
 def test_press_judge_sends_the_press_frames_and_pressed_goes_on(tmp_path):
     backend = _push(tmp_path)
     link    = backend.link
-    agent   = Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE)
+    agent   = Agent(backend, press_evidence=lambda: PRESS_EVIDENCE)
     runner  = FakeRunner([(True, 'Controller reached target', [])])
     tree    = _tree(JUDGE_TREE, runner, agent)
 
@@ -441,7 +391,7 @@ def test_press_judge_sends_the_press_frames_and_pressed_goes_on(tmp_path):
 def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path):
     backend = _push(tmp_path)
     link    = backend.link
-    agent   = Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE)
+    agent   = Agent(backend, press_evidence=lambda: PRESS_EVIDENCE)
     runner  = FakeRunner([(True, 'Controller reached target', [{'t': 0.5, 'distance_to_goal': 0.01}])])
     tree    = _tree(JUDGE_TREE, runner, agent)
 
@@ -463,8 +413,8 @@ def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path)
 
 # ========== offset_retry ==========
 
-def test_offset_retry_needs_the_whole_offset_within_50_mm(tmp_path):
-    session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
+def test_offset_retry_needs_the_whole_offset_within_50_mm():
+    session = AgentSession('diagnose', {}, {}, None, lambda *a, **k: None)
 
     assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.005}).is_error
     assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.06, 'oy': 0.0, 'oz': 0.0}).is_error
@@ -514,7 +464,7 @@ OFFSET_TREE = '''<root BTCPP_format="4"><BehaviorTree ID="t"><Fallback>
 def test_offset_retry_sets_the_offset_and_presses_again(tmp_path):
     backend = _push(tmp_path)
     link    = backend.link
-    agent   = Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE)
+    agent   = Agent(backend, press_evidence=lambda: PRESS_EVIDENCE)
     runner  = FakeRunner([(True, 'Controller reached target', [{'t': 0.5}]), (True, 'Controller reached target', [])])
     tree    = _tree(OFFSET_TREE, runner, agent)
 
@@ -539,7 +489,7 @@ def test_the_bridge_gets_a_long_failure_whole(tmp_path):
     feedback = [{'t': 0.5 * index, 'distance_to_goal': float('inf'), 'tracking_lost': False, 'current_goal': goal,
                  'padding': 'x' * 300} for index in range(120)]
     runner   = FakeRunner([(False, 'timeout after 60 s', feedback)])
-    tree     = _tree(AGENTIC, runner, Agent(backend, _config(tmp_path)))
+    tree     = _tree(AGENTIC, runner, Agent(backend))
 
     call = _wait_call(tree, backend.link, 1)
 
@@ -557,8 +507,21 @@ def test_a_literal_pose_can_carry_the_storey():
 
 # ========== stance_check: before the first press ==========
 
-def test_stance_check_decisions(tmp_path):
-    session = AgentSession('stance_check', {'base_goal': PANEL}, {}, None, _config(tmp_path), lambda *a, **k: None)
+FULL_TREE = TREES / 'freight_elevator_down_floor1_agentic.xml'
+PLACES    = {name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'}
+             for name in ('freight_elevator_call_panel_preapproach', 'freight_elevator_call_panel', 'inside_freight_elevator_button_panel')}
+
+
+def _full_tree(runner: FakeRunner, agent) -> BehaviorTree:
+    now     = [0.0]
+    clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]          # the tree's Sleeps pass in a few ticks
+    context = Context(blackboard={name: dict(pose) for name, pose in PLACES.items()}, clock=clock)
+
+    return BehaviorTree(FULL_TREE.read_text(), make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
+
+
+def test_stance_check_decisions():
+    session = AgentSession('stance_check', {'base_goal': PANEL}, {}, None, lambda *a, **k: None)
 
     assert session.call('decide', {'decision': 'offset_retry', 'reason': 'x', 'ox': 0, 'oy': 0, 'oz': 0}).is_error
     assert session.call('decide', {'decision': 'ask_help', 'reason': 'x'}).is_error
@@ -577,21 +540,6 @@ def test_a_failed_stance_check_is_recorded_for_the_agent():
     assert tree.context.last_failure['inputs'] == {'query': 'down button'}
 
 
-FULL_TREE = TREES / 'freight_elevator_down_floor1_agentic.xml'
-
-
-PLACES    = {name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'}
-             for name in ('freight_elevator_call_panel_preapproach', 'freight_elevator_call_panel', 'inside_freight_elevator_button_panel')}
-
-
-def _full_tree(runner: FakeRunner, agent) -> BehaviorTree:
-    now     = [0.0]
-    clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]          # the tree's Sleeps pass in a few ticks
-    context = Context(blackboard={name: dict(pose) for name, pose in PLACES.items()}, clock=clock)
-
-    return BehaviorTree(FULL_TREE.read_text(), make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
-
-
 def test_a_poor_stance_is_fixed_before_the_first_press(tmp_path):
     """The view check fails at both panels: outside the agent repositions before pressing, inside it presses as is"""
     backend = _push(tmp_path, [
@@ -601,7 +549,7 @@ def test_a_poor_stance_is_fixed_before_the_first_press(tmp_path):
         {'decision': 'pressed', 'reason': 'lit'},
     ])
     runner  = FakeRunner([(True, 'Controller reached target', []), (True, 'Controller reached target', [])], failing=('button_in_view',))
-    tree    = _full_tree(runner, Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE))
+    tree    = _full_tree(runner, Agent(backend, press_evidence=lambda: PRESS_EVIDENCE))
 
     assert _run(tree, max_ticks=3000) == Status.SUCCESS
 
@@ -936,8 +884,8 @@ def test_the_stance_rule_gives_way_to_the_agent_after_two_resends_until_a_press_
     assert rule_stance(far, [resent, resent, pressed]) is not None
 
 
-def test_a_reposition_into_the_panel_is_refused(tmp_path):
-    session = AgentSession('diagnose', {'base_goal': PANEL}, {}, None, _config(tmp_path), lambda *a, **k: None)
+def test_a_reposition_into_the_panel_is_refused():
+    session = AgentSession('diagnose', {'base_goal': PANEL}, {}, None, lambda *a, **k: None)
 
     assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.39, 'dy': 0.1}).is_error
     assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.0, 'dy': 0.3}).is_error
@@ -966,10 +914,10 @@ def test_the_reach_rule_gives_way_to_the_agent_after_two_moves():
     assert rule_reach(REACH_MOVE, [moved, moved], REACH_MISS) is None
 
 
-def test_a_diagnosis_may_not_reposition_from_a_stance_the_reach_check_passed(tmp_path):
+def test_a_diagnosis_may_not_reposition_from_a_stance_the_reach_check_passed():
     def session(moved):
         reach = {'reachable': True, 'message': 'in reach', 'target_moved_since_check_m': {'xyz': [moved, 0.0, 0.0], 'norm': moved}}
-        return AgentSession('diagnose', {'base_goal': PANEL}, {'stance': {'reach': reach}}, None, _config(tmp_path), lambda *a, **k: None)
+        return AgentSession('diagnose', {'base_goal': PANEL}, {'stance': {'reach': reach}}, None, lambda *a, **k: None)
 
     assert session(0.01).call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': 0.0}).is_error
     assert session(0.01).call('decide', {'decision': 'retry', 'reason': 'r'}).final

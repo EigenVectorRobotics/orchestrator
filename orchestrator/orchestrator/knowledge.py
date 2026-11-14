@@ -11,9 +11,8 @@ The rules (docs/knowledge.md):
 - any -> retired: valid_for_s has passed since the claim was last seen, or the operator retires it
 
 claims.yaml holds the claims; log.jsonl holds every change and who made it, so the operator's approvals can later
-teach the agent to approve. Both live in one folder on the NUC (no cloud). Writers take a file lock, so the
-executor and the knowledge CLI can both write. The agent reaches the store only through its note tool: its
-sandbox writes only in its scratch folder, so it cannot write claims.yaml or approve.
+teach the agent to approve. Both live in one folder on the NUC (no cloud). Writers take a file lock, so several
+processes can write. The knowledge CLI is the only writer now; no agent call reads or writes the store.
 
 This module needs no ROS.
 """

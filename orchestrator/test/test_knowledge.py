@@ -128,25 +128,6 @@ def test_prompt_section_has_facts_and_beliefs_not_observations(tmp_path):
     assert 'Only seen once' not in text
 
 
-def test_the_agent_note_tool_writes_an_observation_with_its_run(tmp_path):
-    from orchestrator.agent import AgentConfig, AgentSession
-
-    store   = KnowledgeStore(tmp_path)
-    events  = []
-    session = AgentSession('judge', {}, {}, None, AgentConfig(skills_dir=str(tmp_path), knowledge=store),
-                           lambda kind, text, **data: events.append(kind), skill='press_judge', run_id='r7')
-
-    output = session.call('note', {'text': 'The call button lights.', 'about': PANEL,
-                                   'key': 'lights_when_pressed', 'value': True, 'evidence': ['frame:press']})
-
-    claim = store.get('C-0001')
-
-    assert not output.is_error and 'new observation' in output.text
-    assert claim.confirmations[0].by == 'agent:press_judge' and claim.confirmations[0].run == 'r7'
-    assert 'knowledge' in events
-    assert session.call('note', {'text': 'no evidence', 'evidence': []}).is_error
-
-
 def test_many_notes_in_one_run_count_as_one_sighting(tmp_path):
     store    = KnowledgeStore(tmp_path)
     claim, _ = store.note('Panel lights.', seen(value=True), PANEL, 'lights_when_pressed')
@@ -181,22 +162,6 @@ def test_a_prompt_retires_expired_claims_first(tmp_path):
 
     assert store.prompt_section() == ''
     assert store.get(claim.id).tier == 'retired'
-
-
-def test_the_agent_confirms_an_observation_by_its_id(tmp_path):
-    from orchestrator.agent import AgentConfig, AgentSession
-
-    store    = KnowledgeStore(tmp_path)
-    claim, _ = store.note('The call button lights.', seen(by='operator', run='r1'), PANEL)
-    session  = AgentSession('judge', {}, {}, None, AgentConfig(skills_dir=str(tmp_path), knowledge=store),
-                            lambda kind, text, **data: None, skill='press_judge', run_id='r2')
-
-    assert claim.id in store.prompt_section(observations=True)
-
-    output = session.call('note', {'text': 'Lit again.', 'claim': claim.id, 'evidence': ['frame:press']})
-
-    assert 'observation -> belief' in output.text
-    assert session.call('note', {'text': 'x', 'claim': 'C-9999', 'evidence': ['e']}).is_error
 
 
 def test_a_claim_can_be_about_any_tags_or_none(tmp_path):
@@ -244,17 +209,6 @@ def test_a_hand_written_bad_tag_still_loads(tmp_path):
                                           '   confirmations: [{by: operator, time: 1.0, run: r1}]}\n')
 
     assert KnowledgeStore(tmp_path).get('C-0001').about == {'Place': 'cabin'}
-
-
-def test_the_agent_note_tool_refuses_a_bad_tag(tmp_path):
-    from orchestrator.agent import AgentConfig, AgentSession
-
-    session = AgentSession('judge', {}, {}, None, AgentConfig(skills_dir=str(tmp_path), knowledge=KnowledgeStore(tmp_path)),
-                           lambda kind, text, **data: None, skill='press_judge', run_id='r1')
-
-    output = session.call('note', {'text': 'Slow.', 'about': {'Device X': 'thor'}, 'evidence': ['record:1']})
-
-    assert output.is_error and 'snake_case' in output.text
 
 
 def test_seed_loads_the_experience_claims_once_as_one_source(tmp_path):

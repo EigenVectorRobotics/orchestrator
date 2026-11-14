@@ -1,7 +1,7 @@
-"""Read-only ROS access for agent skills, on the executor's node: TF, one message from a topic, the topic list, images.
+"""Read-only ROS access for agent calls, on the executor's node: TF and the latest camera image.
 
-Called from the agent's thread while the executor spins its node in the main thread. It creates subscriptions
-and a TF listener, and never a publisher.
+Called from the agent's thread while the executor spins its node in the main thread. It creates a TF listener and
+never a publisher.
 """
 
 import math
@@ -12,48 +12,10 @@ from typing import Callable
 from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.duration import Duration
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from rosidl_runtime_py import message_to_ordereddict
-from rosidl_runtime_py.utilities import get_message
-from sensor_msgs.msg import Image
-
-from .images import encode_rgb, image_to_rgb
-
-
-# Topics too big to read whole into the conversation; images go through image()
-HEAVY_TYPES = {
-    'sensor_msgs/msg/Image', 'sensor_msgs/msg/CompressedImage', 'sensor_msgs/msg/PointCloud2',
-    'sensor_msgs/msg/LaserScan', 'nav_msgs/msg/OccupancyGrid', 'livox_ros_driver2/msg/CustomMsg',
-}
-OVERLAY_TOPIC  = '/track_3d/tracked_overlay'
-MAX_LIST       = 32                 # longer sequences in a message are cut to their first items
-MAX_IMAGE_SIDE = 1280
 
 
 class RosReadError(RuntimeError):
     pass
-
-
-def shrink(value, depth: int = 0):
-    """A message dict small enough for the conversation: long sequences and byte arrays are summarized"""
-    if isinstance(value, (bytes, bytearray)):
-        return f'<{len(value)} bytes>'
-
-    if isinstance(value, dict):
-        return {key: shrink(item, depth + 1) for key, item in value.items()}
-
-    if isinstance(value, (list, tuple)) or hasattr(value, 'tolist'):
-        items = list(value.tolist() if hasattr(value, 'tolist') else value)
-
-        if len(items) > MAX_LIST:
-            return [shrink(item, depth + 1) for item in items[:MAX_LIST]] + [f'... {len(items) - MAX_LIST} more']
-
-        return [shrink(item, depth + 1) for item in items]
-
-    if isinstance(value, float):
-        return round(value, 6)
-
-    return value
 
 
 def _quaternion_to_rpy(x: float, y: float, z: float, w: float) -> list[float]:
@@ -65,11 +27,9 @@ def _quaternion_to_rpy(x: float, y: float, z: float, w: float) -> list[float]:
 
 
 class RosReader:
-    def __init__(self, node: Node, latest_camera_image: Callable[[], bytes | None],
-                 capture_frames: Callable[[], dict] = dict):
+    def __init__(self, node: Node, latest_camera_image: Callable[[], bytes | None]):
         self.node                = node
         self.latest_camera_image = latest_camera_image     # the last camera frame, as JPEG
-        self.capture_frames      = capture_frames       # the last press's kept frames, by name
         self._tf_buffer          = None
         self._tf_listener        = None
         self._lock               = threading.Lock()
@@ -115,83 +75,15 @@ class RosReader:
 
             return self._tf_buffer
 
-    # ----- topics -----
-
-    def topic_list(self) -> list[dict]:
-        return [{'topic': name, 'types': types} for name, types in sorted(self.node.get_topic_names_and_types())]
-
-    def topic_once(self, topic: str, timeout_s: float = 2.0) -> dict:
-        type_name = self._type_of(topic)
-
-        if type_name in HEAVY_TYPES:
-            raise RosReadError(f'{topic} is a {type_name}; use get_image for images')
-
-        message = self._once(topic, get_message(type_name), timeout_s)
-
-        return {'topic': topic, 'type': type_name, 'message': shrink(message_to_ordereddict(message))}
-
-    def _type_of(self, topic: str) -> str:
-        for name, types in self.node.get_topic_names_and_types():
-            if name == topic:
-                return types[0]
-
-        raise RosReadError(f'no topic {topic}')
-
-    def _qos_for(self, topic: str) -> QoSProfile:
-        """Match the publishers, so a latched topic gives its last value and a best-effort one still arrives"""
-        publishers = self.node.get_publishers_info_by_topic(topic)
-
-        if not publishers:
-            raise RosReadError(f'nobody publishes {topic}')
-
-        latched  = all(info.qos_profile.durability == DurabilityPolicy.TRANSIENT_LOCAL for info in publishers)
-        reliable = all(info.qos_profile.reliability == ReliabilityPolicy.RELIABLE for info in publishers)
-
-        return QoSProfile(
-            depth=1,
-            reliability=ReliabilityPolicy.RELIABLE if reliable else ReliabilityPolicy.BEST_EFFORT,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL if latched else DurabilityPolicy.VOLATILE
-        )
-
-    def _once(self, topic: str, message_type, timeout_s: float):
-        received = threading.Event()
-        holder   = []
-
-        def on_message(message):
-            if not holder:
-                holder.append(message)
-                received.set()
-
-        subscription = self.node.create_subscription(message_type, topic, on_message, self._qos_for(topic))
-
-        try:
-            if not received.wait(timeout_s):
-                raise RosReadError(f'no message on {topic} within {timeout_s:g} s')
-        finally:
-            self.node.destroy_subscription(subscription)
-
-        return holder[0]
-
     # ----- images -----
 
     def image(self, source: str) -> tuple[bytes, str]:
-        if source == 'camera':
-            frame = self.latest_camera_image()
+        if source != 'camera':
+            raise RosReadError(f'unknown image source {source}')
 
-            if frame is None:
-                raise RosReadError('no camera frame yet')
+        frame = self.latest_camera_image()
 
-            return frame, 'image/jpeg'
+        if frame is None:
+            raise RosReadError('no camera frame yet')
 
-        if source == 'overlay':
-            return encode_rgb(image_to_rgb(self._once(OVERLAY_TOPIC, Image, 3.0)), max_side=MAX_IMAGE_SIDE)
-
-        if source.startswith('press_'):
-            frame = self.capture_frames().get(source[len('press_'):])
-
-            if frame is None:
-                raise RosReadError(f'the last press kept no {source[len("press_"):]} frame')
-
-            return frame, 'image/jpeg'
-
-        raise RosReadError(f'unknown image source {source}')
+        return frame, 'image/jpeg'

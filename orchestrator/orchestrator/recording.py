@@ -39,7 +39,7 @@ def file_digest(path: Path) -> str | None:
 
 
 def directory_digests(directory: Path, pattern: str) -> dict:
-    """File name -> hash of its bytes, for the contracts and agent skill documents that were loaded"""
+    """File name -> hash of its bytes, for the contracts and the agent skill documents"""
     return {path.name: file_digest(path) for path in sorted(Path(directory).glob(pattern))}
 
 

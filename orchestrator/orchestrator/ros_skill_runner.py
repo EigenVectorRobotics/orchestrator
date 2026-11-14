@@ -819,10 +819,6 @@ class RosSkillRunner:
             'frames':   capture.save(self.capture_dir),
         }
 
-    def capture_frames(self) -> dict:
-        """The frames the last press kept, by name"""
-        return {name: data for name, (_, data) in self.last_capture.frames.items()} if self.last_capture else {}
-
     def _ask_vlm(self, contract: Contract, inputs: dict):
         interface = contract.interface
 
