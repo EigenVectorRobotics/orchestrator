@@ -41,6 +41,8 @@ tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 la
 
 One session answers the agent calls, and the same or another session answers the planner. Only one session may answer agent calls: another `agent_cli wait` sees every call too (`pgrep -fa agent_cli`).
 
+1. **The fast path (push).** Launch the executor with `agent_backend:=push` (`agent_push_host`, default the laptop's Tailscale address 100.107.208.25; `agent_push_port`, default 8771). On the laptop, run `~/.venvs/agent_bridge/bin/python scripts/agent_bridge.py` (`--model`, default `claude-opus-5-5`; `--effort`, default `low`). The executor pushes each call with its evidence and frames over one TCP link, and the bridge answers in a few seconds with the frames as images. The bridge keeps each call in `~/agent_calls/<call id>/` and its timings in `~/agent_calls/bridge_timing.jsonl`; the executor writes the Responder tile's record. `operator_confirm` needs the `external` backend, which stays the default.
+   The slower paths below answer the `external` backend.
 1. **The agent session** is a lean Claude session per call: `scripts/agent_responder.py run <tree on the robot>` sends the tree, answers its `press_judge` and `manipulation_recovery` calls with `claude -p` (Sonnet 5.5, `claude-sonnet-5-5`, low effort; `--model`, `--effort`), and stops when the tree ends. `agent_responder.py serve` answers calls until stopped, for a task sent through the planner. Each answer, with its prompt, time and cost, is in `~/agent_calls/<call id>/responder.json`. Other calls, such as `operator_confirm`, stay open for a person: answer them with `scripts/agent_session.py decide ... --send`, which then waits for the next call. `get_stance` (in the call) gives the stance numbers; the executor keeps each press judged pressed in `~/.ros/orchestrator_press_references.jsonl` on the NUC.
 2. **Send the task:**
 
@@ -51,6 +53,8 @@ One session answers the agent calls, and the same or another session answers the
 3. **Preflight runs first** (`skill_registry/preflight/preflight.xml`). It starts the Run Viewer and whichever of the NUC, Orin and Thor stacks are not up (`launch_*_stack`, over ssh from the NUC), checks SLAM (relocalizes in place, else asks to be relocalized), stands the G1 in ready locomotion in the gantry, and asks whether the gantry is removed. The operator:
    - sends `/initialpose` from Foxglove (`ws://vector-nuc:8765`) within 2 minutes when the robot says "Please relocalize me";
    - removes the gantry, then the session answers: `ros2 run orchestrator agent_cli decide confirmed --reason "Operator: gantry removed." --send`.
+
+   Right after the stacks are up, preflight stops when a robot-control node runs twice (`no_duplicate_nodes`) and warns about nodes started outside the launch and orphaned helpers (`no_stray_processes`). Run the same check by hand: `python3 -m orchestrator.stale_nodes report`.
 
    Preflight ends with a relocalization in place. If it fails, the planner does not plan; the trace says why.
 4. **The planner asks for a tree.** In the planner session:
