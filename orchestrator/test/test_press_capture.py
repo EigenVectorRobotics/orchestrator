@@ -14,7 +14,7 @@ from skill_registry import Registry
 
 from pathlib import Path
 
-from orchestrator.press_capture import BoxBuffer, CaptureConfig, FrameBuffer, PhaseTracker, PressCapture, crop_around, judge_press, side_by_side
+from orchestrator.press_capture import BoxBuffer, CaptureConfig, FrameBuffer, PhaseTracker, PressCapture, crop_around
 from orchestrator.cosmos_vlm_server import CosmosAnswerer, make_handler, parse_request
 
 
@@ -145,67 +145,6 @@ def test_a_press_that_never_pushed_is_ready_after_the_settle_time():
     assert capture.ready(DURATION + 0.6)
 
 
-def test_side_by_side_puts_the_two_photos_in_one_jpeg():
-    joined = Image.open(io.BytesIO(side_by_side(_jpeg((255, 0, 0), (64, 48)), _jpeg((0, 0, 255), (32, 48)), height=96)))
-
-    assert joined.size == (128 + 64, 96)
-    assert joined.getpixel((10, 50))[0] > 200 and joined.getpixel((180, 50))[2] > 200
-
-
-# ========== The check on the kept frames ==========
-
-class FakeVlm:
-    def __init__(self, answers: list[str]):
-        self.answers = list(answers)
-        self.asked   = []
-
-    def ask(self, image: bytes, question: str, choices: list[str]) -> str:
-        self.asked.append((Image.open(io.BytesIO(image)).size, question))
-        return self.answers.pop(0)
-
-
-def _check(capture: PressCapture, answers: list[str], tmp_path) -> tuple[bool, str, FakeVlm]:
-    vlm       = FakeVlm(answers)
-    interface = Registry.from_directory(CONTRACTS).get('button_lit').interface
-    success, message, _ = judge_press(capture, interface, {'target_description': 'up button'}, vlm.ask, None, str(tmp_path))
-
-    return success, message, vlm
-
-
-def test_lit_in_either_later_frame_is_success_and_the_frames_are_saved(tmp_path):
-    buffer  = FrameBuffer(keep_s=100)
-    capture = PressCapture(CaptureConfig(), buffer, left_arm=False)
-    _play(capture, buffer)
-
-    status, message, vlm = _check(capture, ['not_lit', 'lit'], tmp_path)
-
-    assert status and message == 'press: not_lit, release: lit (no button box: whole frames)'
-    assert all('left photo was taken just before' in question for _, question in vlm.asked)
-    assert vlm.asked[0][0][0] == 2 * vlm.asked[0][0][1] * 64 // 48          # two photos side by side
-    assert len(list(tmp_path.glob('press_*.jpg'))) == 3
-
-
-def test_not_lit_in_both_is_failure(tmp_path):
-    buffer  = FrameBuffer(keep_s=100)
-    capture = PressCapture(CaptureConfig(), buffer, left_arm=False)
-    _play(capture, buffer)
-
-    status, message, _ = _check(capture, ['not_lit', 'unsure'], tmp_path)
-
-    assert not status and message.startswith('press: not_lit, release: unsure')
-
-
-def test_without_a_baseline_the_photos_are_asked_alone(tmp_path):
-    buffer  = FrameBuffer(keep_s=100)
-    capture = PressCapture(CaptureConfig(pregrasp_tolerance_m=0.0), buffer, left_arm=False)      # never at the pre-grasp
-    _play(capture, buffer)
-
-    status, message, vlm = _check(capture, ['lit'], tmp_path)
-
-    assert status and 'no baseline frame' in message
-    assert vlm.asked[0][1] == 'Is the up button lit up?'
-
-
 # ========== cosmos_vlm_server ==========
 
 class FakeCosmos:
@@ -273,7 +212,7 @@ def test_the_box_of_a_frame_is_its_own_or_the_latest_before_it():
     assert boxes.at(5.0, 1.5) is None
 
 
-def test_the_check_asks_about_crops_and_a_hidden_button_borrows_the_baseline_box(tmp_path):
+def test_the_crops_are_saved_and_a_hidden_button_borrows_the_baseline_box(tmp_path):
     buffer, boxes = FrameBuffer(keep_s=100), BoxBuffer(keep_s=100)
     capture       = PressCapture(CaptureConfig(box_max_age_s=0.5), buffer, left_arm=False, boxes=boxes)
     original      = buffer.add
@@ -288,10 +227,9 @@ def test_the_check_asks_about_crops_and_a_hidden_button_borrows_the_baseline_box
     _play(capture, buffer)
 
     assert set(capture.boxes) == {'baseline'}
-    success, message, vlm = _check(capture, ['not_lit', 'not_lit'], tmp_path)
+    capture.save(str(tmp_path))
 
-    assert not success and 'no button box' not in message
-    assert vlm.asked[0][0] == (2 * round(100 * 448 / 50), 448)                     # two 100x50 crops, side by side
+    assert Image.open(io.BytesIO(capture.crop('release')[0])).size == (100, 50)
     assert len(list(tmp_path.glob('press_*_crop.jpg'))) == 3
 
 

@@ -11,8 +11,18 @@ TREES      = Path(__file__).resolve().parents[2] / 'skill_registry' / 'trees'
 TEST_TREES = Path(__file__).resolve().parents[2] / 'orchestrator' / 'test_trees'
 PLACES    = {'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}
 
-BAD_TREE  = '<root BTCPP_format="4"><BehaviorTree ID="t"><Sequence><navigate_to goal="{call_panel}"/><button_lit target_description="b"/></Sequence></BehaviorTree></root>'
-GOOD_TREE = (TEST_TREES / 'call_elevator.xml').read_text()
+BAD_TREE  = '<root BTCPP_format="4"><BehaviorTree ID="t"><Sequence><navigate_to goal="{call_panel}"/><ask_vlm question="q" choices="a;b"/></Sequence></BehaviorTree></root>'
+GOOD_TREE = ('<root BTCPP_format="4">\n  <!-- Walk to the call panel, press up, wait for the door. Must run blind. -->\n'
+             '  <BehaviorTree ID="call_elevator">\n    <Sequence>\n      <navigate_to goal="{call_panel}"/>\n'
+             '      <Fallback>\n        <press_button target_description="up button"/>\n'
+             '        <say text="Please press the up button for me."/>\n      </Fallback>\n'
+             '      <door_open/>\n    </Sequence>\n  </BehaviorTree>\n</root>\n')
+
+
+def _library(tmp_path: Path) -> dict:
+    (tmp_path / 'call_elevator.xml').write_text(GOOD_TREE)
+
+    return load_tree_library(tmp_path)
 
 
 def _planner(replies: list[str], events: list | None = None, library: dict | None = None) -> tuple[Planner, ScriptedBackend]:
@@ -43,7 +53,7 @@ def test_validator_errors_go_back_to_the_model():
 
     assert result.ok
     assert result.attempts == 2
-    assert 'button_lit runs on thor' in backend.calls[1]
+    assert 'ask_vlm runs on thor' in backend.calls[1]
     assert ('plan', 'Fixed.') in events
 
 
@@ -117,12 +127,12 @@ def test_tree_library_holds_every_tree_file():
     library = load_tree_library(TEST_TREES)
 
     assert set(library) == {summarize_tree(path.read_text())[0] for path in TEST_TREES.glob('*.xml')}
-    assert library['call_elevator'][1] == GOOD_TREE
+    assert library['freight_elevator_floor1_press_agentic'][1] == (TEST_TREES / 'freight_elevator_floor1_press_agentic.xml').read_text()
 
 
-def test_system_prompt_lists_existing_trees_only_when_given():
+def test_system_prompt_lists_existing_trees_only_when_given(tmp_path):
     registry = Registry.from_directory(CONTRACTS)
-    library  = load_tree_library(TEST_TREES)
+    library  = _library(tmp_path)
     prompt   = build_system_prompt(registry, {'nuc', 'orin'}, library)
 
     assert '# Existing trees' in prompt
@@ -130,9 +140,9 @@ def test_system_prompt_lists_existing_trees_only_when_given():
     assert '# Existing trees' not in build_system_prompt(registry, {'nuc', 'orin'})
 
 
-def test_model_can_choose_an_existing_tree():
+def test_model_can_choose_an_existing_tree(tmp_path):
     events           = []
-    library          = load_tree_library(TEST_TREES)
+    library          = _library(tmp_path)
     planner, _       = _planner(['The call_elevator tree does this.\n<use_tree id="call_elevator"/>'], events, library)
     result           = planner.plan('call the elevator', PLACES, blind=True)
 
@@ -143,8 +153,8 @@ def test_model_can_choose_an_existing_tree():
     assert ('reuse', 'existing tree call_elevator') in events
 
 
-def test_unknown_existing_tree_goes_back_to_the_model():
-    planner, backend = _planner(['<use_tree id="lobby_tour"/>', f'<tree>{GOOD_TREE}</tree>'], library=load_tree_library(TEST_TREES))
+def test_unknown_existing_tree_goes_back_to_the_model(tmp_path):
+    planner, backend = _planner(['<use_tree id="lobby_tour"/>', f'<tree>{GOOD_TREE}</tree>'], library=_library(tmp_path))
     result           = planner.plan('call the elevator', PLACES, blind=True)
 
     assert result.ok
@@ -152,8 +162,8 @@ def test_unknown_existing_tree_goes_back_to_the_model():
     assert 'There is no existing tree "lobby_tour"' in backend.calls[1]
 
 
-def test_existing_tree_that_fails_validation_asks_for_a_new_tree():
-    planner, backend = _planner(['<use_tree id="call_elevator"/>', 'I cannot.'], library=load_tree_library(TEST_TREES))
+def test_existing_tree_that_fails_validation_asks_for_a_new_tree(tmp_path):
+    planner, backend = _planner(['<use_tree id="call_elevator"/>', 'I cannot.'], library=_library(tmp_path))
     result           = planner.plan('call the elevator', PLACES, live_skills={'navigate_to', 'say'})
 
     assert not result.ok

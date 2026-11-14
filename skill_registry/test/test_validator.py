@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from skill_registry import ContractError, Registry, TreeValidator, ValidatorConfig, parse_contract
+from skill_registry import ContractError, Registry, TreeValidator, ValidatorConfig, load_tree, parse_contract
 
 
 PACKAGE   = Path(__file__).resolve().parent.parent
@@ -26,11 +26,12 @@ def test_seed_contracts_load():
     assert len(registry) == len(list(CONTRACTS.glob('*.yaml')))
 
 
-def test_example_tree_is_valid_blind():
-    registry  = Registry.from_directory(CONTRACTS)
-    validator = TreeValidator(registry, ValidatorConfig(blind=True))
+def test_the_library_tree_is_valid_online_only():
+    registry = Registry.from_directory(CONTRACTS)
+    tree     = load_tree(PACKAGE / 'trees' / 'freight_elevator_go_to_place.xml')
 
-    assert validator.is_valid((PACKAGE.parent / 'orchestrator' / 'test_trees' / 'call_elevator.xml').read_text())
+    assert TreeValidator(registry).is_valid(tree)
+    assert not TreeValidator(registry, ValidatorConfig(blind=True)).is_valid(tree)
 
 
 def test_unknown_skill():
@@ -50,13 +51,13 @@ def test_enum_literal_checked_but_blackboard_passes():
 
 
 def test_thor_skill_needs_fallback():
-    assert _errors('<button_lit target_description="b"/>')
-    assert _errors('<Fallback><AlwaysSuccess/><button_lit target_description="b"/></Fallback>')                  # last child: no recovery after it
-    assert not _errors('<Fallback><button_lit target_description="b"/><AlwaysSuccess/></Fallback>')
+    assert _errors('<ask_vlm question="q" choices="a;b"/>')
+    assert _errors('<Fallback><AlwaysSuccess/><ask_vlm question="q" choices="a;b"/></Fallback>')                 # last child: no recovery after it
+    assert not _errors('<Fallback><ask_vlm question="q" choices="a;b"/><AlwaysSuccess/></Fallback>')
 
 
 def test_thor_skill_is_fine_when_thor_is_essential():
-    assert not _errors('<button_lit target_description="b"/>', essential_devices={'nuc', 'orin', 'thor'})
+    assert not _errors('<ask_vlm question="q" choices="a;b"/>', essential_devices={'nuc', 'orin', 'thor'})
 
 
 def test_disabled_skill_is_refused():
@@ -146,7 +147,7 @@ def test_subtree_is_judged_where_it_is_called():
     called_in_fallback = (
         '<root BTCPP_format="4">'
         '<BehaviorTree ID="main"><Fallback><SubTree ID="check"/><say text="help"/></Fallback></BehaviorTree>'
-        '<BehaviorTree ID="check"><button_lit target_description="b"/></BehaviorTree>'
+        '<BehaviorTree ID="check"><ask_vlm question="q" choices="a;b"/></BehaviorTree>'
         '</root>'
     )
     called_bare = called_in_fallback.replace('<Fallback><SubTree ID="check"/><say text="help"/></Fallback>', '<SubTree ID="check"/>')
@@ -154,7 +155,7 @@ def test_subtree_is_judged_where_it_is_called():
 
     assert validator.is_valid(called_in_fallback)
     assert not validator.is_valid(called_bare)
-    assert not validator.is_valid(called_in_fallback.replace('<button_lit target_description="b"/>', '<SubTree ID="check"/>'))
+    assert not validator.is_valid(called_in_fallback.replace('<ask_vlm question="q" choices="a;b"/>', '<SubTree ID="check"/>'))
 
 
 def test_empty_contracts_directory_is_an_error(tmp_path):
@@ -195,21 +196,6 @@ def test_no_walking_while_an_arm_moves():
     assert any('resource base' in error for error in errors)
 
 
-def test_a_compare_question_may_use_only_inputs():
-    raw = {
-        'name':      'lit',
-        'kind':      'condition',
-        'device':    'thor',
-        'interface': {'transport': 'vlm', 'question': 'Is the {target_description} lit?', 'frames': 'press_capture',
-                      'compare_question': 'Is the {button} lit in the right photo?', 'choices': ['lit', 'not_lit'],
-                      'success_answer': 'lit'},
-        'inputs':    [{'name': 'target_description', 'type': 'string'}],
-    }
-
-    with pytest.raises(ContractError, match='button'):
-        parse_contract(raw)
-
-
 def test_failure_when_reads_action_feedback_only():
     raw = {
         'name':      'go',
@@ -248,7 +234,7 @@ def test_the_stance_checks_need_their_topics_and_only_conditions_record():
         parse_contract({**base, 'kind': 'action', 'timeout_s': 1, 'record': True,
                         'interface': {'transport': 'topic', 'name': '/t', 'ros_type': 'std_msgs/msg/Empty'}})
 
-    assert parse_contract({**base, 'record': True, 'interface': {'transport': 'press_tip'}}).record
+    assert parse_contract({**base, 'record': True, 'interface': {'transport': 'reach'}}).record
 
 
 def test_a_watch_equals_input_names_an_input():

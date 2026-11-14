@@ -46,7 +46,7 @@ class PlannerNode(Node):
         self.effort              = self.declare_parameter('effort', 'high').value
         self.base_url            = self.declare_parameter('base_url', '').value          # openai_compatible only
         self.api_key_env         = self.declare_parameter('api_key_env', 'OPENAI_API_KEY').value
-        self.scripted_tree       = self.declare_parameter('scripted_tree', str(Path(get_package_share_directory('orchestrator')) / 'test_trees' / 'call_elevator.xml')).value
+        self.scripted_tree       = self.declare_parameter('scripted_tree', str(registry_share / 'trees' / 'freight_elevator_go_to_place.xml')).value
         self.max_attempts        = self.declare_parameter('max_attempts', 3).value
         self.use_live_skills     = self.declare_parameter('use_live_skills', True).value
         self.auto_run            = self.declare_parameter('auto_run', True).value

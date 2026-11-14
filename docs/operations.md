@@ -82,10 +82,6 @@ Test trees, in `orchestrator/test_trees/`, to run a part of the task:
 | `freight_elevator_floor1_from_door_agentic.xml` | at the call panel, down pressed | waits for the door, walks in, floor 1 |
 | `freight_elevator_floor1_press_agentic.xml` | at the inside place | EKF reset, floor 1 |
 | `freight_elevator_floor1_walk_in_again_agentic.xml` | in the cabin, off the inside place by less than a reposition can fix | backs up 0.35 m behind the inside place, walks in, floor 1 |
-| `freight_call_elevator_down_agentic.xml`, `freight_call_elevator_agentic.xml` | anywhere on floor 2 | the down or up call press alone |
-| `call_elevator_agentic.xml` | anywhere, localized, with a place `call_panel` | the up call press with the agent's recovery |
-| `call_elevator.xml` | anywhere, localized, with a place `call_panel` | walks to the call panel, presses up, waits for the door; runs blind (no cloud) |
-| `freight_elevator_ride_agentic.xml` | | disabled: not in use |
 | `freight_call_panel_press_repeat.xml` | anywhere on floor 2 | five cycles of walk in, down press, up press; the repeatability test below |
 | `freight_elevator_floor_press_repeat.xml` | in the cabin on floor 2, the door held open | five cycles of walk in, floor 1, 2 and 3 presses, walk out |
 

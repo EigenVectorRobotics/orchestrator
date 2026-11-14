@@ -9,7 +9,33 @@ from orchestrator.skill_leaf import make_leaf_factory
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
-TREES     = Path(__file__).resolve().parents[2] / 'orchestrator' / 'test_trees'
+EXAMPLE   = '''<root BTCPP_format="4">
+  <BehaviorTree ID="call_elevator">
+    <Sequence>
+      <navigate_to goal="{call_panel}"/>
+      <Fallback>
+        <press_button target_description="up button"/>
+        <Sequence>
+          <navigate_to goal="{call_panel}"/>
+          <Fallback>
+            <press_button target_description="up button"/>
+            <say text="Please press the up button for me."/>
+          </Fallback>
+        </Sequence>
+      </Fallback>
+      <Fallback>
+        <RetryUntilSuccessful num_attempts="60">
+          <Delay delay_msec="1000">
+            <door_open/>
+          </Delay>
+        </RetryUntilSuccessful>
+        <ForceFailure>
+          <say text="The elevator door did not open."/>
+        </ForceFailure>
+      </Fallback>
+    </Sequence>
+  </BehaviorTree>
+</root>'''
 
 
 class FakeClock:
@@ -212,20 +238,20 @@ def test_example_tree_builds_and_runs():
     clock  = FakeClock()
     runner = FakeRunner({'press_button': [Status.FAILURE]})
     tree   = BehaviorTree(
-        (TREES / 'call_elevator.xml').read_text(),
+        EXAMPLE,
         make_leaf_factory(Registry.from_directory(CONTRACTS), runner),
         Context(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=clock)
     )
 
     assert _run(tree, clock) == Status.SUCCESS
-    assert [name for name, _ in runner.calls] == ['navigate_to', 'set_press_offset', 'press_button', 'navigate_to', 'set_press_offset', 'press_button', 'say', 'door_open']
+    assert [name for name, _ in runner.calls] == ['navigate_to', 'press_button', 'navigate_to', 'press_button', 'say', 'door_open']
 
 
 def test_example_tree_fails_when_door_stays_closed():
     clock  = FakeClock()
     runner = FakeRunner({'door_open': [Status.FAILURE]})
     tree   = BehaviorTree(
-        (TREES / 'call_elevator.xml').read_text(),
+        EXAMPLE,
         make_leaf_factory(Registry.from_directory(CONTRACTS), runner),
         Context(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=clock)
     )
@@ -265,7 +291,7 @@ def test_force_failure_and_parallel_counts():
 def test_example_tree_fails_when_the_walk_fails():
     runner = FakeRunner({'navigate_to': [Status.FAILURE]})
     tree   = BehaviorTree(
-        (TREES / 'call_elevator.xml').read_text(),
+        EXAMPLE,
         make_leaf_factory(Registry.from_directory(CONTRACTS), runner),
         Context(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=FakeClock())
     )

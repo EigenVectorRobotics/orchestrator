@@ -167,12 +167,8 @@ class SkillLeaf(TreeNode):
         return self.runner.start(self.contract, self.inputs)
 
     def _finish_call(self, status: Status):
-        """Record a finished action call, with its feedback over time; and the failure of a check.
-
-        A condition is recorded only when it fails as the check of the action just before it (press_button's
-        button_lit): its record carries that call as checked_call. Other conditions are polled, so their misses
-        are not events, unless the contract says record (check_reach, which the agent then reads): then every answer is.
-        """
+        """Record a finished action call, with its feedback over time. Conditions are polled, so their answers are not
+        events, unless the contract says record (check_reach, which the agent then reads): then every answer is."""
         record = {
             'time':      self.context.clock(),
             'kind':      self.contract.kind,
@@ -186,31 +182,9 @@ class SkillLeaf(TreeNode):
         }
 
         if self.contract.kind == 'action':
-            record['check'] = self.contract.check
             self.context.record(record, {**record, 'feedback': list(getattr(self.handle, 'feedback', []))})
-            return
-
-        if status != Status.FAILURE:
-            if self.contract.record:
-                self.context.record(record)
-
-            return
-
-        if not self._is_check_of_last_call():
-            if self.contract.record:
-                self.context.record(record)
-
-            return
-
-        checked = self.context.last_call
-        record['checks'] = checked['skill']
-        self.context.record(record, {**record, 'checked_call': checked})
-
-    def _is_check_of_last_call(self) -> bool:
-        last = self.context.history[-1] if self.context.history else None
-
-        return (last is not None and last.get('kind') == 'action' and last.get('status') == Status.SUCCESS.value
-                and last.get('check') == self.contract.name and self.context.last_call is not None)
+        elif self.contract.record:
+            self.context.record(record)
 
     def _halt(self):
         if self.handle is not None:
@@ -295,7 +269,7 @@ class AgentLeaf(SkillLeaf):
 
         if (self.inputs.get('phase') == 'judge' and status == Status.FAILURE and checked is not None
                 and checked.get('status') == Status.SUCCESS.value):
-            # as a failed button_lit: manipulation_recovery then sees the press as checked_call
+            # a failed check of the press: manipulation_recovery then sees the press as checked_call
             record = {'time': self.context.clock(), 'kind': 'condition', 'skill': self.contract.name,
                       'path': self.path, 'status': status.value, 'inputs': self.inputs, 'message': self.message,
                       'outputs': dict(outputs), 'elapsed_s': round(self.context.clock() - self.start_time, 2),

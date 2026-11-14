@@ -119,9 +119,6 @@ def describe_contract(contract: Contract, essential_devices: set[str]) -> str:
     if contract.pre:
         lines.append(f'needs before: {", ".join(contract.pre)}')
 
-    if contract.check:
-        lines.append(f'check after: {contract.check}')
-
     if contract.resources:
         lines.append(f'resources: {", ".join(contract.resources)}')
 
