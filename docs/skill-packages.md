@@ -75,7 +75,7 @@ skills:                      # the full contracts of all skills that are up now
 
 ### Where the agent runs and how a skill gets to its device
 
-- The agent runs on the NUC. The NUC, Thor and Orin are on the same switch.
+- The agent runs on the operator's laptop (`mission_control/agent_bridge.py`), over Tailscale. The NUC, Thor and Orin are on the same switch.
 - A tool `sync_to_device(device, package)` copies the package to the device (rsync over SSH, keys set with `ssh-copy-id`) and tells the host there to load it. The agent does not get a raw shell on the other devices through this tool.
 - The host loads new skills while it runs (no restart). It loads the contract, starts the adapter, and announces the skill in its next message.
 

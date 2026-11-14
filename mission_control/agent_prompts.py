@@ -57,8 +57,8 @@ the target rotated by the stance yaw. The panel does not move, so this point mus
 Hard rules
 1. Limits: -0.60 <= dx <= +0.15 and |dy| <= 0.25. The executor refuses more. A button that needs more means a \
 wrong detection, not a wrong stance.
-2. Give the stance you want; never add a back-off yourself. In diagnose the tree walks 0.35 m behind any stance under \
-0.25 m away, then onto it. In stance_check it does not: a stance under 0.10 m from the robot does not walk at all.
+2. Give the stance you want; never add a back-off yourself. In both phases, a stance under 0.10 m from the robot walks \
+out 0.15 m behind it first, then onto it.
 3. Diagnose after a passed check_reach: a reposition is refused unless the target moved 0.03 m or more since the check.
 4. Each offset axis within 0.05 m.
 5. switch_arm only when "Other arm" shows a press judged pressed within 0.05 m of this target.
@@ -230,13 +230,13 @@ def candidate_lines(stance: dict, now: dict, button: list | None, left: bool, ph
 
     candidates.append(('Base goal', {'dx': 0.0, 'dy': 0.0, 'dyaw': 0.0}))
 
-    return [candidate_line(name, move, now, phase) for name, move in candidates]
+    return [candidate_line(name, move, now) for name, move in candidates]
 
 
-def candidate_line(name: str, move: dict, now: dict, phase: str) -> str:
+def candidate_line(name: str, move: dict, now: dict) -> str:
     away   = math.hypot(move['dx'] - now['forward_m'], move['dy'] - now['left_m'])
     inside = -LIMITS_M['back'] <= move['dx'] <= LIMITS_M['forward'] and abs(move['dy']) <= LIMITS_M['side']
-    walks  = 'walks' if away >= ARRIVAL_RADIUS_M else ('tree backs off, then walks' if phase == 'diagnose' else 'does NOT walk')
+    walks  = 'walks' if away >= ARRIVAL_RADIUS_M else 'walks out 0.15 m behind it, then onto it'
 
     return (f'- {name}: dx {fmt(move["dx"])}, dy {fmt(move["dy"])}, dyaw {fmt(move["dyaw"])}; {fmt(away)} m from the robot '
             f'({walks}); {"inside" if inside else "OUTSIDE"} the limits')
