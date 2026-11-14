@@ -1,7 +1,7 @@
 name: launch_nuc_stack
 kind: action
 device: nuc
-description: Start the NUC stack in tmux (-L eigen_vector), as docs/REAL_ROBOT_RUN.md P3. Does nothing when it runs.
+description: Start the NUC stack in tmux (-L eigen_vector), as docs/operations.md, section 5. Does nothing when it runs.
 interface:
   transport: command
   command: |

@@ -13,17 +13,20 @@ prove that the button was pressed: the goal can be off the button (a drifting bo
 can stop on the rim (E-018). You look at the camera frames of the press and decide `pressed` or `not_pressed`. The tree
 waits up to 600 s. The executor tells people near the robot that the press is being checked and what you decided.
 
+The bridge sends the model `JUDGE_SYSTEM` from `mission_control/agent_prompts.py`, with the frames as images and no
+tools. Keep this document and that prompt in step.
+
 ## What your verdict does
 
 - `pressed`: the press slot ends. The tree releases the arms and goes on (waits for the door, or for the floor).
 - `not_pressed`: the press counts as failed, and the panel gets up to 4 presses in all. On the first miss after a press,
-  when `residual_m` puts the fingertip 5 to 50 mm from the goal in the button plane, the executor corrects the offset
-  itself and presses again. Otherwise `manipulation_recovery` diagnoses it. A wrong `not_pressed` therefore costs a
-  press; a wrong `pressed` leaves the button unpressed and the task waiting for it.
+  when `residual_m` puts the fingertip 5 to 50 mm from the goal in the button plane, or on the button but over 3 mm
+  short, the executor corrects the offset itself and presses again. Otherwise `manipulation_recovery` diagnoses it.
+  A wrong `not_pressed` therefore costs a press; a wrong `pressed` leaves the button unpressed and the task waiting.
 
 ## The evidence
 
-`get_press` (in the call the bridge gets, `press`) gives:
+The call's `press` gives:
 
 - **frames**: JPEG files the executor saved (`~/.ros/orchestrator_captures/press_<time>_<name>.jpg` on the computer that runs it):
   - `baseline`: the first frame once the fingertip reached the pre-grasp, 0.10 m before the button. The button is not pressed yet.
@@ -39,12 +42,12 @@ The camera runs at 6 fps, so the `press` frame can be up to about 0.17 s after t
 ## How to judge
 
 1. Look at `press` and `press_crop` first, then `baseline` and `release`. The bridge attaches them as images. The crops are sometimes too dark or off the finger; then judge from the full frames (E-019).
-2. **Pressed** only when the requested button's own light comes on: lit in `press` or `release`, not lit in `baseline`. A button that stays dark is `not_pressed`, wherever the fingertip sits. This holds on both panels.
-   - **Floor buttons** light a blue ring at once. A ring in `press` or `release` that is not lit in `baseline` is the evidence. A finger on the face with no ring is not a press (E-011): the residual depth alone does not tell a press from a touch. Only the requested button's own ring counts: a card reader, a floor display or another button that changes is never evidence (E-025).
-   - **The call panel**: the call button lights when the call registers. Judge it the same way: lit in `press` or `release`, dark in `baseline`. The hand often covers the button in `press`; the `release` frame, with the finger backing off, often shows the light. Presses there have landed about 5 mm high, on the upper rim (E-023).
+2. **Pressed** only when the requested button's own light is on: lit in `press` or `release`. A light already on in `baseline` means the call or floor is registered: `pressed`. A button that stays dark is `not_pressed`, wherever the fingertip sits. This holds on both panels.
+   - **Floor buttons** light a blue ring at once. A ring in `press` or `release` is the evidence. A finger on the face with no ring is not a press (E-011): the residual depth alone does not tell a press from a touch. Only the requested button's own ring counts: a card reader, a floor display or another button that changes is never evidence (E-025).
+   - **The call panel**: the call button lights when the call registers. Judge it the same way: lit in `press` or `release`. The hand often covers the button in `press`; the `release` frame, with the finger backing off, often shows the light. Presses there have landed about 5 mm high, on the upper rim (E-023).
 3. **Not pressed** when the fingertip is beside the button, on another button, short of the panel (a gap between finger and panel is visible), or the requested button is not in the frame at all.
 4. If the frames are missing or you cannot tell, write that in your reason and choose `not_pressed`: the recovery that follows can press again.
-5. Call `decide` once. Your reason, in two or three sentences: which frame you judged, where the fingertip sat relative to the button, and the depth, sideways and residual numbers. The diagnosis that may follow reads your reason.
+5. Give one decision. Your reason, in three short sentences: the requested button's light in `baseline`, `press` and `release`; where the fingertip sat, and in which frame; the rule that decided. The diagnosis that may follow reads your reason.
 
 ## Recording what you learn
 

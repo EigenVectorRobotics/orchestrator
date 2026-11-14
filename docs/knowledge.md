@@ -1,6 +1,6 @@
 # Reasoning areas, knowledge graduation and map annotation (design, not built)
 
-Status: 2026-11-05. Built (on `main`, `a531c21`, and open `about` tags, not committed): `orchestrator/knowledge.py` (claims, tiers, rules, log), the agent's `note` tool and the facts and beliefs in its prompt, the `knowledge` CLI. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, `scratch/<run_id>/`, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
+Built: `orchestrator/knowledge.py` (claims, open `about` tags, tiers, rules, log) and the `knowledge` CLI. `agent.py` has a `note` tool and appends the facts and beliefs to the skill document, but no call path uses them: the agent bridge builds its own prompts and gives the model no tools. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, `scratch/<run_id>/`, claims from `retrospect`, places from `map_info`'s services. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
 
 Built rules: observation → belief at 2 runs and 2 sources; a belief is ready for a fact when the Wilson lower bound (z = 1.645) is at least 0.8, that is 11 confirmations with no contradiction; the operator approves it with `knowledge approve`, at a terminal only.
 
@@ -8,7 +8,7 @@ Built rules: observation → belief at 2 runs and 2 sources; a belief is ready f
 
 - The planner and the agent have files to reason in, which last across calls and runs.
 - What the robot sees becomes knowledge in steps: **observation → belief → fact**. A step up needs independent confirmations; a contradiction moves it down.
-- A claim can be about anything: a place, a skill, a device, an object, or nothing. Knowledge about a place (a press offset, an arrival overshoot, "this button does not light") is linked to the place in `map_info`.
+- A claim can be about anything: a place, a skill, a device, an object, or nothing. Knowledge about a place (a press offset, an arrival overshoot, "presses here land high") is linked to the place in `map_info`.
 - A contradiction of a belief or a fact that a run uses starts reasoning ("Contradictions").
 - Skills graduate the same way (`docs/skill-packages.md`, "Graduation"), from the same counts.
 
@@ -32,17 +32,16 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 | `claims.yaml` | until removed | the store only (through its API) | every observation, belief and fact, with evidence |
 | (prompt text) | each prompt | made from `claims.yaml` in memory (`prompt_section`) | the facts and beliefs, as text, for the prompts |
 
-- The agent's sandbox `scratch_dir` becomes `scratch/<run_id>/`, so its files are kept with the run.
 - The planner and the agent get the facts (and the beliefs, marked as beliefs) in each prompt.
 
 ## Claims
 
 ```yaml
 - id: C-0042
-  text: The freight elevator call panel does not light when pressed.
+  text: The freight elevator call button lights when the call registers.
   about: {place: freight_elevator_call_panel}   # open tags: place, skill, device, object, ...; or {} (general)
   key: lights_when_pressed                       # optional: a value claim, compared by key
-  value: false
+  value: true
   tier: fact                                     # observation | belief | fact | retired
   valid_for_s: null                              # null: no end; 600: a person in the hall
   confirmations: [{run: 20261104-1902-a1/runs/3, record: 17, by: press_judge}, ...]
@@ -55,7 +54,7 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 ### Subject (`about`)
 
 - `about` is an open set of tags. A place is one kind of tag, not a need. Examples:
-  - `{place: freight_elevator_call_panel}`: "The call panel does not light."
+  - `{place: freight_elevator_call_panel}`: "The call button lights when the call registers."
   - `{device: thor}`: "The VLM on Thor is slow after 30 min."
   - `{object: freight_elevator}`: "The door stays open for 8 s."
   - `{skill: press_button}`: "A press needs 2 tries on a dirty panel."
@@ -65,7 +64,7 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 
 ### Where claims come from
 
-- The agent: a new tool `note(text, about, key, value, evidence)` adds an observation. It cannot set the tier.
+- The agent: a tool `note(text, about, key, value, evidence)` adds an observation. It cannot set the tier. The tool exists in `agent.py`, but the bridge's model has no tools, so no agent adds claims now.
 - The retrospection operator (`retrospect`): from a run, for example the arrival error at each place, or the offset that made a press light.
 - A person: by hand, for example from the experience log (`manipulation_recovery.experience.md`).
 
@@ -127,7 +126,7 @@ Changes to `map_info` (the user's package, built for the orchestrator):
 
 Examples of place claims from the 2026-11-04 trial (to be checked against the experience log):
 
-- the call panel does not light (E-019);
+- the call button lights when the call registers, often clearest in the release frame (E-019, E-023);
 - the press offset that lit the floor 1 button inside the cabin (E-011, E-012);
 - the arrival overshoot at the call panel and inside the cabin (E-001, E-015).
 

@@ -4,7 +4,7 @@
        (press_judge) and never retried, so every cycle gives one press per button. The stance checks are recorded but do
        not stop a press. Keep the cabin on floor 2 with the door open (hold it or use independent service). Places and
        map: ~/maps/two_floor_clean.places.yaml and two_floor_clean.pcd. Run with send_tree (docs/operations.md,
-       "Repeatability test inside the elevator") -->
+       section 4) -->
   <BehaviorTree ID="freight_elevator_floor_press_repeat">
     <Repeat num_cycles="5">
       <Sequence>

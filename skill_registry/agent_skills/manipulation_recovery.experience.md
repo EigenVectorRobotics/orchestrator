@@ -45,7 +45,7 @@ What the team has seen about press failures, their causes, and what helped. Each
 - Status: confirmed (once, 2026-11-13)
 - Seen: inside, floor 1, right arm. At the inside place the robot stood 8 to 9 cm short, with the button 0.548 and 0.560 m ahead of the pelvis (the pressed reference: 0.507 m). IK missed by 18 and 47 mm. The matching stance was 6 to 8 cm away, inside the arrival radius, so the agent set dx -0.34 and -0.36 m, as its prompt said: back off now, walk in at the next call. The tree presses after every reposition, so presses 2 and 4 ran from 0.31 and 0.33 m short (button 0.78 and 0.82 m ahead, IK 229 and 267 mm off). The task used all 5 diagnoses and failed
 - Cause: the back-off and the walk-in were split across two rounds, but every round ends in a press. The inside place leaves 4 to 5 cm of reach, less than the arrival spread (E-001)
-- What helped: the executor now outputs `walk_in` and `approach`. For a reposition under 0.25 m from the robot, the press subtree walks 0.35 m behind the goal and then onto it, in one round. Not yet tested on the robot. Moving the inside place about 4 cm toward the panel would add margin; not done
+- What helped: the executor now outputs `walk_in` and `approach`. For a reposition goal under 0.10 m from the robot, the look walks 0.15 m behind the goal and then onto it, in one round. Not yet tested on the robot. Moving the inside place about 4 cm toward the panel would add margin; not done
 - Evidence: session `20261114T002938Z-9358f6` run 004, agent calls 71f1552f, 1241d652, 372b850e and de8db370, and its bag
 
 ## Perception
@@ -106,10 +106,10 @@ What the team has seen about press failures, their causes, and what helped. Each
 - What helped: new offset = offset in force − residual, per axis, from clean presses only. On floor buttons push the depth a little further. The residual depth alone does not tell a press from a touch (lit at −6.2 mm, unlit at −2.0 mm)
 - Evidence: run_234904, run_235844, run_001046; bags `press_debug_20261104_*`
 
-### E-019 Judge from the press frame: the ring on floor buttons, the finger on the call panel
+### E-019 Judge from the press and release frames: the ring on floor buttons
 - Status: confirmed (agent trial, 8 presses)
-- Seen: floor buttons light a blue ring at once, still visible 0.5 s later in the release frame. The call panel never lights; the hand often covers it in the press frame, and the release frame shows where the finger sat. Crops were sometimes too dark; full frames decided
-- What helped: use the ring or the finger position as the answer and `residual_m` as a cross-check
+- Seen: floor buttons light a blue ring at once, still visible 0.5 s later in the release frame. No call-panel light was seen in this trial; the hand often covers the button in the press frame, and the release frame shows where the finger sat. The call button does light when the call registers, so `press_judge` now judges both panels by the button's own light. Crops were sometimes too dark; full frames decided
+- What helped: use the ring as the answer and `residual_m` as a cross-check
 
 ### E-021 Waiting longer after the walk did not improve the call-panel press
 - Status: confirmed (press tests, 3 presses); cause not known

@@ -15,8 +15,10 @@ A Claude Code session that operates the robot does each step that starts, stops 
 
 ```bash
 cd ~/orchestrator_ws/src/orchestrator && git fetch && git checkout ltx-dev && git pull     # the branch in use: docs/deployment.md
-cd ~/orchestrator_ws && source env.sh && colcon build --packages-select skill_registry orchestrator
+cd ~/orchestrator_ws && source env.sh && MAKEFLAGS=-j1 nice -n 19 ionice -c3 colcon build --parallel-workers 1 --packages-select skill_registry orchestrator
 ```
+
+- Never build on the NUC while the robot stands: a build there once crashed the NUC, and the G1 fell. Build with one worker, as above.
 
 - The install is a copy, not a symlink install. Contracts, the tree library (`skill_registry/trees/`), `preflight.xml` and the test trees are installed files: rebuild after changing any of them.
 - What reads what, and when: the executor, the planner and the registry read the contracts and the places file at start; the planner reads the tree library and the preflight tree at start; `send_tree` reads the tree file you give it each time. So a contract, places, library or Python change needs a restart of the orchestrator (step 2); a test tree passed to `send_tree` by its source path needs nothing.
@@ -83,6 +85,7 @@ Test trees, in `orchestrator/test_trees/`, to run a part of the task:
 | `freight_elevator_floor1_press_agentic.xml` | at the inside place | EKF hold, floor 1 |
 | `freight_elevator_floor1_walk_in_again_agentic.xml` | in the cabin, off the inside place by less than a reposition can fix | backs up 0.35 m behind the inside place, walks in, floor 1 |
 | `freight_call_panel_press_repeat.xml` | anywhere on floor 2 | five cycles of walk in, down press, up press; the repeatability test below |
+| `freight_elevator_floor_press_repeat.xml` | on floor 2, with the cabin held open there | five cycles of walk in, floor 1, 2 and 3 presses, walk out; one press per button, never retried |
 
 ### Repeatability test at the call panel
 

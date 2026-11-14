@@ -1,7 +1,7 @@
 <root BTCPP_format="4">
   <!-- Full cycle at the freight elevator: walk to the call panel, press the down button, wait for the door, walk into
        the cabin, press floor 1 with the right arm (E-007). After each press, press_judge: the executor saves the
-       frames of the press and a session looks at the frame at the fingertip's closest point to the button and decides
+       frames of the press and the agent bridge's model looks at the frame at the fingertip's closest point to the button and decides
        pressed or not_pressed. A not_pressed goes to manipulation_recovery.
        Before each press the tree resets the body EKF and holds still until it has recalibrated (ekf_hold, E-008). Before the first press at each panel, a stance
        check: button_in_view (it seeds the tracker, in the executor, no cloud); only when it fails
@@ -145,7 +145,7 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- before the first press: a fresh track, then the button in view and in reach. A failed
+  <!-- before the first press: a fresh track, then the button in view. A failed
        check goes to the agent, which may move the robot or switch the arm first. Without an agent, or when its walk
        fails, the press goes ahead as before and a failure goes to recover_* -->
   <BehaviorTree ID="stance_down">
@@ -214,7 +214,7 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- before the first press: a fresh track, then the button in view and in reach. A failed
+  <!-- before the first press: a fresh track, then the button in view. A failed
        check goes to the agent, which may move the robot or switch the arm first. Without an agent, or when its walk
        fails, the press goes ahead as before and a failure goes to recover_* -->
   <BehaviorTree ID="stance_floor1">

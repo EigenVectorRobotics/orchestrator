@@ -2,10 +2,10 @@ name: manipulation_recovery
 kind: action
 device: nuc
 description: >-
-  After press_button fails (phase diagnose), an LLM agent finds out why from the failure, the history and its own
-  checks, and decides reposition, switch_arm, offset_retry, retry, ask_help or abort. Before the first press, when a
-  stance check (button_in_view) failed (phase stance_check), it checks the stance the walk
-  left and decides continue, reposition or abort. Succeeds on reposition, switch_arm, offset_retry, retry
+  After press_button fails or press_judge says not_pressed (phase diagnose), a model finds out why from the failure,
+  the history, the press and the stance, and decides reposition, switch_arm, offset_retry, retry, ask_help or abort.
+  Before the first press, when a look failed (button_in_view or check_reach; phase stance_check), it checks the
+  stance the walk left and decides continue, reposition or abort. The executor's rules answer some calls first. Succeeds on reposition, switch_arm, offset_retry, retry
   and continue; fails on ask_help; abort fails the whole tree at once.
 interface:
   transport: agent

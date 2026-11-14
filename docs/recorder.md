@@ -1,6 +1,6 @@
-# Run recorder and retrospection (design, not built)
+# Run recorder and retrospection (recorder built, retrospection not built)
 
-Status: 2026-11-05. Built: `orchestrator/recording.py`, `orchestrator/run_recorder.py` (branch `feat/recorder`). Not built yet: planner attempts, the clock offsets, `retrospect`. Model: HomeBody's `session/recorder.py` and `live_recorder.py` (Stanford-TML/homebody, 2388aa4).
+Built: `orchestrator/recording.py`, `orchestrator/run_recorder.py`. Not built yet: planner attempts, the `parameters`, `models` and `devices` parts of `provenance.json`, the clock offsets, `retrospect`. Model: HomeBody's `session/recorder.py` and `live_recorder.py` (Stanford-TML/homebody, 2388aa4).
 
 ## Goal
 
@@ -10,10 +10,10 @@ Status: 2026-11-05. Built: `orchestrator/recording.py`, `orchestrator/run_record
 
 ## What we have now
 
-- `/orchestrator/trace`: JSON events (`started` with the tree XML, `node`, `record`, `agent_start`, `agent_tool`, `agent_say`, `agent_decision`, `finished`, `halted`, `rejected`, `validation`, `error`, and the planner's `sent`).
+- `/orchestrator/trace`: JSON events (`started` with the tree XML, `node`, `record`, `agent_start`, `agent_wait`, `agent_rule`, `agent_tool`, `agent_say`, `agent_decision`, `agent_link`, `finished`, `halted`, `rejected`, `validation`, `error`, and the planner's `sent` and `preflight`).
 - `record` events carry the full record of each finished call, with the action feedback over time.
 - Agent calls go out on `/orchestrator/agent/request`, and the executor's replies to the bridge's decisions on `/orchestrator/agent/reply`.
-- Press frames go to `capture_dir` (`~/.ros/orchestrator_captures`), and the agent's sandbox files to `agent_scratch_dir`.
+- Press frames go to `capture_dir` (`~/.ros/orchestrator_captures`).
 - Nothing puts these together, and nothing records which code, contracts and parameters ran.
 
 ## Shape
@@ -23,12 +23,14 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 ```
 ~/orch_runs/<utc>-<id>/                 one folder per recorder session (one bring-up); small when no task runs
   provenance.json                       written at start
+  agent_calls/<call_id>.json            each agent call's state, model and decision, written by the executor for the Run Viewer
   events.jsonl                          every trace event, append only, one line each
   runs/<n>-<tree_id>/                   one folder per tree run (started to finished/halted/error)
     tree.xml                            the tree that ran
     task.json                           the task text, blind or not, where the tree came from (planner, send_tree)
     records.jsonl                       the full record of each call (feedback included)
-    agent/<call_id>.json                each agent call: the request (failure, history, press), every tool call and reply, the decision
+    agent/<call_id>.json                each agent call as the executor opened and closed it: the task, failure, history, press, stance
+    agent/<call_id>.messages.jsonl      the executor's replies to the bridge's decisions, each with the decision
     planner/<attempt>.json              each planner attempt: the prompt, the reply, the validator errors
     captures/                           the press frames this run made (copied from capture_dir)
     bag/                                ros2 bag (MCAP) of the chosen topics, for this task only
@@ -74,7 +76,7 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 - `min_free_gb` (parameter, first guess 20 GB) on the disk of `~/orch_runs`.
 - Checked at bring-up and before each task. Below the limit:
   - the recorder logs an error, and publishes `not ready` on `/orchestrator/recorder/status` (with the free space and the largest old runs);
-  - the executor refuses a new tree when `require_recorder` is true (default true on the robot, false on the laptop), with the reason in the trace.
+  - the executor refuses a new tree when `require_recorder` is true (the launch sets it from `record`, default true), with the reason in the trace.
 - Checked again while a bag records; below `min_free_gb / 4` it stops the bag (the events go on) and marks the run `bag_truncated`.
 - `retrospect du` lists the runs by size, oldest first, so the operator can choose what to clear.
 
