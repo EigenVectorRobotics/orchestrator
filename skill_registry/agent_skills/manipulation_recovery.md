@@ -101,7 +101,7 @@ Never edit the experience file. When this failure shows something new or contrad
 
 ## When you are a Claude Code session
 
-Run every `agent_cli` command through `scripts/agent_session.py` on the laptop, with the same arguments: `agent_session.py wait`, `agent_session.py tf pelvis foot_world`, `agent_session.py decide ...`. It runs `agent_cli` on the robot computer over ssh (`AGENT_HOST`, default `vector@vector-nuc`) and does two things for you:
+Run every `agent_cli` command through `mission_control/agent_session.py` on the laptop, with the same arguments: `agent_session.py wait`, `agent_session.py tf pelvis foot_world`, `agent_session.py decide ...`. It runs `agent_cli` on the robot computer over ssh (`AGENT_HOST`, default `vector@vector-nuc`) and does two things for you:
 
 - **Frames:** `wait` and `show` copy a judge call's frames to the laptop and print their local paths. Open those paths; never copy frames yourself.
 - **Documents:** they sync the skill documents to `~/agent_calls/skills/` and say whether any changed since the last call. Read them at the first call and again only when told they changed.
