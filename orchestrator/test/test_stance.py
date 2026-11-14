@@ -86,23 +86,60 @@ def test_the_walk_back_to_the_base_goal_needs_no_reference():
     assert found['to_base_goal'] == {'dx': 0.0, 'dy': 0.0, 'dyaw': 0.0, 'move_m': pytest.approx(0.133, abs=1e-3), 'walks': True}
 
 
-def test_reach_match_borrows_the_forward_reach_of_the_same_arm_at_another_button():
-    references = [{'time': 1, 'button': 'down button', 'left_arm': False, 'robot': {'x': 1.83, 'y': -1.37, 'yaw': -0.27},
-                   'target_pelvis': [0.421, 0.029, 0.275], 'target_map': [2.17, -1.44, -0.26]}]
-    found = stance.evidence(BASE, {'x': BASE['x'], 'y': BASE['y'], 'yaw': BASE['yaw']}, [0.646, 0.026, 0.214], [4.0, -0.3, -0.2],
-                            False, 'floor 1', references)
+def test_latest_reach_gives_the_last_check_reach_miss_on_three_axes():
+    check = {'skill': 'check_reach', 'status': 'failure', 'inputs': {'left_arm': True},
+             'outputs': {'position_error': 0.307, 'orientation_error_deg': 7.9,
+                         'pelvis_error_x': -0.296, 'pelvis_error_y': 0.005, 'pelvis_error_z': 0.082,
+                         'target_pelvis_x': 0.7, 'target_pelvis_y': 0.1, 'target_pelvis_z': 0.2}}
+    press = {'skill': 'press_button', 'status': 'failure', 'outputs': {}}
 
-    assert found['reference'] is None and found['match'] is None
-    assert found['reach_match']['reference_button'] == 'down button'
-    assert found['reach_match']['dx'] == pytest.approx(0.225, abs=1e-3) and found['reach_match']['dy'] == pytest.approx(0.0, abs=1e-3)
-    assert found['reach_match']['walks'] is True
+    found = stance.latest_reach(press, [{'skill': 'navigate_to'}, check, press])
+
+    assert found['reachable'] is False and found['left_arm'] is True
+    assert found['pelvis_error_m'] == {'x': -0.296, 'y': 0.005, 'z': 0.082}
+    assert found['target_in_pelvis'] == {'x': 0.7, 'y': 0.1, 'z': 0.2}
+    assert stance.latest_reach(check, [])['position_error_m'] == 0.307
+    assert stance.latest_reach(press, [{'skill': 'navigate_to'}]) is None
 
 
-def test_reach_match_takes_the_other_arm_when_this_arm_has_no_press():
-    references = [{'time': 1, 'button': 'down button', 'left_arm': True, 'robot': {'x': 1.83, 'y': -1.37, 'yaw': -0.27},
-                   'target_pelvis': [0.421, 0.029, 0.275], 'target_map': [2.17, -1.44, -0.26]}]
-    found = stance.evidence(BASE, {'x': BASE['x'], 'y': BASE['y'], 'yaw': BASE['yaw']}, [0.551, -0.116, 0.216], [4.0, -0.3, -0.2],
-                            False, 'floor 1', references)
+def test_a_reach_check_before_a_walk_is_stale():
+    check = {'skill': 'check_reach', 'status': 'success', 'outputs': {'pelvis_error_x': 0.0, 'pelvis_error_y': 0.0, 'pelvis_error_z': 0.0}}
 
-    assert found['reach_match']['reference_left_arm'] is True
-    assert found['reach_match']['dx'] == pytest.approx(0.130, abs=1e-3) and found['reach_match']['walks'] is True
+    assert stance.latest_reach(None, [check, {'skill': 'navigate_to'}, {'skill': 'button_in_view'}]) is None
+    assert stance.latest_reach(None, [check, {'skill': 'button_in_view'}])['reachable'] is True
+
+
+def test_reach_move_steps_by_minus_the_miss_plus_margin_in_the_base_goal_frame():
+    reach  = {'reachable': False, 'pelvis_error_m': {'x': -0.10, 'y': 0.0, 'z': 0.01}}
+    turned = stance.reach_move({'forward_m': 0.0, 'left_m': 0.0, 'yaw_rad': math.pi / 2}, reach, {'forward': 0.15, 'back': 0.6, 'side': 0.25})
+    ahead  = stance.reach_move({'forward_m': -0.05, 'left_m': 0.02, 'yaw_rad': 0.0}, reach, {'forward': 0.15, 'back': 0.6, 'side': 0.25})
+
+    assert ahead['fixable'] and ahead['step_pelvis_m'] == [pytest.approx(0.12), pytest.approx(0.0)]
+    assert (ahead['dx'], ahead['dy'], ahead['dyaw']) == pytest.approx((0.07, 0.02, 0.0)) and ahead['within_limits']
+    assert (turned['dx'], turned['dy']) == pytest.approx((0.0, 0.12)) and turned['dyaw'] == pytest.approx(math.pi / 2, abs=1e-3)
+
+
+def test_reach_move_leaves_a_vertical_or_orientation_miss_and_a_far_one_to_the_agent():
+    limits = {'forward': 0.15, 'back': 0.6, 'side': 0.25}
+    here   = {'forward_m': 0.0, 'left_m': 0.0, 'yaw_rad': 0.0}
+
+    assert stance.reach_move(here, {'reachable': False, 'pelvis_error_m': {'x': -0.02, 'y': 0.0, 'z': 0.08}}, limits)['fixable'] is False
+    assert stance.reach_move(here, {'reachable': False, 'pelvis_error_m': {'x': 0.001, 'y': 0.0, 'z': 0.0}}, limits)['fixable'] is False
+    assert stance.reach_move(here, {'reachable': False, 'pelvis_error_m': {'x': -0.3, 'y': 0.0, 'z': 0.0}}, limits)['within_limits'] is False
+    assert stance.reach_move(here, {'reachable': True, 'pelvis_error_m': {'x': 0.0, 'y': 0.0, 'z': 0.0}}, limits) is None
+    assert stance.reach_move(here, {'reachable': False, 'pelvis_error_m': None}, limits) is None
+
+
+def test_evidence_says_how_far_the_press_target_moved_since_the_check():
+    reach = {'reachable': True, 'pelvis_error_m': {'x': 0.0, 'y': 0.0, 'z': 0.0}, 'target_in_pelvis': {'x': 0.40, 'y': -0.10, 'z': 0.25}}
+    found = stance.evidence(BASE, {'x': BASE['x'], 'y': BASE['y'], 'yaw': BASE['yaw']}, [0.43, -0.06, 0.25], None, False, 'floor 1', [], reach)
+
+    assert found['reach']['target_moved_since_check_m'] == {'xyz': [0.03, 0.04, 0.0], 'norm': 0.05}
+    assert found['reach_move'] is None
+
+
+def test_evidence_carries_the_reach_miss():
+    reach = {'reachable': False, 'pelvis_error_m': {'x': -0.1, 'y': 0.0, 'z': 0.0}}
+    found = stance.evidence(BASE, {'x': BASE['x'], 'y': BASE['y'], 'yaw': BASE['yaw']}, None, None, False, 'floor 1', [], reach)
+
+    assert found['reach'] is reach

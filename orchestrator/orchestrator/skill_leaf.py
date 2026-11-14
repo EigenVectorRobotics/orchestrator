@@ -171,7 +171,7 @@ class SkillLeaf(TreeNode):
 
         A condition is recorded only when it fails as the check of the action just before it (press_button's
         button_lit): its record carries that call as checked_call. Other conditions are polled, so their misses
-        are not events, unless the contract says record (the stance checks, which the agent then reads).
+        are not events, unless the contract says record (check_reach, which the agent then reads): then every answer is.
         """
         record = {
             'time':      self.context.clock(),
@@ -191,6 +191,9 @@ class SkillLeaf(TreeNode):
             return
 
         if status != Status.FAILURE:
+            if self.contract.record:
+                self.context.record(record)
+
             return
 
         if not self._is_check_of_last_call():
