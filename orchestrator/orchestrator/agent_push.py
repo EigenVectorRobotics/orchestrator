@@ -1,5 +1,5 @@
 """The push agent backend: the executor sends each call, evidence and frames included, to a bridge on the laptop
-(scripts/agent_bridge.py) over one TCP connection it keeps open, and waits for the decision on it.
+(mission_control/agent_bridge.py) over one TCP connection it keeps open, and waits for the decision on it.
 
 A message is a header of two big-endian uint32 (the JSON length, then the length of the binary after it), the JSON,
 then the images back to back, as its "images" list gives them ({name, media_type, size}). The executor sends call,

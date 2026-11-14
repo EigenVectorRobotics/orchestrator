@@ -23,8 +23,8 @@ USAGE = '''Run agent_cli on the robot from the laptop, for a Claude Code session
 wait and show sync the skill documents into <local>/skills/ before the call, saying whether they changed since the last
 call, and put the press frames of a judge call in <local>/<call id>/, printing their local paths. wait pulls each frame
 as soon as the executor saves it, so a judge call finds them here. All commands share one ssh connection. Every command
-is timed into <local>/timing.jsonl. wait and decide --send write the call's record for the Run Viewer, as
-agent_responder.py does, and keep it in <local>/<call id>/session.json.'''
+is timed into <local>/timing.jsonl. wait and decide --send write the call's record for the Run Viewer, and keep it in
+<local>/<call id>/session.json.'''
 
 FRAME_WAIT_S  = 30.0
 SESSION_MODEL = 'claude-code session'

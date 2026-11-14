@@ -4,7 +4,7 @@ Facts that hold by construction: tools, paths, topics, the press pipeline and it
 
 ## Tools
 
-None of these moves the robot. Only `say` publishes, and only speech. In a session, run each command through `scripts/agent_session.py` on the laptop, with the same arguments; it copies frames, images and Python files between the laptop and the robot for you.
+None of these moves the robot. Only `say` publishes, and only speech. In a session, run each command through `mission_control/agent_session.py` on the laptop, with the same arguments; it copies frames, images and Python files between the laptop and the robot for you.
 
 | Tool (executor) | In a session | What it gives |
 |---|---|---|
