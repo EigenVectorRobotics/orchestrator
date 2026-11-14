@@ -18,6 +18,7 @@ from skill_registry import TreeValidator, ValidatorConfig
 from .agent import Agent, AgentConfig
 from .agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
 from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC, ExternalAgentBackend
+from .agent_push import PushAgentBackend, PushLink
 from .trace import Tracer
 from .agent_ros import RosReader
 from .agent_sandbox import SandboxConfig
@@ -76,7 +77,7 @@ class ExecutorNode(Node):
 
     def _make_agent(self) -> Agent | None:
         """The runner of agent skills, or None if agent_backend is none or its backend cannot start"""
-        backend_name   = self.declare_parameter('agent_backend', 'external').value        # external | openai_compatible | scripted | none
+        backend_name   = self.declare_parameter('agent_backend', 'external').value        # external | push | openai_compatible | scripted | none
         model          = self.declare_parameter('agent_model', 'local').value            # openai_compatible only
         base_url       = self.declare_parameter('agent_base_url', '').value              # openai_compatible only
         api_key_env    = self.declare_parameter('agent_api_key_env', 'OPENAI_API_KEY').value
@@ -115,6 +116,9 @@ class ExecutorNode(Node):
         if name == 'external':
             return self._make_external_backend()
 
+        if name == 'push':
+            return self._make_push_backend()
+
         if name == 'openai_compatible':
             return OpenAICompatibleAgentBackend(base_url, model, api_key_env)
 
@@ -141,6 +145,15 @@ class ExecutorNode(Node):
         self._decision_subscription = self.create_subscription(String, DECISION_TOPIC, on_decision, COMMAND_QOS)
 
         return backend
+
+    def _make_push_backend(self) -> PushAgentBackend:
+        """press_judge and manipulation_recovery go to the agent bridge on the laptop over one TCP link; the request topic still carries them for the recorder"""
+        host              = self.declare_parameter('agent_push_host', '100.107.208.25').value     # the laptop on Tailscale
+        port              = self.declare_parameter('agent_push_port', 8771).value
+        external          = self._make_external_backend()           # operator_confirm and other calls a person answers
+        link              = PushLink(host, port, on_state=lambda text: self.tracer.emit('agent_link', text))
+
+        return PushAgentBackend(link, external.publish_request, external.publish_reply, fallback=external)
 
     def _on_agent_event(self, kind: str, text: str, level: str = 'info', **data):
         self.tracer.emit(kind, text, level=level, **data)
