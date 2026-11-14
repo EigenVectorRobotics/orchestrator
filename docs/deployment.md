@@ -36,7 +36,7 @@ Branch @ commit, and local changes, as checked. "No upstream": the local branch 
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `orchestrator` | **to deploy:** `ltx-dev` | checked: `jean/planner-tree-library` @ `e99f402` with `skill_registry/contracts/nuc_up.yaml` changed (`/prior_map`; the same change is on `ltx-dev`, so it can be dropped before the checkout) |
+| `orchestrator` | **to deploy:** `ltx-dev` | checked: `jean/planner-tree-library` @ `e99f402` |
 
 ### Orin, `~/eigen_vector_ws/src`
 
@@ -66,7 +66,6 @@ Running when checked: on the Thor, the tmux session `eigen_vector_bringup` (`gro
 | Machine | Path | What | Status |
 |---|---|---|---|
 | NUC | `~/eigen_vector_ws/src/bringup/config/cyclonedds.xml` | `MaxAutoParticipantIndex` 120 (N-001) | needed; not committed to `eigen_vector` |
-| NUC | `~/eigen_vector_ws/src/bringup/scripts/floor_map_selector.py`, its line in `CMakeLists.txt`, its node in `launch/nuc.launch.py` | publishes one floor of the prior map on `/prior_map` (latched) for Foxglove | needed by `nuc_up`, which waits for `/prior_map`; not committed. A bringup deployed from git drops it, and then `nuc_up` always fails |
 | NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py` | on `eigen_vector` branch `jean/door-state-bringup`, not on `main`. The bringup redeployed on 2026-11-08 at 20:29 no longer includes it: `door_state_node` ran in its own tmux session `door_state` (`docs/operations.md`, section 5) |
 | NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two: robot interface, arm control and foxglove (`tmux -L eigen_vector`); navigation and SLAM (`tmux -L nav`, log `~/nav_launch.log`) | what ran on 2026-11-08 evening; not in any repository |
 | NUC | `~/maps/two_floor_clean_cabin2.pcd`, `~/maps/two_floor_clean_cabin2.places.yaml` (backups `*.bak_*`) | the map in use and its places and areas (`freight elevator cabin`, `freight elevator hall`) | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
