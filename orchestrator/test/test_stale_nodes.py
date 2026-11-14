@@ -73,14 +73,11 @@ def test_old_orphaned_helpers_warn_and_young_or_parented_ones_do_not():
     findings = _judge(
         '   4000       1  7200 /usr/bin/python3 /opt/ros/jazzy/bin/ros2 topic echo /orchestrator/trace --field data',
         '   4001       1    60 /usr/bin/python3 /opt/ros/jazzy/bin/ros2 topic echo /feedback',
-        '   4002     900  7200 /usr/bin/python3 /opt/ros/jazzy/bin/ros2 run orchestrator agent_cli wait',
-        '   4003    4002  7200 /home/vector/orchestrator_ws/install/orchestrator/lib/orchestrator/agent_cli wait',
         '   4004    1001  7200 /usr/bin/python3 /opt/ros/jazzy/bin/ros2 bag record -a',
         "   4005       1  7200 bash -c 'nohup ros2 topic echo /x'",
     )
 
-    assert findings == [('warn', 'orphaned ros2 topic echo (nuc pid 4000, 120 min old)'),
-                        ('warn', 'orphaned agent_cli wait (nuc pid 4002, 120 min old)')]
+    assert findings == [('warn', 'orphaned ros2 topic echo (nuc pid 4000, 120 min old)')]
 
 
 def test_an_orin_node_outside_orin_launch_warns():

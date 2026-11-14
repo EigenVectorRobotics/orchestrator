@@ -2,8 +2,8 @@ name: operator_confirm
 kind: action
 device: nuc
 description: >-
-  Ask the operator a yes/no question and wait for the answer, through the agent session. confirmed is success,
-  not_confirmed is failure; no answer within the timeout fails too.
+  Ask the operator a yes/no question and wait for the answer, typed in the agent bridge's window on the laptop (never
+  the model). confirmed is success, not_confirmed is failure; no answer within the timeout fails too.
 interface:
   transport: agent
   skill: operator_confirm
@@ -24,4 +24,4 @@ needs_cloud: true
 timeout_s: 120
 maturity: untested
 source: orchestrator/orchestrator/agent.py (phase confirm)
-notes: Say the question out loud first (say), so a person near the robot hears it.
+notes: The bridge rings the bell and prints the question; it drops the question when the call times out or is cancelled.

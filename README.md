@@ -43,10 +43,10 @@ An agent skill is an LLM with read-only tools that decides how a tree recovers. 
 - **Evidence.** Every finished action call is recorded in the tree's history; a failure keeps the action's feedback over time. Both go to the trace as `record` events, and to the agent through `get_failure` and `get_history`.
 - **Tools.** `read_file`, `ros_read` (TF, one message, the topic list), `get_image`, `run_python` (numpy, scipy, pinocchio, coal), `decide`. Nothing publishes. `run_python` runs under an audit hook (no ROS, network, processes, or writes outside its scratch directory): a guard against mistakes, not a security boundary, since the NUC allows no user namespaces.
 - **Branching.** `decision_is` compares a blackboard value (`value="{decision}" equals="reposition"`). `abort` fails the whole tree at once with the agent's reason. After `ask_help`, or after `max_rounds` diagnoses, the agent skill fails without a call.
-- **Who answers.** By default (`agent_backend:=external`) a session outside the executor, e.g. Claude Code over ssh: the executor publishes each call on `/orchestrator/agent/request` and waits up to the contract timeout (600 s); the session gathers evidence and answers with `agent_cli`, which publishes only the decision, and only with `--send`. Other backends run inside the executor: `openai_compatible` with `agent_base_url` and `agent_model` (e.g. the Thor's local model), `scripted` with `agent_script` (tests), `none`.
-- **agent_cli.** `wait`, `show [--full]`, `tf TARGET SOURCE`, `topic TOPIC`, `topics`, `image camera|overlay OUT`, `python FILE` (the sandbox), `say TEXT`, `decide DECISION --reason R [--dx --dy --dyaw] [--ox --oy --oz] [--left-arm|--right-arm] [--send]`. Run it in the executor's ROS environment. For a `press_judge` call, `show` adds a `press:` line (arm, deepest point along the button normal, sideways distance, signed `residual_m`) and the paths of the saved frames on the NUC; copy them with `scp` to look at them.
-- **The request is whole.** The external backend takes the failure, the history and the press from the tools with `whole`, so a 60 s press (120 feedback samples, over 40 kB) reaches the session. A model inside the executor still gets tool text cut at 40 kB.
-- **Executor parameters.** `agent_backend`, `agent_read_roots`, `agent_scratch_dir`, `agent_python_timeout_s`, `agent_max_turns`, and the backend ones above.
+- **Who answers.** The agent bridge on the laptop (`mission_control/agent_bridge.py`) answers every call. The executor pushes each call with its evidence and frames over one TCP link and waits up to the contract timeout. The bridge asks the model (Claude Agent SDK) for `press_judge` and `manipulation_recovery`. It asks the operator in its terminal for `operator_confirm`. `agent_backend:=none` runs without an agent: agent skills then fail.
+- **The request is whole.** The executor takes the failure, the history and the press from the tools with `whole`, so a 60 s press (120 feedback samples, over 40 kB) reaches the bridge.
+- **Recorded.** Each call also goes out on `/orchestrator/agent/request` (opened, then closed) and each reply on `/orchestrator/agent/reply`. The run recorder and the Run Viewer read them.
+- **Executor parameters.** `agent_backend` (`push` or `none`), `agent_push_host`, `agent_push_port`, `agent_read_roots`, `agent_scratch_dir`, `agent_python_timeout_s`, `agent_max_turns`.
 
 ### Standard recoveries
 
@@ -67,16 +67,16 @@ From `manipulation_recovery.experience.md` (E-014 to E-020); the trees and the s
 
 ### The agent says what it is doing, all the time
 
-Whatever is the agent (a Claude Code session or a model in the executor), it speaks its process out loud the whole time it works: what it is checking, what it found, what problem it hit, what it is trying next. Each message is one short English sentence, like thinking aloud, not the full reasoning.
+The robot speaks the agent's process out loud: what it is checking, and what was decided. Each message is one short English sentence, like thinking aloud, not the full reasoning.
 
 - **Where:** a `std_msgs/String` on `/speak`. unitree_interface subscribes `~/tts`, and its launch file remaps `/unitree_interface/tts` to `/speak`; it hands each message to the Unitree TTS (`TtsMaker`) at once, with no queue.
-- **How:** in a session, `agent_cli say "Checking whether the arm can reach the button."`; inside the executor, the agent's `say` tool. Both refuse empty text and more than 200 characters; the tool also waits 3 s between messages, since a new message does not wait for the last one to finish.
-- **When:** at the start of each call; at each step of the diagnosis (reading the failure, checking reach, looking at the frame); whenever something fails or surprises it; before each decision it proposes or sends, and while it waits for the operator's go.
-- **Examples:** "The press stopped 13 centimetres short; checking reach." "The right arm cannot reach; trying the left." "The button is out of view; I will step back." "I propose to step back 20 centimetres; waiting for your go."
+- **How:** the executor says the sentences of `PHASE_SPEECH` and `DECISION_SPEECH` in `agent.py`, and one sentence for each rule that corrects the press or the stance.
+- **When:** when a call opens, when a rule corrects the press or the stance, and when a decision comes.
+- **Examples:** "The press did not work. Checking why." "The press just missed the button. Correcting my aim and pressing again." "Moving to a better spot."
 
 ## Checking a press
 
-**`press_judge` (agent in the loop) is the check the trees use now.** After `press_button` succeeds, the executor waits until the press's three frames are chosen (below), saves them, and opens an agent call with their paths, the phase times, the deepest point along the button normal, the sideways distance and the signed residual (fingertip minus goal at the closest point, in the goal frame: x into the panel, y left, z up). The agent (a session, through `agent_cli`) looks at the `press` frame, the first after the fingertip's closest point, and the `release` frame, and decides `pressed` (success) or `not_pressed`. A `not_pressed` is recorded as the failed check of that press, so `manipulation_recovery` sees the press as `checked_call` with its feedback. The skill document is `skill_registry/agent_skills/press_judge.md`. A press counts only when the requested button lights: lit in the `press` or `release` frame and not in `baseline`, on both panels. Floor buttons light a blue ring at once, still lit in the release frame; the call button lights when the call registers (E-019). `press_button` succeeding does not prove a press: once the fingertip stopped 67 mm short and the action still reported `Controller reached target` (E-018).
+**`press_judge` (agent in the loop) is the check the trees use now.** After `press_button` succeeds, the executor waits until the press's three frames are chosen (below), saves them, and opens an agent call with their paths, the phase times, the deepest point along the button normal, the sideways distance and the signed residual (fingertip minus goal at the closest point, in the goal frame: x into the panel, y left, z up). The bridge's model looks at the `press` frame, the first after the fingertip's closest point, and the `release` frame, and decides `pressed` (success) or `not_pressed`. A `not_pressed` is recorded as the failed check of that press, so `manipulation_recovery` sees the press as `checked_call` with its feedback. The skill document is `skill_registry/agent_skills/press_judge.md`. A press counts only when the requested button lights: lit in the `press` or `release` frame and not in `baseline`, on both panels. Floor buttons light a blue ring at once, still lit in the release frame; the call button lights when the call registers (E-019). `press_button` succeeding does not prove a press: once the fingertip stopped 67 mm short and the action still reported `Controller reached target` (E-018).
 
 **The closest point is found after the pre-grasp.** Until the end effector reaches the pre-grasp, the phase tracker counts only samples within `lateral_tolerance` (30 mm) of the button axis. Counting the arm's swing up from its rest pose, which passes the goal's depth about 20 cm below the button, ended the press there and made `press_reached` report misses of 19 to 23 cm sideways after good presses (E-014).
 
@@ -91,7 +91,7 @@ The rest of this section is how the frames are chosen, and the two older checks,
 
 ## Knowledge store
 
-What the robot learns is kept as claims in `knowledge_dir` (executor parameter, default `~/orch_knowledge`): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). An agent skill adds observations with its `note` tool and sees the facts and beliefs in its prompt. A session that answers agent calls from outside uses the CLI, with `--by agent:<skill>`. Only the operator makes a fact, at a terminal:
+What the robot learns is kept as claims in `knowledge_dir` (executor parameter, default `~/orch_knowledge`): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). An agent skill adds observations with its `note` tool and sees the facts and beliefs in its prompt. Only the operator makes a fact, at a terminal:
 
 ```bash
 ros2 run orchestrator knowledge list --ready                  # beliefs that can become facts
@@ -133,7 +133,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - Arrivals are poor: the robot has stopped up to 24 cm past a place, and an arrival 8 cm or more past puts the button out of view (E-001, E-015). Set `path_follower` `slow_down_distance_threshold` 0.7 again (a relaunch resets it to 0.4) and compare, or move the places back by the mean overshoot.
 - The inside press starts at the offset (+5.0, +7.5, +3.4) mm; one press lit only at (+12, +12.6, +3.2) mm. Start there once a second press confirms it.
 - The `ekf_hold` subtree resets the body EKF once per stance, in `look_here` after the mode change and before `check_reach` (`reset_ekf`, `/body_ekf/reset`). Every press, a `continue` included, follows a passed `look_here` at its stance. The skill ends when body_ekf publishes its torso pose again, which it does only once it has recalibrated.
-- `press_judge` needs a person or a session to look at frames; the VLM could judge the button lights alone (`button_lit`).
+- `press_judge` needs the agent bridge's model (a cloud call) to look at frames; the VLM could judge the button lights alone (`button_lit`).
 
 - `places.yaml` has zeros. Measure the poses on the prior map.
 - Timeouts in the contracts are guesses. All skills are `wip` or `untested`.

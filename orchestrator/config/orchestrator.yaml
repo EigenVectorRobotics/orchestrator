@@ -11,7 +11,7 @@ orchestrator_executor:
     image_topic: /camera/camera/color/image_raw    # raw: the Orin has no compressed transport
     vlm_model: local
     vlm_timeout_s: 40.0                 # Cosmos on the Thor serves one request at a time
-    # agent_backend is the launch argument agent_backend (default external): a node-named entry here would override it
+    # agent_backend is the launch argument agent_backend (default push): a node-named entry here would override it
     # require_recorder is set by the launch argument record (default true): no tree runs unrecorded
 
 orchestrator_recorder:

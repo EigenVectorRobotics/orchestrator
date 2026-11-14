@@ -39,11 +39,9 @@ tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 la
 
 ## 3. Run a task through the planner
 
-One session answers the agent calls, and the same or another session answers the planner. Only one session may answer agent calls: another `agent_cli wait` sees every call too (`pgrep -fa agent_cli`).
+The agent bridge on the laptop answers the agent calls, and a session answers the planner.
 
-1. **The fast path (push).** Launch the executor with `agent_backend:=push` (`agent_push_host`, default the laptop's Tailscale address 100.107.208.25; `agent_push_port`, default 8771). On the laptop, run `~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py` (set up in `mission_control/README.md`) (`--model`, default `claude-opus-5-5`; `--effort`, default `low`). The executor pushes each call with its evidence and frames over one TCP link, and the bridge answers in a few seconds with the frames as images. The bridge keeps each call in `~/agent_calls/<call id>/` and its timings in `~/agent_calls/bridge_timing.jsonl`; the executor writes the Responder tile's record. `operator_confirm` needs the `external` backend, which stays the default.
-   The path below answers the `external` backend.
-1. **By hand, or a Claude Code session.** Run `mission_control/agent_session.py wait`, then `agent_session.py decide ... --send`, which sends and then waits for the next call. `operator_confirm` calls are answered this way. The session's record goes to the Run Viewer's Responder tile under the model `claude-code session`. `get_stance` (in the call) gives the stance numbers; the executor keeps each press judged pressed in `~/.ros/orchestrator_press_references.jsonl` on the NUC.
+1. **Run the agent bridge.** On the laptop, run `~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py` (set up in `mission_control/README.md`) (`--model`, default `claude-opus-5-5`; `--effort`, default `low`). The executor's default backend connects to it (`agent_push_host`, default the laptop's Tailscale address 100.107.208.25; `agent_push_port`, default 8771). The executor pushes each call with its evidence and frames over one TCP link. The model answers `press_judge` and `manipulation_recovery` in a few seconds, with the frames as images. `operator_confirm` rings the bell in the bridge window and waits for you to type `y` or `n`, then an optional reason. The bridge keeps each call in `~/agent_calls/<call id>/` and its timings in `~/agent_calls/bridge_timing.jsonl`. The executor writes the Run Viewer's Responder tile record and keeps each press judged pressed in `~/.ros/orchestrator_press_references.jsonl` on the NUC.
 2. **Send the task:**
 
    ```bash
@@ -52,7 +50,7 @@ One session answers the agent calls, and the same or another session answers the
 
 3. **Preflight runs first** (`skill_registry/preflight/preflight.xml`). It starts the Run Viewer and whichever of the NUC, Orin and Thor stacks are not up (`launch_*_stack`, over ssh from the NUC), checks SLAM (relocalizes in place, else asks to be relocalized), stands the G1 in ready locomotion in the gantry, and asks whether the gantry is removed. The operator:
    - sends `/initialpose` from Foxglove (`ws://vector-nuc:8765`) within 2 minutes when the robot says "Please relocalize me";
-   - removes the gantry, then the session answers: `ros2 run orchestrator agent_cli decide confirmed --reason "Operator: gantry removed." --send`.
+   - removes the gantry, then types `y gantry removed` in the bridge window.
 
    Right after the stacks are up, preflight stops when a robot-control node runs twice (`no_duplicate_nodes`) and warns about nodes started outside the launch and orphaned helpers (`no_stray_processes`). Run the same check by hand: `python3 -m orchestrator.stale_nodes report`.
 
@@ -65,7 +63,7 @@ One session answers the agent calls, and the same or another session answers the
    ```
 
    `--use-tree` reuses a library tree; `--param` sets its parameters. `freight_elevator_go_to_place` needs only `goal`, a place on the other floor: the planner fills `goal_floor` from the place's z, and the tree derives the panels, the floor button and the door-out place from it. With no `--param` it rides from floor 1 to `{target_floor_2}`.
-5. **During the ride** the agent session answers each call as it comes. A call waits up to 600 s; then the agent skill fails and the tree goes on as after any failure of that step (in the end, a person is asked to press).
+5. **During the ride** the bridge answers each call as it comes. A call waits up to its contract timeout; then the agent skill fails and the tree goes on as after any failure of that step (in the end, a person is asked to press).
 6. **Results** are under `~/orch_runs/<session>/runs/<n>-<tree>/`: `tree.xml` (what ran), `records.jsonl`, `outcome.json`, the bag. The session folder holds `events.jsonl`, the whole trace.
 
 ## 4. Run one tree without the planner
@@ -74,14 +72,7 @@ One session answers the agent calls, and the same or another session answers the
 ros2 run orchestrator send_tree <tree.xml>                 # add --blind for a tree that must run with no cloud
 ```
 
-Or, with the trace echo and `agent_cli wait` started beside it, each writing to `~/orch_runs/run_<HHMMSS>/`:
-
-```bash
-~/orchestrator_ws/src/orchestrator/scripts/start_cycle.sh <tree.xml>      # the tree is required
-~/orchestrator_ws/src/orchestrator/scripts/stop_cycle.sh <run folder>    # when the tree has ended
-```
-
-`stop_cycle.sh` matters: an orphaned `ros2 topic echo` holds a DDS participant (N-001). Read progress with `grep -o '"text": "[^"]*"' <run folder>/trace.txt`.
+The bridge answers its agent calls, as in section 3. The recorder keeps the trace in `~/orch_runs/<session>/events.jsonl`.
 
 Test trees, in `orchestrator/test_trees/`, to run a part of the task:
 
@@ -106,9 +97,8 @@ The test measures how often one press hits each call button, with no retries. Ea
 
 1. Launch the NUC with the cabin2 map (section 5) and check `"localized": true`. The Orin and the Thor run as usual.
 2. Start the orchestrator (section 2) with `places_file:=/home/vector/maps/two_floor_clean_cabin2.places.yaml`.
-3. Start the run: `~/orchestrator_ws/src/orchestrator/scripts/start_cycle.sh ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_panel_press_repeat.xml`. It prints the run folder.
-4. Answer each `press_judge` call from the agent session (`agent_cli show`, then `agent_cli decide pressed|not_pressed --reason ... --send`). `agent_cli wait` returns after one call, so run it again after each answer. A press that move_to_pose refuses ("target out of reach") or that finds no target opens no call, so expect up to ten. A person by the panel notes the true outcome of each press, in order.
-5. When the trace shows the tree ended, run `stop_cycle.sh <run folder>`.
+3. Run the agent bridge on the laptop (section 3), then start the run: `ros2 run orchestrator send_tree ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_panel_press_repeat.xml`.
+4. The bridge judges each press. A press that move_to_pose refuses ("target out of reach") or that finds no target opens no call, so expect up to ten. A person by the panel notes the true outcome of each press, in order.
 
 Compare the person's labels with the judge's decisions and the `press_judge` records in `~/orch_runs/<session>/runs/<n>-freight_call_panel_press_repeat/records.jsonl`. Each press record holds the capture (deepest point, sideways distance, `residual_m`) and the frame paths.
 
@@ -152,7 +142,7 @@ ssh vector@vector-nuc 'source ~/eigen_vector_ws/env.sh; export LD_PRELOAD=$EIGEN
 tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 launch bringup orin.launch.py 2>&1 | tee ~/eigen_vector_ws/launch.log'"
 ```
 
-Ready when the new part of `~/eigen_vector_ws/launch.log` (after its `[INFO] [launch]` header) has `RealSense Node Is Up!`, `Track3D node active!` and `Camera info received` (about 15 s), and `/camera/camera/color/image_raw` publishes at about 6 Hz (from the NUC: `ros2 run orchestrator agent_cli topics`).
+Ready when the new part of `~/eigen_vector_ws/launch.log` (after its `[INFO] [launch]` header) has `RealSense Node Is Up!`, `Track3D node active!` and `Camera info received` (about 15 s), and `/camera/camera/color/image_raw` publishes at about 6 Hz (from the NUC: `ros2 topic hz /camera/camera/color/image_raw`).
 
 **Thor** (`ground_server` and the Cosmos daemon, then the VLM endpoint), on the Thor:
 
@@ -174,7 +164,7 @@ The grounding is up when the log has `grounding service on /vlm_ground_server/gr
    ros2 service call /unitree_interface/change_mode unitree_interface_msgs/srv/ChangeControlMode "{requested_mode: 1}"
    ```
 
-4. Stop the orchestrator (`tmux kill-session -t orchestrator`) and any helpers (`stop_cycle.sh`); then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
+4. Stop the orchestrator (`tmux kill-session -t orchestrator`), then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
 
 The next tree clears `/stop` itself. Never use `ready_locomotion` on a standing robot: it damps the robot, then stands it up again.
 
@@ -182,4 +172,4 @@ The next tree clears `/stop` itself. Never use `ready_locomotion` on a standing 
 
 - **The trace:** `/orchestrator/trace` (JSON) and `/orchestrator/log` (for the Foxglove Log panel); the recorder keeps it in the session's `events.jsonl`.
 - **Foxglove** (`ws://vector-nuc:8765`), in the `map` frame: the prior map `/route_planner/terrain` (latched) or one floor of it on `/prior_map`, the live obstacles `/terrain_map` and `/terrain_map_ext` (colour by intensity), the candidate paths `/free_paths` (empty means all blocked), the scan `/registered_scan`, the door state `/door_state`. The places are not published by the stack; `~/places_markers.py` on the NUC publishes them as markers.
-- **The camera and the track:** `ros2 run orchestrator agent_cli image overlay /tmp/o.jpg` shows the frame with the tracked target; `ros2 run tf2_ros tf2_echo foot_world selected_target` gives the target in `foot_world`.
+- **The camera and the track:** `/track_3d/tracked_overlay` in Foxglove shows the frame with the tracked target; `ros2 run tf2_ros tf2_echo foot_world selected_target` gives the target in `foot_world`.

@@ -2,7 +2,7 @@
 name: manipulation_recovery
 description: A press failed or a look before the press failed. Work out why from the evidence, check whether the button was in reach, and decide how the tree should recover.
 runs_when: [a look before the first press failed, a press failed or was judged not pressed]
-runs_on: a Claude Code session through agent_cli (default), or a model inside the executor on the NUC
+runs_on: the agent bridge on the laptop (mission_control/agent_bridge.py), through the Claude Agent SDK
 decisions: [reposition, switch_arm, offset_retry, retry, ask_help, abort, continue]   # per phase: "Your decision"
 ---
 
@@ -19,9 +19,9 @@ Your main question: **was the button out of the arm's reach from where the robot
 
 **Read as you need them** (same directory):
 
-- `manipulation_recovery.reference.md`: the tools and their `agent_cli` commands, file paths, topics and TF, the press pipeline, pose conventions, arm limits, every failure message, perception and navigation facts.
+- `manipulation_recovery.reference.md`: the tools, file paths, topics and TF, the press pipeline, pose conventions, arm limits, every failure message, perception and navigation facts.
 - `manipulation_recovery.experience.md`: what the team has seen (entries `E-0xx`). Treat each entry as a hypothesis to test.
-- "What is known": claims from the knowledge store, with their tier. Inside the executor it is appended below this document. In a session it is not sent: print it with `ros2 run orchestrator knowledge prompt` on the robot computer.
+- "What is known": claims from the knowledge store, with their tier. The executor appends it below this document; print it with `ros2 run orchestrator knowledge prompt` on the robot computer.
 
 ## What the tree does around you
 
@@ -96,24 +96,4 @@ The arm is not yours to change here: `button_in_view` chooses it by rule on ever
 
 Never edit the experience file. When this failure shows something new or contradicts an entry or claim:
 
-- Inside the executor: call `note` with one sentence, the `about` tags and the evidence.
-- In a session: draft the observation and show it to the user with your decision. It goes in only after the user approves the text.
-
-## When you are a Claude Code session
-
-Run every `agent_cli` command through `mission_control/agent_session.py` on the laptop, with the same arguments: `agent_session.py wait`, `agent_session.py tf pelvis foot_world`, `agent_session.py decide ...`. It runs `agent_cli` on the robot computer over ssh (`AGENT_HOST`, default `vector@vector-nuc`) and does two things for you:
-
-- **Frames:** `wait` and `show` copy a judge call's frames to the laptop and print their local paths. Open those paths; never copy frames yourself.
-- **Documents:** they sync the skill documents to `~/agent_calls/skills/` and say whether any changed since the last call. Read them at the first call and again only when told they changed.
-
-Start `agent_session.py wait` in the background; it returns when the tree opens a call. Print "What is known" once per run with `ros2 run orchestrator knowledge prompt` on the robot computer. The reference maps each tool to its command. If asked to bring the stack up, follow `docs/operations.md` step by step, with the user's go for each machine.
-
-The same session answers every call in a run, `press_judge` included, so you see earlier calls in your own context. Base each decision on this call's evidence; use what you remember only as a hint to check.
-
-**Rules for a session.** Nothing enforces these for you, so keep them:
-
-- Publish only through `agent_cli decide --send` and `agent_cli say`. Do not call services, send goals, or change files, parameters or configs on any robot computer.
-- **Get the user's go before `--send`.** Show the decision, the reason and the evidence. Show it again after any edit.
-- Watch the clock in `agent_cli show`. At 600 s the call fails: in `diagnose` the robot then asks a person to press, and in `stance_check` the tree looks again. Warn the user when time is short.
-- After each decision, run `agent_session.py wait` again: the next call may be a `press_judge`, another diagnosis, or a stance check at the next panel.
-- If `--send` returns `rejected`, fix the decision and show it to the user again.
+- Draft the observation in your reason. It goes in only after the user approves the text.

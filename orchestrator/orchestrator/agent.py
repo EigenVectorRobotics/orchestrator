@@ -845,8 +845,9 @@ def _task(phase: str, inputs: dict) -> str:
                      'get_failure says which. The press ran only after button_in_view and check_reach passed: get_stance '
                      'reach. Work out why, following "How to work", and end with decide.')
     elif phase == 'confirm':
-        lines.append(f'Ask the operator, and decide from their reply only: {inputs.get("question", "")} '
-                     'confirmed when they say yes; not_confirmed when they say no. Without a reply the call times out.')
+        lines += [f'Question: {inputs.get("question", "")}',
+                  'The operator answers in the agent bridge: confirmed when they say yes, not_confirmed when they say no. '
+                  'Without a reply the call times out.']
     elif phase == 'stance_check':
         lines.append('The walk to the panel has arrived and nothing has been pressed yet. button_in_view or check_reach '
                      'failed: get_failure says which and what it measured; get_stance reach_move is the reposition the IK '

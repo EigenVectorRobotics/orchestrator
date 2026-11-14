@@ -16,9 +16,7 @@ from ament_index_python.packages import get_package_share_directory
 from skill_registry import TreeValidator, ValidatorConfig
 
 from .agent import Agent, AgentConfig
-from .agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
-from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC, ExternalAgentBackend
-from .agent_push import PushAgentBackend, PushLink
+from .agent_push import REPLY_TOPIC, REQUEST_TOPIC, PushAgentBackend, PushLink
 from .trace import Tracer
 from .agent_ros import RosReader
 from .agent_sandbox import SandboxConfig
@@ -76,12 +74,8 @@ class ExecutorNode(Node):
         self.get_logger().info(f'{len(self.registry)} skills, {len(self.places)} places')
 
     def _make_agent(self) -> Agent | None:
-        """The runner of agent skills, or None if agent_backend is none or its backend cannot start"""
-        backend_name   = self.declare_parameter('agent_backend', 'external').value        # external | push | openai_compatible | scripted | none
-        model          = self.declare_parameter('agent_model', 'local').value            # openai_compatible only
-        base_url       = self.declare_parameter('agent_base_url', '').value              # openai_compatible only
-        api_key_env    = self.declare_parameter('agent_api_key_env', 'OPENAI_API_KEY').value
-        script         = self.declare_parameter('agent_script', '[]').value              # scripted: JSON, one call list per agent call
+        """The runner of agent skills, or None if agent_backend is none or unknown"""
+        backend_name   = self.declare_parameter('agent_backend', 'push').value            # push | none
         skills_dir     = self.declare_parameter('agent_skills_dir', str(Path(get_package_share_directory('skill_registry')) / 'agent_skills')).value
         read_roots     = self.declare_parameter('agent_read_roots', ['/home/vector/eigen_vector_ws', skills_dir]).value
         scratch_dir    = self.declare_parameter('agent_scratch_dir', SandboxConfig.scratch_dir).value
@@ -92,10 +86,8 @@ class ExecutorNode(Node):
         if backend_name == 'none':
             return None
 
-        try:
-            backend = self._make_agent_backend(backend_name, model, base_url, api_key_env, script)
-        except ValueError as error:                                 # a bad script or name: agent skills then fail
-            self.get_logger().warn(f'no agent: {error}')
+        if backend_name != 'push':                                  # agent skills then fail
+            self.get_logger().warn(f'no agent: unknown agent_backend {backend_name}')
             return None
 
         config = AgentConfig(
@@ -109,51 +101,22 @@ class ExecutorNode(Node):
         speaker = self.create_publisher(String, '/speak', 10)                  # unitree_interface's TTS (remapped ~/tts)
         speak   = lambda text: speaker.publish(String(data=text))
 
-        return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames),
+        return Agent(self._make_push_backend(), config, RosReader(self, self.runner.latest_image, self.runner.capture_frames),
                      on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
 
-    def _make_agent_backend(self, name: str, model: str, base_url: str, api_key_env: str, script: str):
-        if name == 'external':
-            return self._make_external_backend()
-
-        if name == 'push':
-            return self._make_push_backend()
-
-        if name == 'openai_compatible':
-            return OpenAICompatibleAgentBackend(base_url, model, api_key_env)
-
-        if name == 'scripted':
-            return ScriptedAgentBackend(json.loads(script))
-
-        raise ValueError(f'unknown agent_backend {name}')
-
-    def _make_external_backend(self) -> ExternalAgentBackend:
-        """Calls go out on the request topic; a session answers with agent_cli on the decision topic"""
+    def _make_push_backend(self) -> PushAgentBackend:
+        """Every agent call goes to the agent bridge on the laptop over one TCP link; the request and reply topics carry them for the recorder and the Run Viewer"""
+        host              = self.declare_parameter('agent_push_host', '100.107.208.25').value     # the laptop on Tailscale
+        port              = self.declare_parameter('agent_push_port', 8771).value
         request_publisher = self.create_publisher(String, REQUEST_TOPIC, STATUS_QOS)
         reply_publisher   = self.create_publisher(String, REPLY_TOPIC, COMMAND_QOS)
-        backend           = ExternalAgentBackend(
+        link              = PushLink(host, port, on_state=lambda text: self.tracer.emit('agent_link', text))
+
+        return PushAgentBackend(
+            link,
             lambda request: request_publisher.publish(String(data=json.dumps(request, default=str))),
             lambda reply: reply_publisher.publish(String(data=json.dumps(reply)))
         )
-
-        def on_decision(message: String):
-            try:
-                backend.deliver(json.loads(message.data))
-            except json.JSONDecodeError as error:
-                reply_publisher.publish(String(data=json.dumps({'id': None, 'accepted': False, 'message': f'not JSON: {error}'})))
-
-        self._decision_subscription = self.create_subscription(String, DECISION_TOPIC, on_decision, COMMAND_QOS)
-
-        return backend
-
-    def _make_push_backend(self) -> PushAgentBackend:
-        """press_judge and manipulation_recovery go to the agent bridge on the laptop over one TCP link; the request topic still carries them for the recorder"""
-        host              = self.declare_parameter('agent_push_host', '100.107.208.25').value     # the laptop on Tailscale
-        port              = self.declare_parameter('agent_push_port', 8771).value
-        external          = self._make_external_backend()           # operator_confirm and other calls a person answers
-        link              = PushLink(host, port, on_state=lambda text: self.tracer.emit('agent_link', text))
-
-        return PushAgentBackend(link, external.publish_request, external.publish_reply, fallback=external)
 
     def _on_agent_event(self, kind: str, text: str, level: str = 'info', **data):
         self.tracer.emit(kind, text, level=level, **data)

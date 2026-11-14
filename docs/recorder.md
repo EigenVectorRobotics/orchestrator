@@ -12,7 +12,7 @@ Status: 2026-11-05. Built: `orchestrator/recording.py`, `orchestrator/run_record
 
 - `/orchestrator/trace`: JSON events (`started` with the tree XML, `node`, `record`, `agent_start`, `agent_tool`, `agent_say`, `agent_decision`, `finished`, `halted`, `rejected`, `validation`, `error`, and the planner's `sent`).
 - `record` events carry the full record of each finished call, with the action feedback over time.
-- Agent calls go out on `/orchestrator/agent/request` and come back on `/orchestrator/agent/decision`.
+- Agent calls go out on `/orchestrator/agent/request`, and the executor's replies to the bridge's decisions on `/orchestrator/agent/reply`.
 - Press frames go to `capture_dir` (`~/.ros/orchestrator_captures`), and the agent's sandbox files to `agent_scratch_dir`.
 - Nothing puts these together, and nothing records which code, contracts and parameters ran.
 
@@ -53,7 +53,7 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 ### What the executor must give that the trace does not have now
 
 1. **Full records:** already in the trace's `record` events; no new topic.
-2. **Agent call bodies.** The external backend already publishes the whole request. The recorder subscribes to the request and decision topics. For a backend inside the executor (`openai_compatible`), the agent emits its messages and tool results on the same request topic shape.
+2. **Agent call bodies.** The executor already publishes the whole request. The recorder subscribes to the request and reply topics.
 3. **Planner attempts.** `planner_node` emits a `planner_attempt` event with the prompt, the reply and the validator errors of each attempt. Large (the catalog is long), so this goes on its own topic, not in the trace.
 4. **Capture paths.** The `record` of a press already names its saved frames. The recorder copies them into the run folder when the run ends.
 
@@ -80,7 +80,7 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 
 ## Retrospection
 
-A tool `retrospect` (a CLI first; a session uses it, as `agent_cli`):
+A tool `retrospect` (a CLI first, for a person or a session):
 
 - `retrospect list [--since]`: runs with their outcome, duration, failed skills, decisions.
 - `retrospect show <run>`: the timeline: each call with its status, inputs, elapsed time, agent decisions, and links to frames.

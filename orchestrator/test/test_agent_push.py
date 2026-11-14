@@ -5,6 +5,8 @@ import threading
 
 from pathlib import Path
 
+import pytest
+
 from skill_registry import Registry
 
 from orchestrator import agent_push
@@ -228,15 +230,79 @@ def test_a_bridge_failure_fails_the_call(tmp_path):
         backend.link.close()
 
 
-def test_other_skills_go_to_the_fallback_for_a_person():
-    class Fallback:
-        def run(self, *arguments, skill: str = ''):
-            self.skill = skill
+ANSWERS = {'judge': 'pressed', 'diagnose': 'retry', 'stance_check': 'continue', 'confirm': 'confirmed'}
+SKILLS  = {                 # phase: (skill, tree)
+    'judge':        ('press_judge', JUDGE_TREE),
+    'diagnose':     ('manipulation_recovery', '<manipulation_recovery phase="diagnose" base_goal="{call_panel}"/>'),
+    'stance_check': ('manipulation_recovery', '<manipulation_recovery phase="stance_check" base_goal="{call_panel}"/>'),
+    'confirm':      ('operator_confirm', '<operator_confirm question="Is the gantry removed?"/>'),
+}
 
-    fallback = Fallback()
-    backend  = PushAgentBackend(PushLink('127.0.0.1', 9), fallback=fallback)
 
-    backend.run('', 'Phase: confirm.', [], lambda name, arguments: None, 5, lambda: False, lambda *a, **k: None, skill='operator_confirm')
-    backend.link.close()
+def _body(leaf: str) -> str:
+    return leaf if leaf.startswith('<root') else f'<root BTCPP_format="4"><BehaviorTree ID="t">{leaf}</BehaviorTree></root>'
 
-    assert fallback.skill == 'operator_confirm'
+
+@pytest.mark.parametrize('phase', SKILLS)
+def test_every_agent_skill_goes_over_the_link(tmp_path, phase):
+    bridge  = FakeBridge(lambda header, blobs, conn: send_message(conn, {'type': 'decision', 'id': header['id'], 'reason': 'r',
+                                                                         'decision': ANSWERS[header['phase']]}))
+    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), records=tmp_path / 'orch_runs')
+    tree    = _tree(_body(SKILLS[phase][1]), FakeRunner([(True, 'Controller reached target', [])]), _agent(tmp_path, backend, _press(tmp_path)))
+    tree.context.last_failure = {'skill': 'button_in_view', 'inputs': {}, 'message': 'not in view'}
+
+    try:
+        assert _run(tree) == Status.SUCCESS
+        header = bridge.wait_for('call')[0][0]
+    finally:
+        tree.halt()
+        bridge.close()
+        backend.link.close()
+
+    assert (header['skill'], header['phase']) == (SKILLS[phase][0], phase)
+
+
+def test_operator_confirm_carries_its_question_and_no_frames(tmp_path):
+    bridge  = FakeBridge(lambda header, blobs, conn: send_message(conn, {'type': 'decision', 'id': header['id'], 'reason': 'Operator: y',
+                                                                         'decision': 'not_confirmed'}))
+    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), records=tmp_path / 'orch_runs')
+    tree    = _tree(_body(SKILLS['confirm'][1]), FakeRunner([]), _agent(tmp_path, backend, _press(tmp_path)))
+
+    try:
+        assert _run(tree) == Status.FAILURE
+        header, blobs = bridge.wait_for('call')[0]
+    finally:
+        tree.halt()
+        bridge.close()
+        backend.link.close()
+
+    assert header['skill'] == 'operator_confirm' and header['decisions'] == ['confirmed', 'not_confirmed']
+    assert 'Question: Is the gantry removed?' in header['task'].splitlines()
+    assert header['images'] == [] and blobs == []
+
+
+def test_a_confirm_past_its_timeout_tells_the_bridge_to_drop_it(tmp_path):
+    now     = [0.0]
+    bridge  = FakeBridge(lambda header, blobs, conn: None)
+    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), records=tmp_path / 'orch_runs')
+    tree    = BehaviorTree(_body(SKILLS['confirm'][1]), make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner([]),
+                           _agent(tmp_path, backend, None)), Context(clock=lambda: now[0]))
+
+    try:
+        for _ in range(1000):
+            tree.tick()
+
+            if bridge.received:
+                break
+
+            time.sleep(0.005)
+
+        now[0] = 121.0
+        status = tree.tick()
+        cancel = bridge.wait_for('cancel')[0][0]
+    finally:
+        tree.halt()
+        bridge.close()
+        backend.link.close()
+
+    assert status == Status.FAILURE and cancel['id'] == bridge.received[0][0]['id']

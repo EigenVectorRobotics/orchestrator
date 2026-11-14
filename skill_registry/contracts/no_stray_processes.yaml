@@ -3,7 +3,7 @@ kind: action
 device: nuc
 description: >-
   Every stack node runs from its host's launch (nuc.launch.py, orin.launch.py) and workspace, and no orphaned helper
-  (ros2 topic echo, agent_cli wait, ros2 bag record) is left over. Read only; preflight only warns.
+  (ros2 topic echo, ros2 bag record) is left over. Read only; preflight only warns.
 interface:
   transport: command
   command: python3 -m orchestrator.stale_nodes strays
