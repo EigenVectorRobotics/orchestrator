@@ -167,5 +167,5 @@ The next tree clears `/stop` itself. Never use `ready_locomotion` on a standing 
 ## 7. Watch a run
 
 - **The trace:** `/orchestrator/trace` (JSON) and `/orchestrator/log` (for the Foxglove Log panel); the recorder keeps it in the session's `events.jsonl`.
-- **Foxglove** (`ws://vector-nuc:8765`), in the `map` frame: the prior map `/route_planner/terrain` (latched) or one floor of it on `/prior_map`, the live obstacles `/terrain_map` and `/terrain_map_ext` (colour by intensity), the candidate paths `/free_paths` (empty means all blocked), the scan `/registered_scan`, the door state `/door_state`. The places are not published by the stack; `~/places_markers.py` on the NUC publishes them as markers.
+- **Foxglove** (`ws://vector-nuc:8765`), in the `map` frame: the current floor of the prior map `/route_planner/terrain` (latched), the live obstacles `/terrain_map` and `/terrain_map_ext` (colour by intensity), the candidate paths `/free_paths` (empty means all blocked), the scan `/registered_scan`, the door state `/door_state`. The places are not published by the stack; `~/places_markers.py` on the NUC publishes them as markers.
 - **The camera and the track:** `/track_3d/tracked_overlay` in Foxglove shows the frame with the tracked target; `ros2 run tf2_ros tf2_echo foot_world selected_target` gives the target in `foot_world`.

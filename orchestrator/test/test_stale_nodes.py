@@ -12,11 +12,11 @@ LAUNCH = f"""
    1011    1002  5000 {WS}/local_planner/lib/local_planner/local_planner_node --ros-args -r __node:=local_planner
    1012    1002  5000 {WS}/local_planner/lib/local_planner/path_follower_node --ros-args -r __node:=path_follower
    1013    1002  5000 {WS}/route_planner/lib/route_planner/route_planner_node --ros-args -r __node:=route_planner
-   1014    1002  5000 /usr/bin/python3 {WS}/bringup/lib/bringup/floor_map_selector.py --ros-args -r __node:=floor_map_selector
+   1014    1002  5000 /usr/bin/python3 {WS}/elevator_states/lib/elevator_states/door_state_node.py --ros-args -r __node:=door_state_node
    1015    1002  5000 /opt/ros/jazzy/lib/foxglove_bridge/foxglove_bridge --ros-args -r __node:=foxglove_bridge
    1100     900  4000 /usr/bin/python3 /home/vector/orchestrator_ws/install/orchestrator/lib/orchestrator/executor_node
 """
-GRAPH  = ['/unitree_interface', '/local_planner', '/path_follower', '/route_planner', '/floor_map_selector', '/foxglove_bridge']
+GRAPH  = ['/unitree_interface', '/local_planner', '/path_follower', '/route_planner', '/door_state_node', '/foxglove_bridge']
 
 
 def _judge(*extra_lines, graph=GRAPH, orin=''):
@@ -30,7 +30,7 @@ def test_a_stack_run_by_its_launch_is_clean():
 def test_node_names_and_launches_are_read_from_the_command_line():
     assert ros_node(f'{WS}/lio/lib/lio/lio --ros-args -r __node:=lio_node') == ('lio_node', f'{WS}/lio/lib/lio/lio')
     assert ros_node(f'{WS}/local_planner/lib/local_planner/path_follower_node')[0] == 'path_follower'
-    assert ros_node(f'/usr/bin/python3 {WS}/bringup/lib/bringup/floor_map_selector.py')[0] == 'floor_map_selector'
+    assert ros_node(f'/usr/bin/python3 {WS}/elevator_states/lib/elevator_states/door_state_node.py -r __node:=door_state_node')[0] == 'door_state_node'
     assert ros_node('/usr/bin/python3 /opt/ros/jazzy/bin/ros2 run local_planner path_follower_node') is None
     assert launch_files('/usr/bin/python3 /opt/ros/jazzy/bin/ros2 launch bringup nuc.launch.py map:=x') == {'bringup', 'nuc.launch.py'}
     assert launch_files("bash -lc 'ros2 launch bringup nuc.launch.py'") == set()
