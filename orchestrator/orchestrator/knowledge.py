@@ -57,7 +57,7 @@ def wilson_lower_bound(successes: int, total: int, z: float = WILSON_Z) -> float
 @dataclass
 class Sighting:
     """One confirmation or contradiction: who, in which run, from what evidence, and the value seen"""
-    by:       str                       # 'operator', 'agent:press_judge', 'check:button_lit', ...
+    by:       str                       # 'operator', 'agent:press_judge', 'check:check_reach', ...
     time:     float
     run:      str | None = None         # the run_id of the recorder's bundle
     evidence: list[str] = field(default_factory=list)    # e.g. 'record:7', 'frame:press', 'E-019'

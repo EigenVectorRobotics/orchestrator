@@ -151,7 +151,7 @@ def _tool_specs(phase: str) -> list[dict]:
             'name':         'get_failure',
             'description':  'The last failure of this tree: a failed action call (skill, inputs, message, outputs, '
                             'elapsed time, every feedback sample {t: seconds since the goal was sent, ...fields}), or a '
-                            'failed check such as button_lit, whose checked_call is the action call it checked.',
+                            'failed check such as press_judge, whose checked_call is the action call it checked.',
             'input_schema': {'type': 'object', 'properties': {}},
         },
         {
@@ -193,7 +193,7 @@ def _tool_specs(phase: str) -> list[dict]:
             'name':         'get_image',
             'description':  'An image. camera: the latest color frame. overlay: track_anything\'s overlay with the '
                             'tracked mask and the tracker state. press_baseline, press_press, press_release: the frames '
-                            'the last press kept for button_lit (at the pre-grasp, at the deepest push, after the release).',
+                            'the last press kept (at the pre-grasp, at the deepest push, after the release).',
             'input_schema': {
                 'type':       'object',
                 'properties': {'source': {'type': 'string', 'enum': ['camera', 'overlay', 'press_baseline', 'press_press', 'press_release']}},

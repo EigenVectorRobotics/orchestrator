@@ -6,12 +6,11 @@ import yaml
 
 
 KINDS         = ('action', 'condition', 'composite')
-TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'press_tip',
-                 'in_view', 'alive', 'command', 'reach')
-READ_ONLY     = ('watch', 'vlm', 'compare', 'press_tip', 'alive', 'reach')   # the transports a condition may use
+TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'in_view', 'alive', 'command',
+                 'reach')
+READ_ONLY     = ('watch', 'vlm', 'compare', 'alive', 'reach')   # the transports a condition may use
 # watch: read a topic, never publish. agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
-# press_tip: where the end effector got to in the last press.
 # in_view: seed the tracker with the query, then judge the first 2D box and 3D pose after the seed: inside the image.
 # alive: each listed topic has a publisher, each service exists, each URL answers. command: run the contract's fixed
 # shell command on the executor's machine; success is exit code 0. reach: ask the IK check service (g1_pilot ik_server)
@@ -83,9 +82,7 @@ class Interface:
     success_answer:  str = ''               # vlm: the answer that means success; empty means any answer
     skill:           str = ''               # agent: the agent skill document, agent_skills/<skill>.md
     capture:         dict = field(default_factory=dict)       # action: frames to keep around the call, e.g. {kind: press}
-    frames:          str = ''               # vlm: judge the frames a capture kept (press_capture) instead of the latest one
-    compare_question: str = ''              # vlm with frames: asked of [baseline | later frame] side by side
-    limits:          dict = field(default_factory=dict)       # press_tip, in_view: the thresholds
+    limits:          dict = field(default_factory=dict)       # in_view, reach: the thresholds
     target:          dict = field(default_factory=dict)       # in_view: box_topic, target_topic, pose_topic
     alive:           dict = field(default_factory=dict)       # alive: topics, services, http (lists)
     command:         str = ''               # command: the fixed shell command; inputs cannot change it
@@ -104,7 +101,6 @@ class Contract:
     outputs:     list[Port] = field(default_factory=list)
     pre:         list[str] = field(default_factory=list)    # condition skills that must hold
     effects:     list[str] = field(default_factory=list)    # condition skills that hold after
-    check:       str = ''                                   # condition skill that confirms success
     resources:   list[str] = field(default_factory=list)    # exclusive: two live skills never share one
     timeout_s:   float = 0.0
     fallback:    list[str] = field(default_factory=list)    # suggested recovery skills, in order
@@ -200,9 +196,6 @@ def parse_contract(raw: dict) -> Contract:
     if interface.capture and interface.capture.get('kind') != 'press':
         raise ContractError(f'{name}: capture kind must be press')
 
-    if interface.frames and (interface.frames != 'press_capture' or interface.transport != 'vlm'):
-        raise ContractError(f'{name}: frames must be press_capture, on a vlm skill')
-
     if interface.transport == 'in_view' and not (interface.name and interface.success_when and interface.target.get('box_topic')
                                                    and interface.target.get('pose_topic') and contract.input('query')):
         raise ContractError(f'{name}: an in_view skill needs name (the seed topic), success_when (tracking), '
@@ -233,7 +226,7 @@ def parse_contract(raw: dict) -> Contract:
     if interface.transport == 'compare' and {'value', 'equals'} - {port.name for port in contract.inputs}:
         raise ContractError(f'{name}: a compare skill needs the inputs value and equals')
 
-    for field_name in _format_fields(interface.question) | _format_fields(interface.compare_question):
+    for field_name in _format_fields(interface.question):
         if contract.input(field_name) is None:
             raise ContractError(f'{name}: the question uses {{{field_name}}}, which is not an input')
 

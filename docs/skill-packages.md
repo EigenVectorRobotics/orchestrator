@@ -14,7 +14,7 @@ Status: draft for review, 2026-11-02. Nothing in this note is built yet.
 |---|---|---|
 | `nuc_skills` | NUC | manipulation (`press_button`, `move_arm_to`), navigation |
 | `orin_skills` | Orin | locomotion (`ready_walk`, `release_arms`, `set_profile`) |
-| `thor_skills` | Thor | VLM questions (`door_open`, `button_lit`, `ask_vlm`), `ground` |
+| `thor_skills` | Thor | VLM questions (`door_open`, `ask_vlm`), `ground` |
 
 - Each skill is one contract YAML (the schema of `skill_registry/contract.py`) and, when needed, adapter code.
 - `device` in the contract must be the device of the package. The host refuses a contract for another device.
@@ -107,7 +107,7 @@ A skill goes up in maturity as it is used more and is reliable.
 - **Reliability** is the Wilson lower bound of the success rate, so a skill does not go up after a small number of lucky successes. The numbers in the table are a first guess for review.
 - **A tested skill goes down** to `wip` when its reliability over the last 10 uses is less than the limit.
 - **Sim and robot counts are separate.** Success in the sim does not make a skill `tested`.
-- **Success is not the skill's own report.** A use counts as a success only if the contract's `check` condition (another skill, for example `button_lit`) confirms it, or a human marks it. Example: `PressController` reports success when the finger did not touch the button.
+- **Success is not the skill's own report.** A use counts as a success only if a check skill after it (for example `press_judge`) confirms it, or a human marks it. Example: `PressController` reports success when the finger did not touch the button.
 - **Where the counts live:** a stats file per device package (`stats.yaml`: name, version, sim and robot counts), written by the executor through the host. The announcement carries the maturity.
 - The current maturity values (`tested`, `wip`, `untested`) map to this table, with `untested` renamed `experimental`, and a new `deprecated`.
 
@@ -119,7 +119,7 @@ A skill goes up in maturity as it is used more and is reliable.
 - **Systems survey of agentic skills** (2026): stages (develop, staging, production, deprecation, removal), semantic versions, sandboxes, code signing and per-skill permissions.
 
 Differences in our design:
-- These works judge success in the sim or with an LLM critic. We use a different skill (the `check`) or a human.
+- These works judge success in the sim or with an LLM critic. We use a check skill or a human.
 - We add a human gate before the first robot use, and the agent can never use the low-level layer.
 
 Sources:

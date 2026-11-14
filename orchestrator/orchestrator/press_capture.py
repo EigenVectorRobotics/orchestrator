@@ -4,7 +4,7 @@
   press     the first frame at least press_delay_s after the deepest point of the push
   release   the first frame at least release_delay_s after the retreat began
 
-Each frame is judged on a crop around the button: track_anything's box for that frame (the 2D detection with the
+Each frame is also saved as a crop around the button: track_anything's box for that frame (the 2D detection with the
 same stamp, or the latest before it), grown crop_scale times about its centre. A frame with no box of its own uses
 the baseline's box, since the hand covers the button during the push.
 
@@ -42,7 +42,6 @@ class CaptureConfig:
     crop_scale:           float = 2.5       # the crop's sides, as a multiple of the button box's
     min_crop_px:          float = 48.0
     box_max_age_s:        float = 1.5       # a box older than this, before its frame, is not used for it
-    compare_height_px:    float = 448.0     # each crop is scaled to this height in the side-by-side image
 
     @classmethod
     def from_contract(cls, raw: dict) -> 'CaptureConfig':
@@ -321,66 +320,3 @@ def crop_around(data: bytes, box: tuple, scale: float, min_side_px: float = 48.0
     image.crop((left, top, right, bottom)).save(buffer, format='JPEG', quality=95)
 
     return buffer.getvalue()
-
-
-def side_by_side(left: bytes, right: bytes, height: int = 720) -> bytes:
-    """One JPEG: the left image beside the right one, both scaled to the same height"""
-    from PIL import Image
-
-    images = [Image.open(io.BytesIO(data)).convert('RGB') for data in (left, right)]
-    images = [image.resize((max(1, round(image.width * height / image.height)), height)) for image in images]
-    canvas = Image.new('RGB', (sum(image.width for image in images), height))
-    canvas.paste(images[0], (0, 0))
-    canvas.paste(images[1], (images[0].width, 0))
-
-    buffer = io.BytesIO()
-    canvas.save(buffer, format='JPEG', quality=90)
-
-    return buffer.getvalue()
-
-
-# ========== The check ==========
-
-def judge_press(capture: PressCapture, interface, inputs: dict, ask, latest: bytes | None, capture_dir: str) -> tuple[bool, str, dict]:
-    """Ask the VLM about the press frame, then the release frame, each beside the baseline; lit in either is success.
-
-    ask(image, question, choices) is the VLM client. Without a baseline the frames are asked alone with the plain
-    question; without either later frame, the latest camera frame is. Returns success, message, outputs.
-    """
-    frames  = capture.frames
-    saved   = capture.save(capture_dir)
-    height  = int(capture.config.compare_height_px)
-    answers = {}
-
-    for name in ('press', 'release'):
-        if name not in frames:
-            continue
-
-        view, _ = capture.crop(name)
-
-        if 'baseline' in frames:
-            image, question = side_by_side(capture.crop('baseline')[0], view, height), interface.compare_question
-        else:
-            image, question = view, interface.question
-
-        answers[name] = ask(image, question.format(**inputs), interface.choices)
-
-        if answers[name] == interface.success_answer:
-            break                                       # either frame lit is enough
-
-    note = '' if 'baseline' in frames else ' (no baseline frame: asked the photos alone)'
-
-    if not capture.boxes:
-        note += ' (no button box: whole frames)'
-
-    if not answers:
-        if latest is None:
-            return False, 'no press or release frame was kept, and no camera image', {'capture': capture.events()}
-
-        answers['latest'] = ask(latest, interface.question.format(**inputs), interface.choices)
-        note = ' (no press or release frame was kept: asked the latest frame)'
-
-    success = any(answer == interface.success_answer for answer in answers.values())
-    message = ', '.join(f'{name}: {answer}' for name, answer in answers.items()) + note
-
-    return success, message, {'answers': answers, 'frames': saved, 'capture': capture.events()}

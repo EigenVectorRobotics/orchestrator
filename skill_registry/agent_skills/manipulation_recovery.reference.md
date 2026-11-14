@@ -99,7 +99,6 @@ The live target is often gone when you look. The servo node resets track_anythin
 | `No target seed after N request(s)` | track_anything never started tracking |
 | `Preempted by a newer goal` / `Cancelled` / `Trajectory cleared` | Another goal or a cancel ended it |
 | `goal rejected` (orchestrator) | Another servo goal active, or within 1 s of the last success |
-| `button_lit` failed | Goal reached, but the VLM saw no light in the press or release frame. `outputs` has per-frame answers, frames, `capture.max_depth_m` (≈ 0: the push reached the goal) and boxes. A missing frame means that phase was not seen |
 | `press_judge` `not_pressed` | A judge looked at the frames and saw no press. Its reason says where the finger sat |
 | `check_reach` `target out of reach: the arm ends X mm and Y deg from it; miss in the pelvis frame ...` | The same IK test as the press, from the arm at rest after the stance's mode change and EKF reset (`look_here`), on press_button's goal plus the offset in force |
 | `check_reach` `no target pose on ... look first` / `planning failed: ...` | No fresh filtered goal within 2 s, or no plan at all: no miss to walk by |

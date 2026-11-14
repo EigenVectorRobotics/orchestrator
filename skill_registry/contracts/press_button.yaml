@@ -6,7 +6,7 @@ interface:
   transport: action
   name: humanoid_arm_visual_servoing
   ros_type: humanoid_manipulation_interfaces/action/VisualServoingArm
-  capture:                                # three frames for button_lit: see orchestrator/press_capture.py
+  capture:                                # three frames for press_judge: see orchestrator/press_capture.py
     kind: press
     right_ee_frame: right_ee                 # sampled from TF in the goal's frame
     left_ee_frame: left_ee
@@ -22,7 +22,6 @@ inputs:
 outputs:
   - {name: final_distance, type: float}
   - {name: orientation_error_deg, type: float}
-check: button_lit
 resources: [arms, tracker, base]   # base: the robot stands still while the arm moves
 timeout_s: 60
 maturity: wip

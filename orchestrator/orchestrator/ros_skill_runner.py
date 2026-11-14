@@ -27,7 +27,7 @@ from skill_registry.contract import WHOLE_MESSAGE, HeldValue, Watch
 from .images import ImageError, image_to_jpeg
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
-from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture, judge_press
+from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture
 from .stance_checks import judge_arm, judge_view, rotate, transform_pose
 from .preflight_checks import judge_alive, run_command, url_answers
 
@@ -589,49 +589,6 @@ class _InViewHandle(_Handle):
             self._finish(False, f'nobody subscribes to {self.contract.interface.name}')
 
 
-class _PressCheckHandle(_Handle):
-    """A VLM check on the frames a press kept: waits until they are chosen, then asks about each later frame
-    beside the baseline. Lit in either is success"""
-
-    def __init__(self, runner: 'RosSkillRunner', capture: PressCapture, contract: Contract, inputs: dict):
-        super().__init__()
-
-        self.runner   = runner
-        self.capture  = capture
-        self.contract = contract
-        self.inputs   = inputs
-        self.future   = None
-
-    def poll(self) -> Status:
-        if self.status != Status.RUNNING:
-            return self.status
-
-        if self.future is None:
-            if self.capture.ready(self.runner.now()):
-                self.future = self.runner._vlm_pool.submit(self._judge)
-
-            return self.status
-
-        if not self.future.done():
-            return self.status
-
-        try:
-            success, message, self.outputs = self.future.result()
-        except VlmClientError as error:
-            self.outputs = {'capture': self.capture.events(), 'frames': self.capture.saved}
-            success, message = False, str(error)
-
-        self._finish(success, message)
-
-        return self.status
-
-    def _judge(self) -> tuple[bool, str, dict]:
-        latest = self.runner.latest_image()
-
-        return judge_press(self.capture, self.contract.interface, self.inputs, self.runner.vlm_client.ask,
-                           latest, self.runner.capture_dir)
-
-
 # ========== Runner ==========
 
 class RosSkillRunner:
@@ -650,7 +607,7 @@ class RosSkillRunner:
         self.capture_dir   = capture_dir
         self.frames        = FrameBuffer()
         self.boxes         = BoxBuffer()    # the target button's box per frame, from track_anything
-        self.last_capture  = None           # the frames of the last press, for its check and the agent
+        self.last_capture  = None           # the frames of the last press, for the agent
         self.press_offset  = (0.0, 0.0, 0.0)  # the last set_press_offset, which moves move_to_pose's pre-grasp
         self._ee_frames    = {}             # arm -> end-effector TF frame, from the capture contracts
         self._ee_timer     = None
@@ -748,9 +705,6 @@ class RosSkillRunner:
 
                 return _TopicHandle(self._publisher(interface.name, interface.ros_type), message, contract, watch, self.server_wait_s)
 
-            if interface.transport == 'press_tip':
-                return self._check_press_tip(interface.limits)
-
             if interface.transport == 'in_view':
                 return _InViewHandle(self, contract, inputs)
 
@@ -773,20 +727,6 @@ class RosSkillRunner:
             return _DoneHandle(False, f'cannot call {contract.name}: {error}')
 
         return _DoneHandle(False, f'transport {interface.transport} is not supported by this runner')
-
-    def _check_press_tip(self, limits: dict):
-        """Where the end effector got to in the last press: deep enough, and close enough to the goal sideways"""
-        capture = self.last_capture
-
-        if capture is None or capture.tracker.lateral_at_max is None:
-            return _DoneHandle(False, 'no press with end-effector poses to judge')
-
-        depth, lateral = capture.tracker.max_depth, capture.tracker.lateral_at_max
-        min_depth, max_lateral = float(limits.get('min_depth_m', -0.012)), float(limits.get('max_lateral_m', 0.008))
-        reached = depth >= min_depth and lateral <= max_lateral
-
-        return _DoneHandle(reached, f'deepest {depth * 1000:+.1f} mm along the button normal (needs >= {min_depth * 1000:+.1f}), '
-                                    f'{lateral * 1000:.1f} mm sideways there (needs <= {max_lateral * 1000:.1f})')
 
     def _pose_in(self, message: PoseStamped, frame: str) -> tuple[tuple, tuple]:
         """The stamped pose's position and rotation in frame, through the latest TF; raises when TF has no transform"""
@@ -880,9 +820,6 @@ class RosSkillRunner:
     def _ask_vlm(self, contract: Contract, inputs: dict):
         interface = contract.interface
 
-        if interface.frames == 'press_capture' and self.last_capture is not None:
-            return _PressCheckHandle(self, self.last_capture, contract, inputs)
-
         if self._image is None:
             return _DoneHandle(False, f'no camera image on {self._image_topic}')
 
@@ -914,7 +851,7 @@ class RosSkillRunner:
         try:
             from vision_msgs.msg import Detection2DArray, Detection3D
         except ImportError as error:
-            self.node.get_logger().warn(f'no vision_msgs ({error}): button_lit judges whole frames')
+            self.node.get_logger().warn(f'no vision_msgs ({error}): press frames are kept without crops')
             return
 
         self._box_topics.add(box_topic)

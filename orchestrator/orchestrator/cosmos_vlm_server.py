@@ -1,9 +1,9 @@
 """cosmos_vlm_server: an OpenAI-compatible /v1/chat/completions endpoint on the Thor, answered by the resident Cosmos daemon.
 
-The executor's VLM conditions (button_lit, door_open, ask_vlm) post one image and one closed question to
-vlm_base_url. On the Thor the model is the Edge-LLM Cosmos-Reason2 daemon, which the vlm package reaches through its
-file queue (vlm.models.EdgeLlmVlm) and which serves one request at a time, also for ground_server. This server
-answers each request with one daemon query, and waits while the daemon is busy.
+The executor's VLM conditions (door_open_vlm, ask_vlm) post one image and one closed question to vlm_base_url. On the
+Thor the model is the Edge-LLM Cosmos-Reason2 daemon, which the vlm package reaches through its file queue
+(vlm.models.EdgeLlmVlm) and which serves one request at a time, also for ground_server. This server answers each
+request with one daemon query, and waits while the daemon is busy.
 
 Run it on the Thor, in the environment that runs ground_server (it needs the vlm package and the daemon):
 

@@ -47,9 +47,9 @@ class Registry:
         return len(self._contracts)
 
     def check_references(self):
-        """Every pre, effect, check and fallback names a known skill of the right kind"""
+        """Every pre, effect and fallback names a known skill of the right kind"""
         for contract in self:
-            for condition in [*contract.pre, *contract.effects, *([contract.check] if contract.check else [])]:
+            for condition in [*contract.pre, *contract.effects]:
                 target = self.get(condition)
 
                 if target is None:
@@ -125,7 +125,7 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport == 'vlm':
         return vlm_up
 
-    if interface.transport in ('agent', 'compare', 'press_tip', 'alive', 'command'):
+    if interface.transport in ('agent', 'compare', 'alive', 'command'):
         return True                 # they run inside the executor; alive and command must work while the stacks are down
 
     if interface.transport == 'in_view':

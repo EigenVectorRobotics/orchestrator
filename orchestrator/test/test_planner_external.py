@@ -13,7 +13,7 @@ from orchestrator.planner_external import ExternalPlannerBackend
 
 CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
 TREES     = Path(__file__).resolve().parents[2] / 'orchestrator' / 'test_trees'
-PLACES    = {'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}
+PLACES    = {'inside_freight_elevator_button_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}
 
 
 def _session(
@@ -40,10 +40,10 @@ def _session(
 def test_reply_is_the_answer_to_this_call():
     requests = []
     backend  = ExternalPlannerBackend(requests.append, timeout_s=5.0)
-    _session(backend, requests, ['I use the call panel tree.\n<use_tree id="call_elevator"/>'])
+    _session(backend, requests, ['I use the floor 1 press tree.\n<use_tree id="freight_elevator_floor1_press_agentic"/>'])
     reply    = backend.complete('the system prompt', [{'role': 'user', 'content': 'Task: call the elevator'}])
 
-    assert reply.text.endswith('<use_tree id="call_elevator"/>')
+    assert reply.text.endswith('<use_tree id="freight_elevator_floor1_press_agentic"/>')
     assert reply.assistant == {'role': 'assistant', 'content': reply.text}
     assert [request['state'] for request in requests] == ['open', 'closed']
     assert requests[0]['system'] == 'the system prompt'
@@ -63,10 +63,10 @@ def test_planner_with_a_session_that_reuses_a_tree():
     requests = []
     backend  = ExternalPlannerBackend(requests.append, timeout_s=5.0)
     planner  = Planner(backend, Registry.from_directory(CONTRACTS), library=load_tree_library(TREES))
-    _session(backend, requests, ['<use_tree id="lobby_tour"/>', 'Fixed.\n<use_tree id="call_elevator"/>'])
-    result   = planner.plan('call the elevator', PLACES, blind=True)
+    _session(backend, requests, ['<use_tree id="lobby_tour"/>', 'Fixed.\n<use_tree id="freight_elevator_floor1_press_agentic"/>'])
+    result   = planner.plan('press floor 1', PLACES)
 
     assert result.ok
-    assert result.reused == 'call_elevator'
+    assert result.reused == 'freight_elevator_floor1_press_agentic'
     assert result.attempts == 2
     assert 'There is no existing tree "lobby_tour"' in requests[2]['messages'][-1]['content']

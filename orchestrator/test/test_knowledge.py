@@ -18,7 +18,7 @@ def ready_belief(store, count=11):
     claim, _ = store.note('The call panel does not light when pressed.', seen(value=False), PANEL, 'lights_when_pressed')
 
     for index in range(count - 1):
-        store.confirm(claim.id, seen(by='operator' if index % 2 else 'check:press_reached', run=f'r{index + 2}', value=False))
+        store.confirm(claim.id, seen(by='operator' if index % 2 else 'check:check_reach', run=f'r{index + 2}', value=False))
 
     return store.get(claim.id)
 
