@@ -43,7 +43,7 @@ def generate_launch_description():
             default_value=PathJoinSubstitution([FindPackageShare('orchestrator'), 'config', 'places.yaml']),
             description='named map poses; for the elevator sim use its ros2/places.yaml'
         ),
-        DeclareLaunchArgument('planner_backend', default_value='claude', description='claude | openai_compatible | scripted'),
+        DeclareLaunchArgument('planner_backend', default_value='claude', description='claude | openai_compatible | scripted | external'),
         DeclareLaunchArgument('planner_model', default_value='claude-opus-5'),
         DeclareLaunchArgument('agent_backend', default_value='push', description='push | none'),
         DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses trees while it is not ready'),

@@ -14,11 +14,12 @@ Agentic planning for the G1. An LLM writes a behavior tree, a validator checks i
 | `docs/operations.md` | How to run it on the robot: deploy on the NUC, start the orchestrator, run a task through the planner, run one tree, bring a machine up by hand, stop, watch a run |
 | `docs/troubleshooting.md` | Symptom, checks, fix: machines and processes, localization, walking, pressing, the orchestrator |
 | `docs/deployment.md` | A snapshot of what runs where: each machine's access, workspace, repositories and branches, local changes, and files that exist only on a machine |
-| `skill_registry/agent_skills/<skill>.md` | An agent skill's instructions (its system prompt): `manipulation_recovery`, `press_judge`, `operator_confirm` |
-| `skill_registry/agent_skills/manipulation_recovery.experience.md` | What the team has observed about presses (E-xxx): symptoms, conditions, causes, what helped, evidence. The recovery agent reads it |
+| `skill_registry/agent_skills/<skill>.md` | What an agent skill decides and how the tree uses it: `manipulation_recovery`, `press_judge`, `operator_confirm`. The model's prompts are in `mission_control/agent_prompts.py` |
+| `skill_registry/agent_skills/manipulation_recovery.experience.md` | What the team has observed about presses (E-xxx): symptoms, conditions, causes, what helped, evidence |
 | `skill_registry/agent_skills/navigation.experience.md` | The same for walking, localization and the processes navigation needs (N-xxx) |
 | `skill_registry/trees/*.xml` | The tree library the planner reuses; each file's first comment says what the tree does and its parameters |
-| `docs/knowledge.md`, `docs/recorder.md`, `docs/skill-packages.md`, `docs/skill-structure.md` | Designs: the knowledge store (claims), run recording, skill packages and graduation, the structure of a skill |
+| `mission_control/README.md` | The agent bridge on the laptop: set it up, run it, answer `operator_confirm` |
+| `docs/knowledge.md`, `docs/recorder.md`, `docs/skill-packages.md` | Designs: the knowledge store (claims), run recording, skill packages and graduation |
 
 Facts that hold by construction go in the skill documents and the contracts; observations, with their dates and evidence, go in the experience files; procedures go in operations and troubleshooting, citing the entries they rest on.
 
@@ -34,36 +35,37 @@ Blind mode (`/orchestrator/tree_blind`, or `"blind": true`): the tree cannot use
 
 ## Add a skill
 
-Write one YAML file in `skill_registry/contracts/`. No code is necessary if the skill is an action, service, topic or VLM question. See `cancel_nav.yaml` (topic), `navigate_to.yaml` and `press_button.yaml` (action), `set_profile.yaml` (service with an enum), `door_open.yaml` (topic watch) and `ask_vlm.yaml` (VLM). An input's `field` can index a sequence: `set_press_offset.yaml` sets `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters; a service reply with per-item `successful` flags fails if any is false. A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`; give z on the two-storey map, or the route planner takes the lowest storey. A transport checks the stance before the first press: `in_view` seeds track_anything with the button's name, then checks that the first 2D box and 3D pose after the seed exist and the box is away from the image edges, and picks the arm from where the button sits in `pelvis` (`button_in_view.yaml`); `reach` then asks ik_server whether that arm reaches the button (`check_reach.yaml`). A watch compares with a tree input through `equals_input`, as in `at_floor.yaml` (the floor state of `slam_elevatorlio`). A condition with `record: true` has its failure recorded for the agent even when it checks no action. `orchestrator/config/knowledge_seed.yaml` holds the team's experience about stances as claims: load it with `ros2 run orchestrator knowledge seed <file>`.
+Write one YAML file in `skill_registry/contracts/`. No code is necessary if the skill is an action, service, topic or VLM question. See `cancel_nav.yaml` (topic), `navigate_to.yaml` and `press_button.yaml` (action), `set_profile.yaml` (service with an enum), `door_open.yaml` (topic watch) and `ask_vlm.yaml` (VLM). An input's `field` can index a sequence: `set_press_offset.yaml` sets `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters; a service reply with per-item `successful` flags fails if any is false. A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`; give z on the two-storey map, or the route planner takes the lowest storey. A transport checks the stance before the first press: `in_view` seeds track_anything with the button's name, then checks that the first 2D box and 3D pose after the seed exist and the box is away from the image edges (`button_in_view.yaml`). A watch compares with a tree input through `equals_input`, as in `at_floor.yaml` (the floor state of `slam_elevatorlio`). A condition with `record: true` has every answer recorded in the history, a pass included, so the agent sees it (`check_reach.yaml`). `orchestrator/config/knowledge_seed.yaml` holds the team's experience about stances as claims: load it with `ros2 run orchestrator knowledge seed <file>`.
 
 ## Agent skills
 
-An agent skill is an LLM with read-only tools that decides how a tree recovers. Its contract has `transport: agent` and names a document in `skill_registry/agent_skills/`, which is the agent's system prompt. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort; before the first press, when `button_in_view` or `check_reach` fails, it decides continue, reposition or abort. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). See `orchestrator/test_trees/freight_elevator_floor1_press_agentic.xml` and, on the robot, `skill_registry/trees/freight_elevator_go_to_place.xml`.
+An agent skill hands one decision of the tree to a model or to the operator. Its contract has `transport: agent` and names a document in `skill_registry/agent_skills/`; the executor reads it at each call, so each agent skill needs one. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort. Before the first press, when a look fails (`button_in_view` or `check_reach`), it checks the stance and decides continue, reposition or abort. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). See `orchestrator/test_trees/freight_elevator_floor1_press_agentic.xml` and, on the robot, `skill_registry/trees/freight_elevator_go_to_place.xml`.
 
-- **Evidence.** Every finished action call is recorded in the tree's history; a failure keeps the action's feedback over time. Both go to the trace as `record` events, and to the agent through `get_failure` and `get_history`.
-- **Tools.** `read_file`, `ros_read` (TF, one message, the topic list), `get_image`, `run_python` (numpy, scipy, pinocchio, coal), `decide`. Nothing publishes. `run_python` runs under an audit hook (no ROS, network, processes, or writes outside its scratch directory): a guard against mistakes, not a security boundary, since the NUC allows no user namespaces.
+- **Evidence.** Every finished action call is recorded in the tree's history; a failure keeps the action's feedback over time. Both go to the trace as `record` events, and to the agent call as its `failure` and `history`.
+- **No tools.** The bridge's model gets the evidence as text and the frames as images, and answers with one decision. It never publishes and never moves the robot. The executor checks the decision and refuses one outside the limits.
+- **Rules before the model.** The executor answers some calls itself, with a reason that starts `rule:`. `rule_offset` corrects a near miss after a reached goal. `rule_stance` sends the robot back onto its target stance. `rule_reach` steps by the IK miss of a failed `check_reach`. The limits are constants in `orchestrator/agent.py`.
 - **Branching.** `decision_is` compares a blackboard value (`value="{decision}" equals="reposition"`). `abort` fails the whole tree at once with the agent's reason. After `ask_help`, or after `max_rounds` diagnoses, the agent skill fails without a call.
 - **Who answers.** The agent bridge on the laptop (`mission_control/agent_bridge.py`) answers every call. The executor pushes each call with its evidence and frames over one TCP link and waits up to the contract timeout. The bridge asks the model (Claude Agent SDK) for `press_judge` and `manipulation_recovery`. It asks the operator in its terminal for `operator_confirm`. `agent_backend:=none` runs without an agent: agent skills then fail.
 - **The request is whole.** The executor takes the failure, the history and the press from the tools with `whole`, so a 60 s press (120 feedback samples, over 40 kB) reaches the bridge.
 - **Recorded.** Each call also goes out on `/orchestrator/agent/request` (opened, then closed) and each reply on `/orchestrator/agent/reply`. The run recorder and the Run Viewer read them.
-- **Executor parameters.** `agent_backend` (`push` or `none`), `agent_push_host`, `agent_push_port`, `agent_read_roots`, `agent_scratch_dir`, `agent_python_timeout_s`, `agent_max_turns`.
+- **Executor parameters.** `agent_backend` (`push` or `none`), `agent_push_host`, `agent_push_port`, `agent_skills_dir`, `knowledge_dir`.
 
 ### Standard recoveries
 
-From `manipulation_recovery.experience.md` (E-014 to E-020); the trees and the skill document carry them out:
+From `manipulation_recovery.experience.md`; the trees, the executor's rules and the bridge's prompts carry them out:
 
 | Case | Signs | Recovery |
 |---|---|---|
-| A walk routes but never moves | `/free_paths` empty, one-pose `/path`, latched points in `/terrain_map` close ahead | Every walk in the trees is `navigate_to`; on failure `say`, `clear_terrain_map`, 2 s, and walk again, three times at most (subtrees `walk_*`) |
-| The press reached its goal but the finger missed by millimetres (rim, beside, on the face but unlit) | `press_judge` `not_pressed`; `residual_m` a few mm to about 20 mm | `manipulation_recovery` `offset_retry`: the new offset is the offset in force minus the residual (on floor buttons push the depth further); the tree runs `set_press_offset` and presses again |
-| The robot stopped too close; the button is below the frame | `press_button` times out with `distance_to_goal` inf throughout; `ground_server` logs `0 box(es)` | `reposition` back, to a stance at least 0.25 m from where the robot stands |
-| The robot is too far; the arm stops short | the closest point tens of mm short though the action succeeded | `reposition` closer; a goal under 0.10 m away is walked to from 0.15 m behind it |
+| A walk routes but never moves | `/free_paths` empty, one-pose `/path`, latched points in `/terrain_map` close ahead | The walks into and out of the cabin (subtrees `walk_in`, `walk_out`): on failure `say`, `clear_terrain_map`, 2 s, and walk again, three times at most |
+| The press reached its goal but the finger missed by millimetres (rim, beside, on the face but unlit) | `press_judge` `not_pressed`; `residual_m` a few mm to about 20 mm | `offset_retry`: the new offset is the offset in force minus the residual (on floor buttons push the depth further); the tree runs `set_press_offset` and presses again. The executor's `rule_offset` does this on the first miss of 5 to 50 mm in the button plane, or over 3 mm short; after that the model decides |
+| The robot stopped too close; the button is below the frame | `press_button` times out with `distance_to_goal` inf throughout; `ground_server` logs `0 box(es)` | `reposition` back: before the first press, the back-off stance 0.15 m behind the robot |
+| The robot is too far; the arm stops short | the closest point tens of mm short though the action succeeded | Before the press, `check_reach` fails and `rule_reach` steps by the IK miss. After a press, `reposition` closer |
 
-**A reposition goal under 0.10 m from where the robot stands takes no step** (`/odom_base_link`, counting the sideways part; `WALK_MIN_M` in `agent.py`). For such a goal the press subtree walks to a pose 0.15 m behind it first (`approach`), then onto it, in the same round (E-002/E-016, E-024). The 0.25 m found in the trial of 2026-11-04 is superseded by this threshold.
+**A short reposition walks out first.** A goal close to the robot ends at once without a step (E-016). When a reposition goal is under 0.10 m from the robot, the executor sets `walk_in`, and the look walks to `approach`, 0.15 m behind the goal, then onto it. The executor refuses a reposition more than 0.15 m past the base goal, 0.60 m behind it or 0.25 m to the side.
 
 ### Press offsets per panel
 
-`set_press_offset x y z` sets move_to_pose's `arm_safety_distance_{x,y,z}` through `/move_to_pose_server/set_parameters` (x along the button normal, positive deeper; y left; z up; metres). They live only in the running node. The trees set them before every first press, so an offset never carries over from one panel to the other: 0 at the call panel; (+0.005, +0.0075, +0.0034) inside, right arm, floor buttons (what lit and what did not: E-011, E-012, E-020). The offset in force is the last `set_press_offset` in the tree's history.
+`set_press_offset x y z` sets move_to_pose's `arm_safety_distance_{x,y,z}` through `/move_to_pose_server/set_parameters` (x along the button normal, positive deeper; y left; z up; metres). They live only in the running node. Each press slot starts from its panel's base offset (`press_base_offset_{x,y,z}` in `subtrees/elevator.xml`), so an offset never carries over from one panel to the other: 0 at the call panel, +0.003 on each axis inside. An `offset_retry` sets the offset for the next press. The offset in force is the last `set_press_offset` in the tree's history.
 
 ### The agent says what it is doing, all the time
 
@@ -76,7 +78,7 @@ The robot speaks the agent's process out loud: what it is checking, and what was
 
 ## Checking a press
 
-**`press_judge` (agent in the loop) is the check the trees use now.** After `press_button` succeeds, the executor waits until the press's three frames are chosen (below), saves them, and opens an agent call with their paths, the phase times, the deepest point along the button normal, the sideways distance and the signed residual (fingertip minus goal at the closest point, in the goal frame: x into the panel, y left, z up). The bridge's model looks at the `press` frame, the first after the fingertip's closest point, and the `release` frame, and decides `pressed` (success) or `not_pressed`. A `not_pressed` is recorded as the failed check of that press, so `manipulation_recovery` sees the press as `checked_call` with its feedback. The skill document is `skill_registry/agent_skills/press_judge.md`. A press counts only when the requested button lights: lit in the `press` or `release` frame and not in `baseline`, on both panels. Floor buttons light a blue ring at once, still lit in the release frame; the call button lights when the call registers (E-019). `press_button` succeeding does not prove a press: once the fingertip stopped 67 mm short and the action still reported `Controller reached target` (E-018).
+**`press_judge` (agent in the loop) is the check the trees use now.** After `press_button` succeeds, the executor waits until the press's three frames are chosen (below), saves them, and opens an agent call with their paths, the phase times, the deepest point along the button normal, the sideways distance and the signed residual (fingertip minus goal at the closest point, in the goal frame: x into the panel, y left, z up). The bridge's model looks at the `press` frame (the first after the fingertip's closest point), the `release` frame and the `baseline`, and decides `pressed` (success) or `not_pressed`. A `not_pressed` is recorded as the failed check of that press, so `manipulation_recovery` sees the press as `checked_call` with its feedback. The skill document is `skill_registry/agent_skills/press_judge.md`. The requested button's own light decides on both panels: the blue ring on floor buttons, the call button's light on the call panel (`JUDGE_SYSTEM` in `mission_control/agent_prompts.py`). `press_button` succeeding does not prove a press: once the fingertip stopped 67 mm short and the action still reported `Controller reached target` (E-018).
 
 **The closest point is found after the pre-grasp.** Until the end effector reaches the pre-grasp, the phase tracker counts only samples within `lateral_tolerance` (30 mm) of the button axis. Counting the arm's swing up from its rest pose, which passes the goal's depth about 20 cm below the button, ended the press there and reported misses of 19 to 23 cm sideways after good presses (E-014).
 
@@ -90,12 +92,12 @@ The rest of this section is how the frames are chosen.
 
 ## Knowledge store
 
-What the robot learns is kept as claims in `knowledge_dir` (executor parameter, default `~/orch_knowledge`): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). An agent skill adds observations with its `note` tool and sees the facts and beliefs in its prompt. Only the operator makes a fact, at a terminal:
+What the robot learns is kept as claims in `knowledge_dir` (executor parameter, default `~/orch_knowledge`): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). Claims come from the operator and the seed file; no model reads or writes them now, since the bridge builds its own prompts. Only the operator makes a fact, at a terminal:
 
 ```bash
 ros2 run orchestrator knowledge list --ready                  # beliefs that can become facts
 ros2 run orchestrator knowledge show C-0007
-ros2 run orchestrator knowledge note "The call button lights when the call registers." --by agent:press_judge --evidence frame:press --run <run_id> --about place=freight_elevator_call_panel --key lights_when_pressed --value true
+ros2 run orchestrator knowledge note "The call button lights when the call registers." --by operator --evidence frame:release --run <run_id> --about place=freight_elevator_call_panel --key lights_when_pressed --value true
 ros2 run orchestrator knowledge approve C-0007 [--text "the exact text"]
 ```
 
@@ -130,7 +132,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 ## Not done yet
 
 - Arrivals are poor: the robot has stopped up to 24 cm past a place, and an arrival 8 cm or more past puts the button out of view (E-001, E-015). Set `path_follower` `slow_down_distance_threshold` 0.7 again (a relaunch resets it to 0.4) and compare, or move the places back by the mean overshoot.
-- The inside press starts at the offset (+5.0, +7.5, +3.4) mm; one press lit only at (+12, +12.6, +3.2) mm. Start there once a second press confirms it.
+- The inside press starts at the base offset (+3, +3, +3) mm; one press lit only at (+12, +12.6, +3.2) mm (E-012). Start there once a second press confirms it.
 - The `ekf_hold` subtree resets the body EKF once per stance, in `look_here` after the mode change and before `check_reach` (`reset_ekf`, `/body_ekf/reset`). Every press, a `continue` included, follows a passed `look_here` at its stance. The skill ends when body_ekf publishes its torso pose again, which it does only once it has recalibrated.
 - `press_judge` needs the agent bridge's model (a cloud call) to look at frames.
 
@@ -138,9 +140,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - Timeouts in the contracts are guesses. All skills are `wip` or `untested`.
 - The service names under `/unitree_interface/` and `/slam_elevatorlio/` come from the `~/` names in the code. Check them on the robot.
 - `ground`, `set_profile`, `set_hand`, `save_map` and `load_map` need their interface packages on the NUC.
-- `reset_tracker` ends only when `/track_3d/is_tracking` changes. If it is already false, it times out.
-- `body_ekf` recalibrates in place through `/body_ekf/reset` (`std_srvs/Trigger`): call it at the panel right before a press (docs/troubleshooting.md, "Pressing").
 - The executor reads the raw camera topic (`image_topic`, default `/camera/camera/color/image_raw`), because the Orin has no compressed image transport installed, and encodes the frames it keeps to JPEG. That brings the raw stream to the NUC: about 2.8 MB a frame, about 17 MB/s at 6 fps.
 - `thor_up` checks the grounding service and the VLM endpoint together, and preflight now stops when the Thor is not up. A Thor with the grounding up and the VLM endpoint down (the endpoint is not needed by `freight_elevator_go_to_place`) stops the task too. Split the check, or check the grounding only.
-- `planner_cli answer --use-tree` cannot set a library tree's parameters or swap its subtrees; any ride other than the default needs `--tree FILE`.
+- `planner_cli answer --use-tree` sets a library tree's parameters (`--param`) but cannot swap its subtrees; that needs `--tree FILE`.
 - On hold: in blind mode, every action skill must have a fallback.

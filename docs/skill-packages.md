@@ -109,7 +109,7 @@ A skill goes up in maturity as it is used more and is reliable.
 - **Sim and robot counts are separate.** Success in the sim does not make a skill `tested`.
 - **Success is not the skill's own report.** A use counts as a success only if a check skill after it (for example `press_judge`) confirms it, or a human marks it. Example: `PressController` reports success when the finger did not touch the button.
 - **Where the counts live:** a stats file per device package (`stats.yaml`: name, version, sim and robot counts), written by the executor through the host. The announcement carries the maturity.
-- The current maturity values (`tested`, `wip`, `untested`) map to this table, with `untested` renamed `experimental`, and a new `deprecated`.
+- The current maturity values (`tested`, `wip`, `untested`, `disabled`; `skill_registry/contract.py`) map to this table. `untested` becomes `experimental`, and `disabled` (hidden from the planner, refused in a tree) is close to `deprecated`.
 
 ### Similar work
 

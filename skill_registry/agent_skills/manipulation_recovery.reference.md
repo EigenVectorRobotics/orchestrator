@@ -1,29 +1,23 @@
 # Manipulation recovery: reference
 
-Facts that hold by construction: tools, paths, topics, the press pipeline and its failure messages. `manipulation_recovery.md` says how to use them. Observations live in `manipulation_recovery.experience.md`.
+Facts that hold by construction: the evidence in a call, paths, topics, the press pipeline and its failure messages. `manipulation_recovery.md` says how to use them. Observations live in `manipulation_recovery.experience.md`.
 
-## Tools
+## The evidence in a call
 
-None of these moves the robot. Only `say` publishes, and only speech.
+The executor gathers it and the bridge puts it in the prompt as text, with the camera image attached. The model has no tools.
 
-| Tool | What it gives |
+| Part | What it holds |
 |---|---|
-| `get_failure()` | The last failure: `skill`, `inputs`, `message` (or `timeout after 60 s` when the orchestrator cancelled first), `outputs` (`final_distance`, `orientation_error_deg` at the closest approach), `elapsed_s`, and every feedback sample `{t, distance_to_goal, orientation_error_deg, tracking_lost, current_goal}`. A failed check carries `checked_call`. A press's `residual_m` is in the call's `press` |
-| `get_history()` | Every finished call of this tree, including each `set_press_offset`, and your earlier decisions, oldest first |
-| `read_file(path, offset, limit)` | Only under `/home/vector/eigen_vector_ws`, the agent skills directory and the scratch directory |
-| `ros_read(op: tf, target_frame, source_frame)` | Pose of `source_frame` in `target_frame`, with age |
-| `ros_read(op: topic_once \| topic_list)` | The next message (no images or clouds), or the topic list |
-| `get_image(source)` | `camera`: last color frame, 1280x720 at 6 fps. `overlay`: tracker mask and state. `press_baseline`, `press_press`, `press_release`: the last press's frames |
-| `run_python(code)` | Python 3.12 with numpy, scipy, pinocchio 4.1.0 and coal. Runs in the scratch directory, which is on `sys.path`. Limits: 60 s, 4 GB |
-| `say(text)` | One sentence on `/speak`; ≤ 200 characters, ≥ 3 s apart |
-| `note(text, about, key, value, evidence)` | Adds an observation to the knowledge store |
-| `decide(...)` | Ends the call. The executor checks it and replies accepted, or why not |
-
-`run_python` blocks ROS client imports, network, new processes and writes outside scratch. It guards against mistakes only. Use `ros_read` for ROS data.
+| `failure` | The last failure: `skill`, `inputs`, `message` (or `timeout after 60 s` when the orchestrator cancelled first), `outputs` (`final_distance`, `orientation_error_deg` at the closest approach), `elapsed_s`, and every feedback sample `{t, distance_to_goal, orientation_error_deg, tracking_lost, current_goal}`. A failed check carries `checked_call` |
+| `history` | Every finished call of this tree, including each `set_press_offset`, and the earlier decisions, oldest first |
+| `press` | The last press: its saved frames, phase times, deepest point, sideways distance and `residual_m` (after a judged miss) |
+| `stance` | The robot against the base goal, the press target in `pelvis`, the reference press, `match`, `reach` and `reach_move` (diagnose and stance_check) |
+| camera image | The latest color frame, 1280x720 at 6 fps |
+| decision | One allowed decision with its fields. The executor checks it and replies accepted, or why not |
 
 ## Where things are on the NUC
 
-Under `/home/vector/eigen_vector_ws`. Ignore other workspaces.
+Under `/home/vector/eigen_vector_ws`, for checking the facts below. Other workspaces are not in use.
 
 | What | Path |
 |---|---|
@@ -36,7 +30,7 @@ Under `/home/vector/eigen_vector_ws`. Ignore other workspaces.
 | Launch defaults | `src/bringup/launch/nuc.launch.py`, `humanoid_arm_skills/launch/humanoid_arm_visual_servoing.launch.py` |
 | Navigation config | `src/navigation_stack/{local_planner,route_planner}/config/unitree_g1.yaml` |
 
-track_anything runs on the Orin and its VLM on the Thor. You can read their topics only.
+track_anything runs on the Orin and its VLM on the Thor.
 
 ## Topics and TF
 
@@ -52,10 +46,10 @@ track_anything runs on the Orin and its VLM on the Thor. You can read their topi
 | TF `pelvis`, `torso_link`, `foot_world` | Body frames; `body_ekf` publishes `foot_world` |
 | TF `left_ee`, `right_ee` | End-effector points, 0.1847585 m along X of `*_wrist_yaw_link` |
 | TF `camera_link` | Fixed on `torso_link`; the RealSense frames hang below it |
-| TF `base_link` | Navigation base: `sensor` (the lidar on the torso) 0.35 m lower, with the lidar's yaw. `navigate_to` puts it on the goal; `get_stance` measures `pelvis`, 1 to 2 cm and about 2° plus the waist yaw away |
+| TF `base_link` | Navigation base: `sensor` (the lidar on the torso) 0.35 m lower, with the lidar's yaw. `navigate_to` puts it on the goal; `stance` measures `pelvis`, 1 to 2 cm and about 2° plus the waist yaw away |
 | Service `/check_reach` | ik_server: move_to_pose's IK verdict for a pose, without moving the arm; its miss in `pelvis` |
 
-The live target is often gone when you look. The servo node resets track_anything after a cancel, a timeout, a failed seed or a success. After `Planning failed` the tracker may still publish. Trust `current_goal` in the failure record.
+The live target is often gone by the time of a call. The servo node resets track_anything after a cancel, a timeout, a failed seed or a success. After `Planning failed` the tracker may still publish. Trust `current_goal` in the failure record.
 
 ## The press pipeline
 
@@ -72,14 +66,14 @@ The live target is often gone when you look. The servo node resets track_anythin
 - **Normal pose** (track_anything): plane centroid, +X out of the panel toward the camera.
 - **Upright goal**: same position, yaw-only, +X into the panel. This is `current_goal` and the press pose.
 - **Pre-grasp**: the upright goal moved 0.10 m along its own −X. Both poses must be reachable; the pre-grasp can hit the torso when the panel is near.
-- **Press offset**: `arm_safety_distance_{x,y,z}` on move_to_pose shifts every target in its own frame (x deeper, y left, z up). `set_press_offset` sets it before every press: 0 for the first press at a panel, then the last `offset_retry`. It resets to 0 on a relaunch.
+- **Press offset**: `arm_safety_distance_{x,y,z}` on move_to_pose shifts every target in its own frame (x deeper, y left, z up). `set_press_offset` sets it before every press: the panel's base offset for the first press (0 at the call panel, +3 mm on each axis inside), then the last `offset_retry`. It resets to 0 on a relaunch.
 
 ## Arm facts
 
 - Profile `arms_with_waist` locks the waist to ±0.0001 rad. The torso cannot lean.
 - `g1.yaml` `joint_limit_overrides` tightens the shoulder limits. Use them over the URDF's.
 - End effector: `offset: [0.1847585, 0, 0]` from `*_wrist_yaw_joint`. `collision_margin: -0.01`.
-- The planner solves IK with CasADi in C++. Your pinocchio check uses the same model with another solver, so they can disagree near the workspace edge. Say so when your result is marginal.
+- The planner solves IK with CasADi in C++. `check_reach` asks the same IK (ik_server, from the live joint state), so its verdict matches the press planner's.
 - Joints move at most 0.5 rad/s, 0.25 rad/s on the final leg.
 
 ## Failure messages

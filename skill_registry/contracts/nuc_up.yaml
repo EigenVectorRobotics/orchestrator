@@ -18,4 +18,4 @@ notes: >-
   from floor_map_selector, which is NOT in git (deployed by hand; docs/deployment.md): it must be at
   /home/vector/eigen_vector_ws/src/bringup/scripts/floor_map_selector.py on the NUC, installed by bringup's
   CMakeLists.txt and started by nuc.launch.py when a map is given. Without it /prior_map never comes, this check
-  always fails, and preflight keeps relaunching the NUC stack; a bringup deployed from git drops it.
+  always fails, and preflight stops the task a minute after it starts the NUC stack; a bringup deployed from git drops it.
