@@ -1,0 +1,129 @@
+# Run Viewer
+
+A read-only browser view of a robot run: the behavior tree as nodes, the map with the nav state, the camera with the EdgeTAM masks, and each agent call. Light theme only.
+
+The viewer runs on your laptop. The stack (orchestrator, nav, camera) runs on the NUC, the Orin and the Thor. The laptop needs only ssh to the NUC: no ROS, no install on the robot, no copy of this folder on the robot.
+
+## Watch from a laptop
+
+You need:
+
+- Python 3.10 or newer on the laptop. The viewer uses only the standard library.
+- An ssh key that the NUC takes: `ssh -o BatchMode=yes vector@vector-nuc true` must work with no password prompt.
+- On the NUC: `run_recorder` running (it writes `~/orch_runs/<session>/events.jsonl`) and `~/eigen_vector_ws/env.sh`.
+- On the Orin: `~/eigen_vector_ws/env.sh` with OpenCV. The Orin takes only the NUC's key, so the viewer goes to the Orin through the NUC.
+
+Start it from this folder:
+
+```bash
+python3 scripts/start_viewer.py --robot vector@vector-nuc --camera-host vector@vector-nuc,unitree@192.168.123.164
+```
+
+Then open http://localhost:8780 in a browser on the laptop. Stop it with Ctrl+C.
+
+What happens:
+
+- The trace and the agent responder records come over ssh (`tail -F` and a small file watcher on the NUC).
+- `scripts/live_echo.py` and `scripts/state_echo.py` go to the NUC as `python3 -c` at each start. They only subscribe to topics and print JSON lines. They do not publish.
+- `scripts/camera_echo.py` goes to the Orin the same way. The raw image (1280x720 rgb8, 6 Hz, about 17 MB/s) stays on the Orin. Only a 640 px JPEG at 2 Hz (about 30 KB/s) comes back.
+- The ssh streams use `ssh -tt`. When the viewer stops (Ctrl+C or `kill`), the remote commands stop too.
+- When an echo stops (robot reboot, network loss), the viewer starts it again after 5 s. When the viewer restarts, an open page loads again by itself.
+
+If the page stays empty, read the grey status line under the header:
+
+| Status line | Meaning |
+|---|---|
+| `cannot reach vector@vector-nuc: ...` | ssh failed: check the network and the key |
+| `no events.jsonl on vector@vector-nuc; is run_recorder running?` | ssh works, but there is no recorder session |
+| `vector@vector-nuc:/home/vector/orch_runs/.../events.jsonl` | the viewer follows this session; the tree shows when the executor starts a tree |
+
+Each person can run their own viewer. The viewers do not change anything on the robot.
+
+### Other ways to open it
+
+- The viewer on the NUC, the page on a laptop: run `python3 scripts/start_viewer.py --robot local --camera-host unitree@192.168.123.164` on the NUC, then on the laptop `ssh -N -L 8780:127.0.0.1:8780 vector@vector-nuc` and open http://localhost:8780.
+- Other people on a VPN such as tailscale: add `--host <tailscale address>` (and `--host 127.0.0.1` to keep the local address). The viewer has no login, so use only an address on a private network.
+
+## Panes
+
+- **Tree · top level:** the main tree as nodes. A SubTree is one dashed box (`+N` is the number of nodes in it). A wrapper SubTree that is the only one shown (for example `ride_to_goal`) opens by itself, so the skills show. The branch that runs now has an orange border. Click a SubTree to show it in the pane below.
+- **press_button level:** the SubTree that holds the `press_button` leaf. It opens by itself when that subtree runs. Follow opens only the branch that runs now. Click a node with children to fold it. If the tree has no `press_button`, the whole tree shows here.
+- **Map:** the prior map of the floor that the robot is localized on, faint, because only the route planner uses it. On top: the route planner path (blue dashes), the waypoint (orange), the collision check circle (orange dashes; centre the robot, radius `min(distance to the goal + goal_clear_range, adjacent_range)`, as `local_planner` crops its check), the `/terrain_map` obstacles in it (red) and the others within `adjacent_range` (pale red), `/free_paths` (pale green), the local planner path (green), the robot, and the arm goal (purple arrow: the last pose of `/traj` in `map`; grey after 30 s). Robot centres the view on the robot, Floor shows the whole floor. Drag to pan, scroll to zoom, double-click to centre again.
+- **Camera · EdgeTAM masks:** the colour frame with the outlines of `/track_3d/mask_outlines`, one colour per track. The caption says when the frame is more than 3 s old.
+- **Agent:** one card per agent call, newest first, in four rows. *Input*: the phase and the button. *Checked*: the evidence the executor gathered (`get_failure`, `get_history`, `get_stance`, `get_press`) and any topic read. *Failed at*: the BT node of the failure; click it to show it in the trees. A judge call shows the `press_button` it judges. *Decision*: the decision and its numbers; click ▸ to read the reason. The header shows the model (for example Sonnet 5.5) when `agent_responder.py` kept a record. An open call has an orange background and counts its waiting time.
+- **Timing, Chat, Decisions:** time per node, skill or subtree; the planner and agent messages; agent decisions, branches and failures.
+- The run menu in the header shows an earlier tree run.
+
+## Data sources
+
+| Data | From |
+|---|---|
+| Tree, decisions, timing, chat, agent call start and decision | the newest `~/orch_runs/*/events.jsonl` on the NUC, written by `run_recorder`; the viewer moves to a newer session by itself |
+| Agent model, prompt, tokens, cost | `<session>/agent_calls/<call>.json` next to `events.jsonl`, when the agent responder writes its records there |
+| Agent request and reply | `/orchestrator/agent/request`, `/orchestrator/agent/reply` |
+| Floor, pose, route, waypoint, local path, terrain, free paths | `/slam_elevatorlio/floor`, `/odom_base_link`, `/route_planner/path`, `/way_point` or `/goal_pose`, `/path`, `/terrain_map`, `/free_paths`; the check parameters from `/local_planner` |
+| Arm goal | `/traj` (frame `foot_world`), `/tf`, `/tf_static` |
+| Camera and masks | `/camera/camera/color/image_raw` (its `/compressed` when it has a publisher), `/track_3d/mask_outlines` |
+| Elevator side, door | `/slam_elevatorlio/elevator_side`, `/door_state` |
+| Floor maps | `src/run_viewer/static/maps/` (made with `scripts/make_floor_maps.py`) |
+
+## Options
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--robot` | `vector@vector-nuc` | ssh host of the recorder and the nav topics, or `local` when the viewer runs on that host |
+| `--camera-host` | `--robot` | host of the camera; `a,b` goes to `b` through `a`; `none` turns the camera off |
+| `--ros-env` | `~/eigen_vector_ws/env.sh` | ROS environment on the robot host |
+| `--camera-env` | `--ros-env` | ROS environment on the camera host |
+| `--trace` | newest `events.jsonl` | one trace file on the robot host to show, for example an old session |
+| `--trace-topic` | off | read the trace from `/orchestrator/trace`, not from `events.jsonl`: use it to replay a recorder bag |
+| `--calls` | none | with `--trace-topic`: the `<session>/agent_calls` folder |
+| `--host` | `127.0.0.1` | address to listen on; give it more than once for more |
+| `--port` | `8780` | port |
+
+## Replay a recorder bag
+
+Copy a session folder from the NUC's `~/orch_runs`. On a machine with ROS 2 that is not on the robot's network, use its own domain, for example `export ROS_DOMAIN_ID=91 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` in an env file:
+
+```bash
+python3 scripts/start_viewer.py --robot local --trace-topic --calls <session>/agent_calls --ros-env <env file> --camera-host none --port 8790
+```
+
+```bash
+ros2 bag play <session>/runs/<run>/bag
+```
+
+The recorder bag has the trace, the agent topics and `/odom_base_link`, but no nav or camera topics (`run_recorder.py` `bag_topics`), so the map shows only the robot and the camera pane stays empty. The bag starts after the tree's `started` event, so the tree panes also stay empty. To see the tree of a copied session, use `--robot local --trace <session>/events.jsonl`: all its events show at once, not in real time.
+
+## Floor maps
+
+Make them again when the prior map changes:
+
+```bash
+python3 scripts/make_floor_maps.py --pcd two_floor_clean_cabin2.pcd --places two_floor_clean_cabin2.places.yaml --floors 1:-7.1,2:-0.93
+```
+
+It needs numpy, Pillow and PyYAML. `--floors` gives the ground z of each floor, numbered as `/slam_elevatorlio/floor` numbers them. Each floor is a plan: white floor area, dark walls (1.3 m to 2.2 m above the ground), grey low objects (0.25 m to 1.3 m). If `/slam_elevatorlio/floor` is silent, the page uses the floor whose ground is nearest the robot's z.
+
+## Record the page to a video
+
+```bash
+node scripts/record_viewer.mjs http://localhost:8780 run.mp4 90
+```
+
+It needs Node 22 or newer, ffmpeg and Chrome (set `CHROME` to the binary if it is not at `/Applications/Google Chrome.app`). It takes a 1600x2100 screenshot of the page every 0.5 s in a headless Chrome of its own, so the video plays in real time. It stops after 90 minutes, or earlier with `touch run.mp4.stop`. The file plays while it records, and more than one recorder can run at the same time.
+
+## Files
+
+| File | Job |
+|---|---|
+| `scripts/start_viewer.py` | start the readers and the web server |
+| `scripts/live_echo.py` | on the robot host: nav state (2 Hz), agent request and reply, the trace topic with `--trace-topic` |
+| `scripts/camera_echo.py` | on the camera host: the JPEG and the mask outlines (2 Hz) |
+| `scripts/state_echo.py` | on the robot host: elevator side and door state |
+| `scripts/make_floor_maps.py` | the floor PNGs and `floors.json` from the prior map |
+| `scripts/record_viewer.mjs` | record the page to an MP4 |
+| `src/run_viewer/sources.py` | the ssh streams and the trace parser |
+| `src/run_viewer/store.py` | the event list and the latest nav and camera values |
+| `src/run_viewer/server.py` | the page, the event stream (`/stream`), `/latest` and `/maps/` |
+| `src/run_viewer/static/index.html` | the page |
