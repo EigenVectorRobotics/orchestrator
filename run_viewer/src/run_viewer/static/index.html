@@ -31,9 +31,11 @@ select { font: 12px var(--mono); background: var(--panel); color: var(--fg); bor
 .state.busy { color: var(--run); border-color: var(--run) }
 .src { font: 11px var(--mono); color: var(--muted); overflow-wrap: anywhere; flex-basis: 100% }
 main { padding: 12px max(16px, env(safe-area-inset-left)) 60px; display: grid; gap: 14px;
-  grid-template-columns: minmax(0, 1.45fr) minmax(380px, 1fr); grid-template-areas: "top map" "press camera" "agent side"; align-items: start }
-#p-top { grid-area: top } #p-press { grid-area: press } #p-map { grid-area: map } #p-camera { grid-area: camera } #p-agent { grid-area: agent } #p-side { grid-area: side }
-@media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "press" "map" "camera" "agent" "side" } }
+  grid-template-columns: minmax(0, 1.45fr) minmax(380px, 1fr); grid-template-areas: "left right" "agent side"; align-items: start }
+/* Each column stacks its own panes: shared grid rows left a gap under the top level as tall as the map pane is taller */
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0 }
+#c-left { grid-area: left } #c-right { grid-area: right } #p-agent { grid-area: agent } #p-side { grid-area: side }
+@media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "left" "right" "agent" "side" } }
 .cambox { position: relative; background: #111; aspect-ratio: 16 / 9; max-width: 100% }
 .cambox canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block }
 .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; min-width: 0 }
@@ -133,6 +135,7 @@ a.node { font: 500 12.5px var(--mono); color: var(--in); cursor: pointer; text-d
 </header>
 
 <main>
+  <div class="col" id="c-left">
   <section class="pane" id="p-top">
     <h2>Tree · top level <span class="nm" id="treename"></span>
       <span class="tools"><button id="t-fit" class="on" title="Fit the width of the pane">Fit</button><button id="t-in">+</button><button id="t-out">−</button></span></h2>
@@ -145,7 +148,9 @@ a.node { font: 500 12.5px var(--mono); color: var(--in); cursor: pointer; text-d
     <div class="crumb" id="crumb">Click a SubTree in the top level to show it here. The subtree that holds press_button opens by itself.</div>
     <div class="diagram" id="diagram"><div class="empty">No tree yet.</div></div>
   </section>
+  </div>
 
+  <div class="col" id="c-right">
   <section class="pane" id="p-map">
     <h2>Map <span class="nm" id="mapname"></span>
       <span class="tools"><button id="m-robot" class="on" title="Centre on the robot">Robot</button><button id="m-floor" title="The whole floor">Floor</button><button id="m-in">+</button><button id="m-out">−</button></span></h2>
@@ -169,6 +174,7 @@ a.node { font: 500 12.5px var(--mono); color: var(--in); cursor: pointer; text-d
     <div class="cambox"><canvas id="cam" aria-label="Colour camera frame with the EdgeTAM mask outlines"></canvas></div>
     <div class="mapcap" id="camcap">Waiting for the colour image.</div>
   </section>
+  </div>
 
   <section class="pane" id="p-agent">
     <h2>Agent <span class="sp" id="a-sum"></span></h2>
