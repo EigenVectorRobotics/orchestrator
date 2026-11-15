@@ -1,0 +1,15 @@
+name: imu_offset_in_use
+kind: action
+device: nuc
+description: >-
+  Whether the running Elevator-LIO started with the last measured accelerometer offset (within 0.05 m/s^2). Read
+  only; succeeds when LIO does not run, since it will read the stored offset at start.
+interface:
+  transport: command
+  command: python3 -m orchestrator.imu_offset check
+timeout_s: 10
+maturity: untested
+source: orchestrator/orchestrator/imu_offset.py (judge_in_use)
+notes: >-
+  LIO reads the offset only at start, so a new one needs a SLAM restart, which forces a relocalization. Preflight
+  only warns; the offset file's history tells which value a LIO started at a given time read.

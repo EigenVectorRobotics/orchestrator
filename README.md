@@ -133,7 +133,7 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - Arrivals are poor: the robot has stopped up to 24 cm past a place, and an arrival 8 cm or more past puts the button out of view (E-001, E-015). Set `path_follower` `slow_down_distance_threshold` 0.7 again (a relaunch resets it to 0.4) and compare, or move the places back by the mean overshoot.
 - A reposition 0.18 m away ended at once without a step; why is not known (E-016).
 - The inside press starts at the offset (+5.0, +7.5, +3.4) mm; one press lit only at (+12, +12.6, +3.2) mm. Start there once a second press confirms it.
-- The `ekf_hold` subtree resets the body EKF before each press (`reset_ekf`, `/body_ekf/reset`). The skill ends when body_ekf publishes its torso pose again, which it does only once it has recalibrated.
+- The `ekf_hold` subtree resets the body EKF once per stance, in `look_here` after the mode change and before `check_reach` (`reset_ekf`, `/body_ekf/reset`). Every press, a `continue` included, follows a passed `look_here` at its stance. The skill ends when body_ekf publishes its torso pose again, which it does only once it has recalibrated.
 - `press_judge` needs a person or a session to look at frames; the VLM could judge the floor buttons' ring alone (`button_lit`), not the call panel.
 
 - `places.yaml` has zeros. Measure the poses on the prior map.

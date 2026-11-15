@@ -90,3 +90,19 @@ Some navigation observations are in `manipulation_recovery.experience.md`, becau
 - What helped: when the robot keeps turning in place instead of walking, stop it and ask a person to send `/initialpose` from Foxglove; if matches stay rejected, restart the navigation launch. The tree now releases the arms before the walk in
 - Evidence: bag `~/orch_runs/bags/full_test_20261108_214213` (deleted afterwards); `~/orch_runs/loc_fail_20261108/` (`nav_launch.log`, `nav_pane.txt`); session `20261109T024122Z-d5bad5` run 001
 - Source: test run, 2026-11-08; subagent analysis
+
+### N-009 The NUC hard-crashed 2 s after a compile started on it, and the standing G1 fell
+- Status: suspected (once, 2026-11-13); the crash and its timing are confirmed in the journal, the cause is not
+- Conditions: the NUC, Orin and Thor stacks and the orchestrator up; the robot standing in ready locomotion after a failed task. A subagent started `colcon build` of `lio` (C++) in `~/loc_investigator/ws` on the NUC at 19:47:25
+- Cause: suspected: the all-core compile on top of the running stack hung the NUC or cut its power. The journal ends at 19:47:27 with no shutdown, OOM, thermal or panic message. Two `lio` builds earlier that day ran with the stack down and were fine. The Orin rebooted too, at 19:54, only because Kushal power-cycled the robot after the fall
+- What helped: nothing recovers the fall. Never build or run heavy jobs on the NUC while the stack runs or the robot stands. Build on a laptop, or put the robot in the gantry and stop the stack first
+- Evidence: `journalctl -b -1` on the NUC (boot 1ee1991d, ends 19:47:27); `~/loc_investigator/ws/build_lio.log` (empty, 19:47:25)
+- Source: Kushal saw the fall; a Claude Code session found the timing, 2026-11-13
+
+### N-010 The accelerometer bias climbs to 0.46 m/s² after turns while the pose holds still
+- Status: suspected (2026-11-13); analysed offline by a subagent, no fix tested
+- Conditions: Elevator-LIO with `estimator.imu_noise.acc_noise_var` 0.1 in `runtime_odometry.yaml`, floor 2, walks into the cabin and back
+- Cause: suspected: the Mid-360 accelerometer reads about 0.45 m/s² off along IMU -x. LIO assumes zero bias when it aligns gravity at start, so the odom frame starts tilted 2.6°. After each turn the filter moves the bias toward up to 0.9 m/s², with a 316 s time constant, while the lidar holds the pose. The tilt was measured from the floor plane against the accelerometer at rest (2.60 to 2.64°). A model with this offset alone gives the live peak (0.453 vs 0.461 m/s²)
+- What helped: `acc_noise_var` 0.1 instead of 1e-4 stopped the pose runaway of 2026-11-12 (replay: peak 0.76 to 0.115 m/s², and the pose stopped dead). Subtracting the offset at start is proposed in `analysis/loc_investigation_20261113/patch_imu_acc_offset.diff` on Kushal's laptop; not applied
+- Evidence: `~/lio_replay/{old,new,rw7}`, `~/loc_tests/20261113T191620`, `~/.ros/elevator_lio/temp/2026-11-13_19-15-01/state/post_state.csv`
+- Source: Kushal and a Claude Code session, 2026-11-13; subagent analysis

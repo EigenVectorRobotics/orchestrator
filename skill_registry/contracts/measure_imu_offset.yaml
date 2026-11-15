@@ -1,0 +1,19 @@
+name: measure_imu_offset
+kind: action
+device: nuc
+description: >-
+  Measure the Mid-360 accelerometer offset with the robot standing still - a few seconds of /imu/data and /lidar/scan,
+  the floor plane below the sensor as gravity's direction - and store it where Elevator-LIO reads it at start
+  (~/.ros/elevator_lio_imu_acc_offset.yaml). Fails, keeping the stored offset, when the robot moved or the floor fit
+  is poor.
+interface:
+  transport: command
+  command: python3 -m orchestrator.imu_offset_ros
+timeout_s: 30
+maturity: untested
+source: orchestrator/orchestrator/imu_offset_ros.py, imu_offset.py (calibrate)
+notes: >-
+  The offset is the mean accelerometer minus its part along the floor normal, in the IMU frame; the message gives it
+  with the tilt it makes. Recorded bag enter_201155 at rest: (-0.446, -0.025, -0.019) m/s^2, 2.60 deg. LIO aligns
+  gravity with the accelerometer at start, so without it the odom frame starts 2.6 deg tilted and the accel bias
+  climbs after turns. Run it after ready locomotion and before the relocalization.

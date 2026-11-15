@@ -37,13 +37,36 @@ def _evidence(call_tool: Callable[[str, dict], ToolOutput], name: str):
         return None                                 # e.g. "no action has failed in this tree"
 
 
+def open_request(task: str, tools: list[dict], call_tool: Callable[[str, dict], ToolOutput], skill: str) -> dict:
+    """The call as a session outside the executor gets it: the task, the allowed decisions and all the evidence"""
+    decide  = next(tool for tool in tools if tool['name'] == 'decide')
+    request = {
+        'id':        uuid.uuid4().hex[:8],
+        'state':     'open',
+        'skill':     skill,
+        'opened':    time.time(),
+        'task':      task,
+        'decisions': decide['input_schema']['properties']['decision']['enum'],
+        'failure':   _evidence(call_tool, 'get_failure'),
+        'history':   _evidence(call_tool, 'get_history'),
+    }
+
+    if any(tool['name'] == 'get_press' for tool in tools):
+        request['press'] = _evidence(call_tool, 'get_press')
+
+    if any(tool['name'] == 'get_stance' for tool in tools):
+        request['stance'] = _evidence(call_tool, 'get_stance')
+
+    return request
+
+
 class ExternalAgentBackend:
     name = 'external'
 
     def __init__(self, publish_request: Callable[[dict], None], publish_reply: Callable[[dict], None]):
-        self._publish_request = publish_request
-        self._publish_reply   = publish_reply
-        self._decisions       = queue.Queue()
+        self.publish_request = publish_request
+        self.publish_reply   = publish_reply
+        self._decisions      = queue.Queue()
 
     def deliver(self, decision: dict):
         """A decision message from the session; called from the subscription"""
@@ -51,28 +74,12 @@ class ExternalAgentBackend:
 
     def run(self, system: str, task: str, tools: list[dict], call_tool: Callable[[str, dict], ToolOutput],
             max_turns: int, should_stop: Callable[[], bool], on_event: Callable[..., None], skill: str = ''):
-        decide  = next(tool for tool in tools if tool['name'] == 'decide')
-        request = {
-            'id':        uuid.uuid4().hex[:8],
-            'state':     'open',
-            'skill':     skill,
-            'opened':    time.time(),
-            'task':      task,
-            'decisions': decide['input_schema']['properties']['decision']['enum'],
-            'failure':   _evidence(call_tool, 'get_failure'),
-            'history':   _evidence(call_tool, 'get_history'),
-        }
-
-        if any(tool['name'] == 'get_press' for tool in tools):
-            request['press'] = _evidence(call_tool, 'get_press')
-
-        if any(tool['name'] == 'get_stance' for tool in tools):
-            request['stance'] = _evidence(call_tool, 'get_stance')
+        request = open_request(task, tools, call_tool, skill)
 
         while not self._decisions.empty():         # decisions sent before this call opened are stale
             self._decisions.get_nowait()
 
-        self._publish_request(request)
+        self.publish_request(request)
         on_event('agent_wait', f'waiting for the session to decide call {request["id"]} on {DECISION_TOPIC}', call=request['id'])
 
         try:
@@ -86,13 +93,13 @@ class ExternalAgentBackend:
                     continue
 
                 if message.get('id') != request['id']:
-                    self._publish_reply({'id': message.get('id'), 'accepted': False, 'message': f'no open call {message.get("id")}; the open call is {request["id"]}'})
+                    self.publish_reply({'id': message.get('id'), 'accepted': False, 'message': f'no open call {message.get("id")}; the open call is {request["id"]}'})
                     continue
 
                 output = call_tool('decide', {key: message[key] for key in DECISION_FIELDS if key in message})
-                self._publish_reply({'id': request['id'], 'accepted': output.final, 'message': output.text})
+                self.publish_reply({'id': request['id'], 'accepted': output.final, 'message': output.text})
 
                 if output.final:
                     return
         finally:
-            self._publish_request({**request, 'state': 'closed', 'closed': time.time()})
+            self.publish_request({**request, 'state': 'closed', 'closed': time.time()})

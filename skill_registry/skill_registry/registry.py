@@ -110,7 +110,7 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport == 'action':
         return f'{_absolute(interface.name)}/_action/send_goal' in graph.services
 
-    if interface.transport == 'service':
+    if interface.transport in ('service', 'reach'):
         return _absolute(interface.name) in graph.services
 
     if interface.transport == 'watch':

@@ -30,11 +30,12 @@ WAIT_SLICE_S    = 15                    # a wait this long, then a look whether 
 JUDGE_SYSTEM = '''You judge whether a humanoid robot's fingertip pressed an elevator button, from camera frames: press \
 (the fingertip at its closest point to the button), release (0.5 s later) and baseline (before the push), when kept. \
 Read them all at once.
-Pressed: the fingertip touches the requested button's face anywhere, its rim included, with no gap to the panel. A \
-ring lit in press or release is proof of a press, unless the baseline shows it already lit; a missing baseline does \
-not weaken it. A dark ring proves nothing: some buttons stay dark after a press, and call buttons stay dark while the \
-elevator waits with its door open. The depth number is measured against the arm's goal, not against the panel, so \
-never judge from it alone.
+Pressed only when the requested button's own light (its ring) is lit in press or release and was not lit in \
+baseline; a missing baseline does not weaken a lit ring. A fingertip on the face of a button that stays dark is \
+not_pressed (E-011). Only the requested button's own light counts: a card reader, a floor display or another \
+button that changes is never evidence (E-025). The one exception is the outside call panel, which has no lights: \
+there, pressed means the fingertip touches the requested button's face, its rim included, with no gap to the panel. \
+The depth number is measured against the arm's goal, not against the panel, so never judge from it alone.
 Not pressed: the fingertip is clearly beside the button, on another button, or short of the panel with a visible gap, \
 or the button is out of view. If you cannot see the fingertip at all, not_pressed.
 Reason in two sentences: which frame you judged and where the fingertip sits on the button.'''
@@ -42,28 +43,33 @@ Reason in two sentences: which frame you judged and where the fingertip sits on 
 RECOVERY_SYSTEM = '''You recover a failed button press of a humanoid robot at an elevator panel. You get the call, the \
 failure, the recent history and the executor's stance numbers. Answer with one allowed decision and a reason of two or \
 three sentences that cites the numbers you used.
-- continue (stance_check only): the stance is fine; the press runs and seeds its own track. Choose it when the button \
-sits well inside the camera image, or when the track simply did not seed. The camera looks down, so a button at or \
-within a few pixels of the bottom edge means the robot stands too close: reposition back instead.
+Every look runs button_in_view, then check_reach: ik_server's verdict on press_button's goal, the same IK as the press, \
+without moving the arm. stance.reach is the last check since the last walk: pelvis_error_m (x forward, y left, z up; \
+arm end minus target) and the target in pelvis then. A press runs only after a passed check.
+- continue (stance_check only): the stance is fine; the tree looks again from here without walking and presses only \
+if button_in_view and check_reach both pass. Choose it when the button sits well inside the camera image, or when the \
+track simply did not seed or the walk failed close to the goal; it cannot override a reach miss. The camera looks down, \
+so a button at or within a few pixels of the bottom edge means the robot stands too close: reposition back instead.
 - reposition: walk to dx, dy (m) and dyaw (rad) from the base goal, in its frame (x forward, y left). dx > 0 stands \
-past the base goal, toward the panel, and is often needed: the base goal is a map place, and the panel can be nearer or \
-farther than it says. The robot is a humanoid: its steps land a few centimetres off, so walking again often fixes a \
-poor stance. Reposition whenever the numbers show the target too far, too close or off to the side. Take the stance \
-from stance.match (same button), else stance.reach_match (the reach of a press that worked at another button), else \
-stance.reference.stance_from_base_goal, else stance.to_base_goal, else your own estimate: a target too far ahead means a \
-larger dx, too close a smaller one. Say which in the reason. navigate_to does not walk to a goal within 0.10 m of the \
-robot: only for such a small correction, first reposition about 0.30 m back from the stance you want, and walk onto it \
-at the next call.
+past the base goal, toward the panel. The robot is a humanoid: its steps land a few centimetres off. In stance_check \
+after a check_reach miss, use stance.reach_move (dx, dy, dyaw): minus the miss plus 2 cm margin, stepped in pelvis and \
+rotated into the base-goal frame; fixable false means walking cannot fix it (a z miss over 3 cm or an orientation \
+miss), within_limits false means the detection is suspect before the stance. Otherwise take stance.match (same button), \
+else stance.reference.stance_from_base_goal, else stance.to_base_goal. Say which in the reason. In diagnose the press \
+ran from a stance the check passed, so reposition only when stance.reach.target_moved_since_check_m.norm is 0.03 m or \
+more (the stance changed); the executor refuses it otherwise. Always give the stance you want, never a back-off: when it \
+is under 0.10 m from the robot, the tree walks 0.15 m behind it and then onto it in the same round.
 - switch_arm: press with the other arm (use_left_arm). Choose it when the arm used cannot reach, no walking stance \
 fixes it, and stance.other_arm shows the other arm pressed a target within 0.05 m of this one (target_offset_m). \
 Without such a press, never assume which arm reaches what.
 - offset_retry: the press reached its goal and missed by millimetres, in the button plane or along the normal (it \
 stopped short: residual_m x negative). ox, oy, oz (m) = the offset in force minus residual_m, per axis, each within 0.05.
-- retry: a transient failure, such as a track that did not seed, with nothing to change.
-- ask_help: the evidence is missing or contradictory; a person presses.
+- retry: a transient failure with nothing to change: a track that did not seed or was lost, or a press "target out of \
+reach" after a passed check with an unmoved target (the press plans after the mode change and EKF reset; once).
+- ask_help: the evidence is missing or contradictory, or a retry after a passed check failed the same way; a person presses.
 - abort: the task cannot go on.
-"target out of reach" from move_to_pose means its inverse kinematics missed by more than 5 mm; it does not say whether \
-the target is too close or too far. Use the stance and the reference for that.'''
+After a passed check, a failed press points to tracking, a moved target, aim or a changed stance, in that order of \
+likelihood; an unreachable stance needs proof that the stance changed.'''
 
 
 def main():
@@ -138,11 +144,16 @@ def answer(arguments, call: dict):
         system = RECOVERY_SYSTEM
         images = [camera] if camera.is_file() else []
 
+    head = {'call': request['id'], 'skill': request['skill'], 'model': arguments.model, 'effort': arguments.effort,
+            'started': round(start, 1), 'prompt': prompt}
+    session.publish(arguments, {**head, 'state': 'thinking'})
+
     decision, meta = ask_claude(arguments, system, prompt, schema(request), folder, bool(images))
     sent           = send(arguments, decision) if decision else 'no decision: the call stays open'
-    log            = {'skill': request['skill'], 'prompt': prompt, 'decision': decision, 'sent': sent,
+    log            = {**head, 'state': 'answered' if decision else 'failed', 'decision': decision, 'sent': sent,
                       'seconds': round(time.time() - start, 1), **meta}
     (folder / 'responder.json').write_text(json.dumps(log, indent=1))
+    session.publish(arguments, log)
     print(f'call {request["id"]} {request["skill"]}: {decision and decision["decision"]} in {log["seconds"]} s '
           f'(${meta.get("cost_usd", 0):.3f}); {sent}', flush=True)
 
@@ -176,13 +187,29 @@ def recovery_prompt(request: dict, camera: Path | None) -> str:
         '', 'History, last 10:',
         *[f'- {record.get("skill")} {record.get("status")}: {str(record.get("message"))[:100]}'
           + (f' (decision {record["decision"]})' if record.get('decision') else '') for record in (request.get('history') or [])[-10:]],
-        '', f'Stance (executor): {json.dumps(request.get("stance"))}',
+        '', reach_line((request.get('stance') or {}).get('reach'), (request.get('stance') or {}).get('reach_move')),
+        f'Stance (executor): {json.dumps(request.get("stance"))}',
     ]
 
     if camera is not None:
         lines.append(f'Camera image now: {camera.name}')
 
     return '\n'.join(lines)
+
+
+def reach_line(reach: dict | None, move: dict | None) -> str:
+    if not reach:
+        return 'Reach check: none since the last walk'
+
+    moved = reach.get('target_moved_since_check_m')
+    line  = (f'Reach check: {"passed" if reach.get("reachable") else "failed"}, miss in pelvis (arm end minus target) '
+             f'{reach.get("pelvis_error_m")} m, target in pelvis then {reach.get("target_in_pelvis")}; '
+             f'press target moved since: {moved["norm"] if moved else "unknown"} m')
+
+    if move:
+        line += f'; reach_move {json.dumps(move)}'
+
+    return line
 
 
 def press_line(press: dict | None) -> str:

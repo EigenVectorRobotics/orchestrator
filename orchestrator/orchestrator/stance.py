@@ -3,9 +3,8 @@
 A reference is kept for each press the judge called pressed: the robot's pose and the press target, in map and in pelvis.
 For a later press at the same button, match() gives the reposition (relative to the base goal, as manipulation_recovery
 states it) that puts the target where the reference had it in pelvis, and says whether navigate_to would walk it.
-to_base_goal is the reposition back onto the base goal, which needs no reference. Without a reference for the button,
-reach_match matches only the forward reach of the latest press the same arm made at any button, or either arm when the
-same arm has none.
+to_base_goal is the reposition back onto the base goal, which needs no reference. reach is the last check_reach from this
+stance, and reach_move the reposition its IK miss asks for, in the same base-goal frame.
 """
 
 import json
@@ -16,6 +15,9 @@ from pathlib import Path
 
 
 ARRIVAL_RADIUS_M     = 0.1      # navigate_to reports arrived within this distance, so a smaller reposition does not walk
+REACH_TOLERANCE_M    = 0.005    # ik_server's goal_position_tolerance: a smaller miss is an orientation miss
+REACH_MAX_Z_M        = 0.03     # a larger vertical miss is not fixed by walking
+REACH_MARGIN_M       = 0.02     # a reach move steps this much further, so the target lands inside the reach, not on its edge
 REFERENCE_DISTANCE_M = 1.0      # a reference counts for a target this close to its own, in map
 DEFAULT_REFERENCES   = str(Path.home() / '.ros' / 'orchestrator_press_references.jsonl')
 
@@ -99,12 +101,6 @@ def nearest_reference(references: list[dict], button: str, target_map: list | No
     return close[-1] if close else None
 
 
-def latest_for_arm(references: list[dict], left_arm: bool | None) -> dict | None:
-    same = [reference for reference in references if left_arm is not None and bool(reference.get('left_arm')) == bool(left_arm)]
-
-    return same[-1] if same else None
-
-
 def load_references(path: str = DEFAULT_REFERENCES) -> list[dict]:
     file = Path(path).expanduser()
 
@@ -122,8 +118,65 @@ def save_reference(reference: dict, path: str = DEFAULT_REFERENCES):
         out.write(json.dumps({'time': round(time.time(), 1), **reference}) + '\n')
 
 
+def latest_reach(failure: dict | None, history: list[dict] | None) -> dict | None:
+    """The last check_reach answer since the last walk: the miss in the pelvis frame, on its three axes, and the target there.
+    The history holds the failure too; the failure alone stands in for an empty history"""
+    for record in list(reversed(history or [])) or [failure or {}]:
+        if record.get('skill') == 'navigate_to':      # the robot walked after it: that answer is for another stance
+            return None
+
+        if record.get('skill') != 'check_reach':
+            continue
+
+        outputs = record.get('outputs') or {}
+
+        return {
+            'reachable':             record.get('status') == 'success',
+            'left_arm':              bool((record.get('inputs') or {}).get('left_arm', False)),
+            'message':               record.get('message', ''),
+            'position_error_m':      outputs.get('position_error'),
+            'orientation_error_deg': outputs.get('orientation_error_deg'),
+            'pelvis_error_m':        _axes(outputs, 'pelvis_error'),
+            'target_in_pelvis':      _axes(outputs, 'target_pelvis'),
+            'frame':                 'pelvis: x forward, y left, z up; arm end minus target, so x < 0 means the arm stops short',
+        }
+
+    return None
+
+
+def _axes(outputs: dict, name: str) -> dict | None:
+    return {axis: outputs[f'{name}_{axis}'] for axis in 'xyz'} if f'{name}_x' in outputs else None
+
+
+def reach_move(stance: dict | None, reach: dict | None, limits: dict | None = None) -> dict | None:
+    """The reposition, relative to the base goal, that cancels the IK miss's horizontal part, keeping the heading.
+    The robot steps by minus the miss, plus REACH_MARGIN_M, in its own (pelvis) frame. None without a failed check with a miss"""
+    miss = (reach or {}).get('pelvis_error_m')
+
+    if stance is None or miss is None or reach.get('reachable'):
+        return None
+
+    horizontal = math.hypot(miss['x'], miss['y'])
+
+    if horizontal <= REACH_TOLERANCE_M or abs(miss['z']) > REACH_MAX_Z_M:
+        return {'fixable': False, 'why': f'the miss is {horizontal * 1000:.0f} mm across and {miss["z"] * 1000:+.0f} mm up: '
+                                          'walking fixes only a horizontal miss, with at most '
+                                          f'{REACH_MAX_Z_M * 1000:.0f} mm up or down'}
+
+    scale        = (horizontal + REACH_MARGIN_M) / horizontal
+    step_forward = -miss['x'] * scale
+    step_left    = -miss['y'] * scale
+    found        = match(stance, [step_forward, step_left], [0.0, 0.0])
+    found.update({'fixable': True, 'step_pelvis_m': [round(step_forward, 3), round(step_left, 3)]})
+
+    if limits is not None:
+        found['within_limits'] = -limits['back'] <= found['dx'] <= limits['forward'] and abs(found['dy']) <= limits['side']
+
+    return found
+
+
 def evidence(base: dict | None, robot: dict | None, target_pelvis: list | None, target_map: list | None, left_arm: bool | None,
-             button: str, references: list[dict]) -> dict:
+             button: str, references: list[dict], reach: dict | None = None, limits: dict | None = None) -> dict:
     """What manipulation_recovery gets as get_stance"""
     stance    = relative_pose(robot, base) if robot is not None and base is not None else None
     reference = nearest_reference(references, button, target_map, base, left_arm)
@@ -136,8 +189,13 @@ def evidence(base: dict | None, robot: dict | None, target_pelvis: list | None, 
         'match':                 None,
         'other_arm':             None,
         'to_base_goal':          None,
-        'reach_match':           None,
+        'reach':                 reach,
+        'reach_move':            reach_move(stance, reach, limits),
     }
+
+    if reach is not None and reach.get('target_in_pelvis') and target_pelvis is not None:   # the press goal against the checked one
+        moved = [round(target_pelvis[index] - reach['target_in_pelvis'][axis], 3) for index, axis in enumerate('xyz')]
+        reach['target_moved_since_check_m'] = {'xyz': moved, 'norm': round(math.hypot(*moved), 3)}
 
     if stance is not None:                      # the walk the tree planned, repeated: no reference needed
         move_m = math.hypot(stance['forward_m'], stance['left_m'])
@@ -161,13 +219,6 @@ def evidence(base: dict | None, robot: dict | None, target_pelvis: list | None, 
 
     if stance is not None and target_pelvis is not None and reference is not None:
         result['match'] = match(stance, target_pelvis, reference['target_pelvis'])
-
-    reach = (latest_for_arm(references, left_arm) or (references[-1] if references else None)) if reference is None else None
-
-    if stance is not None and target_pelvis is not None and reach is not None:   # the forward reach only: buttons differ sideways
-        result['reach_match'] = {**match(stance, target_pelvis, [reach['target_pelvis'][0], target_pelvis[1]]),
-                                 'reference_button': reach['button'], 'reference_left_arm': bool(reach['left_arm']),
-                                 'reference_ahead_m': reach['target_pelvis'][0]}
 
     if reference is None:
         result['note'] = f'no press on "{button}" here has been judged pressed yet'

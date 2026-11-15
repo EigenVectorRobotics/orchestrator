@@ -41,6 +41,13 @@ What the team has seen about press failures, their causes, and what helped. Each
 - Seen: forward moves on `/local_movement_cmd_vel` covered about half the command; an 8.6 cm back move went 21 cm. The tree has no local-move skill
 - What helped: walk out and back in instead (E-002/E-016)
 
+### E-024 A short reposition backed the robot 0.35 m off, and the press ran from there
+- Status: confirmed (once, 2026-11-13)
+- Seen: inside, floor 1, right arm. At the inside place the robot stood 8 to 9 cm short, with the button 0.548 and 0.560 m ahead of the pelvis (the pressed reference: 0.507 m). IK missed by 18 and 47 mm. The matching stance was 6 to 8 cm away, inside the arrival radius, so the responder set dx -0.34 and -0.36 m, as its prompt said: back off now, walk in at the next call. The tree presses after every reposition, so presses 2 and 4 ran from 0.31 and 0.33 m short (button 0.78 and 0.82 m ahead, IK 229 and 267 mm off). The task used all 5 diagnoses and failed
+- Cause: the back-off and the walk-in were split across two rounds, but every round ends in a press. The inside place leaves 4 to 5 cm of reach, less than the arrival spread (E-001)
+- What helped: the executor now outputs `walk_in` and `approach`. For a reposition under 0.25 m from the robot, the press subtree walks 0.35 m behind the goal and then onto it, in one round. Not yet tested on the robot. Moving the inside place about 4 cm toward the panel would add margin; not done
+- Evidence: session `20261114T002938Z-9358f6` run 004, agent calls 71f1552f, 1241d652, 372b850e and de8db370, and its bag
+
 ## Perception
 
 ### E-003 The seed locks onto a different button
