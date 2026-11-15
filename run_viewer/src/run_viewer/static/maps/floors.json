@@ -1,0 +1,116 @@
+{
+ "map": "two_floor_clean_cabin2.pcd",
+ "floors": {
+  "1": {
+   "file": "floor_1.png",
+   "x0": -6.702,
+   "y0": -39.714,
+   "res": 0.05,
+   "w": 1656,
+   "h": 985,
+   "ground_z": -7.1
+  },
+  "2": {
+   "file": "floor_2.png",
+   "x0": -21.365,
+   "y0": -52.512,
+   "res": 0.05,
+   "w": 1869,
+   "h": 1276,
+   "ground_z": -0.93
+  }
+ },
+ "places": [
+  {
+   "name": "freight elevator call panel",
+   "x": 1.829,
+   "y": -1.372,
+   "yaw_deg": -15.6,
+   "floor": "2"
+  },
+  {
+   "name": "inside freight elevator button panel",
+   "x": 3.362,
+   "y": -0.26,
+   "yaw_deg": 142.4,
+   "floor": "2"
+  },
+  {
+   "name": "freight elevator call panel preapproach",
+   "x": 0.635,
+   "y": -1.105,
+   "yaw_deg": -12.7,
+   "floor": "2"
+  },
+  {
+   "name": "inside freight elevator button panel floor 1",
+   "x": 3.362,
+   "y": -0.26,
+   "yaw_deg": 142.4,
+   "floor": "1"
+  },
+  {
+   "name": "freight elevator hall floor 1",
+   "x": -0.385,
+   "y": -1.15,
+   "yaw_deg": -160.0,
+   "floor": "1"
+  },
+  {
+   "name": "freight elevator call panel floor 1",
+   "x": 1.781,
+   "y": -1.359,
+   "yaw_deg": -15.6,
+   "floor": "1"
+  },
+  {
+   "name": "freight elevator door out floor 2",
+   "x": 1.883,
+   "y": -0.39,
+   "yaw_deg": 169.8,
+   "floor": "2"
+  },
+  {
+   "name": "freight elevator door out floor 1",
+   "x": 1.883,
+   "y": -0.39,
+   "yaw_deg": 169.8,
+   "floor": "1"
+  },
+  {
+   "name": "target floor 1",
+   "x": -0.7,
+   "y": -0.1,
+   "yaw_deg": 169.8,
+   "floor": "1"
+  },
+  {
+   "name": "target floor 2",
+   "x": -0.5,
+   "y": -0.9,
+   "yaw_deg": 169.8,
+   "floor": "2"
+  },
+  {
+   "name": "inside freight elevator button panel back",
+   "x": 3.471,
+   "y": -0.325,
+   "yaw_deg": 151.0,
+   "floor": "2"
+  },
+  {
+   "name": "inside freight elevator button panel preapproach",
+   "x": 3.998,
+   "y": -0.94,
+   "yaw_deg": 139.5,
+   "floor": "2"
+  },
+  {
+   "name": "inside freight elevator button panel preapproach floor 1",
+   "x": 3.998,
+   "y": -0.94,
+   "yaw_deg": 139.5,
+   "floor": "1"
+  }
+ ]
+}

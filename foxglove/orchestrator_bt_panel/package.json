@@ -1,0 +1,10 @@
+{
+  "name": "orchestrator-bt",
+  "displayName": "Orchestrator Behavior Tree",
+  "description": "Live and playback view of the orchestrator behavior tree from /orchestrator/trace",
+  "publisher": "eigenvector",
+  "version": "0.1.0",
+  "license": "MIT",
+  "main": "./dist/extension.js",
+  "keywords": ["behavior tree", "orchestrator"]
+}
