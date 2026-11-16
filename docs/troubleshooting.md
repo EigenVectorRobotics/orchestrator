@@ -13,7 +13,7 @@ What to check and what to do when something goes wrong on the robot. Each row is
 | Frames and poses do not line up in time | `date +%s.%N` on the NUC and the Orin (they agree within about 0.3 s when NTP is synced) | Fix the clocks before judging presses: frame times are the camera's stamps, pose times the NUC's |
 | `seed_bbox` on the Orin logs `no grounding server on /vlm_ground_server/ground_boxes`; every reach check gives `NO_TRACK` | Is the Thor up? It can reboot on its own and come back with no stack, tailscale logged out and its clock at 1970 | Reach it through the NUC (`ssh vector@192.168.123.1`) and start its stack (`docs/operations.md`, section 5). The 1970 clock does not affect the grounding |
 | `curl -s http://vector-thor:8090/v1/models` does not answer; `thor_up` fails with `missing http` | `tmux ls` on the Thor: is there a `cosmos_vlm` session? | Start `cosmos_vlm_server` (`docs/operations.md`, section 5). `thor_up` checks the grounding service and this endpoint together, so preflight stops without it |
-| The hand jumps during a press | `no_stale_publishers` fails, and the trace names every publisher of the failing topic | Stop the leftover replay or test script that publishes there |
+| The hand jumps during a press | `ros2 topic info -v <topic>` on the arm and target topics: more publishers than the stack's own? | Stop the leftover replay or test script that publishes there |
 
 ## Localization
 
@@ -23,7 +23,7 @@ What to check and what to do when something goes wrong on the robot. Each row is
 | A match landed near the edge of the yaw search window (about +-30 deg from the map origin) | `python3 ~/orchestrator_ws/src/orchestrator/scripts/scan_fit.py` in the robot environment: a right match has a median about 3 cm, 75 to 80 % of points within 10 cm, and the share falling when the scan is turned 5 or 10 deg either way | Send `/initialpose` when the check fails [N-005] |
 | The robot walked off course | `localized` and the inlier ratio | Check localization before the next goal; relocalize first [N-004] |
 | `slam_healthy` stays false; `/registered_scan` looks wrong; `door_state` says OPEN at a closed door | a LIO divergence in the SLAM log | Restart SLAM (the NUC stack); `/initialpose` does not clear it [N-007] |
-| Localization is lost after walking out of the cabin | was there a relocalization in place about 1 m out of the door? | `relocalize_here` there, standing still (`freight_elevator_ride` does it) [N-006] |
+| Localization is lost after walking out of the cabin | was there a relocalization in place about 1 m out of the door? | `relocalize_here` there, standing still (the ride tree's walk out should do it) [N-006] |
 
 ## Walking
 
@@ -47,8 +47,8 @@ What to check and what to do when something goes wrong on the robot. Each row is
 | The seed is refused | `press_button`'s `target_description` | Use a name the grounding accepts: `up button`, `down button`, `floor 1`, `floor 2`, `floor 3`. `ground_server` refuses `object:<description>` ("unsupported query"). Its call-button prompt calls the upper round button up and the lower one down: on floor 1, whose panel has one grey call button below a black round light, ask for `down button` |
 | `press_button` succeeded, but the fingertip ended far short | the press's deepest point (`press_reached`'s numbers, `agent_cli show`) | Out of reach: reposition closer [E-006, E-018] |
 | The finger lands beside, short of, or on the rim of the button, by millimetres | `residual_m` of a clean press (no step, steady track) [E-009] | `offset_retry`: the new offset is the offset in force minus the residual; on floor buttons push the depth further [E-011, E-012, E-020] |
-| The target wanders in `foot_world` while the camera-frame track is steady | the body EKF: was it reset after the walk? | Reset it with the robot still, right before the press: the watcher calls `/body_ekf/reset` during `ekf_hold` [E-008] |
-| The press runs without an EKF reset: no `trigger` or `success=True` in `ekf_watch.txt` | Is the watcher running (`tmux ls`)? Does the tree say exactly "Holding still to reset my balance estimate."? `ros2 service list \| grep body_ekf` | Start the watcher (`docs/operations.md`). `/body_ekf/reset` exists in body_ekf from manipulation_stack `e63f2b8` or later; it recalibrates after 2 s of stillness, and any motion restarts that |
+| The target wanders in `foot_world` while the camera-frame track is steady | the body EKF: was it reset after the walk? | Reset it with the robot still, right before the press: `reset_ekf` in the tree [E-008] |
+| The press runs without an EKF reset: no `reset_ekf` in the trace, or it fails | Does the tree call `reset_ekf` before the press? `ros2 service list \| grep body_ekf` | Add `reset_ekf` to the tree. `/body_ekf/reset` exists in body_ekf from manipulation_stack `e63f2b8` or later; it recalibrates after 2 s of stillness, and any motion restarts that, so a robot that keeps moving fails `reset_ekf` at its 10 s timeout |
 | `release_arms` times out | how long the call takes (about 5 to 6 s) | Its contract timeout is 12 s; a shorter one fails |
 
 ## The orchestrator

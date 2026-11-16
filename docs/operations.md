@@ -33,7 +33,7 @@ tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 la
 
 - It starts the registry, the executor, the recorder and the planner. `planner_backend:=external` makes a Claude Code session answer the planner (`planner_cli`); the launch default is `claude` (the API).
 - Ready when `~/orchestrator.log` shows `planner up: external ..., N existing trees` and the recorder's `recording to <session>`. The executor refuses trees until the recorder is ready (`record:=false` turns recording off).
-- **Start the EKF-reset watcher** once the log shows `recording to` (it follows the newest session): `tmux new -d -s ekf_watch ~/watch_records_20261108.sh` on the NUC. On each `ekf_hold` say ("Holding still to reset my balance estimate.") in the run records it runs `~/ekf_reset.sh`, which calls `/body_ekf/reset`; its output goes to `<session>/helpers/ekf_watch.txt`. Without it the trees hold still but the EKF is not reset. The script is only on the NUC (`docs/deployment.md`).
+- No EKF-reset watcher is needed: a tree resets the body EKF itself with the `reset_ekf` skill (`/body_ekf/reset`, then it waits for the first torso pose after the 2 s still period). Do not start `~/watch_records_*.sh` beside a tree that calls `reset_ekf`, or the EKF is reset twice.
 - Parameters come from `orchestrator/config/orchestrator.yaml`; `params_file:=` gives another file. The planner's tree library is the installed `skill_registry/trees/` (parameter `tree_library`), and its preflight tree `skill_registry/preflight/preflight.xml` (`preflight_tree`; empty for none).
 - A restart of the orchestrator ends the run in progress: cancel the tree first, and never restart while an agent call is open.
 
@@ -41,7 +41,7 @@ tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 la
 
 One session answers the agent calls, and the same or another session answers the planner. Only one session may answer agent calls: another `agent_cli wait` sees every call too (`pgrep -fa agent_cli`).
 
-1. **The agent session** runs `ros2 run orchestrator agent_cli wait` in the background, and answers each call by its skill document in `skill_registry/agent_skills/`: `operator_confirm` (preflight's gantry question), `press_judge` (after every press), `manipulation_recovery` (a failed stance check, a failed press, the view after a reposition).
+1. **The agent session** runs `ros2 run orchestrator agent_cli wait` in the background, and answers each call by its skill document in `skill_registry/agent_skills/`: `operator_confirm` (preflight's gantry question), `press_judge` (after every press), `manipulation_recovery` (a failed stance check, a failed press).
 2. **Send the task:**
 
    ```bash
@@ -57,10 +57,12 @@ One session answers the agent calls, and the same or another session answers the
 
    ```bash
    ros2 run orchestrator planner_cli wait          # prints the call; the system prompt goes to ~/.ros/planner_system.md
-   ros2 run orchestrator planner_cli answer --use-tree freight_elevator_ride --note "Floor 2 to floor 1 with the existing tree."
+   ros2 run orchestrator planner_cli answer --tree FILE --note "What the robot will do and how it handles failures."
    ```
 
-   `--use-tree` reuses a library tree with its default parameters (`freight_elevator_ride`: floor 2 to floor 1). `planner_cli` cannot set parameters yet: for another ride, write the tree with its `parameters` block changed and answer `--tree FILE`. Floor 1 to floor 2: `call_panel_preapproach` `{freight_elevator_call_panel_preapproach_floor_1}` (not the call panel itself: a second walk to the place the robot stands on times out), `call_panel` `{freight_elevator_call_panel_floor_1}`, `call_button` `down button` (floor 1 has one grey call button below a black round light; the grounding calls the lower round button down and the light up), `inside_panel` `{inside_freight_elevator_button_panel_floor_1}`, `floor_button` `floor 2`, `floor` `2`, `door_out` `{freight_elevator_door_out_floor_2}`, `target` `{target_floor_2}`.
+   **The tree library (`skill_registry/trees/`) is empty for now.** `freight_elevator_ride` was removed on 2026-11-16 (`539938b`): it used skills that `88016d2` removed (`track`, `button_in_reach`, `no_stale_publishers`). Until a library tree comes back, answer with `--tree FILE`. With a library tree, `--use-tree ID` reuses it with its default parameters, and `--param NAME=VALUE` (repeatable) sets others; a `<name>_floor` parameter is set from the floor of its place.
+
+   The places and buttons for a ride from floor 1 to floor 2, for a tree that takes them as parameters: call panel preapproach `{freight_elevator_call_panel_preapproach_floor_1}` (not the call panel itself: a second walk to the place the robot stands on times out), call panel `{freight_elevator_call_panel_floor_1}`, call button `down button` (floor 1 has one grey call button below a black round light; the grounding calls the lower round button down and the light up), inside panel `{inside_freight_elevator_button_panel_floor_1}`, floor button `floor 2`, door-out place `{freight_elevator_door_out_floor_2}`, target `{target_floor_2}`.
 5. **During the ride** the agent session answers each call as it comes. A call waits up to 600 s; then the agent skill fails and the tree goes on as after any failure of that step (in the end, a person is asked to press).
 6. **Results** are under `~/orch_runs/<session>/runs/<n>-<tree>/`: `tree.xml` (what ran), `records.jsonl`, `outcome.json`, the bag. The session folder holds `events.jsonl`, the whole trace.
 
@@ -70,38 +72,22 @@ One session answers the agent calls, and the same or another session answers the
 ros2 run orchestrator send_tree <tree.xml>                 # add --blind for a tree that must run with no cloud
 ```
 
-Or, with the trace echo, `agent_cli wait` and the EKF-reset watcher (it calls `/body_ekf/reset` on each `ekf_hold` say; `ekf_watch.txt` shows `trigger` and `success=True`) started beside it, each writing to `~/orch_runs/run_<HHMMSS>/`:
+Or, with the trace echo and `agent_cli wait` started beside it, each writing to `~/orch_runs/run_<HHMMSS>/`:
 
 ```bash
-~/orchestrator_ws/src/orchestrator/scripts/start_cycle.sh [TREE.xml]     # default: test_trees/freight_elevator_down_floor1_agentic.xml
+~/orchestrator_ws/src/orchestrator/scripts/start_cycle.sh <tree.xml>      # the tree is required
 ~/orchestrator_ws/src/orchestrator/scripts/stop_cycle.sh <run folder>    # when the tree has ended
 ```
 
 `stop_cycle.sh` matters: an orphaned `ros2 topic echo` holds a DDS participant (N-001). Read progress with `grep -o '"text": "[^"]*"' <run folder>/trace.txt`.
 
-Test trees, in `orchestrator/test_trees/`, to run a part of the task:
+Test trees, in `orchestrator/test_trees/`:
 
 | Tree | Starts with the robot | Does |
 |---|---|---|
-| `freight_elevator_down_floor1_agentic.xml` | anywhere on floor 2, localized | the call panel, down, the door, the cabin, floor 1 |
-| `freight_elevator_floor1_from_door_agentic.xml` | at the call panel, down pressed | waits for the door, walks in, floor 1 |
-| `freight_elevator_floor1_press_agentic.xml` | at the inside place | EKF hold, floor 1 |
-| `freight_elevator_floor1_walk_in_again_agentic.xml` | in the cabin, off the inside place by less than a reposition can fix | backs up 0.35 m behind the inside place, walks in, floor 1 |
-| `freight_call_elevator_down_agentic.xml`, `freight_call_elevator_agentic.xml` | anywhere on floor 2 | the down or up call press alone |
-| `freight_elevator_ride_agentic.xml` | | disabled: not in use |
-| `freight_call_panel_press_repeat.xml` | anywhere on floor 2 | five cycles of walk in, down press, up press; the repeatability test below |
+| `call_elevator.xml` | anywhere, localized, with a place `call_panel` | walks to the call panel, presses up, waits for the door; runs blind (no cloud) |
 
-### Repeatability test at the call panel
-
-The test measures how often one press hits each call button, with no retries. Each cycle walks to the call panel, holds still for the EKF reset, presses the down button, then the up button, both with the right arm. The agent judges every press, and the tree goes on whatever the judge says.
-
-1. Launch the NUC with the cabin2 map (section 5) and check `"localized": true`. The Orin and the Thor run as usual.
-2. Start the orchestrator (section 2) with `places_file:=/home/vector/maps/two_floor_clean_cabin2.places.yaml`.
-3. Start the run: `~/orchestrator_ws/src/orchestrator/scripts/start_cycle.sh ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_panel_press_repeat.xml`. It prints the run folder.
-4. Answer each `press_judge` call from the agent session (`agent_cli show`, then `agent_cli decide pressed|not_pressed --reason ... --send`). `agent_cli wait` returns after one call, so run it again after each answer. A press that move_to_pose refuses ("target out of reach") or that finds no target opens no call, so expect up to ten. A person by the panel notes the true outcome of each press, in order.
-5. When the trace shows the tree ended, run `stop_cycle.sh <run folder>`.
-
-Compare the person's labels with the judge's decisions and the `press_judge` records in `~/orch_runs/<session>/runs/<n>-freight_call_panel_press_repeat/records.jsonl`. Each press record holds the capture (deepest point, sideways distance, `residual_m`) and the frame paths.
+The freight elevator test trees (`freight_elevator_down_floor1_agentic`, `freight_elevator_floor1_*_agentic`, `freight_call_elevator_*_agentic`, `call_elevator_agentic`, `freight_elevator_ride_agentic`) and the press repeatability trees (`freight_call_panel_press_repeat`, `freight_elevator_floor_press_repeat`) were removed on 2026-11-16 (`539938b`): they used skills that `88016d2` removed. Later commits of PR #8 (`fix/elevator-run-fixes`) bring back fixed versions of some of them.
 
 ## 5. Bring a machine up by hand
 
@@ -165,7 +151,7 @@ The grounding is up when the log has `grounding service on /vlm_ground_server/gr
    ros2 service call /unitree_interface/change_mode unitree_interface_msgs/srv/ChangeControlMode "{requested_mode: 1}"
    ```
 
-4. Stop the orchestrator (`tmux kill-session -t orchestrator`) and any helpers (`tmux kill-session -t ekf_watch`, `stop_cycle.sh`); then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
+4. Stop the orchestrator (`tmux kill-session -t orchestrator`) and any helpers (`stop_cycle.sh`); then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
 
 The next tree clears `/stop` itself. Never use `ready_locomotion` on a standing robot: it damps the robot, then stands it up again.
 

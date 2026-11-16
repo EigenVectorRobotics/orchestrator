@@ -34,29 +34,19 @@ This document gives you facts about the robot and its software, and where to fin
 
 ### Before the first press
 
-The walk to the panel has arrived and nothing has been pressed yet. The tree tracked the button and ran two checks in the executor; one failed, and `get_failure` says which, with what it measured:
+The walk to the panel has arrived and nothing has been pressed yet. The tree ran `button_in_view`: it seeds track_anything with the button, then judges the first 2D box and 3D pose after its seed. It failed, and `get_failure` says what was missing or wrong:
 
-- **`track` failed:** no seed. The button may be out of the frame (E-015), or the seed was random (E-004).
-- **`button_in_view` failed:** no fresh box, or the box is at an image edge. `outputs` has the box, the image size and the distance to each edge.
-- **`button_in_reach` failed:** no fresh 3D pose (too close for depth, E-005), or the button is outside the reach that worked: `outputs` has `ahead_m`, `sideways_m`, `up_m` and `slant_deg` in `pelvis`, and the limits used.
+- **no track:** the seed found nothing. The button may be out of the frame (E-015), or the seed was random (E-004).
+- **no 2D box, or the box at an image edge:** `outputs` has the box, the image size and the distance to each edge.
+- **no 3D pose:** too close for depth (E-005), or no depth points on the button.
 
-A poor stance here comes from the walk, not from the arm: the robot stops a few centimetres off its place, sometimes 8 to 24 cm past it (E-001), and then the button falls below the frame or out of reach. The limits are what worked on 2026-11-04 (E-006), not a reach model: confirm before you act. "What is known" holds the claims about this place: where walks to it ended, the reach that worked there, and where the button sat in good frames. Take steps 3, 4, 5 and 8 of "How to work" on the current stance, then decide:
+A poor stance here comes from the walk, not from the arm: the robot stops a few centimetres off its place, sometimes 8 to 24 cm past it (E-001), and then the button falls below the frame. Reach is not checked here: move_to_pose decides it at the press. The arm is chosen by `button_in_view` itself (the left arm when the button is far enough to the robot's left in `pelvis`), so do not switch the arm in this phase. "What is known" holds the claims about this place: where walks to it ended, and where the button sat in good frames. Take steps 3, 4, 5 and 8 of "How to work" on the current stance, then decide:
 
-- `continue`: the stance is good after all (the check was marginal, or your IK says both poses are reachable), or the cause is a random no-seed with the button in frame (E-004): `press_button` seeds again itself.
+- `continue`: the stance is good after all (the check was marginal), or the cause is a random no-seed with the button in frame (E-004): `press_button` seeds again itself.
 - `reposition`: the stance needs a change of at least 0.25 m (E-016). The same rules as after a failed press.
-- `switch_arm`: the other arm reaches from here (E-007).
 - `abort`: the button is out of view and no stance you can justify brings it back.
 
 When you are not sure, choose `continue`: the press runs, and a failure comes back to you as a diagnosis.
-
-### After the reposition walk
-
-When `navigate_to` to your new stance has arrived, the tree calls you again (phase `view_check`) before it presses. Your job now is short: **is the button still in view?**
-
-1. Read where the robot actually stopped (`/odom_base_link`) and compare it with the goal; it can be off by about 0.1 m.
-2. Look at the camera image (`get_image("camera")`) for the button you were asked to press.
-3. Project the target position you computed in the diagnosis into the camera from the current pose, using TF and `/camera/camera/color/camera_info`, and check that it falls inside the image with depth in front of the camera.
-4. Call `decide` with `continue` if the button is in view, or `abort` if it is not. When the image and the projection disagree, say so in your reason and trust the image.
 
 ## Say what you are doing
 
@@ -254,14 +244,7 @@ After a failed press:
 | `ask_help` | The last resort: retries and repositions have not helped (see step 6), the evidence is missing or contradictory, or the needed correction is one the tree cannot make (a stance closer than about 0.15 m, an offset, an EKF reset); say which in your reason | none |
 | `abort` | The button is out of the camera's view and no stance you can justify brings it back | none |
 
-Before the first press (phase `stance_check`): `continue`, `reposition`, `switch_arm` or `abort`, as in the table above and "Before the first press". `continue` presses from where the robot stands.
-
-After the reposition walk:
-
-| Decision | When it fits | Fields |
-|---|---|---|
-| `continue` | The button is in view; the tree presses again | none |
-| `abort` | The button is not in view from where the robot stopped | none |
+Before the first press (phase `stance_check`): `continue`, `reposition` or `abort`, as in the table above and "Before the first press". `continue` presses from where the robot stands.
 
 **`abort` ends the task early:** the tree stops at once and fails, with your reason as the error message. Use it instead of a press that cannot work.
 
@@ -276,6 +259,6 @@ The facts above were read from these versions; update this file when they change
 - manipulation_stack: GitHub `pelvis-correction` @ `d70b9d1`; the NUC runs `test/pelvis-correction` @ `0554dd4` (that commit plus a merge of main, which adds one line to `body_ekf.cpp`). Files: `humanoid_arm_skills/humanoid_arm_skills/{humanoid_arm_visual_servoing,pose_filtering,utils}.py`, `humanoid_arm_skills/launch/humanoid_arm_visual_servoing.launch.py`, `g1_pilot/src/move_to_pose/{server,planning,control}.cpp`, `g1_pilot/src/core/arm_mp/{visual_servo_planner,joint_space_planner}.cpp`, `g1_pilot/src/body_ekf.cpp`, `g1_pilot/config/g1.yaml`, `g1_description/assets/g1/*.urdf`
 - track_anything `main` @ `f5a1f47` (`trt` is merged into it): `track_anything/track_3d.py`, `track_anything/pointcloud_utils.py`, `track_anything/transform_utils.py`, `track_anything/track_3d_parameters.yaml`, `launch/track_3d.launch.py`, `README.md`
 - NUC `/home/vector/eigen_vector_ws`: `src/bringup/launch/nuc.launch.py`, `src/bringup/README.md`, `src/navigation_stack` main @ `6242b3e` (`route_planner/route_planner/{route_planner_node,planner}.py`, `route_planner/route_planner/route_planner_parameters.yaml`, `local_planner/src/local_planner.cpp`, `local_planner/src/local_planner_params.yaml`, `local_planner/config/unitree_g1.yaml`, `route_planner/config/unitree_g1.yaml`); Python packages under `/opt/ros/jazzy/lib/python3.12/site-packages`
-- orchestrator: `skill_registry/contracts/{press_button,navigate_to,set_mode,clear_stop,set_autonomy}.yaml`, `orchestrator/test_trees/freight_call_elevator_down_agentic.xml`, `orchestrator/{places,agent,ros_skill_runner}.py` (goal z)
+- orchestrator: `skill_registry/contracts/{press_button,navigate_to,set_mode,clear_stop,set_autonomy}.yaml`, `orchestrator/{places,agent,ros_skill_runner}.py` (goal z)
 - NUC field-test scripts in `~/`: `nav_call.sh`, `nav_outside.sh` (walking state, goals with z), `down_once_right.sh` (press in HighLevel with the VisualServo profile)
 - Observations, with their own sources: `manipulation_recovery.experience.md`, and for walking and localization `navigation.experience.md`
