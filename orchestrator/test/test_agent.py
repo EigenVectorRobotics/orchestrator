@@ -307,11 +307,11 @@ def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path)
 
 # ========== offset_retry ==========
 
-def test_offset_retry_needs_the_whole_offset_within_30_mm(tmp_path):
+def test_offset_retry_needs_the_whole_offset_within_50_mm(tmp_path):
     session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
 
     assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.005}).is_error
-    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.05, 'oy': 0.0, 'oz': 0.0}).is_error
+    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.06, 'oy': 0.0, 'oz': 0.0}).is_error
     assert not session.call('decide', {'decision': 'offset_retry', 'reason': 'rim', 'ox': 0.005, 'oy': 0.0075, 'oz': 0.0034}).is_error
 
     outputs = decision_outputs(session.decision, {}, {'inputs': {'left_arm': False}})
