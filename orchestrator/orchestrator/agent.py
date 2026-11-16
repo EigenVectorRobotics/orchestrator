@@ -25,8 +25,7 @@ from .agent_sandbox import SandboxConfig, run_python
 # The decisions each phase may end with, and the ones that let the tree go on
 PHASE_DECISIONS = {
     'diagnose':     ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help', 'abort'),
-    'stance_check': ('continue', 'reposition', 'switch_arm', 'abort'),
-    'view_check':   ('continue', 'abort'),
+    'stance_check': ('continue', 'reposition', 'abort'),       # button_in_view chooses the arm
     'judge':      ('pressed', 'not_pressed'),
     'confirm':    ('confirmed', 'not_confirmed'),
 }

@@ -105,9 +105,10 @@ def test_decision_outputs_keep_the_arm_unless_switched():
 
 
 def test_decide_checks_the_phase_and_the_fields(tmp_path):
-    session = AgentSession('view_check', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
+    session = AgentSession('stance_check', {'base_goal': PANEL}, {}, None, _config(tmp_path), lambda *a, **k: None)
 
-    assert session.call('decide', {'decision': 'reposition', 'reason': 'x'}).is_error
+    assert session.call('decide', {'decision': 'reposition', 'reason': 'x'}).is_error                  # no dx, dy
+    assert session.call('decide', {'decision': 'switch_arm', 'reason': 'x', 'use_left_arm': True}).is_error
     assert session.call('decide', {'decision': 'continue', 'reason': ''}).is_error
     assert session.call('decide', {'decision': 'continue', 'reason': 'button in view'}).final
     assert session.call('decide', {'decision': 'abort', 'reason': 'again'}).is_error
