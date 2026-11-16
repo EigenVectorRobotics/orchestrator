@@ -218,7 +218,7 @@ def test_example_tree_builds_and_runs():
     )
 
     assert _run(tree, clock) == Status.SUCCESS
-    assert [name for name, _ in runner.calls] == ['navigate_to', 'press_button', 'navigate_to', 'press_button', 'say', 'door_open']
+    assert [name for name, _ in runner.calls] == ['navigate_to', 'set_press_offset', 'press_button', 'navigate_to', 'set_press_offset', 'press_button', 'say', 'door_open']
 
 
 def test_example_tree_fails_when_door_stays_closed():

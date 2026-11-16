@@ -586,7 +586,7 @@ class RosSkillRunner:
         self.frames        = FrameBuffer()
         self.boxes         = BoxBuffer()    # the target button's box per frame, from track_anything
         self.last_capture  = None           # the frames of the last press, for its check and the agent
-        self.press_offset  = (0.0, 0.0, 0.0)  # the last set_press_offset, which moves move_to_pose's pre-grasp
+        self.press_offset  = None             # the last set_press_offset, which moves move_to_pose's pre-grasp; None: not set yet
         self._ee_frames    = {}             # arm -> end-effector TF frame, from the capture contracts
         self._ee_timer     = None
         self._ee_stamp     = None           # stamp of the last TF sample fed to the capture
@@ -649,6 +649,10 @@ class RosSkillRunner:
 
         if contract.name == PRESS_OFFSET_SKILL:          # move_to_pose keeps it until the next one; the capture needs it
             self.press_offset = tuple(float(inputs.get(axis, 0.0)) for axis in 'xyz')
+
+        if interface.capture and self.press_offset is None:     # move_to_pose may hold an offset from before this executor
+            return _DoneHandle(False, f'{contract.name}: no {PRESS_OFFSET_SKILL} since the executor started; '
+                                      f'run it first (x=0 y=0 z=0 for no offset)')
 
         try:
             if interface.transport == 'action':
