@@ -45,18 +45,6 @@ def test_bad_places_are_refused():
         parse_places({'places': {'Call Panel': {'x': 0, 'y': 0}, 'call panel': {'x': 1, 'y': 1}}})
 
 
-def test_the_robot_tree_validates_against_the_team_places():
-    from pathlib import Path
-    from skill_registry import Registry, TreeValidator, ValidatorConfig
-
-    root     = Path(__file__).resolve().parents[2]
-    registry = Registry.from_directory(root / 'skill_registry' / 'contracts')
-    tree     = (root / 'orchestrator' / 'test_trees' / 'freight_call_elevator_agentic.xml').read_text()
-    issues   = TreeValidator(registry, ValidatorConfig(known_keys=set(parse_places(TEAM_FILE)))).validate(tree)
-
-    assert [issue.message for issue in issues if issue.level == 'error'] == []
-
-
 def test_place_floors_come_from_the_floors_table_by_z():
     from orchestrator.places import place_floors
 

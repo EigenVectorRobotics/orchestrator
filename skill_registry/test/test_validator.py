@@ -68,7 +68,7 @@ def test_door_open_is_a_nuc_watch():
 
 
 def test_parallel_resource_conflict():
-    errors = _errors('<Parallel><track query="button"/><press_button target_description="button"/></Parallel>')
+    errors = _errors('<Parallel><button_in_view query="button"/><press_button target_description="button"/></Parallel>')
 
     assert any('resource tracker' in error for error in errors)
 
