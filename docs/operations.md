@@ -57,12 +57,10 @@ One session answers the agent calls, and the same or another session answers the
 
    ```bash
    ros2 run orchestrator planner_cli wait          # prints the call; the system prompt goes to ~/.ros/planner_system.md
-   ros2 run orchestrator planner_cli answer --tree FILE --note "What the robot will do and how it handles failures."
+   ros2 run orchestrator planner_cli answer --use-tree freight_elevator_go_to_place --param goal={target_floor_1} --note "Floor 2 to floor 1 with the library tree."
    ```
 
-   **The tree library (`skill_registry/trees/`) is empty for now.** `freight_elevator_ride` was removed on 2026-11-16 (`539938b`): it used skills that `88016d2` removed (`track`, `button_in_reach`, `no_stale_publishers`). Until a library tree comes back, answer with `--tree FILE`. With a library tree, `--use-tree ID` reuses it with its default parameters, and `--param NAME=VALUE` (repeatable) sets others; a `<name>_floor` parameter is set from the floor of its place.
-
-   The places and buttons for a ride from floor 1 to floor 2, for a tree that takes them as parameters: call panel preapproach `{freight_elevator_call_panel_preapproach_floor_1}` (not the call panel itself: a second walk to the place the robot stands on times out), call panel `{freight_elevator_call_panel_floor_1}`, call button `down button` (floor 1 has one grey call button below a black round light; the grounding calls the lower round button down and the light up), inside panel `{inside_freight_elevator_button_panel_floor_1}`, floor button `floor 2`, door-out place `{freight_elevator_door_out_floor_2}`, target `{target_floor_2}`.
+   The tree library (`skill_registry/trees/`) holds `freight_elevator_go_to_place`, built from the subtrees in `skill_registry/trees/subtrees/` (`elevator.xml`, `press.xml`, `walk.xml`). Its parameters are `goal` (the place to end at, on the other floor) and `goal_floor`; leave `goal_floor` out and the planner sets it from the floor of `goal` in the places file's floors table. The rest (call panel, call button, inside panel, floor button, door-out place) follows from `goal_floor`. `--use-tree ID` reuses a library tree with its default parameters, `--param NAME=VALUE` (repeatable) sets others, and `--tree FILE` answers with a tree of your own.
 5. **During the ride** the agent session answers each call as it comes. A call waits up to 600 s; then the agent skill fails and the tree goes on as after any failure of that step (in the end, a person is asked to press).
 6. **Results** are under `~/orch_runs/<session>/runs/<n>-<tree>/`: `tree.xml` (what ran), `records.jsonl`, `outcome.json`, the bag. The session folder holds `events.jsonl`, the whole trace.
 
