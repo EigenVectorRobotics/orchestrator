@@ -19,6 +19,12 @@ orchestrator_recorder:
     # root: ~/orch_runs (default), one folder per bring-up; the operator clears old runs by hand
     min_free_gb: 20.0                   # below this, no tree runs (checked at start and every 5 s)
     bag: true                           # a bag of bag_topics for each tree run
+    # run_recorder's BAG_TOPICS, plus the button pose track_3d fits (raw) and the one the press plans to (filtered)
+    bag_topics: [
+      /orchestrator/trace, /orchestrator/agent/request, /orchestrator/agent/decision, /orchestrator/agent/reply,
+      /speak, /route_goal, /route_planner/status, /nav_state, /state_estimation, /odom_base_link,
+      /track_3d/is_tracking, /track_3d/selected_target_3d, /slam_elevatorlio/status,
+      /track_3d/selected_normal_pose, /track_3d/selected_normal_pose_filtered/arm_upright]
 
 orchestrator_planner:
   ros__parameters:

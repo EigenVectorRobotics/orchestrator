@@ -1,7 +1,7 @@
 <root BTCPP_format="4">
-  <!-- Before every task: start the Run Viewer and the stacks that do not run, stand G1 in ready locomotion when it does not stand (in the
-       gantry), and have the operator remove the gantry. The planner runs it before it plans; kept out of trees/ so the
-       planner never picks it as a task tree. -->
+  <!-- Before every task: start the Run Viewer and the stacks that do not run, and stop unless G1 already stands in
+       ready locomotion. The planner runs it before it plans; kept out of trees/ so the planner never picks it as a
+       task tree. -->
   <BehaviorTree ID="preflight">
     <Sequence>
       <SubTree ID="viewer"/>
@@ -181,46 +181,14 @@
     </Fallback>
   </BehaviorTree>
 
-  <!-- robot_ready reads the loco FSM id (801 after ready_locomotion). Only when it does not hold does the tree call
-       ready_walk: ready_locomotion damps a standing robot before it stands it up again -->
+  <!-- robot_ready reads the loco FSM id (801 after ready_locomotion). Any other value, -1 (a failed read) included,
+       stops the task: the operator stands the robot up, since ready_locomotion damps a standing robot first -->
   <BehaviorTree ID="robot_up">
     <Fallback>
       <robot_ready/>
       <Sequence>
-        <say text="I am not in ready locomotion. Standing up in the gantry."/>
-        <Fallback>
-          <in_high_level/>
-          <set_mode mode="high_level"/>
-        </Fallback>
-        <Fallback>
-          <Sequence>
-            <ready_walk/>
-            <RetryUntilSuccessful num_attempts="10">
-              <Delay delay_msec="1000">
-                <robot_ready/>
-              </Delay>
-            </RetryUntilSuccessful>
-          </Sequence>
-          <Sequence>
-            <say text="Task aborted: I could not reach ready locomotion."/>
-            <AlwaysFailure/>
-          </Sequence>
-        </Fallback>
-        <say text="I am standing. Please remove the gantry and tell my operator."/>
-        <SetBlackboard value="none" output_key="gantry_answer"/>
-        <Fallback>
-          <operator_confirm question="G1 stands in ready locomotion. Is the gantry removed and clear of the robot?" decision="{gantry_answer}"/>
-          <Sequence>
-            <Fallback>
-              <Sequence>
-                <decision_is value="{gantry_answer}" equals="not_confirmed"/>
-                <say text="Task aborted: the operator said the gantry is not removed."/>
-              </Sequence>
-              <say text="Task aborted: no reply about the gantry within two minutes."/>
-            </Fallback>
-            <AlwaysFailure/>
-          </Sequence>
-        </Fallback>
+        <say text="Task aborted: I am not in ready locomotion. Please stand me up and start again."/>
+        <AlwaysFailure/>
       </Sequence>
     </Fallback>
   </BehaviorTree>
