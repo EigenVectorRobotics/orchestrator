@@ -320,6 +320,23 @@ def test_offset_retry_needs_the_whole_offset_within_50_mm(tmp_path):
     assert outputs['left_arm'] is False
 
 
+def test_rule_offset_starts_from_the_offset_the_press_used():
+    """One set_press_offset, floor 2 judged pressed, then floor 1 missed with no new set_press_offset: the offset in
+    force is still the inside one, though no set_press_offset follows the last pressed"""
+    from orchestrator.agent import rule_offset
+
+    history  = [{'skill': 'set_press_offset', 'inputs': {'x': 0.005, 'y': 0.0075, 'z': 0.0034}},
+                {'skill': 'press_judge', 'decision': 'pressed'}]
+    failure  = {'skill': 'press_judge', 'checked_call': {'skill': 'press_button'}}
+    residual = [-0.002, 0.008, 0.0]
+
+    rule = rule_offset(failure, history, residual, [0.005, 0.0075, 0.0034])
+    assert (rule['ox'], rule['oy'], rule['oz']) == pytest.approx((0.007, -0.0005, 0.0034))
+
+    guessed = rule_offset(failure, history, residual)                  # from the history alone: taken as 0
+    assert (guessed['ox'], guessed['oy'], guessed['oz']) == pytest.approx((0.002, -0.008, 0.0))
+
+
 OFFSET_TREE = '''<root BTCPP_format="4"><BehaviorTree ID="t"><Fallback>
   <Sequence>
     <press_button target_description="floor 1"/>

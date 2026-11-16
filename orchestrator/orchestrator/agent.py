@@ -262,9 +262,12 @@ def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
     return goal
 
 
-def rule_offset(last_failure: dict | None, history: list[dict], residual: list | None) -> dict | None:
+def rule_offset(last_failure: dict | None, history: list[dict], residual: list | None,
+                press_offset: list | None = None) -> dict | None:
     """offset_retry without the agent: the first diagnosis after a press that reached its goal and missed the button
-    by RULE_MISS_M in its plane. The new offset is the offset in force minus the residual, as the agent would set it"""
+    by RULE_MISS_M in its plane. The new offset is the offset in force minus the residual, as the agent would set it.
+    press_offset: the offset the press used, from its capture; without it, the last set_press_offset since the last
+    press judged pressed (0 when there is none), which misses an offset set before that press"""
     failure = last_failure or {}
     pressed = [index for index, record in enumerate(history) if record.get('skill') == 'press_judge' and record.get('decision') == 'pressed']
     since   = history[pressed[-1] + 1:] if pressed else history
@@ -281,7 +284,8 @@ def rule_offset(last_failure: dict | None, history: list[dict], residual: list |
         return None
 
     offsets   = [record.get('inputs', {}) for record in since if record.get('skill') == 'set_press_offset']
-    in_force  = [float(offsets[-1].get(axis, 0.0)) if offsets else 0.0 for axis in 'xyz']
+    in_force  = ([float(value) for value in press_offset] if press_offset is not None and len(press_offset) == 3 else
+                 [float(offsets[-1].get(axis, 0.0)) if offsets else 0.0 for axis in 'xyz'])
     corrected = [round(force - miss_axis, 4) for force, miss_axis in zip(in_force, residual)]
 
     if max(abs(value) for value in corrected) > MAX_PRESS_OFFSET_M:
@@ -630,7 +634,8 @@ class Agent:
             return None
 
         press = self.press_evidence() or {}
-        rule  = rule_offset(failure, evidence.get('history') or [], (press.get('capture') or {}).get('residual_m'))
+        rule  = rule_offset(failure, evidence.get('history') or [], (press.get('capture') or {}).get('residual_m'),
+                            press.get('press_offset_m'))
 
         return rule
 

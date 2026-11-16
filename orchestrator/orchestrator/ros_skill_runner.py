@@ -803,6 +803,7 @@ class RosSkillRunner:
         return {
             'left_arm': capture.left_arm,
             'goal':     None if tracker.goal is None else [round(float(value), 4) for value in tracker.goal],
+            'press_offset_m': [round(float(value), 4) for value in capture.press_offset],   # the offset this press used
             'capture':  capture.events(),
             'frames':   capture.save(self.capture_dir),
         }
