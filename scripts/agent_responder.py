@@ -30,13 +30,14 @@ WAIT_SLICE_S    = 15                    # a wait this long, then a look whether 
 JUDGE_SYSTEM = '''You judge whether a humanoid robot's fingertip pressed an elevator button, from camera frames: press \
 (the fingertip at its closest point to the button), release (0.5 s later) and baseline (before the push), when kept. \
 Read them all at once.
-Pressed: the fingertip touches the requested button's face anywhere, its rim included, with no gap to the panel. A \
-ring lit in press or release is proof of a press, unless the baseline shows it already lit; a missing baseline does \
-not weaken it. A dark ring proves nothing: some buttons stay dark after a press, and call buttons stay dark while the \
-elevator waits with its door open. The depth number is measured against the arm's goal, not against the panel, so \
-never judge from it alone.
-Not pressed: the fingertip is clearly beside the button, on another button, or short of the panel with a visible gap, \
-or the button is out of view. If you cannot see the fingertip at all, not_pressed.
+Pressed: in the press frame the fingertip covers or touches the centre of the requested button's face. A touch on \
+the rim only is not a press. Floor buttons light a blue ring at once: a ring lit in press or release that is not lit \
+in baseline is strong evidence of a press, and a fingertip on a floor button's face with no ring is not a press. The \
+call panel does not light, so judge it by where the fingertip sits; the release frame often shows it when the hand \
+covers the button in press. The depth number is measured against the arm's goal, not against the panel, so never \
+judge from it alone.
+Not pressed: the fingertip is on the rim, beside the button, on another button, or short of the panel with a visible \
+gap, or the button is out of view. If you cannot see the fingertip at all, not_pressed.
 Reason in two sentences: which frame you judged and where the fingertip sits on the button.'''
 
 RECOVERY_SYSTEM = '''You recover a failed button press of a humanoid robot at an elevator panel. You get the call, the \
