@@ -55,6 +55,23 @@ def test_a_tree_run_gets_its_folder_tree_task_records_and_outcome(tmp_path):
     assert recorder.run is None
 
 
+def test_the_task_goes_to_the_tree_after_preflight_too(tmp_path):
+    recorder = make_recorder(tmp_path)
+
+    recorder.on_task('Take the freight elevator to target_floor_1.')
+    recorder.on_event(executor('started', run_id='r1', tree_id='preflight', tree='<root/>'))
+    recorder.on_event(executor('finished', status='success', aborted=''))
+    recorder.on_event(executor('started', run_id='r2', tree_id='freight_elevator_go_to_place', tree='<root/>'))
+
+    runs = recorder.path / 'runs'
+    for folder in ('001-preflight', '002-freight_elevator_go_to_place'):
+        assert json.loads((runs / folder / 'task.json').read_text())['task']['task'] == 'Take the freight elevator to target_floor_1.'
+
+    recorder.on_event(executor('finished', status='success', aborted=''))
+    recorder.on_event(executor('started', run_id='r3', tree_id='by_hand', tree='<root/>'))
+    assert json.loads((runs / '003-by_hand' / 'task.json').read_text())['task'] is None
+
+
 def test_a_new_tree_ends_the_open_run_as_halted(tmp_path):
     recorder = make_recorder(tmp_path)
 

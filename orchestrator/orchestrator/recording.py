@@ -24,6 +24,7 @@ from .press_capture import DEFAULT_CAPTURE_DIR
 
 
 RUN_END_KINDS    = ('finished', 'halted', 'error')
+PREFLIGHT_TREE   = 'preflight'                  # the BehaviorTree ID of skill_registry/preflight/preflight.xml
 MAX_HASHED_BYTES = 5_000_000                   # an untracked file bigger than this is hashed by name and size
 
 
@@ -247,7 +248,9 @@ class Recorder:
             'started': event.get('time'),
             'task':    self.task,                 # the planner's last task; none for send_tree
         })
-        self.task = None
+
+        if tree != PREFLIGHT_TREE:                # the planner sends preflight first: the task is for the tree after it
+            self.task = None
         self.bag.start(self.run / 'bag')
 
     def _end_run(self, event: dict):
