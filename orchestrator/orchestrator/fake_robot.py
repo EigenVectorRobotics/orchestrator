@@ -65,8 +65,7 @@ class FakeRobot(Node):
         self.create_subscription(Empty, '/track_3d/reset', self._on_reset, COMMAND_QOS)
         self.create_subscription(String, '/speak', self._on_tts, COMMAND_QOS)
 
-        for name in ['ready_locomotion', 'release_arms']:
-            self.create_service(Trigger, f'/unitree_interface/{name}', self._on_trigger)
+        self.create_service(Trigger, '/unitree_interface/release_arms', self._on_trigger)
 
         self._make_nav_action()
         self._make_arm_action()

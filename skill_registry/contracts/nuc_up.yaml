@@ -7,7 +7,7 @@ interface:
   alive:
     topics: [/feedback, /slam_elevatorlio/status, /unitree_interface/current_mode, /unitree_interface/fsm_id,
              /terrain_map, /path, /navigation_cmd_vel, /route_planner/status, /door_state]
-    services: [/unitree_interface/change_mode, /unitree_interface/ready_locomotion]
+    services: [/unitree_interface/change_mode]
 timeout_s: 10
 maturity: untested
 source: orchestrator/orchestrator/preflight_checks.py (judge_alive)

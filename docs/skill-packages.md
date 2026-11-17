@@ -13,7 +13,7 @@ Status: draft for review, 2026-11-02. Nothing in this note is built yet.
 | Package | Device | Holds (examples) |
 |---|---|---|
 | `nuc_skills` | NUC | manipulation (`press_button`, `move_arm_to`), navigation |
-| `orin_skills` | Orin | locomotion (`ready_walk`, `release_arms`, `set_profile`) |
+| `orin_skills` | Orin | arm and mode control (`release_arms`, `set_profile`) |
 | `thor_skills` | Thor | VLM questions (`door_open`, `ask_vlm`), `ground` |
 
 - Each skill is one contract YAML (the schema of `skill_registry/contract.py`) and, when needed, adapter code.

@@ -13,5 +13,5 @@ timeout_s: 3
 maturity: untested
 source: unitree_interface (fsm_id topic, branch jean/fsm-id-topic)
 notes: >-
-  HighLevel in current_mode does not mean standing: the robot can be damped or hanging in HighLevel. Never call
-  ready_walk when this holds - ready_locomotion damps a standing robot before it stands it up again.
+  HighLevel in current_mode does not mean standing: the robot can be damped or hanging in HighLevel. The operator
+  stands the robot up by hand; no skill calls ready_locomotion, which damps a standing robot before it stands it up again.
