@@ -34,7 +34,7 @@ async def _until(condition, timeout_s: float = 2.0):
 
 async def _bridge(tmp_path: Path, models: list) -> tuple:
     """A bridge without a link: what it sends lands in sent, and stdin is a pipe the test writes to"""
-    bridge   = agent_bridge.Bridge(argparse.Namespace(local=tmp_path, model='m', effort='low'))
+    bridge   = agent_bridge.Bridge(argparse.Namespace(local=tmp_path, model='m', effort='low', keep=False))
     sent     = []
     read, write = os.pipe()
 
@@ -71,7 +71,9 @@ def test_a_confirm_asks_the_operator_and_never_the_model(tmp_path, capsys, typed
     models, sent = asyncio.run(main())
 
     assert models == []
-    assert sent[0] == {'type': 'started', 'id': 'c1', 'model': 'operator', 'effort': None, 'prompt': 'Is the gantry removed?'}
+    assert {key: value for key, value in sent[0].items() if key != 'received'} == \
+        {'type': 'started', 'id': 'c1', 'model': 'operator', 'effort': None, 'prompt': 'Is the gantry removed?'}
+    assert isinstance(sent[0]['received'], float)                       # the bridge's receive time, for the NUC record
     assert [(message['decision'], message['reason']) for message in sent if message['type'] == 'decision'] == [(decision, reason)]
 
 

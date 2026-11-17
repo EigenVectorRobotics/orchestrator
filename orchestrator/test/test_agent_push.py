@@ -13,6 +13,7 @@ from orchestrator import agent_push
 from orchestrator.agent import Agent
 from orchestrator.agent_push import PushAgentBackend, PushLink, read_message, send_message
 from orchestrator.behavior_tree import BehaviorTree, Context, Status
+from orchestrator.recording import Recorder, RecorderConfig
 from orchestrator.skill_leaf import make_leaf_factory
 
 from test_agent import CONTRACTS, JUDGE_TREE, PANEL, FakeRunner
@@ -106,14 +107,6 @@ def _run(tree: BehaviorTree, max_ticks: int = 2000) -> Status:
     return Status.RUNNING
 
 
-def _session(tmp_path: Path) -> Path:
-    session = tmp_path / 'orch_runs' / '20261114T000000Z-abcdef'
-    session.mkdir(parents=True)
-    (session / 'events.jsonl').write_text('')
-
-    return session
-
-
 def test_a_pushed_call_carries_the_frames_and_a_refused_decision_goes_back(tmp_path):
     def answer(header, blobs, conn):
         send_message(conn, {'type': 'started', 'id': header['id'], 'model': 'm', 'effort': 'low', 'prompt': 'p'})
@@ -121,10 +114,9 @@ def test_a_pushed_call_carries_the_frames_and_a_refused_decision_goes_back(tmp_p
         send_message(conn, {'type': 'decision', 'id': header['id'], 'decision': 'pressed', 'reason': 'ring lit',
                             'cost_usd': 0.01, 'tokens_in': 900, 'tokens_out': 40})
 
-    session  = _session(tmp_path)
     bridge   = FakeBridge(answer)
-    requests = []
-    backend  = PushAgentBackend(PushLink('127.0.0.1', bridge.port), requests.append, records=tmp_path / 'orch_runs')
+    requests, replies, events = [], [], []
+    backend  = PushAgentBackend(PushLink('127.0.0.1', bridge.port), requests.append, replies.append, events.append)
     tree     = _tree(JUDGE_TREE, FakeRunner([(True, 'Controller reached target', [])]), _agent(backend, _press(tmp_path)))
 
     try:
@@ -143,15 +135,30 @@ def test_a_pushed_call_carries_the_frames_and_a_refused_decision_goes_back(tmp_p
     assert 'must be one of' in replies[0]['message']
     assert [request['state'] for request in requests] == ['open', 'closed']
 
-    record = json.loads((session / 'agent_calls' / f'{header["id"]}.json').read_text())
-    assert record['state'] == 'answered' and record['decision']['decision'] == 'pressed'
-    assert (record['model'], record['prompt'], record['tokens_in']) == ('m', 'p', 900)
+    assert [event['kind'] for event in events] == ['started', 'decision', 'decision']
+    assert (events[0]['model'], events[0]['prompt']) == ('m', 'p')
+    assert [event['accepted'] for event in events[1:]] == [False, True] and events[2]['tokens_in'] == 900
+    assert requests[-1]['outcome'] == 'answered' and [image['name'] for image in requests[0]['images']] == ['baseline', 'press', 'press_crop']
+
+    # the recorder makes one record of the call from these messages
+    recorder = Recorder(RecorderConfig(root=str(tmp_path / 'orch_runs'), min_free_gb=0.0), {})
+    recorder.on_event({'source': 'executor', 'kind': 'started', 'tree_id': 't', 'tree': '<root/>'})
+    recorder.on_agent_request(requests[0])
+    for event in events:
+        recorder.on_agent_message('event', event)
+    for reply in replies:
+        recorder.on_agent_message('reply', reply)
+    recorder.on_agent_request(requests[-1])
+
+    summary = json.loads((recorder.path / 'runs' / '001-t' / 'agent' / header['id'] / 'summary.json').read_text())
+    assert summary['state'] == 'answered' and summary['decision']['decision'] == 'pressed' and summary['refused'] == 1
+    assert (summary['model'], summary['prompt'], summary['tokens_in']) == ('m', 'p', 900)
 
 
 def test_a_halted_call_tells_the_bridge_to_drop_it(tmp_path):
-    session = _session(tmp_path)
     bridge  = FakeBridge(lambda header, blobs, conn: None)
-    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), records=tmp_path / 'orch_runs')
+    requests, events = [], []
+    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), requests.append, publish_event=events.append)
     tree    = _tree(JUDGE_TREE, FakeRunner([(True, 'Controller reached target', [])]), _agent(backend, _press(tmp_path)))
 
     try:
@@ -171,7 +178,8 @@ def test_a_halted_call_tells_the_bridge_to_drop_it(tmp_path):
         backend.link.close()
 
     assert cancel['id'] == bridge.received[0][0]['id']
-    assert json.loads((session / 'agent_calls' / f'{cancel["id"]}.json').read_text())['state'] == 'failed'
+    assert [event['kind'] for event in events] == ['cancelled']
+    assert requests[-1]['state'] == 'closed' and requests[-1]['outcome'] == 'cancelled'
 
 
 def test_the_open_call_goes_again_when_the_bridge_comes_back(tmp_path, monkeypatch):
@@ -184,7 +192,7 @@ def test_the_open_call_goes_again_when_the_bridge_comes_back(tmp_path, monkeypat
 
     bridge  = FakeBridge(first)
     again   = None
-    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), records=tmp_path / 'orch_runs')
+    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port))
     tree    = _tree(JUDGE_TREE, FakeRunner([(True, 'Controller reached target', [])]), _agent(backend, _press(tmp_path)))
 
     try:
@@ -216,7 +224,7 @@ def test_the_open_call_goes_again_when_the_bridge_comes_back(tmp_path, monkeypat
 
 def test_a_bridge_failure_fails_the_call(tmp_path):
     bridge  = FakeBridge(lambda header, blobs, conn: send_message(conn, {'type': 'failed', 'id': header['id'], 'error': 'no structured output'}))
-    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), records=tmp_path / 'orch_runs')
+    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port))
     tree    = _tree(JUDGE_TREE, FakeRunner([(True, 'Controller reached target', [])]), _agent(backend, _press(tmp_path)))
 
     try:
@@ -244,7 +252,7 @@ def _body(leaf: str) -> str:
 def test_every_agent_skill_goes_over_the_link(tmp_path, phase):
     bridge  = FakeBridge(lambda header, blobs, conn: send_message(conn, {'type': 'decision', 'id': header['id'], 'reason': 'r',
                                                                          'decision': ANSWERS[header['phase']]}))
-    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), records=tmp_path / 'orch_runs')
+    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port))
     tree    = _tree(_body(SKILLS[phase][1]), FakeRunner([(True, 'Controller reached target', [])]), _agent(backend, _press(tmp_path)))
     tree.context.last_failure = {'skill': 'button_in_view', 'inputs': {}, 'message': 'not in view'}
 
@@ -262,7 +270,7 @@ def test_every_agent_skill_goes_over_the_link(tmp_path, phase):
 def test_operator_confirm_carries_its_question_and_no_frames(tmp_path):
     bridge  = FakeBridge(lambda header, blobs, conn: send_message(conn, {'type': 'decision', 'id': header['id'], 'reason': 'Operator: y',
                                                                          'decision': 'not_confirmed'}))
-    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), records=tmp_path / 'orch_runs')
+    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port))
     tree    = _tree(_body(SKILLS['confirm'][1]), FakeRunner([]), _agent(backend, _press(tmp_path)))
 
     try:
@@ -281,7 +289,7 @@ def test_operator_confirm_carries_its_question_and_no_frames(tmp_path):
 def test_a_confirm_past_its_timeout_tells_the_bridge_to_drop_it(tmp_path):
     now     = [0.0]
     bridge  = FakeBridge(lambda header, blobs, conn: None)
-    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port), records=tmp_path / 'orch_runs')
+    backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port))
     tree    = BehaviorTree(_body(SKILLS['confirm'][1]), make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner([]),
                            _agent(backend, None)), Context(clock=lambda: now[0]))
 

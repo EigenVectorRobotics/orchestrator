@@ -80,4 +80,4 @@ The run ends when the viewer shows `freight_elevator_go_to_place: success`. For 
 
 4. Stop the bridge with Ctrl-C.
 
-Results are in `~/orch_runs/<session>/runs/` on the NUC, the raw bag in `~/bags/`, and each agent call in `~/agent_calls/` on the laptop.
+Results are in `~/orch_runs/<session>/runs/` on the NUC, the raw bag in `~/bags/`, and each agent call in its run's `agent/<call id>/`.

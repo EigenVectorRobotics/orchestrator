@@ -12,7 +12,7 @@ Built: `orchestrator/recording.py`, `orchestrator/run_recorder.py`. Not built ye
 
 - `/orchestrator/trace`: JSON events (`started` with the tree XML, `node`, `record`, `agent_start`, `agent_wait`, `agent_rule`, `agent_refused` (a decision the executor refused), `agent_camera`, `agent_reference`, `agent_say`, `agent_decision`, `agent_link`, `finished`, `halted`, `rejected`, `validation`, `error`, and the planner's `sent` and `preflight`).
 - `record` events carry the full record of each finished call, with the action feedback over time.
-- Agent calls go out on `/orchestrator/agent/request`, and the executor's replies to the bridge's decisions on `/orchestrator/agent/reply`.
+- Agent calls go out on `/orchestrator/agent/request` (opened, then closed with its outcome), the executor's replies to the bridge's decisions on `/orchestrator/agent/reply`, and what the bridge reports (started with model and prompt, each decision with its usage, failed) and cancels on `/orchestrator/agent/event`. The recorder is the only writer of `~/orch_runs`.
 - Press frames go to `capture_dir` (`~/.ros/orchestrator_captures`).
 - Nothing puts these together, and nothing records which code, contracts and parameters ran.
 
@@ -23,16 +23,16 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 ```
 ~/orch_runs/<utc>-<id>/                 one folder per recorder session (one bring-up); small when no task runs
   provenance.json                       written at start
-  agent_calls/<call_id>.json            each agent call's state, model and decision, written by the executor for the Run Viewer
   events.jsonl                          every trace event, append only, one line each
   runs/<n>-<tree_id>/                   one folder per tree run (started to finished/halted/error)
     tree.xml                            the tree that ran
     task.json                           the task text, blind or not, where the tree came from (planner, send_tree)
     records.jsonl                       the full record of each call (feedback included)
-    agent/<call_id>.json                each agent call as the executor opened and closed it: the task, failure, history, press, stance
-    agent/<call_id>.messages.jsonl      the executor's replies to the bridge's decisions, each with the decision
+    agent/<call_id>/request.json        what the model got: task, allowed decisions, failure, history, press, stance, its images by file; replaced when the call closes, with its outcome
+    agent/<call_id>/messages.jsonl      everything in order: opened, started (model, effort, prompt), each decision with the reply and usage, failed, cancelled, closed
+    agent/<call_id>/summary.json        one record: model, prompt, final decision, state, time, tokens and cost in all
     planner/<attempt>.json              each planner attempt: the prompt, the reply, the validator errors
-    captures/                           the press frames this run made (copied from capture_dir)
+    captures/                           the press frames this run made, and the camera images its recovery calls sent (moved from capture_dir: the originals are removed once copied)
     bag/                                ros2 bag (MCAP) of the chosen topics, for this task only
     outcome.json                        status, abort reason, duration; written last, atomically
   finalization.json                     open | closed | failed, and why
@@ -43,6 +43,7 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 - `git`: for the orchestrator and each stack repo on the NUC (paths from a parameter): revision, branch, and a hash of the tracked files with local edits (as HomeBody's `source_digest`), so a run with uncommitted changes is not mistaken for a commit.
 - `contracts`: `name`, `version`, `hash` of each contract that the executor loaded, and the hash of each agent skill document.
 - `places`: the path and hash of the places file.
+- `press_references`: the path, line count and hash of the press references the agent calls read (`~/orch_state/press_references.jsonl`).
 - `parameters`: the executor, planner and agent parameters (`orchestrator.yaml` and the overrides).
 - `models`: planner and agent backend, model, base URL. Never the API key.
 - `devices`: host name, ROS distro, `ROS_DOMAIN_ID`, and the clock offset between the NUC and the Orin and Thor (press frames use the Orin's stamps).

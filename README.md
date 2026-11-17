@@ -93,7 +93,7 @@ The rest of this section is how the frames are chosen.
 
 ## Knowledge store
 
-What the robot learns is kept as claims in `~/orch_knowledge` (the `knowledge` CLI's `--dir`): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). Claims come from the operator and the seed file; no model reads or writes them now, since the bridge builds its own prompts. Only the operator makes a fact, at a terminal:
+What the robot learns is kept as claims in `~/orch_state/knowledge` (the `knowledge` CLI's `--dir`; the old `~/orch_knowledge` is read while only it exists): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). Claims come from the operator and the seed file; no model reads or writes them now, since the bridge builds its own prompts. Only the operator makes a fact, at a terminal:
 
 ```bash
 ros2 run orchestrator knowledge list --ready                  # beliefs that can become facts

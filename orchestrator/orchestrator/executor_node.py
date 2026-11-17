@@ -21,7 +21,7 @@ from .skill_leaf import SkillLeaf, make_leaf_factory
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
 from .ros_skill_runner import RosSkillRunner
 from .press_capture import DEFAULT_CAPTURE_DIR
-from .topics import (AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, CANCEL_TOPIC, COMMAND_QOS,
+from .topics import (AGENT_EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, CANCEL_TOPIC, COMMAND_QOS,
                      LATCHED_QOS as STATUS_QOS, RECORDER_STATUS_TOPIC as RECORDER_TOPIC, SPEAK_TOPIC, STATUS_TOPIC,
                      TREE_BLIND_TOPIC, TREE_TOPIC)
 
@@ -85,17 +85,20 @@ class ExecutorNode(Node):
                      on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
 
     def _make_push_backend(self) -> PushAgentBackend:
-        """Every agent call goes to the agent bridge on the laptop over one TCP link; the request and reply topics carry them for the recorder and the Run Viewer"""
+        """Every agent call goes to the agent bridge on the laptop over one TCP link; the request, reply and event topics carry it for the recorder"""
         host              = self.declare_parameter('agent_push_host', '100.107.208.25').value     # the laptop on Tailscale
         port              = self.declare_parameter('agent_push_port', 8771).value
         request_publisher = self.create_publisher(String, REQUEST_TOPIC, STATUS_QOS)
         reply_publisher   = self.create_publisher(String, REPLY_TOPIC, COMMAND_QOS)
+        event_publisher   = self.create_publisher(String, AGENT_EVENT_TOPIC, COMMAND_QOS)
         link              = PushLink(host, port, on_state=lambda text: self.tracer.emit('agent_link', text))
 
         return PushAgentBackend(
             link,
             lambda request: request_publisher.publish(String(data=json.dumps(request, default=str))),
-            lambda reply: reply_publisher.publish(String(data=json.dumps(reply)))
+            lambda reply: reply_publisher.publish(String(data=json.dumps(reply))),
+            lambda event: event_publisher.publish(String(data=json.dumps(event, default=str))),
+            self.runner.capture_dir
         )
 
     def _on_agent_event(self, kind: str, text: str, level: str = 'info', **data):

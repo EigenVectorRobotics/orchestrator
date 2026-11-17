@@ -8,6 +8,7 @@ stance, and reach_move the reposition its IK miss asks for, in the same base-goa
 """
 
 import json
+import hashlib
 import math
 import time
 
@@ -21,7 +22,9 @@ REACH_TOLERANCE_M    = 0.005    # ik_server's goal_position_tolerance: a smaller
 REACH_MAX_Z_M        = 0.03     # a larger vertical miss is not fixed by walking
 REACH_MARGIN_M       = 0.02     # a reach move steps this much further, so the target lands inside the reach, not on its edge
 REFERENCE_DISTANCE_M = 1.0      # a reference counts for a target this close to its own, in map
-DEFAULT_REFERENCES   = str(Path.home() / '.ros' / 'orchestrator_press_references.jsonl')
+STATE_DIR            = Path.home() / 'orch_state'     # what the robot keeps across runs; run records are in ~/orch_runs
+DEFAULT_REFERENCES   = str(STATE_DIR / 'press_references.jsonl')
+OLD_REFERENCES       = Path.home() / '.ros' / 'orchestrator_press_references.jsonl'   # before 2026-11-17, still read
 
 
 def relative_pose(robot: dict, base: dict) -> dict:
@@ -99,8 +102,15 @@ def nearest_reference(references: list[dict], button: str, target_map: list | No
     return close[-1] if close else None
 
 
-def load_references(path: str = DEFAULT_REFERENCES) -> list[dict]:
+def _references_file(path: str) -> Path:
+    """The references file; the old one under ~/.ros while the default one does not exist yet"""
     file = Path(path).expanduser()
+
+    return OLD_REFERENCES if path == DEFAULT_REFERENCES and not file.is_file() and OLD_REFERENCES.is_file() else file
+
+
+def load_references(path: str = DEFAULT_REFERENCES) -> list[dict]:
+    file = _references_file(path)
 
     if not file.is_file():
         return []
@@ -112,8 +122,23 @@ def save_reference(reference: dict, path: str = DEFAULT_REFERENCES):
     file = Path(path).expanduser()
     file.parent.mkdir(parents=True, exist_ok=True)
 
+    if not file.exists() and _references_file(path) != file:   # the first save moves the old references over
+        file.write_bytes(OLD_REFERENCES.read_bytes())
+
     with file.open('a') as out:
         out.write(json.dumps({'time': round(time.time(), 1), **reference}) + '\n')
+
+
+def references_state(path: str = DEFAULT_REFERENCES) -> dict:
+    """Which references file is read and what it holds, for a run's provenance"""
+    file = _references_file(path)
+
+    if not file.is_file():
+        return {'path': str(file), 'lines': 0, 'sha256': None}
+
+    data = file.read_bytes()
+
+    return {'path': str(file), 'lines': data.count(b'\n'), 'sha256': hashlib.sha256(data).hexdigest()[:16]}
 
 
 def latest_reach(failure: dict | None, history: list[dict] | None) -> dict | None:

@@ -143,3 +143,20 @@ def test_evidence_carries_the_reach_miss():
     found = stance.evidence(BASE, {'x': BASE['x'], 'y': BASE['y'], 'yaw': BASE['yaw']}, None, None, False, 'floor 1', [], reach)
 
     assert found['reach'] is reach
+
+
+def test_references_move_from_the_old_file_to_orch_state_on_the_first_save(tmp_path, monkeypatch):
+    old, new = tmp_path / '.ros' / 'orchestrator_press_references.jsonl', tmp_path / 'orch_state' / 'press_references.jsonl'
+    old.parent.mkdir()
+    old.write_text('{"button": "floor 1"}\n')
+    monkeypatch.setattr(stance, 'OLD_REFERENCES', old)
+    monkeypatch.setattr(stance, 'DEFAULT_REFERENCES', str(new))
+
+    assert [reference['button'] for reference in stance.load_references(str(new))] == ['floor 1']    # read from the old file
+    assert stance.references_state(str(new))['path'] == str(old)
+
+    stance.save_reference({'button': 'down button'}, str(new))
+
+    assert [reference['button'] for reference in stance.load_references(str(new))] == ['floor 1', 'down button']
+    assert stance.references_state(str(new)) | {'sha256': None} == {'path': str(new), 'lines': 2, 'sha256': None}
+    assert old.read_text() == '{"button": "floor 1"}\n'                                            # the old file is left as it was

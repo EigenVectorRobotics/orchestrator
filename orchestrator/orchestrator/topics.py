@@ -21,6 +21,7 @@ LOG_TOPIC              = '/orchestrator/log'                # the same events as
 RECORDER_STATUS_TOPIC  = '/orchestrator/recorder/status'    # the recorder's {ready, reason, free_gb, session}, latched
 AGENT_REQUEST_TOPIC    = '/orchestrator/agent/request'      # each agent call, open and closed
 AGENT_REPLY_TOPIC      = '/orchestrator/agent/reply'        # the executor's answer to each decision
+AGENT_EVENT_TOPIC      = '/orchestrator/agent/event'        # the bridge's started, decisions and failure, and cancels
 PLANNER_REQUEST_TOPIC  = '/orchestrator/planner/request'    # the external planner backend's open call
 PLANNER_ANSWER_TOPIC   = '/orchestrator/planner/answer'     # a session's answer to it (planner_cli)
 SPEAK_TOPIC            = '/speak'                           # unitree_interface's text to speech

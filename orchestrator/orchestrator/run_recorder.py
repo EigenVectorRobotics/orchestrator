@@ -20,16 +20,18 @@ from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
 from ament_index_python.packages import get_package_share_directory
 
-from .topics import (AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, COMMAND_QOS, LATCHED_QOS,
+from .topics import (AGENT_EVENT_TOPIC as EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, COMMAND_QOS, LATCHED_QOS,
                      RECORDER_STATUS_TOPIC as STATUS_TOPIC, SPEAK_TOPIC, TASK_TOPIC, TRACE_QOS, TRACE_TOPIC)
 from .node_setup import declare_sources
+from .stance import references_state
 from .recording import Recorder, RecorderConfig, directory_digests, file_digest, find_repos, git_state, largest_runs
 
 
 BAG_STOP_S   = 10.0                             # SIGINT, then this long to close the file, then SIGKILL
 
 BAG_TOPICS = [                                  # the bag_topics parameter's default; the one list (config leaves it out)
-    TRACE_TOPIC, REQUEST_TOPIC, REPLY_TOPIC,
+    TRACE_TOPIC, REQUEST_TOPIC, REPLY_TOPIC, EVENT_TOPIC,
+    '/rosout',                                              # every node's log, so the run keeps what orchestrator.log shows
     SPEAK_TOPIC, '/route_goal', '/route_planner/status', '/nav_state', '/state_estimation', '/odom_base_link',
     '/track_3d/is_tracking', '/track_3d/selected_target_3d', '/slam_elevatorlio/status',
     '/track_3d/selected_normal_pose',                       # the button pose track_3d fits (raw)
@@ -93,6 +95,7 @@ class RunRecorderNode(Node):
             'contracts':    directory_digests(Path(contracts), '*.yaml'),
             'agent_skills': directory_digests(Path(agent_docs), '*.md'),
             'places':       {'path': places_file, 'sha256': file_digest(Path(places_file))},
+            'press_references': references_state(),     # the stance references the agent calls read from (orch_state)
         }
 
         self.bag      = RosBag(self, list(bag_topics)) if record_bag else None
@@ -104,6 +107,7 @@ class RunRecorderNode(Node):
             self.create_subscription(String, TASK_TOPIC, lambda message: self.recorder.on_task(message.data), 10),
             self.create_subscription(String, REQUEST_TOPIC, self._json(self.recorder.on_agent_request), LATCHED_QOS),
             self.create_subscription(String, REPLY_TOPIC, self._json(partial(self.recorder.on_agent_message, 'reply')), COMMAND_QOS),
+            self.create_subscription(String, EVENT_TOPIC, self._json(partial(self.recorder.on_agent_message, 'event')), COMMAND_QOS),
         ]
         self._was_ready   = None
         self._space_timer = self.create_timer(5.0, self._check_space)

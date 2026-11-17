@@ -11,7 +11,7 @@
     knowledge prompt                                          the facts and beliefs as prompt text
     knowledge seed FILE [--by person:experience_log]          load claims written by hand (config/knowledge_seed.yaml)
 
---dir (default ~/orch_knowledge) holds the claims and the log. A value is read as JSON when it can be
+--dir (default ~/orch_state/knowledge; ~/orch_knowledge while only that exists) holds the claims and the log. A value is read as JSON when it can be
 (0.012, [0.005, 0.0075, 0.0034], true), else as a word.
 """
 
@@ -19,6 +19,8 @@ import sys
 import json
 import time
 import argparse
+
+from pathlib import Path
 
 import yaml
 
@@ -99,9 +101,16 @@ def _confirm_at_terminal(claim_id: str):
         raise KnowledgeError('not approved')
 
 
+def default_dir() -> str:
+    """~/orch_state/knowledge, next to the other state kept across runs; the old ~/orch_knowledge while only it exists"""
+    new, old = Path.home() / 'orch_state' / 'knowledge', Path.home() / 'orch_knowledge'
+
+    return str(old if old.is_dir() and not new.exists() else new)
+
+
 def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(prog='knowledge', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--dir', default='~/orch_knowledge')
+    parser.add_argument('--dir', default=None, help='default: ~/orch_state/knowledge, or the old ~/orch_knowledge while only that exists')
     commands = parser.add_subparsers(dest='command', required=True)
 
     listing = commands.add_parser('list')
@@ -144,7 +153,7 @@ def main(argv: list[str] | None = None):
         command.add_argument('--reason', required=True)
 
     arguments = parser.parse_args(argv)
-    store     = KnowledgeStore(arguments.dir)
+    store     = KnowledgeStore(arguments.dir or default_dir())
 
     try:
         if arguments.command == 'list':

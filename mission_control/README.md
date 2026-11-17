@@ -23,7 +23,7 @@ python3 -m venv ~/.venvs/agent_bridge
 ~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py
 ```
 
-It listens on the laptop's Tailscale address, 100.107.208.25:8771 (`--listen`, `--port`), with `claude-opus-5-5` at low effort (`--model`, `--effort`). The orchestrator's default backend connects to it; for another laptop, set `agent_push_host` to its address. Each call is kept in `~/agent_calls/<call id>/`, with timings in `~/agent_calls/bridge_timing.jsonl`.
+It listens on the laptop's Tailscale address, 100.107.208.25:8771 (`--listen`, `--port`), with `claude-opus-5-5` at low effort (`--model`, `--effort`). The orchestrator's default backend connects to it; for another laptop, set `agent_push_host` to its address. The record of each call is kept on the NUC by the run recorder (model, prompt, decisions, usage). With `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/`, with timings in `~/agent_calls/bridge_timing.jsonl`, for debugging on the laptop.
 
 ## Answer operator_confirm
 

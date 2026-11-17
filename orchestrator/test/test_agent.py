@@ -132,7 +132,7 @@ class ScriptedLink:
 
 
 def _push(tmp_path: Path, answers: list[dict] = (), requests: list | None = None) -> PushAgentBackend:
-    return PushAgentBackend(ScriptedLink(answers), (requests if requests is not None else []).append, records=tmp_path / 'orch_runs')
+    return PushAgentBackend(ScriptedLink(answers), (requests if requests is not None else []).append)
 
 
 def _run(tree: BehaviorTree, max_ticks: int = 500) -> Status:

@@ -87,14 +87,23 @@ def test_agent_calls_are_kept_closed_over_open_with_their_messages(tmp_path):
     recorder = make_recorder(tmp_path)
 
     recorder.on_event(executor('started', tree_id='t'))
-    recorder.on_agent_request({'id': 'c1', 'state': 'open'})
-    recorder.on_agent_message('decision', {'id': 'c1', 'decision': 'retry'})
-    recorder.on_agent_request({'id': 'c1', 'state': 'closed'})
+    recorder.on_agent_request({'id': 'c1', 'state': 'open', 'skill': 'manipulation_recovery', 'phase': 'diagnose', 'opened': 10.0})
+    recorder.on_agent_message('event', {'id': 'c1', 'kind': 'started', 'time': 11.0, 'model': 'm', 'effort': 'low', 'prompt': 'p'})
+    recorder.on_agent_message('event', {'id': 'c1', 'kind': 'decision', 'time': 12.0, 'decision': {'decision': 'retry'},
+                                        'accepted': True, 'cost_usd': 0.02, 'tokens_in': 500, 'tokens_out': 30})
+    recorder.on_agent_message('reply', {'id': 'c1', 'accepted': True, 'message': 'retry'})
+    recorder.on_agent_request({'id': 'c1', 'state': 'closed', 'skill': 'manipulation_recovery', 'opened': 10.0, 'closed': 13.0,
+                               'outcome': 'answered', 'error': None})
 
-    folder = recorder.run / 'agent'
+    folder   = recorder.run / 'agent' / 'c1'
+    messages = [json.loads(line) for line in (folder / 'messages.jsonl').read_text().splitlines()]
+    summary  = json.loads((folder / 'summary.json').read_text())
 
-    assert json.loads((folder / 'c1.json').read_text())['state'] == 'closed'
-    assert json.loads((folder / 'c1.messages.jsonl').read_text())['decision'] == 'retry'
+    assert json.loads((folder / 'request.json').read_text())['state'] == 'closed'
+    assert [message['kind'] for message in messages] == ['opened', 'started', 'decision', 'reply', 'closed']
+    assert (summary['model'], summary['prompt'], summary['state'], summary['decision']) == ('m', 'p', 'answered', {'decision': 'retry'})
+    assert (summary['seconds'], summary['tokens_in'], summary['cost_usd']) == (3.0, 500, 0.02)
+    assert not (recorder.path / 'agent_calls').exists()                                # one record per call, in its run
 
 
 def test_agent_messages_after_the_run_ended_stay_with_their_run(tmp_path):
@@ -108,9 +117,9 @@ def test_agent_messages_after_the_run_ended_stay_with_their_run(tmp_path):
     recorder.on_agent_message('reply', {'id': 'c1', 'accepted': True})
     recorder.on_agent_request({'id': 'c2', 'state': 'open'})          # outside any run: not kept
 
-    assert json.loads((run / 'agent' / 'c1.json').read_text())['state'] == 'closed'
-    assert (run / 'agent' / 'c1.messages.jsonl').exists()
-    assert not (run / 'agent' / 'c2.json').exists()
+    assert json.loads((run / 'agent' / 'c1' / 'request.json').read_text())['state'] == 'closed'
+    assert (run / 'agent' / 'c1' / 'messages.jsonl').exists()
+    assert not (run / 'agent' / 'c2').exists()
 
 
 def test_a_run_folder_that_cannot_be_made_fails_the_session_and_does_not_raise(tmp_path):
@@ -135,7 +144,7 @@ def test_press_frames_named_in_a_run_are_copied_in(tmp_path):
     recorder.on_event(executor('finished', status='failure'))
 
     assert (run / 'captures' / frame.name).read_bytes() == b'jpeg'
-    assert frame.exists()
+    assert not frame.exists()                       # the capture directory is a buffer: the run keeps the frame
 
 
 def test_not_ready_below_min_free_gb(tmp_path):

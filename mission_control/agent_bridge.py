@@ -19,8 +19,10 @@ import agent_prompts as prompts
 
 USAGE = '''Answer every agent call of the executor on the laptop.
 
-The executor keeps one TCP link to this bridge and pushes each call with its evidence and frames. The bridge keeps
-each call in <local>/<call id>/ (call.json, the frames, bridge.json). For press_judge and manipulation_recovery it asks
+The executor keeps one TCP link to this bridge and pushes each call with its evidence and frames. The record of each
+call is kept on the NUC: the executor passes what the bridge reports (model, prompt, decisions, usage, failure) to the
+run recorder. With --keep the bridge also keeps each call here in <local>/<call id>/ (call.json, the frames,
+bridge.json) and the timings in <local>/bridge_timing.jsonl, for debugging on the laptop. For press_judge and manipulation_recovery it asks
 the model with the evidence as text and the frames as images, no tools. A refused decision goes back to the model, at
 most twice. One warm model process waits per kind of call, so a call starts without process startup. An
 operator_confirm call never goes to the model: the bridge rings the bell, prints the question here, and sends the y or
@@ -46,9 +48,10 @@ def main():
     parser.add_argument('--port', type=int, default=8771)
     parser.add_argument('--model', default='claude-opus-5-5')
     parser.add_argument('--effort', default='low')
-    parser.add_argument('--local', type=Path, default=Path('~/agent_calls').expanduser())
+    parser.add_argument('--local', type=Path, default=Path('~/agent_calls').expanduser(), help='with --keep: where calls are kept')
+    parser.add_argument('--keep', action='store_true', help='also keep each call on the laptop (the NUC run records have them)')
     arguments = parser.parse_args()
-    arguments.local.mkdir(parents=True, exist_ok=True)
+    arguments.local.mkdir(parents=True, exist_ok=True)          # also the model processes' working directory
 
     asyncio.run(Bridge(arguments).serve())
 
@@ -259,15 +262,20 @@ class Bridge:
 
     async def _answer(self, call: dict, binary: bytes, received: float):
         # (1) Keep the call and its frames
-        folder, images, start = self.arguments.local / call['id'], {}, 0
-        folder.mkdir(parents=True, exist_ok=True)
+        folder, images, start = (self.arguments.local / call['id'] if self.arguments.keep else None), {}, 0
+
+        if folder is not None:
+            folder.mkdir(parents=True, exist_ok=True)
 
         for image in call.get('images', []):
             images[image['name']] = (image['media_type'], binary[start:start + image['size']])
-            (folder / f'{image["name"]}.jpg').write_bytes(images[image['name']][1])
             start += image['size']
 
-        (folder / 'call.json').write_text(json.dumps(call, indent=1, default=str))
+            if folder is not None:
+                (folder / f'{image["name"]}.jpg').write_bytes(images[image['name']][1])
+
+        if folder is not None:
+            (folder / 'call.json').write_text(json.dumps(call, indent=1, default=str))
 
         # (2) A person answers operator_confirm; the model answers every other call
         log = {'call': call['id'], 'skill': call['skill'], 'phase': call.get('phase'), 'received': received, 'answers': []}
@@ -292,7 +300,8 @@ class Bridge:
         model        = self._take(call['skill'], decisions)
         text, blocks = content(call, images)
         log.update({'model': self.arguments.model, 'effort': self.arguments.effort, 'prompt': text})
-        await self.send({'type': 'started', 'id': call['id'], 'model': self.arguments.model, 'effort': self.arguments.effort, 'prompt': text})
+        await self.send({'type': 'started', 'id': call['id'], 'model': self.arguments.model, 'effort': self.arguments.effort, 'prompt': text,
+                         'received': log['received']})
         log['model_start'] = time.time()
         message = blocks
 
@@ -318,7 +327,8 @@ class Bridge:
     async def _ask_operator(self, call: dict, log: dict):
         question = prompts.task_field(call, 'Question') or call['task']
         log.update({'model': 'operator', 'effort': None, 'prompt': question})
-        await self.send({'type': 'started', 'id': call['id'], 'model': 'operator', 'effort': None, 'prompt': question})
+        await self.send({'type': 'started', 'id': call['id'], 'model': 'operator', 'effort': None, 'prompt': question,
+                         'received': log['received']})
         log['model_start'] = time.time()
 
         while True:
@@ -341,15 +351,17 @@ class Bridge:
 
         return reply
 
-    def _log(self, folder: Path, log: dict):
+    def _log(self, folder: Path | None, log: dict):
         first   = log['answers'][0] if log['answers'] else {}
         timings = {'receive_to_model_s': round(log['model_start'] - log['received'], 3) if 'model_start' in log else None,
                    'model_s': first.get('model_s'),
                    'receive_to_reply_s': round(first['sent'] - log['received'], 3) if first else None}
-        (folder / 'bridge.json').write_text(json.dumps({**log, **timings}, indent=1, default=str))
 
-        with (self.arguments.local / 'bridge_timing.jsonl').open('a') as file:
-            file.write(json.dumps({'call': log['call'], 'skill': log['skill'], 'time': log['received'], **timings}) + '\n')
+        if folder is not None:                          # --keep: the call on the laptop too
+            (folder / 'bridge.json').write_text(json.dumps({**log, **timings}, indent=1, default=str))
+
+            with (self.arguments.local / 'bridge_timing.jsonl').open('a') as file:
+                file.write(json.dumps({'call': log['call'], 'skill': log['skill'], 'time': log['received'], **timings}) + '\n')
 
         answer = first.get('decision', {}).get('decision') or log.get('error') or first.get('error') or 'cancelled'
         print(f'{log["call"]} {log["skill"]}/{log["phase"]}: {answer}; receive->model {timings["receive_to_model_s"]} s, '

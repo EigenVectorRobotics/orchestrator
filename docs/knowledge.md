@@ -24,7 +24,7 @@ The graduation rules are in one place, the orchestrator. `map_info` does not jud
 
 ## Reasoning areas
 
-On the NUC, under `~/orch_knowledge/` (the `knowledge` CLI's `--dir`):
+On the NUC, under `~/orch_state/knowledge/` (the `knowledge` CLI's `--dir`; the old `~/orch_knowledge/` is read while only it exists):
 
 | Area | Lifetime | Who writes | Holds |
 |---|---|---|---|
@@ -139,8 +139,8 @@ Examples of place claims from the 2026-11-04 trial (to be checked against the ex
 
 The UI reads files, so it needs no ROS and works on the laptop after an rsync:
 
-- `~/orch_knowledge/claims.yaml`: every claim with its tier, subject, value and sightings (each with its run).
-- `~/orch_knowledge/log.jsonl`: every change, who made it, and the operator's approvals and refusals.
+- `~/orch_state/knowledge/claims.yaml`: every claim with its tier, subject, value and sightings (each with its run).
+- `~/orch_state/knowledge/log.jsonl`: every change, who made it, and the operator's approvals and refusals.
 - `~/orch_runs/<session>/runs/<n>-<tree>/`: the missions (task, tree, records, agent calls, frames, outcome), linked from the claims by `run_id`.
 
 ## Open questions

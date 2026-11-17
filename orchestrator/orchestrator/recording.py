@@ -2,8 +2,18 @@
 
 A session folder holds provenance.json, every trace event in events.jsonl and finalization.json. Each tree run
 (the executor's `started` to `finished`, `halted` or `error`) gets runs/<n>-<tree>/ with its tree, its records,
-its agent calls, the press frames it saved, its bag, and outcome.json. Nothing is deleted here: the operator clears
-old runs by hand (see `largest_runs`).
+its agent calls, the press frames it saved, its bag, and outcome.json. The recorder is the only writer here.
+
+Each agent call gets runs/<n>-<tree>/agent/<id>/:
+  request.json    what the model got: task, allowed decisions, failure, history, press, stance, and its images by file
+                  (written when the call opens, replaced when it closes, with its outcome)
+  messages.jsonl  everything that happened, in order: opened, started (model, effort, prompt), each decision with the
+                  executor's reply and the model's usage, failed, cancelled, closed
+  summary.json    one record of the call: model, prompt, final decision, state, time, tokens and cost in all
+The images it names are copied to the run's captures/ with the press frames.
+
+The press frames are copied from the capture directory when the run ends, and the originals are then removed:
+the capture directory is a buffer, the run folder keeps them. Old runs are cleared by hand (see `largest_runs`).
 
 This module needs no ROS: run_recorder feeds it messages and starts and stops the bag.
 """
@@ -121,6 +131,43 @@ def saved_files(value, prefix: str) -> set[str]:
     return set().union(*(saved_files(item, prefix) for item in value))
 
 
+STATES = {'answered': 'answered', 'failed': 'failed', 'cancelled': 'failed'}
+
+
+def summarize_call(call: str, folder: Path) -> dict:
+    """One record of an agent call, from its request and messages: what the Run Viewer shows"""
+    request  = json.loads((folder / 'request.json').read_text()) if (folder / 'request.json').is_file() else {}
+    messages = [json.loads(line) for line in (folder / 'messages.jsonl').read_text().splitlines() if line.strip()] \
+        if (folder / 'messages.jsonl').is_file() else []
+    started  = next((message for message in messages if message['kind'] == 'started'), {})
+    answers  = [message for message in messages if message['kind'] == 'decision']
+    accepted = [message for message in answers if message.get('accepted')]
+    failure  = next((message for message in messages if message['kind'] in ('failed', 'cancelled')), None)
+    closed   = next((message for message in messages if message['kind'] == 'closed'), None)
+    opened   = request.get('opened') or (messages[0]['time'] if messages else None)
+    state    = STATES.get((closed or {}).get('outcome'), 'failed') if closed else ('failed' if failure else 'thinking')
+    totals   = {key: round(sum(message.get(key) or 0 for message in answers + ([failure] if failure else [])), 4)
+                for key in ('cost_usd', 'tokens_in', 'tokens_out', 'model_s')}
+
+    return {
+        'call':       call,
+        'skill':      request.get('skill'),
+        'phase':      request.get('phase'),
+        'model':      started.get('model'),
+        'effort':     started.get('effort'),
+        'prompt':     started.get('prompt'),
+        'decision':   (accepted or answers or [{}])[-1].get('decision'),
+        'answers':    len(answers),
+        'refused':    len(answers) - len(accepted),
+        'state':      state,
+        'error':      (closed or {}).get('error') or (failure or {}).get('error'),
+        'started':    round(opened, 1) if opened else None,
+        'seconds':    round(((closed or messages[-1])['time'] if messages else opened) - opened, 1) if opened else None,
+        'bridge_received': started.get('received'),
+        **totals,
+    }
+
+
 @dataclass
 class RecorderConfig:
     root:        str   = str(Path.home() / 'orch_runs')
@@ -213,16 +260,34 @@ class Recorder:
         it comes after its run ended"""
         folder = self._agent_folder(request.get('id'))
 
-        if folder is not None:
-            self._safely(write_json, folder / f'{request["id"]}.json', request)
-            self._note_captures(request)
+        if folder is None:
+            return
+
+        closed = request.get('state') == 'closed'
+        self._safely(write_json, folder / 'request.json', request)
+        self._note_captures(request)
+        self._agent_message(folder, request['id'], {
+            'kind': 'closed' if closed else 'opened',
+            'time': request.get('closed' if closed else 'opened', self.clock()),
+            **({'outcome': request.get('outcome'), 'error': request.get('error')} if closed else
+               {'skill': request.get('skill'), 'phase': request.get('phase')}),
+        })
 
     def on_agent_message(self, kind: str, message: dict):
-        """The executor's reply to a decision from the agent bridge"""
+        """The executor's reply to a decision (kind reply), or an event of the call (kind event: started, decision,
+        failed, cancelled)"""
         folder = self._agent_folder(message.get('id'))
 
         if folder is not None:
-            self._append(folder / f'{message["id"]}.messages.jsonl', {'kind': kind, 'time': self.clock(), **message})
+            entry = {**message, 'kind': message.get('kind') if kind == 'event' else kind}
+            self._agent_message(folder, message['id'], {**entry, 'time': message.get('time', self.clock())})
+
+    def _agent_message(self, folder: Path, call: str, entry: dict):
+        self._append(folder / 'messages.jsonl', entry)
+        self._safely(self._write_summary, folder, call)
+
+    def _write_summary(self, folder: Path, call: str):
+        write_json(folder / 'summary.json', summarize_call(call, folder))
 
     def close(self):
         self._safely(self._end_run, {'kind': 'closed', 'text': 'the recorder stopped during the run'})
@@ -284,8 +349,8 @@ class Recorder:
             return
 
         for source in map(Path, sources):
-            if source.is_file():
-                self._safely(shutil.copy2, source, folder / source.name)
+            if source.is_file() and self._safely(shutil.copy2, source, folder / source.name):
+                self._safely(source.unlink)       # the run keeps it; the capture directory is only a buffer
 
     def _agent_folder(self, call: str | None) -> Path | None:
         """The agent folder of the run the call opened in; None for a call outside any run"""
@@ -296,11 +361,11 @@ class Recorder:
             if self.run is None:
                 return None
 
-            self.calls[call] = self.run / 'agent'
+            self.calls[call] = self.run / 'agent' / call
 
         folder = self.calls[call]
 
-        return folder if self._safely(folder.mkdir, exist_ok=True) else None
+        return folder if self._safely(folder.mkdir, parents=True, exist_ok=True) else None
 
     # ========== Writes ==========
 

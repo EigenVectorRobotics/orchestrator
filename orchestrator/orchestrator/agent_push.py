@@ -7,8 +7,11 @@ then the images back to back, as its "images" list gives them ({name, media_type
 reply (accepted or why not) and cancel; the bridge sends started (model and prompt), decision and failed. Both send
 ping every PING_S; a link silent for DEAD_S is closed and opened again, and the open call is sent again on it.
 
-Each call is also published as a request (latched JSON on topics.AGENT_REQUEST_TOPIC: opened, then closed) and each reply on
-topics.AGENT_REPLY_TOPIC, for the run recorder and the Run Viewer.
+Each call is also published as a request (latched JSON on topics.AGENT_REQUEST_TOPIC: opened, then closed), each reply on
+topics.AGENT_REPLY_TOPIC, and what the bridge reports (started with model and prompt, each decision with its usage,
+failed) and a cancel on topics.AGENT_EVENT_TOPIC. The run recorder writes all of it into the run the call opened in;
+nothing here writes a file except the camera image a recovery call sends, saved next to the press frames so the
+recorder can keep it.
 """
 
 import json
@@ -33,7 +36,8 @@ PING_S      = 5.0
 DEAD_S      = 20.0
 RETRY_S     = 2.0
 MAX_REFUSED = 3                         # decisions refused in one call before it fails
-RECORDS     = Path.home() / 'orch_runs'
+USAGE_FIELDS = ('cost_usd', 'tokens_in', 'tokens_out', 'model_s')
+EXTENSIONS  = {'image/jpeg': 'jpg', 'image/png': 'png'}
 
 
 class AgentStopped(AgentError):
@@ -239,11 +243,13 @@ class PushAgentBackend:
     name = 'push'
 
     def __init__(self, link: PushLink, publish_request: Callable[[dict], None] = lambda request: None,
-                 publish_reply: Callable[[dict], None] = lambda reply: None, records: Path = RECORDS):
+                 publish_reply: Callable[[dict], None] = lambda reply: None,
+                 publish_event: Callable[[dict], None] = lambda event: None, capture_dir: str | Path | None = None):
         self.link             = link
-        self.records          = Path(records)
+        self.capture_dir      = Path(capture_dir).expanduser() if capture_dir else None
         self._publish_request = publish_request
         self._publish_reply   = publish_reply
+        self._publish_event   = publish_event
 
     def run(self, skill: str, phase: str, task: str, session: AgentSession,
             should_stop: Callable[[], bool], on_event: Callable[..., None]):
@@ -252,8 +258,8 @@ class PushAgentBackend:
         images  = call_images(request, session)
         header  = {**request, 'type': 'call', 'phase': phase,
                    'images': [{'name': name, 'media_type': media, 'size': len(data)} for name, media, data in images]}
-        record  = {'call': request['id'], 'skill': skill, 'model': None, 'effort': None, 'started': round(request['opened'], 1),
-                   'state': 'thinking', 'prompt': None, 'decision': None}
+        request = {**request, 'phase': phase, 'images': self._image_files(request, images)}
+        outcome = {'outcome': 'failed', 'error': 'the call ended without a decision'}
         refused = 0
 
         self._publish_request(request)
@@ -266,7 +272,8 @@ class PushAgentBackend:
                 # (2) The next message for this call; a cancel or the leaf's timeout tells the bridge to drop it
                 if should_stop():
                     self.link.send({'type': 'cancel', 'id': request['id']})
-                    self._record({**record, 'state': 'failed', 'error': 'cancelled'})
+                    outcome = {'outcome': 'cancelled', 'error': 'cancelled or timed out'}
+                    self._event(request, 'cancelled')
                     raise AgentStopped('cancelled or timed out')
 
                 try:
@@ -279,11 +286,11 @@ class PushAgentBackend:
 
                 # (3) Act on it: a decision goes through decide, and a refusal goes back to the bridge
                 if message['type'] == 'started':
-                    record.update({key: message.get(key) for key in ('model', 'effort', 'prompt')})
-                    self._record(record)
+                    self._event(request, 'started', **{key: message.get(key) for key in ('model', 'effort', 'prompt', 'received')})
 
                 if message['type'] == 'failed':
-                    self._record({**record, 'state': 'failed', 'error': message.get('error'), **_usage(message)})
+                    outcome = {'outcome': 'failed', 'error': message.get('error')}
+                    self._event(request, 'failed', error=message.get('error'), **usage(message))
                     raise AgentError(f'the agent bridge failed: {message.get("error")}')
 
                 if message['type'] != 'decision':
@@ -294,37 +301,48 @@ class PushAgentBackend:
                 reply    = {'id': request['id'], 'accepted': output.final, 'message': output.text}
                 self.link.send({'type': 'reply', **reply})
                 self._publish_reply({**reply, 'decision': decision})
-                record.update({'decision': decision, **_usage(message)})
+                self._event(request, 'decision', decision=decision, accepted=output.final, reply=output.text, **usage(message))
 
                 if output.final:
-                    self._record({**record, 'state': 'answered'})
+                    outcome = {'outcome': 'answered', 'error': None}
                     return
 
                 refused += 1
 
                 if refused >= MAX_REFUSED:
-                    self._record({**record, 'state': 'failed', 'error': f'{refused} decisions refused: {output.text}'})
+                    outcome = {'outcome': 'failed', 'error': f'{refused} decisions refused: {output.text}'}
                     raise AgentError(f'{refused} decisions refused; the last: {output.text}')
         finally:
             self.link.close_call()
-            self._publish_request({**request, 'state': 'closed', 'closed': time.time()})
+            self._publish_request({**request, 'state': 'closed', 'closed': time.time(), **outcome})
 
-    def _record(self, record: dict):
-        """The call's record next to the newest recorder session, where the Run Viewer's Responder tile reads it"""
-        sessions = sorted(self.records.glob('*/events.jsonl'), key=lambda path: path.stat().st_mtime)
+    def _event(self, request: dict, kind: str, **fields):
+        """What happened to the call, for the recorder: the bridge's started, each decision, failed, a cancel"""
+        self._publish_event({'id': request['id'], 'kind': kind, 'time': time.time(), **fields})
 
-        if not sessions:
-            return
+    def _image_files(self, request: dict, images: list[tuple[str, str, bytes]]) -> list[dict]:
+        """The images the model gets, by file: the press frames where they are saved, and the camera image of a
+        recovery saved next to them, so the recorder can keep it with the call"""
+        frames = (request.get('press') or {}).get('frames') or {}
+        files  = []
 
-        folder = sessions[-1].parent / 'agent_calls'
+        for name, media, data in images:
+            path = frames.get(name)
 
-        try:
-            folder.mkdir(exist_ok=True)
-            seconds = round(time.time() - record['started'], 1)
-            (folder / f'{record["call"]}.json').write_text(json.dumps({**record, 'seconds': seconds}, indent=1, default=str))
-        except OSError:                                 # a lost record never fails the call
-            pass
+            if path is None and self.capture_dir is not None:
+                path = self.capture_dir / f'call_{request["id"]}_{name}.{EXTENSIONS.get(media, "bin")}'
+
+                try:
+                    self.capture_dir.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                except OSError:                             # a lost image never fails the call
+                    path = None
+
+            files.append({'name': name, 'media_type': media, 'path': None if path is None else str(path)})
+
+        return files
 
 
-def _usage(message: dict) -> dict:
-    return {key: message[key] for key in ('cost_usd', 'tokens_in', 'tokens_out', 'model_s') if key in message}
+def usage(message: dict) -> dict:
+    """The bridge's cost and timing of one model answer"""
+    return {key: message[key] for key in USAGE_FIELDS if key in message}
