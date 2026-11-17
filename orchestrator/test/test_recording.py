@@ -220,3 +220,21 @@ def test_git_state_sees_local_edits(tmp_path):
 
     assert first['dirty'] and git_state(repo)['edits'] != first['edits']
     assert find_repos([str(tmp_path)]) == [repo]
+
+
+def test_git_state_reads_a_repo_that_holds_an_untracked_repo(tmp_path):
+    """A worktree or a clone under the repo is listed by git as one directory entry, not as files, because git does
+    not look inside another repo. A plain untracked directory is listed by its files and passes even without the
+    fix, so the inner folder must be made with git init"""
+    repo = tmp_path / 'repo'
+
+    def git(where, *arguments):
+        subprocess.run(['git', '-C', str(where), *arguments], check=True, capture_output=True)
+
+    git(tmp_path, 'init', '-q', str(repo))
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'a')
+    git(repo, 'init', '-q', 'inner')                       # an untracked directory with a .git of its own
+
+    state = git_state(repo)
+
+    assert 'error' not in state and state['dirty'] and state['edits']
