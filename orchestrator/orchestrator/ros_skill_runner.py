@@ -36,6 +36,28 @@ SENSOR_QOS  = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT, dur
 
 # ========== Messages ==========
 
+def yaw_of(orientation) -> float:
+    return math.atan2(2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
+                      1.0 - 2.0 * (orientation.y ** 2 + orientation.z ** 2))
+
+
+def frame_of(message, default: str = 'map') -> str:
+    """The frame of a message that has a header; the default for one that has none"""
+    return getattr(getattr(message, 'header', None), 'frame_id', '') or default
+
+
+def pose_dict(pose, frame: str = 'map') -> dict:
+    """Any pose message as the pose this package holds ({x, y, z, yaw, frame}), the inverse of to_pose_stamped: a
+    place, a goal input and a pose output all have the one shape. It unwraps whatever wraps a Pose (PoseStamped,
+    PoseWithCovariance, PoseWithCovarianceStamped), and a header on the way names the frame"""
+    while hasattr(pose, 'pose'):
+        frame = frame_of(pose, frame)
+        pose  = pose.pose
+
+    return {'x': pose.position.x, 'y': pose.position.y, 'z': pose.position.z,
+            'yaw': yaw_of(pose.orientation), 'frame': frame}
+
+
 def to_pose_stamped(pose: dict, node: Node) -> PoseStamped:
     message = PoseStamped()
     yaw     = float(pose.get('yaw', 0.0))
@@ -86,8 +108,20 @@ def build_message(message_type, contract: Contract, inputs: dict, node: Node):
     return message
 
 
+def port_output(value, port, message):
+    """What a port hands over, for EVERY transport: a pose port gives the pose shape, never the ROS message, so the
+    blackboard, a {key} input, the trace and the code sandbox all read {x, y, z, yaw, frame}. Another port keeps
+    what the field holds (ground's detections are a message that the next skill reads by its key). The frame comes
+    from the message the field was read from"""
+    if port.type == 'pose' and hasattr(value, 'get_fields_and_field_types'):
+        return pose_dict(value, frame_of(message))
+
+    return value
+
+
 def extract_outputs(contract: Contract, result) -> dict:
-    return {port.name: getattr(result, port.message_field, None) for port in contract.outputs}
+    return {port.name: port_output(getattr(result, port.message_field, None), port, result)
+            for port in contract.outputs}
 
 
 # ========== Topic watches ==========
@@ -593,7 +627,8 @@ class RosSkillRunner:
         if watch.latest is None:
             return _DoneHandle(False, f'no message on {spec.topic} yet')
 
-        outputs = {port.name: watch.read(replace(spec, field=port.message_field)) for port in contract.outputs}
+        outputs = {port.name: port_output(watch.read(replace(spec, field=port.message_field)), port, watch.latest)
+                   for port in contract.outputs}
 
         return _DoneHandle(watch.matches(spec), f'{spec.field} = {watch.read(spec)}', outputs)
 

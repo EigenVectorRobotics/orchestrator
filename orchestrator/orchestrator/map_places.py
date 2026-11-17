@@ -5,17 +5,10 @@ after each load, save, delete and reload. Each message replaces the places, so a
 runs is on the blackboard of the next task. The entries have the format of places.py, with kind, floor and note.
 """
 
-import math
-
 from rclpy.node import Node
 
 from .places import PlacesError, parse_places
-from .ros_skill_runner import LATCHED_QOS
-
-
-def yaw_of(orientation) -> float:
-    return math.atan2(2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
-                      1.0 - 2.0 * (orientation.y ** 2 + orientation.z ** 2))
+from .ros_skill_runner import LATCHED_QOS, pose_dict
 
 
 class MapInfoPlaces:
@@ -48,10 +41,7 @@ class MapInfoPlaces:
         entries    = {}
 
         for place in message.places:
-            pose                = place.pose.pose
-            entries[place.name] = {'x': pose.position.x, 'y': pose.position.y, 'z': pose.position.z,
-                                   'yaw': yaw_of(pose.orientation), 'frame': place.pose.header.frame_id or 'map',
-                                   'kind': place.kind, 'floor': place.floor, 'note': place.note}
+            entries[place.name] = pose_dict(place.pose) | {'kind': place.kind, 'floor': place.floor, 'note': place.note}
 
         try:
             self.places = parse_places({'places': entries})

@@ -7,7 +7,7 @@ from rosidl_runtime_py.utilities import get_action, get_message, get_service
 
 from skill_registry import Contract
 
-from .ros_skill_runner import build_message
+from .ros_skill_runner import build_message, pose_dict, read_field
 
 
 SAMPLES = {'string': 'x', 'int': 0, 'float': 0.0, 'bool': False, 'pose': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}
@@ -24,6 +24,22 @@ def _has_field(message, dotted: str) -> bool:
     return True
 
 
+def _not_a_pose(ros_type: str, port) -> str:
+    return (f'{ros_type} field {port.message_field} is not a pose, so the port cannot be type pose: a pose field '
+            f'has position and orientation, or it holds one')
+
+
+def _is_pose(value) -> bool:
+    """What pose_dict can read, asked by reading it, so the refusal at write time and the conversion at run time
+    cannot disagree: a Pose, or anything that wraps one (PoseStamped, PoseWithCovariance, ...)"""
+    try:
+        pose_dict(value)
+    except AttributeError:
+        return False
+
+    return True
+
+
 def check_ros_types(contract: Contract) -> list[str]:
     """What does not match; raises ModuleNotFoundError when an interface package is not built here"""
     interface = contract.interface
@@ -33,10 +49,18 @@ def check_ros_types(contract: Contract) -> list[str]:
     if watch is not None and not watch.json and not _has_field(get_message(watch.ros_type)(), watch.field):
         errors.append(f'{watch.ros_type} has no field {watch.field}')
 
+    if interface.transport == 'watch' and watch is not None and watch.json:
+        errors += [f'the output {port.name} cannot be type pose: a json watch gives text, whose shape cannot be '
+                   f'checked here; read the numbers as float ports' for port in contract.outputs if port.type == 'pose']
+
     if interface.transport == 'watch' and watch is not None and not watch.json:
         message = get_message(watch.ros_type)()
-        errors += [f'{watch.ros_type} has no field {port.message_field}' for port in contract.outputs
-                   if not _has_field(message, port.message_field)]
+
+        for port in contract.outputs:
+            if not _has_field(message, port.message_field):
+                errors.append(f'{watch.ros_type} has no field {port.message_field}')
+            elif port.type == 'pose' and not _is_pose(read_field(message, port.message_field)):
+                errors.append(_not_a_pose(watch.ros_type, port))
 
     if interface.transport == 'action':
         action_type      = get_action(interface.ros_type)
@@ -59,7 +83,12 @@ def check_ros_types(contract: Contract) -> list[str]:
         errors.append(f'the inputs do not fit {interface.ros_type}: {error}')
 
     # outputs are read flat (ros_skill_runner: getattr(result, field)), so a dotted path would always give None
+    flat    = {} if result is None else result.get_fields_and_field_types()
     errors += [f'{interface.ros_type} result has no field {port.message_field} (an output is a top-level field)'
-               for port in contract.outputs if result is None or port.message_field not in result.get_fields_and_field_types()]
+               for port in contract.outputs if port.message_field not in flat]
+
+    # port_output shapes a pose output of any transport, so the check belongs to every transport too
+    errors += [_not_a_pose(interface.ros_type, port) for port in contract.outputs
+               if port.type == 'pose' and port.message_field in flat and not _is_pose(getattr(result(), port.message_field))]
 
     return errors

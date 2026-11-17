@@ -39,3 +39,17 @@ def test_a_watch_reports_fields_of_the_message_it_reads_and_only_those():
     pose_now['outputs'].append({'name': 'elbow', 'type': 'float', 'field': 'pose.pose.elbow'})
 
     assert check_ros_types(parse_contract(pose_now)) == ['nav_msgs/msg/Odometry has no field pose.pose.elbow']
+
+
+def test_a_pose_port_must_name_a_pose_field_whatever_the_transport():
+    """port_output shapes a pose output of any transport, so every transport refuses a field that is not a pose"""
+    walk = {'name': 'walk', 'kind': 'action', 'device': 'nuc', 'timeout_s': 10.0,
+            'interface': {'transport': 'action', 'name': '/navigate_to_goal',
+                          'ros_type': 'navigation_interfaces/action/NavigateToGoal'},
+            'outputs': [{'name': 'arrived', 'type': 'bool', 'field': 'success'}]}
+
+    assert check_ros_types(parse_contract(walk)) == []
+
+    walk['outputs'] = [{'name': 'arrived', 'type': 'pose', 'field': 'success'}]
+
+    assert 'is not a pose' in check_ros_types(parse_contract(walk))[0]

@@ -45,3 +45,20 @@ def test_bad_places_are_refused():
     with pytest.raises(PlacesError):
         parse_places({'places': {'Call Panel': {'x': 0, 'y': 0}, 'call panel': {'x': 1, 'y': 1}}})
 
+
+
+def test_a_pose_output_has_the_same_shape_as_a_place():
+    """A watch output and a goal input are the one pose shape: to_pose_stamped's inverse gives it back"""
+    pytest.importorskip('geometry_msgs')
+
+    from types import SimpleNamespace
+
+    from orchestrator.ros_skill_runner import pose_dict, to_pose_stamped
+
+    place = {'x': 1.5, 'y': -2.0, 'z': -0.4, 'yaw': 0.75, 'frame': 'map'}
+    node  = SimpleNamespace(get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(to_msg=lambda: None)))
+    back  = pose_dict(to_pose_stamped(place, node))
+
+    assert {key: round(value, 6) for key, value in back.items() if key != 'frame'} == \
+           {key: round(value, 6) for key, value in place.items() if key != 'frame'}
+    assert back['frame'] == 'map'
