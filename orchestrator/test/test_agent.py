@@ -73,20 +73,36 @@ def _config(tmp_path: Path) -> AgentConfig:
     return AgentConfig(skills_dir=str(AGENT_SKILLS), read_roots=[str(ROOT)], sandbox=SandboxConfig(scratch_dir=str(tmp_path / 'scratch')))
 
 
+class TickClock:
+    """The tree's clock: it moves 0.05 s each tick, so the tree's Delay of 1 s takes 20 ticks, not 1 s of real time"""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _step(tree: BehaviorTree) -> Status:
+    status = tree.tick()
+    tree.context.clock.now += 0.05
+    time.sleep(0.005)                           # the agent runs in its own thread
+
+    return status
+
+
 def _run(tree: BehaviorTree, max_ticks: int = 500) -> Status:
     for _ in range(max_ticks):
-        status = tree.tick()
+        status = _step(tree)
 
         if status != Status.RUNNING:
             return status
-
-        time.sleep(0.005)                       # the agent runs in its own thread
 
     return Status.RUNNING
 
 
 def _tree(xml_text: str, runner: FakeRunner, agent, scratch_dir: Path | None = None) -> BehaviorTree:
-    context = Context(blackboard={'call_panel': dict(PANEL)}, scratch_dir=scratch_dir and str(scratch_dir))
+    context = Context(blackboard={'call_panel': dict(PANEL)}, scratch_dir=scratch_dir and str(scratch_dir), clock=TickClock())
 
     return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
 
@@ -309,12 +325,10 @@ def test_external_backend_waits_checks_and_closes_the_call(tmp_path):
     tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
 
     for _ in range(400):
-        tree.tick()
+        _step(tree)
 
         if requests:
             break
-
-        time.sleep(0.005)
 
     request = requests[-1]
 
@@ -362,12 +376,10 @@ PRESS_EVIDENCE = {'left_arm': False, 'goal': [0.4, -0.1, 1.0],
 
 def _wait_request(tree, requests, count: int):
     for _ in range(400):
-        tree.tick()
+        _step(tree)
 
         if len([request for request in requests if request['state'] == 'open']) >= count:
             return [request for request in requests if request['state'] == 'open'][-1]
-
-        time.sleep(0.005)
 
     raise AssertionError('no request')
 

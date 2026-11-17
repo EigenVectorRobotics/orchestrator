@@ -215,12 +215,19 @@ def test_a_missing_code_file_fails_before_anything_starts(tmp_path):
 
 
 def test_cancel_stops_the_code_and_its_call(tmp_path):
-    code   = _runner(tmp_path, 'def run(skills, inputs):\n'
-                               '    import time\n'
-                               '    time.sleep(30)\n'
-                               '    return {}\n')
-    handle = code.start(code.registry.get('where_am_i'), {}, _context())
-    time.sleep(0.5)
+    code    = _runner(tmp_path, 'def run(skills, inputs):\n'
+                                '    import time\n'
+                                '    open("started", "w").close()\n'
+                                '    time.sleep(30)\n'
+                                '    return {}\n')
+    handle  = code.start(code.registry.get('where_am_i'), {}, _context())
+    started = tmp_path / 'scratch' / 'started'          # the code's folder is the sandbox scratch
+    deadline = time.monotonic() + 10.0
+
+    while not started.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert started.exists(), 'the code did not start'
     handle.cancel()
 
     assert _finish(handle, 5.0) in (Status.FAILURE, Status.SUCCESS)
