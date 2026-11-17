@@ -9,23 +9,21 @@ import rclpy
 from pathlib import Path
 
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Int32, String
 from ament_index_python.packages import get_package_share_directory
 from skill_registry import load_tree
 
-from .trace import TRACE_QOS, TRACE_TOPIC, Tracer
+from .trace import Tracer
+from .topics import (COMMAND_QOS as ANSWER_QOS, LATCHED_QOS as FLOOR_QOS, LATCHED_QOS as LIVE_QOS, PLAN_TOPIC,
+                     PLANNER_ANSWER_TOPIC as ANSWER_TOPIC, PLANNER_REQUEST_TOPIC as REQUEST_TOPIC, SKILLS_LIVE_TOPIC,
+                     SPEAK_TOPIC, TASK_TOPIC, TRACE_QOS, TRACE_TOPIC, TREE_BLIND_TOPIC, TREE_TOPIC)
 from .planner import Planner, load_tree_library, speech_left_s
 from .node_setup import load_place_floors, load_skills
 from .llm_backends import ClaudeBackend, OpenAICompatibleBackend, ScriptedBackend
-from .planner_external import ANSWER_TOPIC, REQUEST_TOPIC, ExternalPlannerBackend
+from .planner_external import ExternalPlannerBackend
 
 
-LIVE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-ANSWER_QOS = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
-FLOOR_QOS       = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-SPEAK_TOPIC     = '/speak'                      # the say skill's topic: unitree_interface speaks it
 NO_LIBRARY_TEXT = 'No existing behavior tree. Generating a new behavior tree.'
 GENERATED_TEXT  = 'No existing behavior tree fits. I generated a new one.'
 
@@ -72,14 +70,14 @@ class PlannerNode(Node):
             library=self.library
         )
 
-        self._tree_publisher  = self.create_publisher(String, '/orchestrator/tree', 10)
-        self._blind_publisher = self.create_publisher(String, '/orchestrator/tree_blind', 10)
-        self._plan_publisher  = self.create_publisher(String, '/orchestrator/plan', LIVE_QOS)
+        self._tree_publisher  = self.create_publisher(String, TREE_TOPIC, 10)
+        self._blind_publisher = self.create_publisher(String, TREE_BLIND_TOPIC, 10)
+        self._plan_publisher  = self.create_publisher(String, PLAN_TOPIC, LIVE_QOS)
         self._speak_publisher = self.create_publisher(String, SPEAK_TOPIC, 10)
         self._last_speech     = ('', 0.0)       # the last sentence on /speak and when it started (time.time())
         self._planner_subscriptions = [
-            self.create_subscription(String, '/orchestrator/task', self._on_task, 10),
-            self.create_subscription(String, '/skills/live', self._on_live, LIVE_QOS),
+            self.create_subscription(String, TASK_TOPIC, self._on_task, 10),
+            self.create_subscription(String, SKILLS_LIVE_TOPIC, self._on_live, LIVE_QOS),
             self.create_subscription(String, TRACE_TOPIC, self._on_trace, TRACE_QOS),
             self.create_subscription(String, SPEAK_TOPIC, self._on_speak, 10),
         ]

@@ -7,8 +7,8 @@ then the images back to back, as its "images" list gives them ({name, media_type
 reply (accepted or why not) and cancel; the bridge sends started (model and prompt), decision and failed. Both send
 ping every PING_S; a link silent for DEAD_S is closed and opened again, and the open call is sent again on it.
 
-Each call is also published as a request (latched JSON on REQUEST_TOPIC: opened, then closed) and each reply on
-REPLY_TOPIC, for the run recorder and the Run Viewer.
+Each call is also published as a request (latched JSON on topics.AGENT_REQUEST_TOPIC: opened, then closed) and each reply on
+topics.AGENT_REPLY_TOPIC, for the run recorder and the Run Viewer.
 """
 
 import json
@@ -25,8 +25,6 @@ from pathlib import Path
 from .agent import PHASE_DECISIONS, PRESS_PHASES, STANCE_PHASES, AgentError, ToolOutput
 
 
-REQUEST_TOPIC   = '/orchestrator/agent/request'
-REPLY_TOPIC     = '/orchestrator/agent/reply'
 DECISION_FIELDS = ('decision', 'reason', 'dx', 'dy', 'dyaw', 'use_left_arm', 'ox', 'oy', 'oz')
 HEADER      = struct.Struct('!II')
 MAX_JSON    = 16_000_000

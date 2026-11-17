@@ -20,19 +20,17 @@ from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
 from ament_index_python.packages import get_package_share_directory
 
-from .trace import TRACE_QOS, TRACE_TOPIC
+from .topics import (AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, COMMAND_QOS, LATCHED_QOS,
+                     RECORDER_STATUS_TOPIC as STATUS_TOPIC, SPEAK_TOPIC, TASK_TOPIC, TRACE_QOS, TRACE_TOPIC)
 from .node_setup import declare_sources
-from .agent_push import REPLY_TOPIC, REQUEST_TOPIC
-from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS
 from .recording import Recorder, RecorderConfig, directory_digests, file_digest, find_repos, git_state, largest_runs
 
 
-STATUS_TOPIC = '/orchestrator/recorder/status'
 BAG_STOP_S   = 10.0                             # SIGINT, then this long to close the file, then SIGKILL
 
 BAG_TOPICS = [                                  # the bag_topics parameter's default; the one list (config leaves it out)
     TRACE_TOPIC, REQUEST_TOPIC, REPLY_TOPIC,
-    '/speak', '/route_goal', '/route_planner/status', '/nav_state', '/state_estimation', '/odom_base_link',
+    SPEAK_TOPIC, '/route_goal', '/route_planner/status', '/nav_state', '/state_estimation', '/odom_base_link',
     '/track_3d/is_tracking', '/track_3d/selected_target_3d', '/slam_elevatorlio/status',
     '/track_3d/selected_normal_pose',                       # the button pose track_3d fits (raw)
     '/track_3d/selected_normal_pose_filtered/arm_upright',  # the pose the press plans to (filtered)
@@ -103,7 +101,7 @@ class RunRecorderNode(Node):
         self._status_publisher = self.create_publisher(String, STATUS_TOPIC, LATCHED_QOS)
         self._subscriptions    = [       # not self._subscriptions of Node: that name is taken by rclpy
             self.create_subscription(String, TRACE_TOPIC, self._json(self.recorder.on_event), TRACE_QOS),
-            self.create_subscription(String, '/orchestrator/task', lambda message: self.recorder.on_task(message.data), 10),
+            self.create_subscription(String, TASK_TOPIC, lambda message: self.recorder.on_task(message.data), 10),
             self.create_subscription(String, REQUEST_TOPIC, self._json(self.recorder.on_agent_request), LATCHED_QOS),
             self.create_subscription(String, REPLY_TOPIC, self._json(partial(self.recorder.on_agent_message, 'reply')), COMMAND_QOS),
         ]

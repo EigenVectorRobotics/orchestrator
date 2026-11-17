@@ -23,7 +23,7 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped, TransformStamped
 from tf2_ros import TransformBroadcaster
 
-from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS
+from .topics import COMMAND_QOS, LATCHED_QOS, SPEAK_TOPIC
 
 
 BUTTON_BOX = (300, 220, 340, 260)       # where the fake camera draws the button, x_min y_min x_max y_max
@@ -63,7 +63,7 @@ class FakeRobot(Node):
         self.create_subscription(Bool, '/cancel_goal', self._on_cancel, COMMAND_QOS)
         self.create_subscription(String, '/keyboard_input', self._on_query, COMMAND_QOS)
         self.create_subscription(Empty, '/track_3d/reset', self._on_reset, COMMAND_QOS)
-        self.create_subscription(String, '/speak', self._on_tts, COMMAND_QOS)
+        self.create_subscription(String, SPEAK_TOPIC, self._on_tts, COMMAND_QOS)
 
         self.create_service(Trigger, '/unitree_interface/release_arms', self._on_trigger)
 

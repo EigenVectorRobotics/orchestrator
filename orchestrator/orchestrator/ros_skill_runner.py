@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor
 from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.duration import Duration
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.action import ActionClient
 from action_msgs.msg import GoalStatus
 from sensor_msgs.msg import Image
@@ -31,6 +30,7 @@ from .behavior_tree import Status
 from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture
 from .stance_checks import judge_arm, judge_view
 from .geometry import rotate, transform_pose, yaw_quaternion
+from .topics import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS
 from .preflight_checks import judge_alive, run_command, url_answers
 
 
@@ -40,10 +40,7 @@ PRESS_OFFSET_SKILL = 'set_press_offset'      # its inputs move move_to_pose's pr
 MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
 
 # The fake robot and the elevator_sim bridge use the same profiles; keep them in step.
-COMMAND_QOS = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
-LATCHED_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 WATCH_HISTORY = 10                      # the most messages a watch keeps, for Watch.consecutive
-SENSOR_QOS  = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE)
 EE_SAMPLE_S = 0.01                      # how often a press capture samples the end effector from TF
 
 

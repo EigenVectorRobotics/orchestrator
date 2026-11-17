@@ -1,8 +1,8 @@
 """The external planner backend: a session outside the planner writes the plan, e.g. Claude Code over ssh.
 
-The planner publishes each model call as a request (latched JSON on REQUEST_TOPIC: the call id, the system prompt,
+The planner publishes each model call as a request (latched JSON on topics.PLANNER_REQUEST_TOPIC: the call id, the system prompt,
 and the conversation so far - the task, then the validator's feedback on each earlier answer), then waits. The
-session answers with planner_cli on ANSWER_TOPIC: a short explanation and a <tree>...</tree> or <use_tree id="..."/>.
+session answers with planner_cli on topics.PLANNER_ANSWER_TOPIC: a short explanation and a <tree>...</tree> or <use_tree id="..."/>.
 The planner checks the answer as it checks a model's: a tree that fails the validator comes back as a new request.
 
 This module needs no ROS: the planner node wires the publisher and passes answers in with deliver().
@@ -17,8 +17,6 @@ from typing import Callable
 from .llm_backends import BackendError, Reply
 
 
-REQUEST_TOPIC = '/orchestrator/planner/request'
-ANSWER_TOPIC  = '/orchestrator/planner/answer'
 
 
 class ExternalPlannerBackend:

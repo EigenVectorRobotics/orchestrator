@@ -8,6 +8,8 @@ from pathlib import Path
 from std_msgs.msg import String
 from skill_registry import load_tree
 
+from .topics import TREE_BLIND_TOPIC, TREE_TOPIC
+
 
 def main():
     parser = argparse.ArgumentParser(description='Send a tree file to the executor')
@@ -18,7 +20,7 @@ def main():
 
     rclpy.init()
     node      = rclpy.create_node('send_tree')
-    topic     = '/orchestrator/tree_blind' if arguments.blind else '/orchestrator/tree'
+    topic     = TREE_BLIND_TOPIC if arguments.blind else TREE_TOPIC
     publisher = node.create_publisher(String, topic, 10)
 
     for _ in range(30):                                 # wait up to 3 s for the executor

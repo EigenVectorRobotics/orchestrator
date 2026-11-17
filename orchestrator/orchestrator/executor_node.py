@@ -6,14 +6,13 @@ import uuid
 import rclpy
 
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
 
 from skill_registry import TreeValidator, ValidatorConfig
 
 from .agent import Agent
-from .agent_push import REPLY_TOPIC, REQUEST_TOPIC, PushAgentBackend, PushLink
+from .agent_push import PushAgentBackend, PushLink
 from .trace import Tracer
 from .agent_ros import RosReader
 from .node_setup import load_skills
@@ -22,11 +21,11 @@ from .skill_leaf import SkillLeaf, make_leaf_factory
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
 from .ros_skill_runner import RosSkillRunner
 from .press_capture import DEFAULT_CAPTURE_DIR
-from .run_recorder import STATUS_TOPIC as RECORDER_TOPIC
+from .topics import (AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, CANCEL_TOPIC, COMMAND_QOS,
+                     LATCHED_QOS as STATUS_QOS, RECORDER_STATUS_TOPIC as RECORDER_TOPIC, SPEAK_TOPIC, STATUS_TOPIC,
+                     TREE_BLIND_TOPIC, TREE_TOPIC)
 
 
-STATUS_QOS  = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-COMMAND_QOS = QoSProfile(depth=5)
 
 
 class ExecutorNode(Node):
@@ -56,11 +55,11 @@ class ExecutorNode(Node):
         self.agent = self._make_agent()
         self.tree  = None
 
-        self._status_publisher   = self.create_publisher(String, '/orchestrator/status', STATUS_QOS)
+        self._status_publisher   = self.create_publisher(String, STATUS_TOPIC, STATUS_QOS)
         self._tree_subscriptions = [
-            self.create_subscription(String, '/orchestrator/tree', self._on_tree, 10),
-            self.create_subscription(String, '/orchestrator/tree_blind', self._on_blind_tree, 10),
-            self.create_subscription(Empty, '/orchestrator/cancel', self._on_cancel, 10),
+            self.create_subscription(String, TREE_TOPIC, self._on_tree, 10),
+            self.create_subscription(String, TREE_BLIND_TOPIC, self._on_blind_tree, 10),
+            self.create_subscription(Empty, CANCEL_TOPIC, self._on_cancel, 10),
             self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, STATUS_QOS),
         ]
         self._tick_timer         = self.create_timer(1.0 / self.tick_hz, self._tick)
@@ -79,7 +78,7 @@ class ExecutorNode(Node):
             self.get_logger().warn(f'no agent: unknown agent_backend {backend_name}')
             return None
 
-        speaker = self.create_publisher(String, '/speak', 10)                  # unitree_interface's TTS (remapped ~/tts)
+        speaker = self.create_publisher(String, SPEAK_TOPIC, 10)                  # unitree_interface's TTS (remapped ~/tts)
         speak   = lambda text: speaker.publish(String(data=text))
 
         return Agent(self._make_push_backend(), RosReader(self, self.runner.latest_image, self.runner._tf),

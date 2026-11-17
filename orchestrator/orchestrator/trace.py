@@ -2,13 +2,11 @@ import json
 import time
 
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 from rcl_interfaces.msg import Log
 
 
-TRACE_TOPIC = '/orchestrator/trace'
-TRACE_QOS   = QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE)
+from .topics import LOG_TOPIC, TRACE_QOS, TRACE_TOPIC
 LEVELS    = {'debug': Log.DEBUG, 'info': Log.INFO, 'warn': Log.WARN, 'error': Log.ERROR}
 
 
@@ -21,7 +19,7 @@ class Tracer:
         self.fields = {}            # added to every event, e.g. the run_id of the tree that runs
 
         self._json_publisher = node.create_publisher(String, TRACE_TOPIC, TRACE_QOS)
-        self._log_publisher  = node.create_publisher(Log, '/orchestrator/log', TRACE_QOS)
+        self._log_publisher  = node.create_publisher(Log, LOG_TOPIC, TRACE_QOS)
 
     def emit(self, kind: str, text: str, level: str = 'info', **data):
         event = {'time': time.time(), 'source': self.source, 'kind': kind, 'text': text, **self.fields, **data}

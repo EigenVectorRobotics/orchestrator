@@ -21,15 +21,12 @@ from pathlib import Path
 
 import rclpy
 
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 from skill_registry import load_tree
 
-from .planner_external import ANSWER_TOPIC, REQUEST_TOPIC
+from .topics import COMMAND_QOS as COMMAND, LATCHED_QOS as LATCHED, PLANNER_ANSWER_TOPIC as ANSWER_TOPIC, PLANNER_REQUEST_TOPIC as REQUEST_TOPIC
 
 
-LATCHED        = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-COMMAND        = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
 SYSTEM_OUT     = Path.home() / '.ros' / 'planner_system.md'
 SUBSCRIBER_S   = 5.0
 
