@@ -142,6 +142,6 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 - The service names under `/unitree_interface/` and `/slam_elevatorlio/` come from the `~/` names in the code. Check them on the robot.
 - `ground`, `set_profile`, `set_hand`, `save_map` and `load_map` need their interface packages on the NUC.
 - The executor reads the raw camera topic (`image_topic`, default `/camera/camera/color/image_raw`), because the Orin has no compressed image transport installed, and encodes the frames it keeps to JPEG. That brings the raw stream to the NUC: about 2.8 MB a frame, about 17 MB/s at 6 fps.
-- `thor_up` checks the grounding service and the VLM endpoint together, and preflight now stops when the Thor is not up. A Thor with the grounding up and the VLM endpoint down (the endpoint is not needed by `freight_elevator_go_to_place`) stops the task too. Split the check, or check the grounding only.
+- `thor_up` checks the grounding service only; preflight stops when it is not up. The VLM endpoint is not checked, since no tree asks the VLM.
 - `planner_cli answer --use-tree` sets a library tree's parameters (`--param`) but cannot swap its subtrees; that needs `--tree FILE`.
 - On hold: in blind mode, every action skill must have a fallback.
