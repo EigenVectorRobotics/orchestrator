@@ -54,8 +54,10 @@ Use only the skills listed. Check the result of each step before the next one; d
 '''
 
 HISTORY_TURNS = 12         # the last turns in the prompt; older ones are summarized by count
-MAX_REPLY_CHARS = 1500     # a step's reply in the prompt is cut to this
-MAX_DECISION_CHARS = 1500  # and so is a past decision: write_skill carries a whole contract and its code
+MAX_DECISION_CHARS = 1500  # a past decision is cut to this: write_skill carries a whole contract and its code
+MAX_SECTION_CHARS = 600    # and each part of a result, on its own, so a long failure cannot push out the message
+MAX_TRACE_CHARS = 200      # a trace line is one sentence (a validation line is about 60), and 12 ride in one reply
+PLUMBING = ('id', 'op', 'ok', 'trace')    # of a reply; the agent reads every other part, new ones included
 
 
 class DeciderError(RuntimeError):
@@ -64,6 +66,19 @@ class DeciderError(RuntimeError):
 
 class Decider(Protocol):
     def decide(self, prompt: str, image: bytes | None, work: Path) -> dict: ...
+
+
+def result_lines(reply: dict) -> list[str]:
+    """One turn's result as labelled lines, each cut on its own: every part of the reply but the plumbing, so a
+    field added to StepResult reaches the agent with no change here, then what the robot logged while it ran"""
+    def text(value) -> str:
+        return value if isinstance(value, str) else json.dumps(value, default=str)
+
+    lines  = [f'  {key}: {text(value)[:MAX_SECTION_CHARS]}' for key, value in reply.items()
+              if value and key not in PLUMBING]
+    lines += [f'  trace: {line[:MAX_TRACE_CHARS]}' for line in (reply.get('trace') or [])]
+
+    return lines or [f'  ok: {reply.get("ok")}']
 
 
 def build_prompt(opened: dict, catalog: str, history: list[tuple[dict, dict]]) -> str:
@@ -77,7 +92,7 @@ def build_prompt(opened: dict, catalog: str, history: list[tuple[dict, dict]]) -
 
     for turn, (decision, reply) in enumerate(history[-HISTORY_TURNS:], max(older, 0) + 1):
         lines.append(f'Turn {turn}: {json.dumps(decision)[:MAX_DECISION_CHARS]}')
-        lines.append(f'  result: {json.dumps(reply, default=str)[:MAX_REPLY_CHARS]}')
+        lines += result_lines(reply)
 
     lines.append('' if history else 'No turn yet: start with a plan.')
     lines.append('The image is the latest camera frame. Decide the next step.')

@@ -32,6 +32,7 @@ import threading
 import contextlib
 
 from typing import Callable
+from collections import deque
 from pathlib import Path
 from dataclasses import asdict
 
@@ -51,6 +52,20 @@ STEP_REQUEST_TOPIC  = '/orchestrator/step_request'
 STEP_DECISION_TOPIC = '/orchestrator/step_decision'
 STEP_REPLY_TOPIC    = '/orchestrator/step_decision/reply'
 LOST_SPEECH   = 'I lost the connection to my planner. I will wait here. Please help me if you can.'
+
+TRACE_LEVELS     = ('warn', 'error')   # the events a reply carries: what went wrong, not what went well
+MAX_TRACE_EVENTS = 12                  # the last ones; a step that fails many times says the same thing
+
+
+def trace_listener(lines: deque, run_id: str) -> Callable[[dict], None]:
+    """Keeps what went wrong while a command runs, as (kind, text) and as the last MAX_TRACE_EVENTS: a record event
+    holds its whole feedback list, so no event may stay alive for the length of a step. The tap is the node's, so it
+    takes this run's events only: a replaced task's loop still emits, and its errors are not this task's"""
+    def listen(event: dict):
+        if event['level'] in TRACE_LEVELS and event.get('run_id', run_id) == run_id:
+            lines.append((event['kind'], event['text']))
+
+    return listen
 
 
 def place_text(info: dict) -> str:
@@ -211,14 +226,22 @@ class TaskDesk:
     def command(self, message: dict) -> dict:
         """One command from the session; the reply goes out with the command's id, and is returned"""
         reply = {'id': message.get('id'), 'op': message.get('op')}
+        lines = deque(maxlen=MAX_TRACE_EVENTS)
+        run   = str(message.get('run_id', ''))
 
-        with self.thinking():
+        with self.thinking(), self.tasks.tracer.tap(trace_listener(lines, run)):
             try:
                 reply |= self._command(message)
             except (KeyError, TypeError, ValueError) as error:
                 reply |= {'ok': False, 'message': f'bad command: {error!r}'}
             except OSError as error:
                 reply |= {'ok': False, 'message': f'could not write: {error!r}'}
+
+        said  = str(reply.get('message', ''))
+        trace = [f'{kind}: {text}' for kind, text in lines if text not in said]   # the message says that one already
+
+        if trace:
+            reply['trace'] = trace
 
         self.publish_reply(reply)
 

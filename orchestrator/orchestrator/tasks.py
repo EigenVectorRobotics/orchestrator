@@ -16,7 +16,7 @@ from typing import Callable
 from xml.sax.saxutils import quoteattr
 from dataclasses import dataclass, field
 
-from skill_registry import Registry, TreeValidator, ValidatorConfig
+from skill_registry import Issue, Registry, TreeValidator, ValidatorConfig
 
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
 
@@ -84,8 +84,8 @@ class Tasks:
 
     def run_tree(self, xml_text: str, context: Context, blind: bool) -> bool:
         """A tree sent alone: halts the open task, then runs the tree as a task of one step"""
-        if not self._validate(xml_text, ValidatorConfig(essential_devices=self.essential_devices, blind=blind,
-                                                        known_keys=set(context.blackboard)), 'tree'):
+        if self._validate(xml_text, ValidatorConfig(essential_devices=self.essential_devices, blind=blind,
+                                                   known_keys=set(context.blackboard)), 'tree'):
             return False
 
         try:
@@ -145,8 +145,11 @@ class Tasks:
         config      = ValidatorConfig(essential_devices=self.essential_devices, blind=task.blind,
                                       known_keys=set(task.context.blackboard), require_fallback=False)  # the agent recovers
 
-        if not self._validate(xml_text, config, 'step'):
-            return StepResult('error', 'the step does not validate; see the validation events')
+        errors = self._validate(xml_text, config, 'step')
+
+        if errors:
+            return StepResult('error', 'the step does not validate: '
+                                       + '; '.join(f'{issue.path}: {issue.message}' for issue in errors))
 
         try:
             step = _Step(BehaviorTree(xml_text, self.leaf_factory, task.context), xml_text, list(outputs.values()),
@@ -270,7 +273,9 @@ class Tasks:
 
         self._end_task(end, 'warn' if end in ('halted', 'cancelled') else 'info', reason)
 
-    def _validate(self, xml_text: str, config: ValidatorConfig, what: str) -> bool:
+    def _validate(self, xml_text: str, config: ValidatorConfig, what: str) -> list[Issue]:
+        """The errors that stop the tree, [] when it validates. The caller gives them back to whoever sent the
+        tree: an agent then reads WHY its step was refused, not only that something is in the trace"""
         issues = TreeValidator(self.registry, config).validate(xml_text)
         errors = [issue for issue in issues if issue.level == 'error']
 
@@ -280,7 +285,10 @@ class Tasks:
 
             self.tracer.emit('validation', f'{issue.path}: {issue.message}', level='error' if issue.level == 'error' else 'warn')
 
-        return not errors or self.reject(f'{what} rejected: {len(errors)} errors')
+        if errors:
+            self.reject(f'{what} rejected: {len(errors)} errors')
+
+        return errors
 
     def reject(self, text: str) -> bool:
         self.tracer.emit('rejected', text, level='error')

@@ -1,6 +1,8 @@
 import time
 import threading
 
+from contextlib import contextmanager
+
 from skill_registry import Registry
 
 from orchestrator.tasks import Tasks
@@ -15,12 +17,30 @@ TREE  = '<root BTCPP_format="4"><BehaviorTree ID="walk"><navigate_to goal="{call
 
 
 class FakeTracer:
+    """Tracer's tap and fan-out, copied and not inherited: test_task_agent and test_task_loop import this module,
+    and they must collect with no rclpy on the path"""
+
     def __init__(self):
-        self.fields = {}
-        self.events = []
+        self.fields    = {}
+        self.events    = []
+        self.listeners = []
+
+    @contextmanager
+    def tap(self, listener):
+        self.listeners.append(listener)
+
+        try:
+            yield
+        finally:
+            self.listeners.remove(listener)
 
     def emit(self, kind, text, level='info', **data):
-        self.events.append({'kind': kind, **self.fields, **data})
+        event = {'kind': kind, 'text': text, 'level': level, **self.fields, **data}
+
+        self.events.append(event)
+
+        for listener in tuple(self.listeners):
+            listener(event)
 
     def kinds(self):
         return [event['kind'] for event in self.events if event['kind'] != 'validation']

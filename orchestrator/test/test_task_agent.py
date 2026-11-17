@@ -178,3 +178,12 @@ def test_the_open_task_carries_the_runbook_and_the_grammar_for_a_session_and_the
     assert 'stanley has no hands wired up' in task_summary(d.opened[0])
     assert contract_grammar() not in task_summary(d.opened[0])              # write_skill is off without a writer
     assert contract_grammar() in task_summary(writing.opened[0])
+
+
+def test_a_step_that_does_not_validate_says_why_and_what_was_logged(tmp_path):
+    d = _desk(FakeRunner({'navigate_to': [Status.SUCCESS]}), tmp_path)
+
+    _command(d, op='run', skill='navigate_to', inputs={'goal': '{nowhere}'}, subgoal='walk')
+
+    assert d.replies[-1]['status'] == 'error' and 'nowhere' in d.replies[-1]['message']
+    assert any('rejected' in line for line in d.replies[-1]['trace'])      # the tap: an event reaches the agent too
