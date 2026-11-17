@@ -34,22 +34,25 @@ def test_example_tree_is_valid_blind():
     assert validator.is_valid((DATA / 'trees' / 'call_elevator.xml').read_text())
 
 
-def test_unknown_skill():
-    errors = _errors('<fly_to/>')
+@pytest.mark.parametrize('body, config, says', [
+    ('<fly_to/>',                                           {},                              ['unknown skill fly_to']),
+    ('<navigate_to speed="2"/>',                            {},                              ['missing input goal', 'unknown port speed']),
+    ('<set_profile profile="fast"/>',                       {},                              ['profile=fast is not one of']),
+    ('<say text="hi"/>',                                    {'live_skills': {'navigate_to'}}, ['not live']),
+    ('<Timeout msec="5000.0"><say text="hi"/></Timeout>',  {},                              ['must be an integer']),
+], ids=['unknown_skill', 'missing_and_unknown_ports', 'enum_literal', 'not_live', 'number_not_integer'])
+def test_a_bad_tree_gets_one_error_for_each_fault(body, config, says):
+    errors = _errors(body, **config)
 
-    assert len(errors) == 1 and 'fly_to' in errors[0]
+    assert len(errors) == len(says) and all(said in error for said, error in zip(says, errors)), errors
 
 
-def test_missing_and_unknown_ports():
-    errors = _errors('<navigate_to speed="2"/>')
-
-    assert any('goal' in error for error in errors)
-    assert any('speed' in error for error in errors)
-
-
-def test_enum_literal_checked_but_blackboard_passes():
-    assert _errors('<set_profile profile="fast"/>')
-    assert not _errors('<set_profile profile="{profile}"/>')
+@pytest.mark.parametrize('body', [
+    '<set_profile profile="{profile}"/>',                                                   # a blackboard value is not checked
+    '<RetryUntilSuccessful num_attempts="-1"><say text="hi"/></RetryUntilSuccessful>',     # -1 is an integer: retry forever
+], ids=['enum_from_blackboard', 'negative_integer'])
+def test_a_good_tree_gets_no_error(body):
+    assert not _errors(body)
 
 
 def test_thor_skill_needs_fallback():
@@ -86,12 +89,6 @@ def test_blind_rejects_cloud_skill():
     validator = TreeValidator(registry, ValidatorConfig(blind=True))
 
     assert not validator.is_valid(_tree('<plan_with_claude/>'))
-
-
-def test_liveness():
-    errors = _errors('<say text="hi"/>', live_skills={'navigate_to'})
-
-    assert len(errors) == 1 and 'live' in errors[0]
 
 
 def test_condition_must_only_read():
@@ -131,13 +128,6 @@ def test_announce_adds_new_skill_and_expires():
     assert 'open_door' in registry
     assert [contract.name for contract in registry.live(max_age_s=5, now=103.0)] == ['open_door']
     assert registry.live(max_age_s=5, now=110.0) == []
-
-
-def test_number_attributes_must_be_integers():
-    errors = _errors('<Timeout msec="5000.0"><say text="hi"/></Timeout>')
-
-    assert len(errors) == 1 and 'integer' in errors[0]
-    assert not _errors('<RetryUntilSuccessful num_attempts="-1"><say text="hi"/></RetryUntilSuccessful>')
 
 
 def test_subtree_is_judged_where_it_is_called():
