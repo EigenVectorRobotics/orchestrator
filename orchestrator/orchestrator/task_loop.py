@@ -54,9 +54,12 @@ Use only the skills listed. Check the result of each step before the next one; d
 '''
 
 HISTORY_TURNS = 12         # the last turns in the prompt; older ones are summarized by count
+DETAILED_TURNS = 2         # of those, the newest that keep every part of their result: an older turn's detail has
+                           # been acted on already, and a prompt is built again for every decision of the task
 MAX_DECISION_CHARS = 1500  # a past decision is cut to this: write_skill carries a whole contract and its code
 MAX_SECTION_CHARS = 600    # and each part of a result, on its own, so a long failure cannot push out the message
 MAX_TRACE_CHARS = 200      # a trace line is one sentence (a validation line is about 60), and 12 ride in one reply
+MAX_BRIEF_CHARS = 200      # an older turn: what it did, and how its result ended
 PLUMBING = ('id', 'op', 'ok', 'trace')    # of a reply; the agent reads every other part, new ones included
 
 
@@ -68,11 +71,31 @@ class Decider(Protocol):
     def decide(self, prompt: str, image: bytes | None, work: Path) -> dict: ...
 
 
-def result_lines(reply: dict) -> list[str]:
+def decision_text(decision: dict, detailed: bool = True) -> str:
+    """A past decision: the whole of it for a recent turn, because write_skill carries a contract the agent may be
+    repairing. For an older turn, what it did and what it did it with: the inputs are how the agent knows it has
+    tried this already, and SYSTEM tells it not to repeat a failed step unchanged"""
+    if detailed:
+        return json.dumps(decision)[:MAX_DECISION_CHARS]
+
+    did = ' '.join(str(decision[key]) for key in ('op', 'skill', 'inputs_json') if decision.get(key))
+
+    return did[:MAX_BRIEF_CHARS]
+
+
+def result_lines(reply: dict, detailed: bool = True) -> list[str]:
     """One turn's result as labelled lines, each cut on its own: every part of the reply but the plumbing, so a
-    field added to StepResult reaches the agent with no change here, then what the robot logged while it ran"""
+    field added to StepResult reaches the agent with no change here, then what the robot logged while it ran.
+    An older turn keeps one line: how it ended, which is what the agent still needs from it"""
     def text(value) -> str:
         return value if isinstance(value, str) else json.dumps(value, default=str)
+
+    if not detailed:
+        # the status first and always: a step can fail with a message that sounds like success (press_button says
+        # 'pressed' and its check refuses it), and these lines are what the agent judges a repeat against
+        ended = ' '.join(str(reply[key]) for key in ('status', 'message') if reply.get(key))
+
+        return [f'  {ended[:MAX_BRIEF_CHARS]}' if ended else f'  ok: {reply.get("ok")}']
 
     lines  = [f'  {key}: {text(value)[:MAX_SECTION_CHARS]}' for key, value in reply.items()
               if value and key not in PLUMBING]
@@ -91,8 +114,9 @@ def build_prompt(opened: dict, catalog: str, history: list[tuple[dict, dict]]) -
         lines.append(f'({older} earlier turns not shown)')
 
     for turn, (decision, reply) in enumerate(history[-HISTORY_TURNS:], max(older, 0) + 1):
-        lines.append(f'Turn {turn}: {json.dumps(decision)[:MAX_DECISION_CHARS]}')
-        lines += result_lines(reply)
+        detailed = turn > len(history) - DETAILED_TURNS
+        lines.append(f'Turn {turn}: {decision_text(decision, detailed)}')
+        lines += result_lines(reply, detailed)
 
     lines.append('' if history else 'No turn yet: start with a plan.')
     lines.append('The image is the latest camera frame. Decide the next step.')

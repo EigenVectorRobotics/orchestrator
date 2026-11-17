@@ -177,3 +177,27 @@ def test_a_stale_skill_reaches_the_prompt_the_model_reads():
     prompt  = build_prompt({'state': 'open', 'run_id': 'r1', 'task': 't'}, catalog, [])
 
     assert 'the code moved under it: nav' in prompt and 'stale' in prompt
+
+
+def test_the_prompt_stays_within_a_budget_and_keeps_the_newest_turn_whole():
+    """The model reads one prompt per decision, up to task_max_steps of them, so the history cannot be unbounded.
+    An old turn's detail has been acted on already; the newest turn's has not"""
+    reply   = {'ok': False, 'status': 'failure', 'message': 'the goal was refused',
+               'outputs': {'where': 'x' * 2000}, 'failure': {'feedback': ['far' * 900]},
+               'trace': [f'validation: line {turn} ' + 'z' * 400 for turn in range(12)]}
+    history = [(_decision('run', skill=f'skill{turn}'), reply) for turn in range(12)]
+    prompt  = build_prompt({'state': 'open', 'run_id': 'r1', 'task': 't'}, '', history)
+
+    assert len(prompt) < 20_000, f'the history alone is {len(prompt)} characters'
+    assert 'skill11' in prompt and 'the goal was refused' in prompt
+
+
+def test_a_collapsed_turn_still_says_that_it_failed():
+    """The agent decides whether to run a skill again from the older turns. A step whose message does not say it
+    failed (press_button reports 'pressed' and the check refuses it) must not read like one that worked"""
+    pressed = (_decision('run', skill='press_button'), {'ok': False, 'status': 'failure', 'message': 'pressed'})
+    said    = (_decision('run', skill='say'), {'ok': True, 'status': 'success', 'message': 'said'})
+    prompt  = build_prompt({'state': 'open', 'run_id': 'r1', 'task': 't'}, '', [pressed, said, said, said])
+    turn    = prompt.split('Turn 1:')[1].split('Turn 2:')[0]          # old enough to be collapsed to one line
+
+    assert 'press_button' in turn and 'failure' in turn
