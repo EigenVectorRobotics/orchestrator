@@ -4,7 +4,6 @@ Called from the agent's thread while the executor spins its node in the main thr
 it is given (the skill runner's), and never publishes.
 """
 
-import math
 import threading
 
 from typing import Callable
@@ -12,17 +11,11 @@ from typing import Callable
 from rclpy.node import Node
 from rclpy.time import Time
 
+from .geometry import to_rpy
+
 
 class RosReadError(RuntimeError):
     pass
-
-
-def _quaternion_to_rpy(x: float, y: float, z: float, w: float) -> list[float]:
-    roll  = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
-    pitch = math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))
-    yaw   = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-
-    return [round(roll, 6), round(pitch, 6), round(yaw, 6)]
 
 
 class RosReader:
@@ -57,7 +50,7 @@ class RosReader:
             'source_frame':       source_frame,
             'translation_m':      [round(translation.x, 6), round(translation.y, 6), round(translation.z, 6)],
             'rotation_xyzw':      [round(rotation.x, 6), round(rotation.y, 6), round(rotation.z, 6), round(rotation.w, 6)],
-            'rpy_rad':            _quaternion_to_rpy(rotation.x, rotation.y, rotation.z, rotation.w),
+            'rpy_rad':            [round(angle, 6) for angle in to_rpy((rotation.x, rotation.y, rotation.z, rotation.w))],
             'age_s':              round(age_s, 3),
             'meaning':            f'the pose of {source_frame} in {target_frame}',
         }

@@ -29,7 +29,8 @@ from .images import ImageError, image_to_jpeg
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
 from .press_capture import DEFAULT_CAPTURE_DIR, BoxBuffer, CaptureConfig, FrameBuffer, PressCapture
-from .stance_checks import judge_arm, judge_view, rotate, transform_pose
+from .stance_checks import judge_arm, judge_view
+from .geometry import rotate, transform_pose, yaw_quaternion
 from .preflight_checks import judge_alive, run_command, url_answers
 
 
@@ -57,8 +58,7 @@ def to_pose_stamped(pose: dict, node: Node) -> PoseStamped:
     message.pose.position.x     = float(pose['x'])
     message.pose.position.y     = float(pose['y'])
     message.pose.position.z     = float(pose.get('z', 0.0))     # the storey on a multi-storey map; 0 = the lowest
-    message.pose.orientation.z  = math.sin(yaw / 2)
-    message.pose.orientation.w  = math.cos(yaw / 2)
+    _, _, message.pose.orientation.z, message.pose.orientation.w = yaw_quaternion(yaw)
 
     return message
 

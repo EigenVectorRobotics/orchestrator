@@ -10,8 +10,6 @@ with no VLM call of their own; button_in_view seeds the track that feeds them.
 This module needs no ROS.
 """
 
-import math
-
 
 VIEW_DEFAULTS  = {'max_age_s': 1.0, 'margin_frac': 0.05}
 ARM_DEFAULTS   = {'left_arm_min_y_m': 0.10}
@@ -68,33 +66,3 @@ def judge_arm(position: tuple, limits: dict | None = None, inputs: dict | None =
         return True, f'left arm: the button is {y:+.3f} m to the side, past {threshold:+.2f}'
 
     return False, f'right arm: the button is {y:+.3f} m to the side, not past {threshold:+.2f}'
-
-
-# ========== Poses ==========
-
-def rotate(quaternion: tuple, vector: tuple) -> tuple:
-    """vector rotated by the unit quaternion (x, y, z, w)"""
-    qx, qy, qz, qw = quaternion
-    vx, vy, vz     = vector
-    # t = 2 q_v x v; v' = v + w t + q_v x t
-    tx, ty, tz = 2 * (qy * vz - qz * vy), 2 * (qz * vx - qx * vz), 2 * (qx * vy - qy * vx)
-
-    return (vx + qw * tx + (qy * tz - qz * ty),
-            vy + qw * ty + (qz * tx - qx * tz),
-            vz + qw * tz + (qx * ty - qy * tx))
-
-
-def transform_pose(position: tuple, quaternion: tuple, translation: tuple, rotation: tuple) -> tuple[tuple, tuple]:
-    """A pose given in the source frame, in the target frame, with the transform (translation, rotation) of the
-    source frame in the target frame (what tf2's lookup_transform(target, source) returns)"""
-    moved = rotate(rotation, position)
-    ax, ay, az, aw = rotation
-    bx, by, bz, bw = quaternion
-
-    product = (aw * bx + ax * bw + ay * bz - az * by,
-               aw * by - ax * bz + ay * bw + az * bx,
-               aw * bz + ax * by - ay * bx + az * bw,
-               aw * bw - ax * bx - ay * by - az * bz)
-
-    return tuple(m + t for m, t in zip(moved, translation)), product
-

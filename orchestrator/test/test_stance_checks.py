@@ -1,8 +1,7 @@
-import math
 
 import pytest
 
-from orchestrator.stance_checks import judge_arm, judge_view, rotate, transform_pose
+from orchestrator.stance_checks import judge_arm, judge_view
 
 
 IMAGE = (1280, 720)
@@ -36,19 +35,6 @@ def test_the_tree_can_narrow_the_margin():
 
     assert not judge_view(box, 0.2, IMAGE)[0]
     assert judge_view(box, 0.2, IMAGE, inputs={'margin_frac': 0.02})[0]
-
-
-# ========== Poses ==========
-
-def test_rotate_and_transform_a_pose_into_another_frame():
-    quarter = (0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4))           # 90 deg about z
-
-    assert rotate(quarter, (1.0, 0.0, 0.0)) == pytest.approx((0.0, 1.0, 0.0))
-
-    position, rotation = transform_pose((1.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), (0.5, 0.0, 0.2), quarter)
-
-    assert position == pytest.approx((0.5, 1.0, 0.2))
-    assert rotate(rotation, (1.0, 0.0, 0.0)) == pytest.approx((0.0, 1.0, 0.0))
 
 
 def test_the_left_arm_only_past_the_threshold_to_the_left():

@@ -17,6 +17,7 @@ from skill_registry import Contract
 
 from .behavior_tree import Context, Status
 from . import stance
+from .geometry import turn_2d, wrap
 
 
 # The decisions each phase may end with, and the ones that let the tree go on
@@ -100,12 +101,13 @@ APPROACH_BACK_M = 0.15      # a short reposition walks out this far behind its g
 
 def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
     """base moved by (dx, dy) in its own frame (x along its yaw) and turned by dyaw"""
-    yaw = float(base.get('yaw', 0.0))
+    yaw          = float(base.get('yaw', 0.0))
+    step_x, step_y = turn_2d(yaw, dx, dy)
 
     goal = {
-        'x':     float(base['x']) + math.cos(yaw) * dx - math.sin(yaw) * dy,
-        'y':     float(base['y']) + math.sin(yaw) * dx + math.cos(yaw) * dy,
-        'yaw':   math.atan2(math.sin(yaw + dyaw), math.cos(yaw + dyaw)),
+        'x':     float(base['x']) + step_x,
+        'y':     float(base['y']) + step_y,
+        'yaw':   wrap(yaw + dyaw),
         'frame': base.get('frame', 'map'),
     }
 

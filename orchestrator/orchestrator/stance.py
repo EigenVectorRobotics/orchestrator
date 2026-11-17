@@ -13,6 +13,8 @@ import time
 
 from pathlib import Path
 
+from .geometry import rotate, turn_2d, wrap
+
 
 ARRIVAL_RADIUS_M     = 0.1      # navigate_to reports arrived within this distance, so a smaller reposition does not walk
 REACH_TOLERANCE_M    = 0.005    # ik_server's goal_position_tolerance: a smaller miss is an orientation miss
@@ -27,23 +29,18 @@ def relative_pose(robot: dict, base: dict) -> dict:
     yaw          = float(base.get('yaw', 0.0))
     dx, dy       = robot['x'] - float(base['x']), robot['y'] - float(base['y'])
     dyaw         = robot['yaw'] - yaw
+    forward, left = turn_2d(-yaw, dx, dy)
 
     return {
-        'forward_m': round(math.cos(yaw) * dx + math.sin(yaw) * dy, 4),
-        'left_m':    round(-math.sin(yaw) * dx + math.cos(yaw) * dy, 4),
-        'yaw_rad':   round(math.atan2(math.sin(dyaw), math.cos(dyaw)), 4),
+        'forward_m': round(forward, 4),
+        'left_m':    round(left, 4),
+        'yaw_rad':   round(wrap(dyaw), 4),
     }
 
 
 def transform_point(transform: dict, point) -> list:
     """point moved by an agent tf() result (translation_m, rotation_xyzw): source frame into target frame"""
-    x, y, z, w = transform['rotation_xyzw']
-    px, py, pz = point
-    rotated    = [
-        (1 - 2 * (y * y + z * z)) * px + 2 * (x * y - w * z) * py + 2 * (x * z + w * y) * pz,
-        2 * (x * y + w * z) * px + (1 - 2 * (x * x + z * z)) * py + 2 * (y * z - w * x) * pz,
-        2 * (x * z - w * y) * px + 2 * (y * z + w * x) * py + (1 - 2 * (x * x + y * y)) * pz,
-    ]
+    rotated = rotate(tuple(transform['rotation_xyzw']), tuple(point))
 
     return [round(value + offset, 4) for value, offset in zip(rotated, transform['translation_m'])]
 
@@ -73,10 +70,11 @@ def match(stance: dict, target_pelvis: list, reference_pelvis: list) -> dict:
     step_left    = target_pelvis[1] - reference_pelvis[1]
     yaw          = stance['yaw_rad']
     move_m       = math.hypot(step_forward, step_left)
+    step_x, step_y = turn_2d(yaw, step_forward, step_left)
 
     return {
-        'dx':     round(stance['forward_m'] + math.cos(yaw) * step_forward - math.sin(yaw) * step_left, 3),
-        'dy':     round(stance['left_m'] + math.sin(yaw) * step_forward + math.cos(yaw) * step_left, 3),
+        'dx':     round(stance['forward_m'] + step_x, 3),
+        'dy':     round(stance['left_m'] + step_y, 3),
         'dyaw':   round(yaw, 3),
         'move_m': round(move_m, 3),
         'walks':  move_m > ARRIVAL_RADIUS_M,
