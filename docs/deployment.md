@@ -20,11 +20,13 @@ How to bring the machines up and run a task is in `docs/operations.md`.
 
 Branch @ commit, and local changes, as checked. "No upstream": the local branch tracks no remote branch. A row marked **to deploy** names the branch the team runs from now on; what was checked is in its last column until the machine is updated.
 
+**bringup comes from `eigen_vector` `main`**, directory `bringup/`. Since 2026-10-26 (`eigen_vector` `8e498d7`, "bringup lives here") the package lives in `eigen_vector`; `deploy.sh` sends it and `provision.sh` copies it to `src/bringup` on each machine, so it is never a git checkout there. The separate repository `EigenVectorRobotics/bringup` stopped at 2026-10-27 (`4c70a72`): its `nuc.launch.py` starts only the arm visual servoing (no robot interface, navigation, SLAM or `door_state_node`), so `nuc_up` cannot pass with it. Do not deploy from it.
+
 ### NUC, `~/eigen_vector_ws/src`
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `bringup` | not a git checkout: copied by `deploy.sh`, then edited by hand (see "Only on a machine") | |
+| `bringup` | **to deploy:** `eigen_vector` `main`, `bringup/` (`dfabc71` on GitHub, 2026-11-17), copied by `deploy.sh` | checked: not a git checkout, edited by hand (see "Only on a machine") |
 | `manipulation_stack` | **to deploy:** `main` (`4f12ae1` when checked: the gripper estimation merged as #10; contains `e63f2b8`, body_ekf `~/reset`) | checked: `cam-gripper-estimation` @ `ba0cbfa` with 6 files changed, not committed (`g1_pilot/src/move_to_pose/{planning.cpp,server.cpp,server.h}`, `humanoid_arm_skills/humanoid_arm_skills/gripper_pose_estimator.py`, `humanoid_arm_skills/launch/humanoid_arm_visual_servoing.launch.py`, `humanoid_arm_skills/package.xml`) |
 | `navigation_stack` | `jean/elevator-side` @ `39e6139` | no upstream; one untracked file, `slam_elevatorlio/slam_elevatorlio/slam_elevatorlio_parameters.py` |
 | `elevator_states` | `jean/door-state-in-out` @ `8ad0552` | no upstream; clean |
@@ -42,7 +44,7 @@ Branch @ commit, and local changes, as checked. "No upstream": the local branch 
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `bringup` | not a git checkout (copied 2026-11-02) | |
+| `bringup` | from `eigen_vector` `main`, `bringup/`, copied by `deploy.sh`; not a git checkout (copied 2026-11-02) | |
 | `manipulation_stack` | `cam-gripper-estimation` @ `ba0cbfa` | 2 files changed, not committed |
 | `track_anything` | `perf/track3d-latest-frame` @ `191b222` | no upstream; 7 files changed, not committed |
 | `vlm` | `main` @ `3ca4861` | clean |
@@ -53,7 +55,7 @@ Branch @ commit, and local changes, as checked. "No upstream": the local branch 
 
 | Workspace | Repository | Branch @ commit | Local state |
 |---|---|---|---|
-| `~/eigen_vector_ws_bringup` | `bringup` | not a git checkout | |
+| `~/eigen_vector_ws_bringup` | `bringup` | from `eigen_vector` `main`, `bringup/`, copied by `deploy.sh`; not a git checkout | |
 | | `vlm` | `main` @ `3ca4861` | clean; `ground_server` runs from here |
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
 | `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-dev` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd`, a branch deleted on GitHub. `launch_thor_stack` starts `cosmos_vlm_server.py` from this checkout |
@@ -65,8 +67,8 @@ Running when checked: on the Thor, the tmux session `eigen_vector_bringup` (`gro
 
 | Machine | Path | What | Status |
 |---|---|---|---|
-| NUC | `~/eigen_vector_ws/src/bringup/config/cyclonedds.xml` | `MaxAutoParticipantIndex` 120 (N-001) | needed; not committed to `eigen_vector` |
-| NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py` | on `eigen_vector` branch `jean/door-state-bringup`, not on `main`. The bringup redeployed on 2026-11-08 at 20:29 no longer includes it: `door_state_node` ran in its own tmux session `door_state` (`docs/operations.md`, section 5) |
+| NUC | `~/eigen_vector_ws/src/bringup/config/cyclonedds.xml` | `MaxAutoParticipantIndex` 120 (N-001) | now on `eigen_vector` `main` (`ParticipantIndex` auto, `MaxAutoParticipantIndex` 120; PR #3 and `dfabc71`, 2026-11-14): a redeploy from `main` keeps it, no hand edit needed |
+| NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py` | on `eigen_vector` `main` since 2026-11-10 (PR #2 from `jean/door-state-bringup`, `77382fb`): a redeploy from `main` starts `door_state_node` with the NUC stack, so `nuc_up` gets `/door_state`. Its door regions are set for `two_floor_clean.pcd` (`elevator_states` `config/elevator_door_state.yaml`, as the launch file notes); check them against `two_floor_clean_cabin2`. On 2026-11-08 the NUC ran a bringup without it, and `door_state_node` ran in its own tmux session `door_state` (`docs/operations.md`, section 5) |
 | NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two: robot interface, arm control and foxglove (`tmux -L eigen_vector`); navigation and SLAM (`tmux -L nav`, log `~/nav_launch.log`) | what ran on 2026-11-08 evening; not in any repository |
 | NUC | `~/maps/two_floor_clean_cabin2.pcd`, `~/maps/two_floor_clean_cabin2.places.yaml` (backups `*.bak_*`) | the map in use and its places and areas (`freight elevator cabin`, `freight elevator hall`) | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
 | NUC | `~/fake_button_pose.py` | fixed button poses for `press_button` with no Thor | disabled: do not start it |
