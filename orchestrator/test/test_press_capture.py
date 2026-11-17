@@ -291,6 +291,8 @@ def test_the_residual_is_in_the_goal_frame_x_in_y_left_z_up():
 
 
 def test_a_service_field_path_can_index_a_sequence():
+    pytest.importorskip('rcl_interfaces')
+
     from rcl_interfaces.srv import SetParameters
     from orchestrator.ros_skill_runner import build_message
 
