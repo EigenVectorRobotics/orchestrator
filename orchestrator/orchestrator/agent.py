@@ -151,7 +151,8 @@ def rule_offset(last_failure: dict | None, history: list[dict], residual: list |
     depth = f' and stopped {-residual[0] * 1000:.1f} mm short (pushing {RULE_DEPTH_MARGIN_M * 1000:g} mm past it)' if short else ''
 
     return {
-        'decision': 'offset_retry',
+        'decision':  'offset_retry',
+        'rule_name': 'offset',
         'reason':   f'rule: the press reached its goal, {found}{depth} '
                     f'(residual {[round(value * 1000, 1) for value in residual]} mm); offset {[round(v * 1000, 1) for v in in_force]} '
                     f'-> {[round(v * 1000, 1) for v in corrected]} mm',
@@ -167,7 +168,7 @@ def rule_stance(evidence: dict | None, history: list[dict]) -> dict | None:
     pressed = [index for index, record in enumerate(history) if record.get('skill') == 'press_judge' and record.get('decision') == 'pressed']
     since   = history[pressed[-1] + 1:] if pressed else history
     sent    = [record for record in since if record.get('skill') == 'manipulation_recovery' and record.get('rule')
-               and str(record.get('reason', '')).startswith('rule: the robot stands')]
+               and record.get('rule_name') == 'stance']
     moved   = [record.get('offset') for record in since if record.get('skill') == 'manipulation_recovery'
                and record.get('decision') == 'reposition' and isinstance(record.get('offset'), dict)]
 
@@ -187,7 +188,8 @@ def rule_stance(evidence: dict | None, history: list[dict]) -> dict | None:
     goal = 'the base goal' if not moved else f'the target stance (dx {target["dx"]:+.3f}, dy {target["dy"]:+.3f})'
 
     return {
-        'decision': 'reposition',
+        'decision':  'reposition',
+        'rule_name': 'stance',
         'reason':   f'rule: the robot stands {distance:.3f} m and {math.degrees(yaw):+.1f} deg off {goal} '
                     f'(forward {forward:+.3f}, left {left:+.3f}): sending it again',
         **target,
@@ -202,7 +204,7 @@ def rule_reach(evidence: dict | None, history: list[dict], last_failure: dict | 
     pressed = [index for index, record in enumerate(history) if record.get('skill') == 'press_judge' and record.get('decision') == 'pressed']
     since   = history[pressed[-1] + 1:] if pressed else history
     sent    = [record for record in since if record.get('skill') == 'manipulation_recovery' and record.get('rule')
-               and str(record.get('reason', '')).startswith('rule: the IK check')]
+               and record.get('rule_name') == 'reach']
 
     if (last_failure or {}).get('skill') != 'check_reach' or not move.get('fixable') or not move.get('within_limits'):
         return None
@@ -213,7 +215,8 @@ def rule_reach(evidence: dict | None, history: list[dict], last_failure: dict | 
     miss = reach['pelvis_error_m']
 
     return {
-        'decision': 'reposition',
+        'decision':  'reposition',
+        'rule_name': 'reach',
         'reason':   f'rule: the IK check missed by x {miss["x"] * 1000:+.0f} y {miss["y"] * 1000:+.0f} z {miss["z"] * 1000:+.0f} mm '
                     f'in pelvis (arm end minus target): stepping {move["step_pelvis_m"]} m in pelvis, to dx {move["dx"]:+.3f} '
                     f'dy {move["dy"]:+.3f} dyaw {move["dyaw"]:+.3f} from the base goal',
@@ -461,17 +464,17 @@ class Agent:
             # (2) A rule decides without the agent when the evidence makes the answer plain
             if phase == 'diagnose' and (rule := self._rule(evidence)) is not None:
                 self.on_event('agent_rule', rule['reason'], phase=phase)
-                return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True}
+                return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True, 'rule_name': rule['rule_name']}
 
             if phase in STANCE_PHASES and (rule := rule_stance(evidence.get('stance'), evidence['history'])) is not None:
                 self.on_event('agent_rule', rule['reason'], phase=phase)
                 self._say('I am not standing where I should. Walking to my spot again.')
-                return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True}
+                return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True, 'rule_name': rule['rule_name']}
 
             if phase == 'stance_check' and (rule := rule_reach(evidence.get('stance'), evidence['history'], evidence['last_failure'])):
                 self.on_event('agent_rule', rule['reason'], phase=phase)
                 self._say('The button is just out of my reach. Stepping closer to it.')
-                return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True}
+                return {**decision_outputs(rule, inputs, evidence['last_failure'], self._robot()), 'rule': True, 'rule_name': rule['rule_name']}
 
             # (3) The call: the backend sends the evidence and brings back one decision that decide accepted
             session = AgentSession(phase, inputs, evidence, self.ros, self.on_event)

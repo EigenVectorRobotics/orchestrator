@@ -874,7 +874,7 @@ OFFSET_SET  = {'skill': 'set_press_offset', 'inputs': {'x': 0.005, 'y': 0.0075, 
 def test_a_first_miss_in_the_band_is_corrected_without_the_agent():
     rule = rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, -0.0051, 0.0002])
 
-    assert rule['decision'] == 'offset_retry'
+    assert rule['decision'] == 'offset_retry' and rule['rule_name'] == 'offset'
     assert (rule['ox'], rule['oy'], rule['oz']) == (0.007, 0.0126, 0.0032)          # the offset in force minus the residual
 
 
@@ -915,7 +915,7 @@ def test_the_stance_rule_sends_the_base_goal_again_when_the_robot_stands_off_it(
 
 def test_the_stance_rule_gives_way_to_the_agent_after_two_resends_until_a_press_works():
     far     = {'stance_from_base_goal': {'forward_m': -0.3, 'left_m': 0.0, 'yaw_rad': 0.0}}
-    resent  = {'skill': 'manipulation_recovery', 'rule': True, 'reason': rule_stance(far, [])['reason']}
+    resent  = {'skill': 'manipulation_recovery', 'rule': True, 'rule_name': rule_stance(far, [])['rule_name']}
     pressed = {'skill': 'press_judge', 'decision': 'pressed'}
 
     assert rule_stance(far, [resent]) is not None
@@ -947,7 +947,7 @@ def test_the_reach_rule_walks_by_the_ik_miss_after_a_failed_check():
 
 
 def test_the_reach_rule_gives_way_to_the_agent_after_two_moves():
-    moved = {'skill': 'manipulation_recovery', 'rule': True, 'reason': rule_reach(REACH_MOVE, [], REACH_MISS)['reason']}
+    moved = {'skill': 'manipulation_recovery', 'rule': True, 'rule_name': rule_reach(REACH_MOVE, [], REACH_MISS)['rule_name']}
 
     assert rule_reach(REACH_MOVE, [moved], REACH_MISS) is not None
     assert rule_reach(REACH_MOVE, [moved, moved], REACH_MISS) is None

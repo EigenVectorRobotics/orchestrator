@@ -267,6 +267,7 @@ class AgentLeaf(SkillLeaf):
             'base_goal': self.inputs.get('base_goal'),  # the panel, for the ask_help gate
             'left_arm': outputs.get('left_arm'),
             'rule':     bool(outputs.get('rule')),       # decided by the executor's rule, not the agent: outside max_rounds
+            'rule_name': outputs.get('rule_name'),       # which rule (offset, stance, reach): the rules count their own answers
         })
 
         checked = self.context.last_call
