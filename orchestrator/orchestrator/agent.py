@@ -549,6 +549,10 @@ class Agent:
         except Exception as error:                      # a missing transform costs the reference, never the press
             self.on_event('agent_tool', f'press reference not kept: {error}', level='warn')
 
+    def say(self, text: str):
+        """Say one sentence for the agent leaf (e.g. why a call failed)"""
+        self._say(text)
+
     def _say(self, text: str | None):
         if text and self.speak:
             self.speak(text)

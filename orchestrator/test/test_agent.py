@@ -287,6 +287,29 @@ def test_an_ask_help_ends_the_calls_for_its_own_panel_only(tmp_path):
     assert len(backend.link.calls) == 2
 
 
+def test_a_call_that_fails_without_a_decision_says_why(tmp_path):
+    class BrokenBackend:
+        def run(self, *args, **kwargs):
+            raise RuntimeError('the agent bridge failed: no structured output')
+
+    body   = ('<root BTCPP_format="4"><BehaviorTree ID="t">'
+              '<manipulation_recovery max_rounds="1" base_goal="{call_panel}"/></BehaviorTree></root>')
+    spoken = []
+    tree   = _tree(body, FakeRunner([]), Agent(BrokenBackend(), speak=spoken.append))
+    tree.context.last_failure = {'inputs': {}}
+
+    assert _run(tree) == Status.FAILURE
+    assert spoken[-1] == 'My helper could not decide.'
+
+    spent  = {'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'retry', 'rule': False}
+    spoken = []
+    tree   = _tree(body, FakeRunner([]), Agent(BrokenBackend(), speak=spoken.append))
+    tree.context.last_failure, tree.context.history = {'inputs': {}}, [spent]
+
+    assert _run(tree) == Status.FAILURE
+    assert spoken == ['I have used up my recovery attempts for this task.']
+
+
 def test_the_round_budget_stops_the_agent(tmp_path):
     backend = _push(tmp_path, [{'decision': 'retry', 'reason': 'try again'}])
     runner  = FakeRunner([MISS, MISS])

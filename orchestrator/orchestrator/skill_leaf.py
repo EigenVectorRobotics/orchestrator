@@ -251,8 +251,9 @@ class AgentLeaf(SkillLeaf):
         outputs  = self.handle.outputs
         decision = outputs.get('decision')
 
-        if not decision:
-            return                                      # the agent did not decide: nothing to keep
+        if not decision:                                # the agent did not decide: nothing to keep, but say why
+            self._say_failure()
+            return
 
         self.context.record({
             'time':     self.context.clock(),
@@ -281,6 +282,27 @@ class AgentLeaf(SkillLeaf):
 
         if decision == 'abort':
             self.context.abort(f'{self.contract.name}: {outputs.get("reason", "")}')
+
+
+    def _say_failure(self):
+        """A call that failed without a decision (no agent, budget spent, timeout, the bridge failed) goes on like an
+        ask_help in the tree; the robot says why, so a person near it knows the helper is the problem"""
+        text = self.message
+
+        if text.startswith('the agent already asked for help'):
+            return                                      # the robot asked for help at this panel already
+
+        if text.startswith('no agent is configured'):
+            said = 'I have no helper connected.'
+        elif text.startswith('recovery budget spent'):
+            said = 'I have used up my recovery attempts for this task.'
+        elif text.startswith('timeout after'):
+            said = 'My helper did not answer in time.'
+        else:
+            said = 'My helper could not decide.'
+
+        if callable(getattr(self.runner, 'say', None)):
+            self.runner.say(said)
 
 
 def make_leaf_factory(registry: Registry, runner: SkillRunner, agent: AgentRunner | None = None):
