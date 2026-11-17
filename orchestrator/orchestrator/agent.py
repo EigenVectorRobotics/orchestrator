@@ -18,29 +18,16 @@ from skill_registry import Contract
 from .behavior_tree import Context, Status
 from . import stance
 from .geometry import turn_2d, wrap
+from .agent_spec import (APPROACH_BACK_M, GOING_ON, MAX_PRESS_OFFSET_M, PHASE_DECISIONS, REPOSITION_LIMITS_M,
+                         STANCE_CHANGED_M, STANCE_PHASES, STANCE_TOLERANCE_M, STANCE_TOLERANCE_RAD, WALK_MIN_M)
 
 
-# The decisions each phase may end with, and the ones that let the tree go on
-PHASE_DECISIONS = {
-    'diagnose':     ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help', 'abort'),
-    'stance_check': ('continue', 'reposition', 'abort'),       # button_in_view chooses the arm
-    'judge':      ('pressed', 'not_pressed'),
-    'confirm':    ('confirmed', 'not_confirmed'),
-}
-GOING_ON = {'reposition', 'switch_arm', 'offset_retry', 'retry', 'continue', 'pressed', 'confirmed'}
-MAX_PRESS_OFFSET_M = 0.05               # an offset_retry corrects millimetres; a larger miss needs another decision
-RULE_MISS_M        = (0.005, 0.050)     # a first miss this far from the goal in the button plane is corrected without the agent
-RULE_SHORT_M       = 0.003              # a press that stopped this far short along the button normal, aimed well, goes deeper
+# The phases, decisions and limits the bridge shares are in agent_spec; these are the executor's own rules
+RULE_MISS_M         = (0.005, 0.050)    # a first miss this far from the goal in the button plane is corrected without the agent
+RULE_SHORT_M        = 0.003             # a press that stopped this far short along the button normal, aimed well, goes deeper
 RULE_DEPTH_MARGIN_M = 0.005             # pushed this much past the shortfall
-STANCE_TOLERANCE_M   = 0.06             # farther than this from the base goal, the executor sends the base goal again
-STANCE_TOLERANCE_RAD = 0.15             # or turned more than this from it (8.6 deg)
-STANCE_RULE_MAX      = 2                # base goals re-sent per press before the agent decides
-REPOSITION_LIMITS_M  = {'forward': 0.15, 'back': 0.60, 'side': 0.25}   # from the base goal; it stands near the panel
-REACH_RULE_MAX       = 2                # reach moves per press before the agent decides
-STANCE_CHANGED_M     = 0.03             # the press target moved this much in pelvis since a passed check_reach: the stance changed
-
-STANCE_PHASES = ('diagnose', 'stance_check')
-PRESS_PHASES  = ('judge', 'diagnose')       # a diagnosis after a judged miss needs the press's depth and residual
+STANCE_RULE_MAX     = 2                 # stances re-sent per press before the agent decides
+REACH_RULE_MAX      = 2                 # reach moves per press before the agent decides
 PRESS_FRAME   = 'foot_world'        # press_button's goal frame (move_to_pose planning_frame)
 
 # What the robot says when an agent call opens and when it is decided, so people near it know what comes next
@@ -95,9 +82,6 @@ class AgentBackend(Protocol):
     ): ...
 
 
-WALK_MIN_M      = 0.10      # navigate_to ends a shorter walk without a step (E-002/E-016)
-APPROACH_BACK_M = 0.15      # a short reposition walks out this far behind its goal, then onto it
-
 
 def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
     """base moved by (dx, dy) in its own frame (x along its yaw) and turned by dyaw"""
@@ -115,6 +99,20 @@ def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
         goal['z'] = float(base['z'])
 
     return goal
+
+
+def offset_in_force(history: list[dict], press_offset: list | None = None) -> list[float]:
+    """The press offset (x in, y left, z up) the last press used: press_offset from its capture, else the last
+    set_press_offset since the last press judged pressed (0 when there is none)"""
+    if press_offset is not None and len(press_offset) == 3:
+        return [float(value) for value in press_offset]
+
+    pressed = [index for index, record in enumerate(history) if record.get('skill') == 'press_judge' and record.get('decision') == 'pressed']
+    since   = history[pressed[-1] + 1:] if pressed else history
+    offsets = [record.get('inputs') or {} for record in since if record.get('skill') == 'set_press_offset']
+    last    = offsets[-1] if offsets else {}
+
+    return [float(last.get(axis, 0.0)) for axis in 'xyz']
 
 
 def rule_offset(last_failure: dict | None, history: list[dict], residual: list | None,
@@ -140,9 +138,7 @@ def rule_offset(last_failure: dict | None, history: list[dict], residual: list |
     if not (RULE_MISS_M[0] < miss < RULE_MISS_M[1] or (miss <= RULE_MISS_M[0] and short)):
         return None
 
-    offsets   = [record.get('inputs', {}) for record in since if record.get('skill') == 'set_press_offset']
-    in_force  = ([float(value) for value in press_offset] if press_offset is not None and len(press_offset) == 3 else
-                 [float(offsets[-1].get(axis, 0.0)) if offsets else 0.0 for axis in 'xyz'])
+    in_force  = offset_in_force(history, press_offset)
     corrected = [round(force - miss_axis, 4) for force, miss_axis in zip(in_force, residual)]
     corrected[0] = round(corrected[0] + (RULE_DEPTH_MARGIN_M if short else 0.0), 4)
 

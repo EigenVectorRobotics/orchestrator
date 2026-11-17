@@ -15,9 +15,9 @@ import time
 from pathlib import Path
 
 from .geometry import rotate, turn_2d, wrap
+from .agent_spec import WALK_MIN_M       # navigate_to ends a shorter walk without a step
 
 
-ARRIVAL_RADIUS_M     = 0.1      # navigate_to reports arrived within this distance, so a smaller reposition does not walk
 REACH_TOLERANCE_M    = 0.005    # ik_server's goal_position_tolerance: a smaller miss is an orientation miss
 REACH_MAX_Z_M        = 0.03     # a larger vertical miss is not fixed by walking
 REACH_MARGIN_M       = 0.02     # a reach move steps this much further, so the target lands inside the reach, not on its edge
@@ -80,7 +80,7 @@ def match(stance: dict, target_pelvis: list, reference_pelvis: list) -> dict:
         'dy':     round(stance['left_m'] + step_y, 3),
         'dyaw':   round(yaw, 3),
         'move_m': round(move_m, 3),
-        'walks':  move_m > ARRIVAL_RADIUS_M,
+        'walks':  move_m > WALK_MIN_M,
     }
 
 
@@ -222,7 +222,7 @@ def evidence(base: dict | None, robot: dict | None, target_pelvis: list | None, 
 
     if stance is not None:                      # the walk the tree planned, repeated: no reference needed
         move_m = math.hypot(stance['forward_m'], stance['left_m'])
-        result['to_base_goal'] = {'dx': 0.0, 'dy': 0.0, 'dyaw': 0.0, 'move_m': round(move_m, 3), 'walks': move_m > ARRIVAL_RADIUS_M}
+        result['to_base_goal'] = {'dx': 0.0, 'dy': 0.0, 'dyaw': 0.0, 'move_m': round(move_m, 3), 'walks': move_m > WALK_MIN_M}
 
     if other is not None and left_arm is not None:
         result['other_arm'] = {
@@ -249,6 +249,6 @@ def evidence(base: dict | None, robot: dict | None, target_pelvis: list | None, 
         result['note'] = 'no target yet: compare the stance with the reference stance'
     elif not result['match']['walks']:
         result['note'] = (f'the matching stance is {result["match"]["move_m"] * 100:.0f} cm away, inside the '
-                          f'{ARRIVAL_RADIUS_M * 100:.0f} cm arrival radius: a reposition there does not walk')
+                          f'{WALK_MIN_M * 100:.0f} cm arrival radius: a reposition there does not walk')
 
     return result

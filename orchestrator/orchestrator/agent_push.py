@@ -2,6 +2,9 @@
 (mission_control/agent_bridge.py) over one TCP connection it keeps open, and waits for the decision on it. The bridge
 asks the model for press_judge and manipulation_recovery, and the operator in its terminal for operator_confirm.
 
+The call's shape, the decisions, the fields and the framing are in agent_spec, which the bridge imports too; each call
+carries agent_spec.PROTOCOL, its phase, button and base goal as fields, and the limits the executor enforces.
+
 A message is a header of two big-endian uint32 (the JSON length, then the length of the binary after it), the JSON,
 then the images back to back, as its "images" list gives them ({name, media_type, size}). The executor sends call,
 reply (accepted or why not) and cancel; the bridge sends started (model and prompt), decision and failed. Both send
@@ -23,20 +26,16 @@ import time
 import uuid
 import queue
 import socket
-import struct
 import threading
 
 from typing import Callable
 from pathlib import Path
 
-from .agent import PHASE_DECISIONS, PRESS_PHASES, STANCE_PHASES, AgentError, AgentSession
+from .agent import AgentError, AgentSession, offset_in_force
+from .agent_spec import (DECISION_FIELDS, HEADER, MAX_BINARY, MAX_JSON, PHASE_DECISIONS, PING_S, PRESS_PHASES, PROTOCOL,
+                         STANCE_PHASES, limits)
 
 
-DECISION_FIELDS = ('decision', 'reason', 'dx', 'dy', 'dyaw', 'use_left_arm', 'ox', 'oy', 'oz')
-HEADER      = struct.Struct('!II')
-MAX_JSON    = 16_000_000
-MAX_BINARY  = 64_000_000
-PING_S      = 5.0
 DEAD_S      = 20.0
 RETRY_S     = 2.0
 MAX_REFUSED = 3                         # decisions refused in one call before it fails
@@ -60,17 +59,27 @@ class BridgeUnreachable(AgentError):
     pass
 
 
-def open_request(skill: str, phase: str, task: str, evidence: dict) -> dict:
-    """The call as the bridge gets it: the task, the allowed decisions and all the evidence"""
+def open_request(skill: str, phase: str, task: str, evidence: dict, inputs: dict | None = None) -> dict:
+    """The call as the bridge gets it: the protocol, the phase and its decisions, the leaf's inputs as fields, the limits
+    the executor enforces, and all the evidence. task is the same call as text, for the record and the viewer"""
+    inputs  = inputs or {}
+    history = evidence.get('history') or []
     request = {
         'id':        uuid.uuid4().hex[:8],
         'state':     'open',
+        'protocol':  PROTOCOL,
         'skill':     skill,
+        'phase':     phase,
         'opened':    time.time(),
         'task':      task,
+        'button':    inputs.get('target_description', ''),
+        'question':  inputs.get('question', ''),
+        'base_goal': inputs.get('base_goal'),
         'decisions': list(PHASE_DECISIONS[phase]),
+        'limits':    limits(),
         'failure':   evidence.get('last_failure') or None,
-        'history':   evidence.get('history') or [],
+        'history':   history,
+        'offset_in_force': offset_in_force(history, ((evidence.get('press') or {}).get('press_offset_m'))),
     }
 
     if phase in PRESS_PHASES:
@@ -271,11 +280,11 @@ class PushAgentBackend:
     def run(self, skill: str, phase: str, task: str, session: AgentSession,
             should_stop: Callable[[], bool], on_event: Callable[..., None]):
         # (1) The call with all its evidence and frames, sent now and again on each reconnect
-        request = open_request(skill, phase, task, session.evidence)
+        request = open_request(skill, phase, task, session.evidence, session.inputs)
         images  = call_images(request, session)
-        header  = {**request, 'type': 'call', 'phase': phase,
+        header  = {**request, 'type': 'call',
                    'images': [{'name': name, 'media_type': media, 'size': len(data)} for name, media, data in images]}
-        request = {**request, 'phase': phase, 'images': self._image_files(request, images)}
+        request = {**request, 'images': self._image_files(request, images)}
         outcome = {'outcome': 'failed', 'error': 'the call ended without a decision'}
         refused = 0
         opened  = time.monotonic()

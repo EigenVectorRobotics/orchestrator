@@ -17,10 +17,13 @@ except ImportError:                     # the model path is not under test here:
     sys.modules['claude_agent_sdk'] = types.SimpleNamespace(ClaudeAgentOptions=dict, ClaudeSDKClient=None, ResultMessage=None)
 
 import agent_bridge
+import agent_prompts
+
+from orchestrator import agent_spec as spec
 
 
-CONFIRM = {'type': 'call', 'id': 'c1', 'skill': 'operator_confirm', 'phase': 'confirm', 'images': [],
-           'decisions': ['confirmed', 'not_confirmed'],
+CONFIRM = {'type': 'call', 'id': 'c1', 'protocol': spec.PROTOCOL, 'skill': 'operator_confirm', 'phase': 'confirm', 'images': [],
+           'decisions': ['confirmed', 'not_confirmed'], 'question': 'Is the gantry removed?',
            'task': 'Phase: confirm.\nQuestion: Is the gantry removed?\nAllowed decisions: confirmed, not_confirmed.'}
 
 
@@ -122,3 +125,54 @@ def test_a_confirm_nobody_answers_is_dropped_at_the_timeout(tmp_path, capsys, mo
 
     assert [message['type'] for message in sent] == ['started', 'failed']
     assert 'c1: question dropped' in capsys.readouterr().out
+
+
+def test_a_call_of_another_protocol_fails_with_both_versions(tmp_path):
+    async def main():
+        models = []
+        bridge, sent, _ = await _bridge(tmp_path, models)
+        await bridge._answer({**CONFIRM, 'protocol': spec.PROTOCOL + 1}, b'', time.time())
+        return sent, models
+
+    sent, models = asyncio.run(main())
+
+    assert [message['type'] for message in sent] == ['failed'] and not models
+    assert f'PROTOCOL {spec.PROTOCOL + 1}' in sent[0]['error'] and f'has {spec.PROTOCOL}' in sent[0]['error']
+
+
+def test_the_warm_models_are_the_executor_phases():
+    assert agent_bridge.KINDS == [(spec.PHASE_SKILL[phase], tuple(spec.PHASE_DECISIONS[phase])) for phase in ('judge', 'diagnose', 'stance_check')]
+
+
+RECOVERY = {'id': 'r1', 'protocol': spec.PROTOCOL, 'skill': 'manipulation_recovery', 'phase': 'stance_check',
+            'button': 'floor 1 button', 'base_goal': {'x': 1.0, 'y': 2.0, 'yaw': 0.0},
+            'decisions': list(spec.PHASE_DECISIONS['stance_check']), 'offset_in_force': [0.0, 0.0, 0.0],
+            'failure': {'skill': 'check_reach', 'status': 'failure', 'message': 'target out of reach'}, 'history': [],
+            'stance': {'stance_from_base_goal': {'forward_m': 0.0, 'left_m': 0.0, 'yaw_rad': 0.0},
+                       'reach': {'reachable': False, 'message': 'out of reach', 'pelvis_error_m': {'x': -0.05, 'y': 0.0, 'z': 0.0}},
+                       'reach_move': {'fixable': True, 'dx': 0.05, 'dy': 0.0, 'dyaw': 0.0, 'step_pelvis_m': [0.05, 0.0],
+                                      'within_limits': True}}}
+
+
+def test_the_prompt_takes_the_button_phase_and_limits_from_the_call():
+    limits = {**spec.limits(), 'reposition_m': {'forward': 0.10, 'back': 0.40, 'side': 0.20}}
+    text   = agent_prompts.recovery_prompt({**RECOVERY, 'limits': limits}, camera=False)
+    system = agent_bridge.system_prompt('manipulation_recovery', limits)
+
+    assert text.startswith('Phase: stance_check. Button: floor 1 button (car panel')
+    assert 'Base goal (map): x +1.000, y +2.000' in text
+    assert '-0.40 <= dx <= +0.10 and |dy| <= 0.20' in system
+    assert 'walks out 0.15 m behind it, then onto it' in text and 'walks False' not in text
+
+
+def test_a_recovery_call_with_other_limits_gets_its_own_model(tmp_path):
+    bridge = agent_bridge.Bridge(argparse.Namespace(local=tmp_path, model='m', effort='low', keep=False))
+    made   = []
+    bridge._model = lambda skill, decisions, system=None: made.append(system) or object()
+    usual  = agent_bridge.system_prompt('manipulation_recovery')
+    other  = agent_bridge.system_prompt('manipulation_recovery', {**spec.limits(), 'press_offset_max_m': 0.03})
+
+    bridge._take('manipulation_recovery', ('continue',), usual)
+    bridge._take('manipulation_recovery', ('continue',), other)
+
+    assert other != usual and made == [usual, usual, other, other]

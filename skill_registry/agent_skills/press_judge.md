@@ -46,7 +46,7 @@ The camera runs at 6 fps, so the `press` frame can be up to about 0.17 s after t
    - **Floor buttons** light a blue ring at once. A ring in `press` or `release` is the evidence. A finger on the face with no ring is not a press (E-011): the residual depth alone does not tell a press from a touch. Only the requested button's own ring counts: a card reader, a floor display or another button that changes is never evidence (E-025).
    - **The call panel**: the call button lights when the call registers. Judge it the same way: lit in `press` or `release`. The hand often covers the button in `press`; the `release` frame, with the finger backing off, often shows the light. Presses there have landed about 5 mm high, on the upper rim (E-023).
 3. **Not pressed** when the fingertip is beside the button, on another button, short of the panel (a gap between finger and panel is visible), or the requested button is not in the frame at all.
-4. If the frames are missing or you cannot tell, write that in your reason and choose `not_pressed`: the recovery that follows can press again.
+4. If no frame shows the requested button's own light (the button or the fingertip is out of view, or the `press` and `release` frames are missing) or you cannot tell, write that in your reason and choose `not_pressed`: the recovery that follows can press again. A missing `baseline` alone does not weaken a lit button (step 2).
 5. Give one decision. Your reason, in three short sentences: the requested button's light in `baseline`, `press` and `release`; where the fingertip sat, and in which frame; the rule that decided. The diagnosis that may follow reads your reason.
 
 ## Recording what you learn

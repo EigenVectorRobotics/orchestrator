@@ -4,7 +4,6 @@ import sys
 import json
 import time
 import base64
-import struct
 import asyncio
 import argparse
 
@@ -13,10 +12,11 @@ from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ResultMessage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'orchestrator'))   # orchestrator.site, which needs no ROS
+sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'orchestrator'))   # orchestrator.site and agent_spec: no ROS
 
 import agent_prompts as prompts
 
+from orchestrator import agent_spec as spec
 from orchestrator.site import SiteError, load_site
 
 
@@ -32,20 +32,15 @@ bridge.json) and the timings in <local>/bridge_timing.jsonl, for debugging on th
 the model with the evidence as text and the frames as images, no tools. A refused decision goes back to the model, at
 most twice. One warm model process waits per kind of call, so a call starts without process startup. An
 operator_confirm call never goes to the model: the bridge rings the bell, prints the question here, and sends the y or
-n typed in this terminal. Run it in the venv that has claude-agent-sdk.'''
+n typed in this terminal. The decisions, the answer schema and the framing come from orchestrator/agent_spec.py, which
+the executor uses too; a call of another agent_spec.PROTOCOL fails with the two versions in its error, so update this
+checkout to the branch the NUC runs. Run it in the venv that has claude-agent-sdk.'''
 
-HEADER        = struct.Struct('!II')
-PING_S        = 5.0
 MAX_RETRIES   = 2
 MODEL_TIMEOUT = 120.0
 CONFIRM_S     = 120.0                                   # operator_confirm's timeout_s: the executor gives up then
 ANSWERS       = {'y': 'confirmed', 'yes': 'confirmed', 'n': 'not_confirmed', 'no': 'not_confirmed'}
-SYSTEMS       = {'press_judge': prompts.JUDGE_SYSTEM, 'manipulation_recovery': prompts.RECOVERY_SYSTEM}
-KINDS         = [                                       # warmed at start: the executor's PHASE_DECISIONS
-    ('press_judge', 'judge', ('pressed', 'not_pressed')),
-    ('manipulation_recovery', 'diagnose', ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help', 'abort')),
-    ('manipulation_recovery', 'stance_check', ('continue', 'reposition', 'abort')),
-]
+KINDS         = [(spec.PHASE_SKILL[phase], tuple(spec.PHASE_DECISIONS[phase])) for phase in spec.MODEL_PHASES]   # warmed at start
 
 
 def main():
@@ -75,14 +70,12 @@ def main():
     asyncio.run(Bridge(arguments).serve())
 
 
-def schema(skill: str, decisions: tuple) -> dict:
-    properties = {'decision': {'type': 'string', 'enum': list(decisions)}, 'reason': {'type': 'string'}}
+def system_prompt(skill: str, limits: dict | None = None) -> str:
+    """The model's rules for skill; the recovery's carry the limits of the call (the bridge's own when warming up)"""
+    if skill == 'press_judge':
+        return prompts.JUDGE_SYSTEM
 
-    if skill == 'manipulation_recovery':
-        properties.update({name: {'type': 'number'} for name in ('dx', 'dy', 'dyaw', 'ox', 'oy', 'oz')})
-        properties['use_left_arm'] = {'type': 'boolean'}
-
-    return {'type': 'object', 'properties': properties, 'required': ['decision', 'reason']}
+    return prompts.recovery_system(limits or spec.limits())
 
 
 def content(call: dict, images: dict) -> tuple[str, list[dict]]:
@@ -210,27 +203,29 @@ class Bridge:
     async def serve(self):
         self.operator = Operator(sys.stdin.fileno())
 
-        for skill, phase, decisions in KINDS:
-            self.spares[(skill, decisions)] = self._model(skill, decisions)
+        for skill, decisions in KINDS:
+            system = system_prompt(skill)
+            self.spares[(skill, decisions, system)] = self._model(skill, decisions, system)
 
         server = await asyncio.start_server(self._on_connect, self.arguments.listen, self.arguments.port)
         print(f'listening on {self.arguments.listen}:{self.arguments.port}; {self.arguments.model} {self.arguments.effort}', flush=True)
 
         async with server:
             while True:
-                await asyncio.sleep(PING_S)
+                await asyncio.sleep(spec.PING_S)
                 await self.send({'type': 'ping'})
 
-    def _model(self, skill: str, decisions: tuple) -> Model:
+    def _model(self, skill: str, decisions: tuple, system: str | None = None) -> Model:
         return Model(ClaudeAgentOptions(
-            model=self.arguments.model, effort=self.arguments.effort, tools=[], system_prompt=SYSTEMS[skill],
-            setting_sources=[], output_format={'type': 'json_schema', 'schema': schema(skill, decisions)},
+            model=self.arguments.model, effort=self.arguments.effort, tools=[], system_prompt=system or system_prompt(skill),
+            setting_sources=[], output_format={'type': 'json_schema', 'schema': spec.schema(skill, decisions)},
             extra_args={'strict-mcp-config': None, 'no-session-persistence': None}, cwd=str(self.arguments.local),
         ))
 
-    def _take(self, skill: str, decisions: tuple) -> Model:
-        model = self.spares.pop((skill, decisions), None) or self._model(skill, decisions)
-        self.spares[(skill, decisions)] = self._model(skill, decisions)      # warm for the next call of this kind
+    def _take(self, skill: str, decisions: tuple, system: str) -> Model:
+        """A warm model for this kind of call; a kind not warmed yet (other decisions or limits) starts one now"""
+        model = self.spares.pop((skill, decisions, system), None) or self._model(skill, decisions, system)
+        self.spares[(skill, decisions, system)] = self._model(skill, decisions, system)     # warm for the next call of this kind
 
         return model
 
@@ -241,7 +236,7 @@ class Bridge:
         data = json.dumps(header, default=str).encode()
 
         try:
-            self.writer.write(HEADER.pack(len(data), 0) + data)
+            self.writer.write(spec.HEADER.pack(len(data), 0) + data)
             await self.writer.drain()
         except (ConnectionError, RuntimeError):        # the executor sends the call again when it reconnects
             pass
@@ -255,7 +250,11 @@ class Bridge:
 
         try:
             while True:
-                sizes  = HEADER.unpack(await reader.readexactly(HEADER.size))
+                sizes  = spec.HEADER.unpack(await reader.readexactly(spec.HEADER.size))
+
+                if sizes[0] > spec.MAX_JSON or sizes[1] > spec.MAX_BINARY:     # a garbled header: drop the link
+                    raise ConnectionError(f'a message of {sizes} bytes is too large')
+
                 header = json.loads(await reader.readexactly(sizes[0]))
                 binary = await reader.readexactly(sizes[1])
                 await self._dispatch(header, binary, time.time())
@@ -280,6 +279,16 @@ class Bridge:
             print(f'{call}: cancelled by the executor', flush=True)
 
     async def _answer(self, call: dict, binary: bytes, received: float):
+        # (0) A call of another protocol: this checkout and the NUC's disagree on the call's shape, so fail it plainly
+        if call.get('protocol') != spec.PROTOCOL:
+            error = (f'protocol mismatch: the executor sends agent_spec.PROTOCOL {call.get("protocol")}, this bridge has '
+                     f'{spec.PROTOCOL}; run the bridge from the branch the NUC runs')
+            print(f'{call["id"]}: {error}', flush=True)
+            self.last[call['id']] = {'type': 'failed', 'id': call['id'], 'error': error}
+            self.running.pop(call['id'], None)
+            await self.send(self.last[call['id']])
+            return
+
         # (1) Keep the call and its frames
         folder, images, start = (self.arguments.local / call['id'] if self.arguments.keep else None), {}, 0
 
@@ -316,7 +325,7 @@ class Bridge:
 
     async def _ask_model(self, call: dict, images: dict, log: dict):
         decisions    = tuple(call['decisions'])
-        model        = self._take(call['skill'], decisions)
+        model        = self._take(call['skill'], decisions, system_prompt(call['skill'], call.get('limits')))
         text, blocks = content(call, images)
         log.update({'model': self.arguments.model, 'effort': self.arguments.effort, 'prompt': text})
         await self.send({'type': 'started', 'id': call['id'], 'model': self.arguments.model, 'effort': self.arguments.effort, 'prompt': text,
@@ -344,7 +353,7 @@ class Bridge:
             model.close()
 
     async def _ask_operator(self, call: dict, log: dict):
-        question = prompts.task_field(call, 'Question') or call['task']
+        question = call.get('question') or call['task']
         log.update({'model': 'operator', 'effort': None, 'prompt': question})
         await self.send({'type': 'started', 'id': call['id'], 'model': 'operator', 'effort': None, 'prompt': question,
                          'received': log['received']})

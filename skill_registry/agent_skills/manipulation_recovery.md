@@ -17,7 +17,7 @@ You cannot move the robot. The call gives you the evidence as text and the camer
 
 Your main question: **was the button out of the arm's reach from where the robot stood?** Every press now runs only after `check_reach` said yes from the stance it pressed from. So in `diagnose`, start from "it was in reach": find what changed since the check. In `stance_check`, the check's IK miss tells you how far to move. Measure and compute.
 
-The bridge sends the model `RECOVERY_SYSTEM` from `mission_control/agent_prompts.py`, not this document. Keep the two in step. **Background** (same directory):
+The bridge sends the model `recovery_system()` from `mission_control/agent_prompts.py`, not this document. Keep the two in step. The numbers the executor checks (the reposition limits, the 50 mm offset, the 3 cm stance change, the walk-out) are in `orchestrator/agent_spec.py`; the prompt takes them from each call. **Background** (same directory):
 
 - `manipulation_recovery.reference.md`: the evidence in a call, file paths, topics and TF, the press pipeline, pose conventions, arm limits, every failure message, perception and navigation facts.
 - `manipulation_recovery.experience.md`: what the team has seen (entries `E-0xx`). Treat each entry as a hypothesis to test.
@@ -85,7 +85,7 @@ The arm is not yours to change here: `button_in_view` chooses it by rule on ever
 - A reposition stays within 0.15 m past the base goal, 0.60 m behind it and 0.25 m to the side; the executor refuses more. A target that seems farther is a wrong detection (E-003), not a wrong stance.
 - `stance` `reach` is the last `check_reach` since the last walk (none after a walk): the IK miss on three axes in `pelvis` (`pelvis_error_m` x forward, y left, z up; arm end minus target). x < 0: the arm stops short, so stand closer by about |x|. y: step by about -y. z cannot be fixed by walking: consider the other arm or ask for help. `pelvis` tilts with the body, so its x and y are horizontal only to a few degrees.
 - In `diagnose`, a reposition after a passed `check_reach` is refused unless the press target moved 3 cm or more in `pelvis` since the check.
-- Give the stance you want, never a back-off. When it is under 0.10 m from where the robot stands, the tree walks 0.15 m behind it and then onto it in the same round (E-002/E-016, E-024).
+- Give the stance where the robot should stand, and never add the walk-out to it. When the stance is under 0.10 m from where the robot stands, the tree walks 0.15 m behind it and then onto it in the same round (E-002/E-016, E-024). A back-off for the camera (too close for depth, E-005) is a stance you choose, not this walk-out.
 - Do not repeat a reposition that already failed in the same direction. After two failed repositions, choose `ask_help`.
 - A refused decision goes back to you with the reason, at most twice. You have `max_rounds` (5) diagnoses per task, shared by both panels. Executor `rule:` answers do not count. After `ask_help` the tree stops calling you.
 

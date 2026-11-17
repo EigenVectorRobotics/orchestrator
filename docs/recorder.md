@@ -28,7 +28,7 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
     tree.xml                            the tree that ran
     task.json                           the task text, blind or not, where the tree came from (planner, send_tree)
     records.jsonl                       the full record of each call (feedback included)
-    agent/<call_id>/request.json        what the model got: task, allowed decisions, failure, history, press, stance, its images by file; replaced when the call closes, with its outcome
+    agent/<call_id>/request.json        what the model got: protocol, phase, button, base goal, allowed decisions, limits, offset in force, failure, history, press, stance, its images by file, and the task as text; replaced when the call closes, with its outcome
     agent/<call_id>/messages.jsonl      everything in order: opened, started (model, effort, prompt), each decision with the reply and usage, failed, cancelled, closed
     agent/<call_id>/summary.json        one record: model, prompt, final decision, state, time, tokens and cost in all
     planner/<attempt>.json              each planner attempt: the prompt, the reply, the validator errors
