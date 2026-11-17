@@ -44,7 +44,7 @@
   evidence: [E-007]
 
 - text: >-
-    A reposition must be at least about 0.25 m from where the robot stands, counting the sideways part: goals 0.148 and
-    0.18 m away ended at once without a step, and goals 0.27 and 0.29 m away walked.
+    A reposition goal under 0.10 m from where the robot stands, counting the sideways part, takes no step; the press
+    subtree then walks to a pose 0.15 m behind it first, and onto it.
   about: {skill: navigate_to}
   evidence: [E-016, E-002]

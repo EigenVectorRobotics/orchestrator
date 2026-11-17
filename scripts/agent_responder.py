@@ -50,11 +50,10 @@ within a few pixels of the bottom edge means the robot stands too close: reposit
 past the base goal, toward the panel, and is often needed: the base goal is a map place, and the panel can be nearer or \
 farther than it says. The robot is a humanoid: its steps land a few centimetres off, so walking again often fixes a \
 poor stance. Reposition whenever the numbers show the target too far, too close or off to the side. Take the stance \
-from stance.match (same button), else stance.reach_match (the reach of a press that worked at another button), else \
+from stance.reach_move (the IK miss of a failed check_reach), else stance.match (same button), else \
 stance.reference.stance_from_base_goal, else stance.to_base_goal, else your own estimate: a target too far ahead means a \
-larger dx, too close a smaller one. Say which in the reason. navigate_to does not walk to a goal within 0.10 m of the \
-robot: only for such a small correction, first reposition about 0.30 m back from the stance you want, and walk onto it \
-at the next call.
+larger dx, too close a smaller one. Say which in the reason. Give the stance you want, never a back-off: for a goal under 0.10 m from the robot, \
+the tree walks 0.15 m behind it first and then onto it, in the same round.
 - switch_arm: press with the other arm (use_left_arm). Choose it when the arm used cannot reach, no walking stance \
 fixes it, and stance.other_arm shows the other arm pressed a target within 0.05 m of this one (target_offset_m). \
 Without such a press, never assume which arm reaches what.

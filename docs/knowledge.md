@@ -8,7 +8,7 @@ Built rules: observation → belief at 2 runs and 2 sources; a belief is ready f
 
 - The planner and the agent have files to reason in, which last across calls and runs.
 - What the robot sees becomes knowledge in steps: **observation → belief → fact**. A step up needs independent confirmations; a contradiction moves it down.
-- A claim can be about anything: a place, a skill, a device, an object, or nothing. Knowledge about a place (a press offset, an arrival overshoot, "this button does not light") is linked to the place in `map_info`.
+- A claim can be about anything: a place, a skill, a device, an object, or nothing. Knowledge about a place (a press offset, an arrival overshoot, "this button lights when pressed") is linked to the place in `map_info`.
 - A contradiction of a belief or a fact that a run uses starts reasoning ("Contradictions").
 - Skills graduate the same way (`docs/skill-packages.md`, "Graduation"), from the same counts.
 
@@ -39,10 +39,10 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 
 ```yaml
 - id: C-0042
-  text: The freight elevator call panel does not light when pressed.
+  text: The freight elevator call button lights when the call registers.
   about: {place: freight_elevator_call_panel}   # open tags: place, skill, device, object, ...; or {} (general)
   key: lights_when_pressed                       # optional: a value claim, compared by key
-  value: false
+  value: true
   tier: fact                                     # observation | belief | fact | retired
   valid_for_s: null                              # null: no end; 600: a person in the hall
   confirmations: [{run: 20261104-1902-a1/runs/3, record: 17, by: press_judge}, ...]
@@ -55,7 +55,7 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 ### Subject (`about`)
 
 - `about` is an open set of tags. A place is one kind of tag, not a need. Examples:
-  - `{place: freight_elevator_call_panel}`: "The call panel does not light."
+  - `{place: freight_elevator_call_panel}`: "The call button lights when the call registers."
   - `{device: thor}`: "The VLM on Thor is slow after 30 min."
   - `{object: freight_elevator}`: "The door stays open for 8 s."
   - `{skill: press_button}`: "A press needs 2 tries on a dirty panel."
@@ -127,7 +127,7 @@ Changes to `map_info` (the user's package, built for the orchestrator):
 
 Examples of place claims from the 2026-11-04 trial (to be checked against the experience log):
 
-- the call panel does not light (E-019);
+- the call button lights when the call registers (E-019);
 - the press offset that lit the floor 1 button inside the cabin (E-011, E-012);
 - the arrival overshoot at the call panel and inside the cabin (E-001, E-015).
 

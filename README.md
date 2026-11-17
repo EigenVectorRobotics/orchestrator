@@ -57,9 +57,9 @@ From `manipulation_recovery.experience.md` (E-014 to E-020); the trees and the s
 | A walk routes but never moves | `/free_paths` empty, one-pose `/path`, latched points in `/terrain_map` close ahead | Every walk in the trees is `navigate_to`; on failure `say`, `clear_terrain_map`, 2 s, and walk again, three times at most (subtrees `walk_*`) |
 | The press reached its goal but the finger missed by millimetres (rim, beside, on the face but unlit) | `press_judge` `not_pressed`; `residual_m` a few mm to about 20 mm | `manipulation_recovery` `offset_retry`: the new offset is the offset in force minus the residual (on floor buttons push the depth further); the tree runs `set_press_offset` and presses again |
 | The robot stopped too close; the button is below the frame | `press_button` times out with `distance_to_goal` inf throughout; `ground_server` logs `0 box(es)` | `reposition` back, to a stance at least 0.25 m from where the robot stands |
-| The robot is too far; the arm stops short | the closest point tens of mm short though the action succeeded | `reposition` closer, again at least 0.25 m away; when that is not possible, walk out and in again |
+| The robot is too far; the arm stops short | the closest point tens of mm short though the action succeeded | `reposition` closer; a goal under 0.10 m away is walked to from 0.15 m behind it |
 
-**A reposition must be at least about 0.25 m from where the robot stands** (`/odom_base_link`, counting the sideways part): goals 0.148 and 0.18 m away ended at once without a step (E-016). When the stance needed is closer than that, the robot has to walk away and come back: walk to a pose about 0.35 m behind the place, then to the place.
+**A reposition goal under 0.10 m from where the robot stands takes no step** (`/odom_base_link`, counting the sideways part; `WALK_MIN_M` in `agent.py`). For such a goal the press subtree walks to a pose 0.15 m behind it first (`approach`), then onto it, in the same round (E-002/E-016, E-024). The 0.25 m found in the trial of 2026-11-04 is superseded by this threshold.
 
 ### Press offsets per panel
 
@@ -76,7 +76,7 @@ Whatever is the agent (a Claude Code session or a model in the executor), it spe
 
 ## Checking a press
 
-**`press_judge` (agent in the loop) is the check the trees use now.** After `press_button` succeeds, the executor waits until the press's three frames are chosen (below), saves them, and opens an agent call with their paths, the phase times, the deepest point along the button normal, the sideways distance and the signed residual (fingertip minus goal at the closest point, in the goal frame: x into the panel, y left, z up). The agent (a session, through `agent_cli`) looks at the `press` frame, the first after the fingertip's closest point, and the `release` frame, and decides `pressed` (success) or `not_pressed`. A `not_pressed` is recorded as the failed check of that press, so `manipulation_recovery` sees the press as `checked_call` with its feedback. The skill document is `skill_registry/agent_skills/press_judge.md`. What decided the presses in the trial: on floor buttons the blue ring, lit at once and still lit in the release frame; on the call panel, which does not light, where the finger sits, often clearest in the release frame as the finger backs off (E-019). `press_button` succeeding does not prove a press: once the fingertip stopped 67 mm short and the action still reported `Controller reached target` (E-018).
+**`press_judge` (agent in the loop) is the check the trees use now.** After `press_button` succeeds, the executor waits until the press's three frames are chosen (below), saves them, and opens an agent call with their paths, the phase times, the deepest point along the button normal, the sideways distance and the signed residual (fingertip minus goal at the closest point, in the goal frame: x into the panel, y left, z up). The agent (a session, through `agent_cli`) looks at the `press` frame, the first after the fingertip's closest point, and the `release` frame, and decides `pressed` (success) or `not_pressed`. A `not_pressed` is recorded as the failed check of that press, so `manipulation_recovery` sees the press as `checked_call` with its feedback. The skill document is `skill_registry/agent_skills/press_judge.md`. A press counts only when the requested button lights: lit in the `press` or `release` frame and not in `baseline`, on both panels. Floor buttons light a blue ring at once, still lit in the release frame; the call button lights when the call registers (E-019). `press_button` succeeding does not prove a press: once the fingertip stopped 67 mm short and the action still reported `Controller reached target` (E-018).
 
 **The closest point is found after the pre-grasp.** Until the end effector reaches the pre-grasp, the phase tracker counts only samples within `lateral_tolerance` (30 mm) of the button axis. Counting the arm's swing up from its rest pose, which passes the goal's depth about 20 cm below the button, ended the press there and made `press_reached` report misses of 19 to 23 cm sideways after good presses (E-014).
 
@@ -96,7 +96,7 @@ What the robot learns is kept as claims in `knowledge_dir` (executor parameter, 
 ```bash
 ros2 run orchestrator knowledge list --ready                  # beliefs that can become facts
 ros2 run orchestrator knowledge show C-0007
-ros2 run orchestrator knowledge note "The call panel does not light." --by agent:press_judge --evidence frame:press --run <run_id> --about place=freight_elevator_call_panel --key lights_when_pressed --value false
+ros2 run orchestrator knowledge note "The call button lights when the call registers." --by agent:press_judge --evidence frame:press --run <run_id> --about place=freight_elevator_call_panel --key lights_when_pressed --value true
 ros2 run orchestrator knowledge approve C-0007 [--text "the exact text"]
 ```
 
@@ -131,7 +131,6 @@ ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 ## Not done yet
 
 - Arrivals are poor: the robot has stopped up to 24 cm past a place, and an arrival 8 cm or more past puts the button out of view (E-001, E-015). Set `path_follower` `slow_down_distance_threshold` 0.7 again (a relaunch resets it to 0.4) and compare, or move the places back by the mean overshoot.
-- A reposition 0.18 m away ended at once without a step; why is not known (E-016).
 - The inside press starts at the offset (+5.0, +7.5, +3.4) mm; one press lit only at (+12, +12.6, +3.2) mm. Start there once a second press confirms it.
 - The `ekf_hold` subtree resets the body EKF once per stance, in `look_here` after the mode change and before `check_reach` (`reset_ekf`, `/body_ekf/reset`). Every press, a `continue` included, follows a passed `look_here` at its stance. The skill ends when body_ekf publishes its torso pose again, which it does only once it has recalibrated.
 - `press_judge` needs a person or a session to look at frames; the VLM could judge the button lights alone (`button_lit`).

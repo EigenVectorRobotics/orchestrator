@@ -59,7 +59,7 @@
 
   <BehaviorTree ID="press_down">
     <Sequence>
-      <!-- the call panel does not light: the press is judged by where the fingertip got to -->
+      <!-- press_judge: a press counts only when the call button lights -->
       <SubTree ID="prepare_arm"/>
       <reset_filters/>
       <set_press_offset x="0.0" y="0.0" z="0.0"/>   <!-- press_button refuses to run before any set_press_offset -->

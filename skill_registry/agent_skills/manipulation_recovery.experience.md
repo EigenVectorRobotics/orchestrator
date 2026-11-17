@@ -26,14 +26,14 @@ What the team has seen about press failures, their causes, and what helped. Each
 - Seen: with the slow-down threshold at 0.7, call-panel arrivals overshot by 3 to 6 cm. At the default 0.4 they ranged from 1 cm short to 17 cm past at the call panel and up to 24 cm past inside, with up to 10 cm sideways and 9° yaw. Reposition walks of 0.27 and 0.29 m ended 7 and 8 cm off their goals
 - Signs when too close: `press_button` times out with `distance_to_goal` inf; `ground_server` returns 0 boxes; the camera shows the panel large with the button at or below the bottom edge
 - Cause: the robot stops once inside the arrival thresholds. The camera looks down, so a closer robot sees the button lower in the frame
-- What helped: `reposition` back by at least 0.25 m. In good frames the down button sat near y 540 of 720 at the call panel, and floor 1 near y 450 to 600 inside
+- What helped: `reposition` back (a goal under 0.10 m away is walked to from 0.15 m behind it). In good frames the down button sat near y 540 of 720 at the call panel, and floor 1 near y 450 to 600 inside
 - Evidence: agent trial run_235411, run_235844, run_000131, run_001046
 
 ### E-002 / E-016 A reposition shorter than about 0.25 m ends at once, without a step
-- Status: confirmed (agent trial, 2); cause of the 0.18 m case suspected
+- Status: superseded on 2026-11-16: the code now takes 0.10 m as the shortest walk (`WALK_MIN_M`) and walks 0.15 m behind a shorter goal first (E-024). The 0.25 m below may no longer hold; kept as the history of the 2026-11-04 trial (agent trial, 2; cause of the 0.18 m case suspected)
 - Seen: repositions 0.148 m and 0.18 m away succeeded in 0.2 s with no step. Those 0.27 and 0.29 m away walked
 - Cause: below 0.15 m the goal is already inside `goal_reached_threshold`. For 0.18 m, suspected: a stale `/goal_reached` or the follower's tolerance
-- What helped: keep a reposition at least 0.25 m from `/odom_base_link`, counting the sideways part. For a smaller correction, walk out and back in (tree `freight_elevator_floor1_walk_in_again_agentic.xml`: 0.35 m behind, then the place). After it the robot stood within 5 cm of the inside place and reached floor 1
+- What helped then: keep a reposition at least 0.25 m from `/odom_base_link`, counting the sideways part. For a smaller correction, walk out and back in (tree `freight_elevator_floor1_walk_in_again_agentic.xml`: 0.35 m behind, then the place). After it the robot stood within 5 cm of the inside place and reached floor 1
 - Evidence: run_235411, run_000131, run_001046
 
 ### E-013 Open-loop local moves are unreliable for small corrections
@@ -106,10 +106,10 @@ What the team has seen about press failures, their causes, and what helped. Each
 - What helped: new offset = offset in force − residual, per axis, from clean presses only. On floor buttons push the depth a little further. The residual depth alone does not tell a press from a touch (lit at −6.2 mm, unlit at −2.0 mm)
 - Evidence: run_234904, run_235844, run_001046; bags `press_debug_20261104_*`
 
-### E-019 Judge from the press frame: the ring on floor buttons, the finger on the call panel
+### E-019 Judge from the press frame: a press counts only when the button lights
 - Status: confirmed (agent trial, 8 presses)
-- Seen: floor buttons light a blue ring at once, still visible 0.5 s later in the release frame. The call panel never lights; the hand often covers it in the press frame, and the release frame shows where the finger sat. Crops were sometimes too dark; full frames decided
-- What helped: use the ring or the finger position as the answer and `residual_m` as a cross-check
+- Seen: floor buttons light a blue ring at once, still visible 0.5 s later in the release frame. The call button lights when the call registers; the hand often covers it in the press frame, and the release frame, with the finger backing off, shows the light. Crops were sometimes too dark; full frames decided
+- What helped: use the button's light as the answer, on both panels, and `residual_m` as a cross-check
 
 ### E-021 Waiting longer after the walk did not improve the call-panel press
 - Status: confirmed (press tests, 3 presses); cause not known

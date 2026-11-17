@@ -15,10 +15,10 @@ def seen(by='agent:press_judge', run='r1', value=None, t=100.0):
 
 def ready_belief(store, count=11):
     """A value claim confirmed in two runs by two sources, then often enough to be ready for a fact"""
-    claim, _ = store.note('The call panel does not light when pressed.', seen(value=False), PANEL, 'lights_when_pressed')
+    claim, _ = store.note('The call button lights when the call registers.', seen(value=True), PANEL, 'lights_when_pressed')
 
     for index in range(count - 1):
-        store.confirm(claim.id, seen(by='operator' if index % 2 else 'check:press_reached', run=f'r{index + 2}', value=False))
+        store.confirm(claim.id, seen(by='operator' if index % 2 else 'check:press_reached', run=f'r{index + 2}', value=True))
 
     return store.get(claim.id)
 
@@ -31,8 +31,8 @@ def test_wilson_lower_bound_needs_many_clean_confirmations():
 
 def test_a_note_is_an_observation_and_a_same_key_note_confirms_it(tmp_path):
     store    = KnowledgeStore(tmp_path)
-    claim, _ = store.note('The call panel does not light.', seen(value=False), PANEL, 'lights_when_pressed')
-    again, change = store.note('It did not light again.', seen(run='r2', value=False), PANEL, 'lights_when_pressed')
+    claim, _ = store.note('The call button lights.', seen(value=True), PANEL, 'lights_when_pressed')
+    again, change = store.note('It lit again.', seen(run='r2', value=True), PANEL, 'lights_when_pressed')
 
     assert claim.id == again.id == 'C-0001'
     assert change == 'confirmed' and store.get('C-0001').tier == 'observation'     # one source only
@@ -40,9 +40,9 @@ def test_a_note_is_an_observation_and_a_same_key_note_confirms_it(tmp_path):
 
 def test_two_runs_and_two_sources_make_a_belief(tmp_path):
     store    = KnowledgeStore(tmp_path)
-    claim, _ = store.note('The call panel does not light.', seen(value=False), PANEL, 'lights_when_pressed')
+    claim, _ = store.note('The call button lights.', seen(value=True), PANEL, 'lights_when_pressed')
 
-    change = store.confirm(claim.id, seen(by='operator', run='r2', value=False))
+    change = store.confirm(claim.id, seen(by='operator', run='r2', value=True))
 
     assert 'observation -> belief' in change
     assert store.get(claim.id).tier == 'belief'
@@ -57,7 +57,7 @@ def test_a_different_word_contradicts_and_a_fact_goes_down_to_a_belief(tmp_path,
 
     assert store.get(claim.id).tier == 'fact'
 
-    _, change = store.note('It lit this time.', seen(run='r99', value=True), PANEL, 'lights_when_pressed')
+    _, change = store.note('It stayed dark this time.', seen(run='r99', value=False), PANEL, 'lights_when_pressed')
 
     assert 'fact -> belief' in change
 
@@ -85,7 +85,7 @@ def test_only_the_operator_approves_and_only_a_ready_belief(tmp_path):
     with pytest.raises(KnowledgeError):
         store.approve(ready.id, 'agent:press_judge')
 
-    fact = store.approve(ready.id, 'operator', text='The freight elevator call panel never lights.')
+    fact = store.approve(ready.id, 'operator', text='The freight elevator call button lights when the call registers.')
 
     assert fact.tier == 'fact' and fact.text.startswith('The freight')
     log = [json.loads(line) for line in store.log_path.read_text().splitlines()]
@@ -136,8 +136,8 @@ def test_the_agent_note_tool_writes_an_observation_with_its_run(tmp_path):
     session = AgentSession('judge', {}, {}, None, AgentConfig(skills_dir=str(tmp_path), knowledge=store),
                            lambda kind, text, **data: events.append(kind), skill='press_judge', run_id='r7')
 
-    output = session.call('note', {'text': 'The call panel does not light.', 'about': PANEL,
-                                   'key': 'lights_when_pressed', 'value': False, 'evidence': ['frame:press']})
+    output = session.call('note', {'text': 'The call button lights.', 'about': PANEL,
+                                   'key': 'lights_when_pressed', 'value': True, 'evidence': ['frame:press']})
 
     claim = store.get('C-0001')
 
@@ -149,12 +149,12 @@ def test_the_agent_note_tool_writes_an_observation_with_its_run(tmp_path):
 
 def test_many_notes_in_one_run_count_as_one_sighting(tmp_path):
     store    = KnowledgeStore(tmp_path)
-    claim, _ = store.note('Panel does not light.', seen(value=False), PANEL, 'lights_when_pressed')
+    claim, _ = store.note('Panel lights.', seen(value=True), PANEL, 'lights_when_pressed')
 
     for _ in range(12):
-        store.note('Panel does not light.', seen(value=False), PANEL, 'lights_when_pressed')
+        store.note('Panel lights.', seen(value=True), PANEL, 'lights_when_pressed')
 
-    store.confirm(claim.id, seen(by='operator', run='r2', value=False))
+    store.confirm(claim.id, seen(by='operator', run='r2', value=True))
 
     assert store.get(claim.id).tier == 'belief'
     assert not store.get(claim.id).ready_for_fact()
@@ -187,13 +187,13 @@ def test_the_agent_confirms_an_observation_by_its_id(tmp_path):
     from orchestrator.agent import AgentConfig, AgentSession
 
     store    = KnowledgeStore(tmp_path)
-    claim, _ = store.note('The call panel does not light.', seen(by='operator', run='r1'), PANEL)
+    claim, _ = store.note('The call button lights.', seen(by='operator', run='r1'), PANEL)
     session  = AgentSession('judge', {}, {}, None, AgentConfig(skills_dir=str(tmp_path), knowledge=store),
                             lambda kind, text, **data: None, skill='press_judge', run_id='r2')
 
     assert claim.id in store.prompt_section(observations=True)
 
-    output = session.call('note', {'text': 'Again unlit.', 'claim': claim.id, 'evidence': ['frame:press']})
+    output = session.call('note', {'text': 'Lit again.', 'claim': claim.id, 'evidence': ['frame:press']})
 
     assert 'observation -> belief' in output.text
     assert session.call('note', {'text': 'x', 'claim': 'C-9999', 'evidence': ['e']}).is_error

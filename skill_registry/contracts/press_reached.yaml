@@ -3,7 +3,7 @@ kind: condition
 device: nuc
 description: >-
   The last press got the fingertip onto the button: at its deepest point it was close enough to the goal along the
-  button normal and sideways. Use it where the button does not light, such as the freight elevator call panel.
+  button normal and sideways. Use it where a button does not light.
 interface:
   transport: press_tip
   limits:
