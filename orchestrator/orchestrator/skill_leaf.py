@@ -231,7 +231,9 @@ class AgentLeaf(SkillLeaf):
 
     def _start_call(self) -> SkillHandle:
         decisions = [record for record in self.context.history if record.get('skill') == self.contract.name]
-        gave_up   = next((record for record in decisions if record.get('decision') == 'ask_help'), None)
+        here      = self.inputs.get('base_goal')     # the panel: an ask_help ends the calls for its own panel only
+        gave_up   = next((record for record in decisions if record.get('decision') == 'ask_help'
+                          and record.get('base_goal') == here), None)
         rounds    = sum(1 for record in decisions if record.get('phase') == 'diagnose' and not record.get('rule'))
 
         if self.runner is None:
@@ -261,6 +263,7 @@ class AgentLeaf(SkillLeaf):
             'reason':   outputs.get('reason', ''),
             'offset':   outputs.get('offset'),
             'goal':     outputs.get('goal'),
+            'base_goal': self.inputs.get('base_goal'),  # the panel, for the ask_help gate
             'left_arm': outputs.get('left_arm'),
             'rule':     bool(outputs.get('rule')),       # decided by the executor's rule, not the agent: outside max_rounds
         })

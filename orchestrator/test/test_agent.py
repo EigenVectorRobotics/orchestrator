@@ -272,6 +272,21 @@ def test_after_ask_help_the_agent_is_not_called_again(tmp_path):
     assert 'say' in [name for name, _ in runner.calls]
 
 
+def test_an_ask_help_ends_the_calls_for_its_own_panel_only(tmp_path):
+    backend = _push(tmp_path, [{'decision': 'ask_help', 'reason': 'wrong object tracked'}, {'decision': 'retry', 'reason': 'r'}])
+    body    = ('<root BTCPP_format="4"><BehaviorTree ID="t"><Sequence>'
+               '<ForceSuccess><manipulation_recovery base_goal="{call_panel}"/></ForceSuccess>'      # asks for help
+               '<manipulation_recovery base_goal="{inside_panel}"/>'                                 # another panel: called
+               '<ForceSuccess><manipulation_recovery base_goal="{call_panel}"/></ForceSuccess>'      # the same panel: not called
+               '</Sequence></BehaviorTree></root>')
+    tree    = BehaviorTree(body, make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner([]), Agent(backend)),
+                           Context(blackboard={'call_panel': dict(PANEL), 'inside_panel': {**PANEL, 'x': 3.0}}))
+    tree.context.last_failure = {'inputs': {}}
+
+    assert _run(tree) == Status.SUCCESS
+    assert len(backend.link.calls) == 2
+
+
 def test_the_round_budget_stops_the_agent(tmp_path):
     backend = _push(tmp_path, [{'decision': 'retry', 'reason': 'try again'}])
     runner  = FakeRunner([MISS, MISS])
