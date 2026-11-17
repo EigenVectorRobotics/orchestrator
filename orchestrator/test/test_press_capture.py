@@ -1,3 +1,11 @@
+"""The press capture: the frame tracker, the three kept frames, the crops, the button check and the Cosmos server.
+
+NOT IN THE DEFAULT RUN (marked manipulation). Branch agentic has no contract that reaches the press or the arm recovery; main and ltx-dev do, and this is live there. A green suite therefore says
+nothing about this path: run it on purpose with
+
+    python3 -m pytest -q test -m manipulation -o addopts=
+"""
+
 import io
 import json
 import base64
@@ -16,6 +24,9 @@ from orchestrator.press_capture import BoxBuffer, CaptureConfig, FrameBuffer, Ph
 from orchestrator.cosmos_vlm_server import CosmosAnswerer, make_handler, parse_request
 
 from data_paths import CONTRACTS
+
+
+pytestmark = pytest.mark.manipulation
 
 
 GOAL      = (0.62, -0.18, 1.05)

@@ -1,3 +1,10 @@
+"""Agent skills in a tree: the tools, the sandbox, the backends, and the press recovery.
+
+The press and arm tests here are marked manipulation and are NOT in the default run, because branch
+agentic has no contract that reaches them; run them with -m manipulation -o addopts=. Everything else
+in this file (the read_file and run_python limits, the round budget, abort, the backends) is live here.
+"""
+
 import json
 import math
 import time
@@ -94,6 +101,7 @@ def test_offset_goal_moves_in_the_goal_frame():
     assert goal['yaw'] == pytest.approx(math.pi / 2 + 0.1)
 
 
+@pytest.mark.manipulation
 def test_decision_outputs_keep_the_arm_unless_switched():
     failure = {'inputs': {'left_arm': True}}
     retry   = decision_outputs({'decision': 'retry', 'reason': 'r'}, {'base_goal': PANEL}, failure)
@@ -187,6 +195,7 @@ def test_polled_conditions_are_not_recorded():
     assert tree.context.history == [] and tree.context.last_failure is None
 
 
+@pytest.mark.manipulation
 def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(tmp_path):
     backend = ScriptedAgentBackend([
         [['get_failure', {}], ['decide', {'decision': 'reposition', 'reason': 'stalled 0.13 m short', 'dx': 0.15, 'dy': 0.0}]],
@@ -363,6 +372,7 @@ def _wait_request(tree, requests, count: int):
     raise AssertionError('no request')
 
 
+@pytest.mark.manipulation
 def test_press_judge_sends_the_press_frames_and_pressed_goes_on(tmp_path):
     requests, replies = [], []
     backend = ExternalAgentBackend(requests.append, replies.append)
@@ -382,6 +392,7 @@ def test_press_judge_sends_the_press_frames_and_pressed_goes_on(tmp_path):
     assert not [r for r in requests if r['skill'] == 'manipulation_recovery']
 
 
+@pytest.mark.manipulation
 def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path):
     requests, replies = [], []
     backend = ExternalAgentBackend(requests.append, replies.append)
@@ -405,6 +416,7 @@ def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path)
 
 # ========== offset_retry ==========
 
+@pytest.mark.manipulation
 def test_offset_retry_needs_the_whole_offset_within_30_mm(tmp_path):
     session = AgentSession('diagnose', {}, {}, None, _config(tmp_path), lambda *a, **k: None)
 
@@ -437,6 +449,7 @@ OFFSET_TREE = '''<root BTCPP_format="4"><BehaviorTree ID="t"><Fallback>
 </Fallback></BehaviorTree></root>'''
 
 
+@pytest.mark.manipulation
 def test_offset_retry_sets_the_offset_and_presses_again(tmp_path):
     requests, replies = [], []
     backend = ExternalAgentBackend(requests.append, replies.append)

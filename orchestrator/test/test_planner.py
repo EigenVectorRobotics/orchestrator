@@ -1,9 +1,22 @@
+"""The LLM tree planner: one whole behaviour tree per task, checked by the validator.
+
+NOT IN THE DEFAULT RUN (marked tree_mode). Task mode replaced it here (mode defaults to task, and the planner runs only with mode:=tree); the FVD still uses it on ltx-dev. A green suite therefore says
+nothing about this path: run it on purpose with
+
+    python3 -m pytest -q test -m tree_mode -o addopts=
+"""
+
+import pytest
+
 from skill_registry import Registry
 
 from orchestrator.planner import Planner, build_system_prompt
 from orchestrator.llm_backends import BackendError, Reply, ScriptedBackend
 
 from data_paths import CONTRACTS, TREES
+
+
+pytestmark = pytest.mark.tree_mode
 
 
 PLACES    = {'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}
