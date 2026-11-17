@@ -53,6 +53,7 @@
                         <SubTree ID="look"/>
                     </RetryUntilSuccessful>
                 </Inverter>
+                <say text="I lost the button after moving. Stopping the task."/>   <!-- the tree fails next, with no other say -->
                 <SetBlackboard output_key="stance_lost" value="yes"/>
             </Sequence>
             <AlwaysFailure/>

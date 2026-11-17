@@ -729,6 +729,7 @@ def test_a_reposition_whose_three_looks_fail_ends_the_task_without_asking():
     assert names.count('button_in_view') == 4                           # the stance check, then three looks after the reposition
     assert 'Please press the call button for me.' not in says
     assert names.count('press_button') == 1
+    assert says[-1] == 'I lost the button after moving. Stopping the task.'   # the failure is said, not silent
 
 
 def test_a_failed_stance_check_keeps_the_arm_the_rule_chose():
