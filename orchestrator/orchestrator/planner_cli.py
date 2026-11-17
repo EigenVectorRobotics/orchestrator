@@ -6,6 +6,8 @@
   planner_cli answer --use-tree ID --param goal={target_floor_2} --note TEXT
                                                    choose an existing tree with other parameter values
   planner_cli answer --tree FILE --note TEXT       answer with the tree in FILE (BehaviorTree.CPP v4 XML)
+  planner_cli run --use-tree ID [--param NAME=VALUE ...] [--task TEXT] [--note TEXT]
+                                                   send the task, wait for its call (after preflight), answer it
 
 The system prompt (skill catalog, existing trees, rules) is saved to --system-out. The last message of the call is
 the task, or the validator's errors on the last answer. Run it in the same ROS environment as the planner.
@@ -24,7 +26,7 @@ import rclpy
 from std_msgs.msg import String
 from skill_registry import load_tree
 
-from .topics import COMMAND_QOS as COMMAND, LATCHED_QOS as LATCHED, PLANNER_ANSWER_TOPIC as ANSWER_TOPIC, PLANNER_REQUEST_TOPIC as REQUEST_TOPIC
+from .topics import COMMAND_QOS as COMMAND, LATCHED_QOS as LATCHED, PLANNER_ANSWER_TOPIC as ANSWER_TOPIC, PLANNER_REQUEST_TOPIC as REQUEST_TOPIC, TASK_TOPIC
 
 
 SYSTEM_OUT     = Path.home() / '.ros' / 'planner_system.md'
@@ -49,11 +51,13 @@ def latest_request(
     node,
     timeout_s: float,
     open_only: bool,
+    not_id: str | None = None,
 ) -> dict | None:
-    """The latest request on the latched topic (the open one when open_only), or None after timeout_s."""
+    """The latest request on the latched topic (the open one when open_only, other than not_id), or None after timeout_s."""
     holder = []
     node.create_subscription(String, REQUEST_TOPIC, lambda message: holder.append(json.loads(message.data)), LATCHED)
-    wanted = (lambda: bool(holder) and holder[-1]['state'] == 'open') if open_only else (lambda: bool(holder))
+    wanted = ((lambda: bool(holder) and holder[-1]['state'] == 'open' and holder[-1]['id'] != not_id) if open_only
+              else (lambda: bool(holder)))
 
     return holder[-1] if spin_until(node, wanted, timeout_s) else None
 
@@ -103,12 +107,44 @@ def answer_text(
     return f'{arguments.note}\n<tree>\n{load_tree(arguments.tree).strip()}\n</tree>'
 
 
-def send_answer(
+def run_text(
+    arguments: argparse.Namespace,
+) -> tuple[str, str]:
+    """The task sentence and the note for run, from the tree and its parameters when not given."""
+    values = ', '.join(f'{name}={value}' for name, value in parse_parameters(arguments.param))
+    task   = arguments.task or f'Run {arguments.use_tree}' + (f' with {values}' if values else '') + '.'
+    note   = arguments.note or f'The existing tree {arguments.use_tree}' + (f' with {values}' if values else '') + '.'
+
+    return task, note
+
+
+def run_task(
     node,
     arguments: argparse.Namespace,
 ) -> int:
+    """Send the task, wait for its planning call (preflight runs first), answer it with the tree."""
+    before = latest_request(node, 1.0, open_only=False)
+    task, arguments.note = run_text(arguments)
+    publisher = node.create_publisher(String, TASK_TOPIC, COMMAND)
+
+    if not spin_until(node, lambda: publisher.get_subscription_count() > 0, SUBSCRIBER_S):
+        print(f'no planner subscribes to {TASK_TOPIC}: is the orchestrator up?', file=sys.stderr)
+        return 1
+
+    publisher.publish(String(data=task))
+    print(f'task sent: {task}\nwaiting for the planning call (preflight runs first, up to {arguments.timeout:g} s)', flush=True)
+
+    return send_answer(node, arguments, timeout_s=arguments.timeout, not_id=(before or {}).get('id'))
+
+
+def send_answer(
+    node,
+    arguments: argparse.Namespace,
+    timeout_s: float = 3.0,
+    not_id: str | None = None,
+) -> int:
     """Publish the answer to the open call."""
-    request = latest_request(node, 3.0, open_only=True)
+    request = latest_request(node, timeout_s, open_only=True, not_id=not_id)
 
     if request is None:
         print('no open planning call', file=sys.stderr)
@@ -141,12 +177,19 @@ def main() -> None:
     answer.add_argument('--param', action='append', default=[], metavar='NAME=VALUE',
                         help='with --use-tree: a parameter of the tree, e.g. goal={target_floor_2}; repeat for more')
 
+    run = commands.add_parser('run')
+    run.add_argument('--use-tree', metavar='ID', required=True)
+    run.add_argument('--param', action='append', default=[], metavar='NAME=VALUE', help='a parameter of the tree; repeat for more')
+    run.add_argument('--task', help='the task sentence; default: the tree and its parameters')
+    run.add_argument('--note', help='the answer note; default: the tree and its parameters')
+    run.add_argument('--timeout', type=float, default=900.0, help='how long to wait for the call, preflight included')
+
     arguments = parser.parse_args()
 
     if arguments.command == 'answer' and arguments.param and not arguments.use_tree:
         parser.error('--param needs --use-tree; in a --tree FILE, set the parameters in the file')
 
-    if arguments.command == 'answer':
+    if arguments.command in ('answer', 'run'):
         try:
             parse_parameters(arguments.param)
         except ValueError as error:
@@ -158,6 +201,9 @@ def main() -> None:
     try:
         if arguments.command == 'answer':
             sys.exit(send_answer(node, arguments))
+
+        if arguments.command == 'run':
+            sys.exit(run_task(node, arguments))
 
         request = latest_request(node, arguments.timeout if arguments.command == 'wait' else 3.0, arguments.command == 'wait')
 

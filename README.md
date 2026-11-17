@@ -50,7 +50,7 @@ An agent skill hands one decision of the tree to a model or to the operator. Its
 - **Who answers.** The agent bridge on the laptop (`mission_control/agent_bridge.py`) answers every call. The executor pushes each call with its evidence and frames over one TCP link and waits up to the contract timeout. The bridge asks the model (Claude Agent SDK) for `press_judge` and `manipulation_recovery`. It asks the operator in its terminal for `operator_confirm`. `agent_backend:=none` runs without an agent: agent skills then fail.
 - **The request is whole.** The executor sends the failure, the history and the press uncut, so a 60 s press (120 feedback samples, over 40 kB) reaches the bridge.
 - **Recorded.** Each call also goes out on `/orchestrator/agent/request` (opened, then closed) and each reply on `/orchestrator/agent/reply`. The run recorder and the Run Viewer read them.
-- **Executor parameters.** `agent_backend` (`push` or `none`), `agent_push_host`, `agent_push_port`.
+- **Executor parameters.** `agent_backend` (`push` or `none`), `agent_push_host`, `agent_push_port`. The launch sets the host and port from the site's `agent_bridge` (`orchestrator/config/sites/stanley.yaml`); with no host set, agent skills fail.
 
 ### Standard recoveries
 
@@ -111,7 +111,7 @@ ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the 
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, e.g. `~/maps/two_floor_clean_cabin2.places.yaml` on the NUC), whose names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}`. On the robot, see `docs/operations.md`. `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node.
+All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, e.g. `~/maps/two_floor_clean_cabin2.places.yaml` on the NUC), whose names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}`. On the robot, launch with `site:=stanley` (`orchestrator/config/sites/stanley.yaml`: the places file, the planner backend, the agent bridge's address, the raw bag) and see `docs/operations.md`. `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node; a launch argument given on the command line wins over the site. Without a site no agent bridge is set, so agent skills fail.
 
 `fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback), `nav_blocked:=true` (every route turns blocked until cancelled; navigate_to fails after 10 s), `vlm_answers:=door=closed`, `nav_time_s:=5.0`, `vlm_port`.
 

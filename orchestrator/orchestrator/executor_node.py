@@ -81,12 +81,16 @@ class ExecutorNode(Node):
         speaker = self.create_publisher(String, SPEAK_TOPIC, 10)                  # unitree_interface's TTS (remapped ~/tts)
         speak   = lambda text: speaker.publish(String(data=text))
 
+        if not self.declare_parameter('agent_push_host', '').value:   # the site's agent_bridge, or agent_push_host:=
+            self.get_logger().warn('no agent: agent_push_host is not set (launch with site:=<name>); agent skills fail')
+            return None
+
         return Agent(self._make_push_backend(), RosReader(self, self.runner.latest_image, self.runner._tf),
                      on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
 
     def _make_push_backend(self) -> PushAgentBackend:
         """Every agent call goes to the agent bridge on the laptop over one TCP link; the request, reply and event topics carry it for the recorder"""
-        host              = self.declare_parameter('agent_push_host', '100.107.208.25').value     # the laptop on Tailscale
+        host              = self.get_parameter('agent_push_host').value                          # the operator laptop, from the site
         port              = self.declare_parameter('agent_push_port', 8771).value
         request_publisher = self.create_publisher(String, REQUEST_TOPIC, STATUS_QOS)
         reply_publisher   = self.create_publisher(String, REPLY_TOPIC, COMMAND_QOS)

@@ -1,1 +1,2 @@
 claude-agent-sdk==0.2.182
+pyyaml>=6.0

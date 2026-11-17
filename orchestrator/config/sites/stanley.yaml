@@ -1,0 +1,18 @@
+# The Stanley G1 site: everything the robot run needs that is not a code default. One file to change for a new map,
+# another operator laptop or another set of raw topics.
+#   NUC:    ros2 launch orchestrator orchestrator.launch.py site:=stanley
+#   laptop: ~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley
+# A launch argument given on the command line wins over the value here.
+
+places_file: /home/vector/maps/two_floor_clean_cabin2.places.yaml   # needs the floors table (planner goal_floor)
+
+planner_backend: external        # a session or `planner_cli run` answers the planner
+
+agent_bridge:                    # the operator laptop that runs mission_control/agent_bridge.py, on Tailscale
+  host: 100.107.208.25
+  port: 8771
+
+raw_bag:                         # recorded beside the orchestrator from launch to shutdown, for SLAM and EKF replay
+  dir: ~/bags
+  topics: [/lidar/scan, /imu/data, /state_estimation, /slam_elevatorlio/status, /slam_elevatorlio/floor, /tf,
+           /tf_static, /odom_base_link, /LIO/odom, /LIO/set_elevator_flag, /LIO/imu_acc_offset]

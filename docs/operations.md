@@ -14,7 +14,7 @@ A Claude Code session that operates the robot does each step that starts, stops 
 ## 1. Deploy the orchestrator on the NUC
 
 ```bash
-cd ~/orchestrator_ws/src/orchestrator && git fetch && git checkout ltx-dev && git pull     # the branch in use: docs/deployment.md
+cd ~/orchestrator_ws/src/orchestrator && git fetch && git checkout ltx-reorg && git pull   # the branch in use: docs/deployment.md
 cd ~/orchestrator_ws && source env.sh && MAKEFLAGS=-j1 nice -n 19 ionice -c3 colcon build --parallel-workers 1 --packages-select skill_registry orchestrator
 ```
 
@@ -22,6 +22,7 @@ cd ~/orchestrator_ws && source env.sh && MAKEFLAGS=-j1 nice -n 19 ionice -c3 col
 
 - The install is a copy, not a symlink install. Contracts, the tree library (`skill_registry/trees/`), `preflight.xml` and the test trees are installed files: rebuild after changing any of them.
 - What reads what, and when: the executor, the planner and the registry read the contracts and the places file at start; the planner reads the tree library and the preflight tree at start; `send_tree` reads the tree file you give it each time. So a contract, places, library or Python change needs a restart of the orchestrator (step 2); a test tree passed to `send_tree` by its source path needs nothing.
+- A site file holds what a robot run needs beyond the code defaults: `orchestrator/config/sites/stanley.yaml` (the places file, the planner backend, the agent bridge's address, the raw bag topics). It is installed too: rebuild after changing it. Change the map, the operator laptop or the raw topics there, nowhere else.
 - Run the tests from each package's own directory (`cd ~/orchestrator_ws/src/orchestrator/orchestrator && python3 -m pytest -q test`, the same in `skill_registry`): from the repository root, the import finds the installed package and the tests check the old code.
 - Check a tree before sending it: `ros2 run skill_registry validate_tree <tree.xml>` (0 errors).
 - A tree file can pull subtrees from other files with `<include path="subtrees/press.xml"/>`, relative to the file. `send_tree`, `validate_tree`, `planner_cli --tree` and the planner's tree library inline them before anything else reads the tree. Shared subtrees live in `skill_registry/trees/subtrees/`.
@@ -31,10 +32,11 @@ cd ~/orchestrator_ws && source env.sh && MAKEFLAGS=-j1 nice -n 19 ionice -c3 col
 On the NUC:
 
 ```bash
-tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 launch orchestrator orchestrator.launch.py places_file:=/home/vector/maps/two_floor_clean_cabin2.places.yaml planner_backend:=external 2>&1 | tee ~/orchestrator.log'"
+tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 launch orchestrator orchestrator.launch.py site:=stanley 2>&1 | tee ~/orchestrator.log'"
 ```
 
-- It starts the registry, the executor, the recorder and the planner. `planner_backend:=external` makes a Claude Code session answer the planner (`planner_cli`); the launch default is `claude` (the API).
+- It starts the registry, the executor, the recorder, the planner and the raw bag, with the values of `config/sites/stanley.yaml`: the cabin2 places file, `planner_backend: external` (a session or `planner_cli` answers the planner), the agent bridge's address, and the raw topics for SLAM and EKF replay, recorded to `~/bags/raw_<date>_<time>` until the launch stops (`raw_bag:=false` leaves it out).
+- The first log line says what it took: `orchestrator: site stanley, places ..., planner external, agent bridge <address>`. A launch argument on the command line wins over the site (`places_file:=`, `planner_backend:=`, `planner_model:=`). Without `site`, the launch uses the code defaults: `config/places.yaml` (two placeholders, not enough for the elevator tree), the planner on the API, no agent bridge (agent skills fail), no raw bag. `fake:=true` is the laptop test with the fake robot.
 - Ready when `~/orchestrator.log` shows `planner up: external ..., N existing trees` and the recorder's `recording to <session>`. The executor refuses trees until the recorder is ready (`record:=false` turns recording off).
 - Parameters come from `orchestrator/config/orchestrator.yaml`; `params_file:=` gives another file. The planner's tree library is the installed `skill_registry/trees/` (parameter `tree_library`), and its preflight tree `skill_registry/preflight/preflight.xml` (`preflight_tree`; empty for none).
 - A restart of the orchestrator ends the run in progress: cancel the tree first, and never restart while an agent call is open.
@@ -43,12 +45,14 @@ tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 la
 
 The agent bridge on the laptop answers the agent calls, and a session answers the planner.
 
-1. **Run the agent bridge.** On the laptop, run `~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py` (set up in `mission_control/README.md`) (`--model`, default `claude-opus-5-5`; `--effort`, default `low`). The executor's default backend connects to it (`agent_push_host`, default the laptop's Tailscale address 100.107.208.25; `agent_push_port`, default 8771). The executor pushes each call with its evidence and frames over one TCP link. The model answers `press_judge` and `manipulation_recovery` in a few seconds, with the frames as images. `operator_confirm` rings the bell in the bridge window and waits for you to type `y` or `n`, then an optional reason. The record of each call is kept on the NUC, in the run's `agent/<call id>/` (`docs/recorder.md`); with `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/` on the laptop. The executor keeps each press judged pressed in `~/orch_state/press_references.jsonl` on the NUC (the old `~/.ros/orchestrator_press_references.jsonl` is read until the first new reference moves it over).
-2. **Send the task:**
+1. **Run the agent bridge.** On the laptop, run `~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley` (set up in `mission_control/README.md`) (`--model`, default `claude-opus-5-5`; `--effort`, default `low`). It listens on the site's `agent_bridge` address, and the executor connects there (launched with the same site). The executor pushes each call with its evidence and frames over one TCP link. The model answers `press_judge` and `manipulation_recovery` in a few seconds, with the frames as images. `operator_confirm` rings the bell in the bridge window and waits for you to type `y` or `n`, then an optional reason. The record of each call is kept on the NUC, in the run's `agent/<call id>/` (`docs/recorder.md`); with `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/` on the laptop. The executor keeps each press judged pressed in `~/orch_state/press_references.jsonl` on the NUC (the old `~/.ros/orchestrator_press_references.jsonl` is read until the first new reference moves it over).
+2. **Send the task and answer the planner**, in one command on the NUC:
 
    ```bash
-   ros2 topic pub --once -w 1 /orchestrator/task std_msgs/msg/String "{data: 'Take the freight elevator from floor 2 to floor 1.'}"
+   ros2 run orchestrator planner_cli run --use-tree freight_elevator_go_to_place --param goal={target_floor_1}
    ```
+
+   It sends the task, waits for the planning call while preflight runs (up to 15 min, `--timeout`), and answers it with the library tree and its parameters. `--task` and `--note` set the task sentence and the answer note; by default they name the tree and its parameters. To plan by hand instead (a new tree, or another choice), send the task yourself and use `planner_cli wait` and `answer` (step 4).
 
 3. **Preflight runs first** (`skill_registry/preflight/preflight.xml`). It starts the Run Viewer and whichever of the NUC, Orin and Thor stacks are not up (`launch_*_stack`, over ssh from the NUC), checks SLAM (relocalizes in place, else asks to be relocalized), and checks that the G1 already stands in ready locomotion (`robot_ready`, loco FSM id 801). It never stands the robot up and never asks about the gantry: a robot that is not in ready locomotion stops the task ("Task aborted: I am not in ready locomotion"), since `ready_locomotion` damps a standing robot first. The operator:
    - before sending the task, stands the G1 in ready locomotion and removes the gantry;
@@ -57,7 +61,7 @@ The agent bridge on the laptop answers the agent calls, and a session answers th
    Right after the stacks are up, preflight stops when a robot-control node runs twice (`no_duplicate_nodes`) and warns about nodes started outside the launch and orphaned helpers (`no_stray_processes`). Run the same check by hand: `python3 -m orchestrator.stale_nodes report`.
 
    Preflight ends with a relocalization in place. If it fails, the planner does not plan; the trace says why.
-4. **The planner asks for a tree.** In the planner session:
+4. **Planning by hand.** When `planner_cli run` is not used, send the task (`ros2 topic pub --once -w 1 /orchestrator/task std_msgs/msg/String "{data: '...'}"`), then in the planner session:
 
    ```bash
    ros2 run orchestrator planner_cli wait          # prints the call; the system prompt goes to ~/.ros/planner_system.md
@@ -94,7 +98,7 @@ The trees from 2026-11-16 on reset the EKF with `reset_ekf`, check the view afte
 The test measures how often one press hits each call button, with no retries. Each cycle walks to the call panel, holds still for the EKF reset, presses the down button, then the up button, both with the right arm. The agent judges every press, and the tree goes on whatever the judge says.
 
 1. Launch the NUC with the cabin2 map (section 5) and check `"localized": true`. The Orin and the Thor run as usual.
-2. Start the orchestrator (section 2) with `places_file:=/home/vector/maps/two_floor_clean_cabin2.places.yaml`.
+2. Start the orchestrator (section 2) with `site:=stanley`.
 3. Run the agent bridge on the laptop (section 3), then start the run: `ros2 run orchestrator send_tree ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_panel_press_repeat.xml`.
 4. The bridge judges each press. A press that move_to_pose refuses ("target out of reach") or that finds no target opens no call, so expect up to ten. A person by the panel notes the true outcome of each press, in order.
 
@@ -104,7 +108,7 @@ Compare the person's labels with the judge's decisions and the `press_judge` rec
 
 Preflight starts the stacks itself. When it cannot, start them one at a time and check each before the next.
 
-**NUC** (robot interface, arm control, body EKF, navigation, `door_state_node`), from the laptop's `eigen_vector` checkout:
+**NUC** (robot interface, arm control, body EKF, navigation, `door_state_node`), with `scripts/deploy.sh` of the `eigen_vector` repository, from the laptop's `eigen_vector` checkout:
 
 ```bash
 scripts/deploy.sh launch nuc map:=/home/vector/maps/two_floor_clean_cabin2.pcd localization:=true    # SSH_HOST=192.168.123.5 on the robot wire
@@ -134,7 +138,7 @@ ssh vector@vector-nuc 'source ~/eigen_vector_ws/env.sh; export LD_PRELOAD=$EIGEN
 
 `/slam_elevatorlio/status` must say `"mode": "localization"` and `"localized": true`; a stack in mapping mode has no terrain graph and every goal aborts.
 
-**Orin** (camera, `seed_bbox`, `track_3d`): `scripts/deploy.sh launch orin`, or on the Orin:
+**Orin** (camera, `seed_bbox`, `track_3d`): `scripts/deploy.sh launch orin` in the `eigen_vector` checkout, or on the Orin:
 
 ```bash
 tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 launch bringup orin.launch.py 2>&1 | tee ~/eigen_vector_ws/launch.log'"
@@ -162,7 +166,7 @@ The grounding is up when the log has `grounding service on /vlm_ground_server/gr
    ros2 service call /unitree_interface/change_mode unitree_interface_msgs/srv/ChangeControlMode "{requested_mode: 1}"
    ```
 
-4. Stop the orchestrator (`tmux kill-session -t orchestrator`), then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
+4. Stop the orchestrator with Ctrl-C in its session (`tmux send-keys -t orchestrator C-c`, then `tmux kill-session -t orchestrator` once the log ends): Ctrl-C lets the raw bag close its file. Then the stacks: the NUC with `scripts/deploy.sh stop nuc` from the laptop's `eigen_vector` checkout (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
 
 The next tree clears `/stop` itself. Never use `ready_locomotion` on a standing robot: it damps the robot, then stands it up again.
 

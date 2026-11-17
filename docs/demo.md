@@ -5,14 +5,14 @@ The G1 rides the freight elevator from one floor to a place on the other floor. 
 ## Before the demo
 
 - The robot hangs in the gantry, powered. The NUC, Orin and Thor are on.
-- The laptop has the agent bridge set up (`mission_control/README.md`) and a Claude Code login.
+- The laptop has the agent bridge set up (`mission_control/README.md`) and a Claude Code login. Its Tailscale address is the `agent_bridge` host in `orchestrator/config/sites/stanley.yaml`; on another laptop, change it there.
 - Foxglove on the laptop connects to `ws://vector-nuc:8765`, for relocalization.
-- Open three terminals: the bridge, a shell on the NUC, and the Run Viewer in a browser.
+- Open two terminals, the bridge and a shell on the NUC, and the Run Viewer in a browser.
 
 ## 1. Start the agent bridge (laptop)
 
 ```bash
-~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py
+~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley
 ```
 
 Keep this window in view. The robot asks you questions here.
@@ -20,29 +20,25 @@ Keep this window in view. The robot asks you questions here.
 ## 2. Start the orchestrator (NUC)
 
 ```bash
-source ~/orchestrator_ws/env.sh
-tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 launch orchestrator orchestrator.launch.py places_file:=/home/vector/maps/two_floor_clean_cabin2.places.yaml planner_backend:=external 2>&1 | tee ~/orchestrator.log'"
+tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 launch orchestrator orchestrator.launch.py site:=stanley 2>&1 | tee ~/orchestrator.log'"
 ```
 
-It is ready when the bridge prints `executor connected` and `~/orchestrator.log` shows `recording to <session>`.
+The site file gives the places, the planner backend, the bridge's address and the raw sensor bag, which records to `~/bags/raw_<date>_<time>` while the orchestrator runs. It is ready when the bridge prints `executor connected` and `~/orchestrator.log` shows `recording to <session>`.
 
-## 3. Record the raw sensors (NUC)
+## 3. Stand the robot up
 
-```bash
-tmux new -d -s rawbag "bash -c 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 bag record -o ~/bags/raw_\$(date +%Y%m%d_%H%M) /lidar/scan /imu/data /state_estimation /slam_elevatorlio/status /slam_elevatorlio/floor /tf /tf_static /odom_base_link /LIO/odom /LIO/set_elevator_flag /LIO/imu_acc_offset'"
-```
+Stand the G1 in ready locomotion and remove the gantry: preflight does not stand the robot up, and stops the task if it is not in ready locomotion. Put the robot near the call panel on its floor.
 
 ## 4. Send the task (NUC)
 
-First stand the G1 in ready locomotion and remove the gantry: preflight does not stand the robot up, and stops the task if it is not in ready locomotion. Put the robot near the call panel on its floor. To go from floor 2 to floor 1:
+From floor 2 to floor 1:
 
 ```bash
-ros2 topic pub --once -w 1 /orchestrator/task std_msgs/msg/String "{data: 'Take the freight elevator to target_floor_1.'}"
-ros2 run orchestrator planner_cli wait
-ros2 run orchestrator planner_cli answer --use-tree freight_elevator_go_to_place --param goal={target_floor_1} --note "To floor 1 by the freight elevator."
+source ~/orchestrator_ws/env.sh
+ros2 run orchestrator planner_cli run --use-tree freight_elevator_go_to_place --param goal={target_floor_1}
 ```
 
-From floor 1 to floor 2, use `target_floor_2` in both places.
+It sends the task, waits through preflight and answers the planner with the library tree. From floor 1 to floor 2, use `goal={target_floor_2}`.
 
 ## 5. Preflight
 
@@ -71,10 +67,10 @@ The run ends when the viewer shows `freight_elevator_go_to_place: success`. For 
 
 1. Cancel any running tree (step 6).
 2. Stop the robot and release the arms as in `operations.md` section 6.
-3. Stop the bag and the orchestrator:
+3. Stop the orchestrator and the raw bag with Ctrl-C, so the bag closes its file, then the session:
 
    ```bash
-   tmux kill-session -t rawbag
+   tmux send-keys -t orchestrator C-c
    tmux kill-session -t orchestrator
    ```
 

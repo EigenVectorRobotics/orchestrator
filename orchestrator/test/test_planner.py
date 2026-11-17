@@ -305,3 +305,17 @@ def test_planner_cli_answer_passes_parameters_to_use_tree():
 
     with pytest.raises(ValueError):
         parse_parameters(['goal="{lobby}"x=1'])
+
+
+def test_planner_cli_run_builds_the_task_and_the_note_from_the_tree():
+    import argparse
+
+    from orchestrator.planner_cli import answer_text, run_text
+
+    arguments = argparse.Namespace(use_tree='freight_elevator_go_to_place', tree=None, param=['goal={target_floor_1}'],
+                                   task=None, note=None)
+    task, arguments.note = run_text(arguments)
+
+    assert task == 'Run freight_elevator_go_to_place with goal={target_floor_1}.'
+    assert answer_text(arguments).endswith('<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}"/>')
+    assert run_text(argparse.Namespace(use_tree='t', param=[], task='Go.', note='n')) == ('Go.', 'n')

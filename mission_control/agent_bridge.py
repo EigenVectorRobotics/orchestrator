@@ -13,8 +13,14 @@ from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ResultMessage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'orchestrator'))   # orchestrator.site, which needs no ROS
 
 import agent_prompts as prompts
+
+from orchestrator.site import SiteError, load_site
+
+
+SITES = Path(__file__).resolve().parents[1] / 'orchestrator' / 'config' / 'sites'
 
 
 USAGE = '''Answer every agent call of the executor on the laptop.
@@ -44,13 +50,26 @@ KINDS         = [                                       # warmed at start: the e
 
 def main():
     parser = argparse.ArgumentParser(description=USAGE, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--listen', default='100.107.208.25', help='address to listen on: the laptop on Tailscale')
-    parser.add_argument('--port', type=int, default=8771)
+    parser.add_argument('--site', default='', help='a site in orchestrator/config/sites (e.g. stanley): its agent_bridge address')
+    parser.add_argument('--listen', default='', help='address to listen on (the laptop on Tailscale); default: the site')
+    parser.add_argument('--port', type=int, default=0, help='default: the site, else 8771')
     parser.add_argument('--model', default='claude-opus-5-5')
     parser.add_argument('--effort', default='low')
     parser.add_argument('--local', type=Path, default=Path('~/agent_calls').expanduser(), help='with --keep: where calls are kept')
     parser.add_argument('--keep', action='store_true', help='also keep each call on the laptop (the NUC run records have them)')
     arguments = parser.parse_args()
+
+    try:
+        bridge = load_site(arguments.site, SITES).get('agent_bridge') or {}
+    except SiteError as error:
+        parser.error(str(error))
+
+    arguments.listen = arguments.listen or str(bridge.get('host', ''))
+    arguments.port   = arguments.port or int(bridge.get('port', 8771))
+
+    if not arguments.listen:
+        parser.error('give --site (e.g. stanley) or --listen <the laptop Tailscale address>')
+
     arguments.local.mkdir(parents=True, exist_ok=True)          # also the model processes' working directory
 
     asyncio.run(Bridge(arguments).serve())

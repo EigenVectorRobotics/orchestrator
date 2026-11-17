@@ -13,6 +13,7 @@ setup(
         (f'share/{PACKAGE_NAME}', ['package.xml']),
         (f'share/{PACKAGE_NAME}/launch', glob('launch/*.launch.py')),
         (f'share/{PACKAGE_NAME}/config', glob('config/*.yaml')),
+        (f'share/{PACKAGE_NAME}/config/sites', glob('config/sites/*.yaml')),
         (f'share/{PACKAGE_NAME}/test_trees', glob('test_trees/*.xml')),
     ],
     install_requires=['setuptools'],

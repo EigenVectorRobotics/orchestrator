@@ -10,7 +10,7 @@ What runs on the operator's computer: the agent bridge that answers every agent 
 
 ## Set up once
 
-The bridge needs Python 3.10 or newer, a Claude Code login on this computer, and Tailscale to the robot's NUC.
+The bridge needs Python 3.10 or newer, a Claude Code login on this computer, and Tailscale to the robot's NUC. It reads the site file from this repository, so run it from a checkout of the branch the NUC runs.
 
 ```bash
 python3 -m venv ~/.venvs/agent_bridge
@@ -20,10 +20,10 @@ python3 -m venv ~/.venvs/agent_bridge
 ## Run the bridge
 
 ```bash
-~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py
+~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley
 ```
 
-It listens on the laptop's Tailscale address, 100.107.208.25:8771 (`--listen`, `--port`), with `claude-opus-5-5` at low effort (`--model`, `--effort`). The orchestrator's default backend connects to it; for another laptop, set `agent_push_host` to its address. The record of each call is kept on the NUC by the run recorder (model, prompt, decisions, usage). With `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/`, with timings in `~/agent_calls/bridge_timing.jsonl`, for debugging on the laptop.
+It listens on the site's `agent_bridge` address (`orchestrator/config/sites/stanley.yaml`, the laptop's Tailscale address and port 8771), with `claude-opus-5-5` at low effort (`--model`, `--effort`). The executor, launched with the same site, connects there. For another laptop, change `agent_bridge.host` in the site file and rebuild on the NUC; `--listen` and `--port` override the site for a test. The record of each call is kept on the NUC by the run recorder (model, prompt, decisions, usage). With `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/`, with timings in `~/agent_calls/bridge_timing.jsonl`, for debugging on the laptop.
 
 ## Answer operator_confirm
 

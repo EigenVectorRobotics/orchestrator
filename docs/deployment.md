@@ -38,7 +38,7 @@ Branch @ commit, and local changes, as checked. "No upstream": the local branch 
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `orchestrator` | **to deploy:** `ltx-dev` | checked: `jean/planner-tree-library` @ `e99f402` |
+| `orchestrator` | **to deploy:** `ltx-reorg` | checked: `jean/planner-tree-library` @ `e99f402` |
 
 ### Orin, `~/eigen_vector_ws/src`
 
@@ -58,7 +58,7 @@ Branch @ commit, and local changes, as checked. "No upstream": the local branch 
 | `~/eigen_vector_ws_bringup` | `bringup` | from `eigen_vector` `main`, `bringup/`, copied by `deploy.sh`; not a git checkout | |
 | | `vlm` | `main` @ `3ca4861` | clean; `ground_server` runs from here |
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
-| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-dev` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd`, a branch deleted on GitHub. `launch_thor_stack` starts `cosmos_vlm_server.py` from this checkout |
+| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-reorg` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd`, a branch deleted on GitHub. `launch_thor_stack` starts `cosmos_vlm_server.py` from this checkout |
 | `~/eigen_vector_ws` | `track_anything` `trt` @ `f5a1f47`, `vlm` `thor` @ `3ca4861` | | not in use |
 
 Running when checked: on the Thor, the tmux session `eigen_vector_bringup` (`ground_server`); no `cosmos_vlm` session, so the VLM endpoint `http://vector-thor:8090/v1` did not answer. The Thor rebooted on its own on 2026-11-08 at about 21:20 and came back with no stack (troubleshooting, "Machines and processes").

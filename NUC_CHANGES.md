@@ -62,7 +62,7 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 
 - **Why:** the planner fills `goal_floor` from the floor of the goal place (`planner.fill_floor_parameters`). Without a `floors` table in the places file nothing is filled, the tree keeps its default `goal_floor`, and a goal on the other floor can be refused.
 - **File:** `~/maps/two_floor_clean_cabin2.places.yaml` on the NUC. It needs `floors: {"floor 1": {z_min, z_max}, "floor 2": {z_min, z_max}}`, and every place used by `freight_elevator_go_to_place` (`target_floor_1/2`, the call panels, the inside panels, the door-out places).
-- **Always** start the orchestrator with `places_file:=/home/vector/maps/two_floor_clean_cabin2.places.yaml`. The launch default, `config/places.yaml`, holds only two placeholders and cannot run the elevator tree.
+- Start the orchestrator with `site:=stanley`: the site file names this places file. Without a site the launch takes `config/places.yaml`, which holds only two placeholders and cannot run the elevator tree.
 - `skill_registry/trees/freight_elevator_go_to_place.xml` names `~/maps/orchestrator/…`; every other document names `~/maps/…`. Confirm the real path and fix the tree comment.
 
 ### 9. Clear old press references after a map or place change. Status: open, when needed
@@ -71,7 +71,6 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 
 ### 10. Small things the demo assumes. Status: check
 
-- `~/bags/` exists (`docs/demo.md` step 3 records the raw bag there).
 - `launch_run_viewer` starts the viewer from this repository (`~/orchestrator_ws/src/orchestrator/run_viewer/`). The hand copy in `~/run_viewer/` is no longer used; move it aside once the new one runs.
 - `~/fake_button_pose.py` stays disabled; delete it if nobody needs it.
 
@@ -94,5 +93,6 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 
 ### 13. The agent bridge. Status: check
 
-- The executor connects to `100.107.208.25:8771` by default (`agent_push_host`, `agent_push_port`), the laptop's Tailscale address. Another laptop needs `agent_push_host:=<its Tailscale address>` at launch, and `agent_bridge.py --listen <address>`.
+- The bridge's address is `agent_bridge` in `orchestrator/config/sites/stanley.yaml` (the laptop's Tailscale address, port 8771). The executor (launched with `site:=stanley`) and `agent_bridge.py --site stanley` both read it. For another laptop, change it there and rebuild on the NUC.
+- `~/bags/` is created by the launch when the site records the raw bag.
 - Set up once as in `mission_control/README.md` (the venv with `claude-agent-sdk`).
