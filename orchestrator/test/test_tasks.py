@@ -1,73 +1,11 @@
-import time
 import threading
 
-from contextlib import contextmanager
+from orchestrator.behavior_tree import Status
 
-from skill_registry import Registry
-
-from orchestrator.tasks import Tasks
-from orchestrator.skill_leaf import make_leaf_factory
-from orchestrator.behavior_tree import Context, Status
-
-from test_behavior_tree import CONTRACTS, FakeClock, FakeRunner
+from fakes import FakeRunner, _context, _tasks, _tick_until
 
 
-PANEL = {'x': 1.0, 'y': 2.0, 'yaw': 0.0, 'frame': 'map'}
 TREE  = '<root BTCPP_format="4"><BehaviorTree ID="walk"><navigate_to goal="{call_panel}"/></BehaviorTree></root>'
-
-
-class FakeTracer:
-    """Tracer's tap and fan-out, copied and not inherited: test_task_agent and test_task_loop import this module,
-    and they must collect with no rclpy on the path"""
-
-    def __init__(self):
-        self.fields    = {}
-        self.events    = []
-        self.listeners = []
-
-    @contextmanager
-    def tap(self, listener):
-        self.listeners.append(listener)
-
-        try:
-            yield
-        finally:
-            self.listeners.remove(listener)
-
-    def emit(self, kind, text, level='info', **data):
-        event = {'kind': kind, 'text': text, 'level': level, **self.fields, **data}
-
-        self.events.append(event)
-
-        for listener in tuple(self.listeners):
-            listener(event)
-
-    def kinds(self):
-        return [event['kind'] for event in self.events if event['kind'] != 'validation']
-
-
-def _tasks(runner: FakeRunner):
-    registry = Registry.from_directory(CONTRACTS)
-    tracer   = FakeTracer()
-    statuses = []
-    tasks    = Tasks(registry, make_leaf_factory(registry, runner), tracer, lambda state, tree: statuses.append(state),
-                     {'nuc', 'orin'}, make_scratch=lambda run_id: f'/scratch/{run_id}')
-
-    return tasks, tracer, statuses
-
-
-def _context(run_id='r1'):
-    return Context(blackboard={'call_panel': dict(PANEL)}, clock=FakeClock(), run_id=run_id)
-
-
-def _tick_until(tasks, thread, max_ticks=200):
-    for _ in range(max_ticks):
-        tasks.tick()
-
-        if not thread.is_alive():
-            return
-
-        time.sleep(0.005)
 
 
 def test_a_tree_sent_alone_is_a_task_of_one_step():

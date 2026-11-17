@@ -6,25 +6,10 @@ from types import SimpleNamespace
 
 from skill_registry import contract_grammar
 
-from orchestrator.task_agent import LOST_SPEECH, StepGate, TaskDesk, task_summary
+from orchestrator.task_agent import LOST_SPEECH, StepGate, task_summary
 from orchestrator.behavior_tree import Status
 
-from test_tasks import _context, _tasks, _tick_until
-from test_behavior_tree import FakeClock, FakeRunner
-
-
-def _desk(runner: FakeRunner, tmp_path, **limits):
-    tasks, tracer, _ = _tasks(runner)
-    opened, replies  = [], []
-    said, clock      = [], FakeClock()
-    desk             = TaskDesk(tasks, opened.append, replies.append, said.append, clock=clock, **limits)
-    context          = _context()
-    context.blackboard['call_panel'] = {'x': 1.0, 'y': 2.0, 'yaw': 0.0, 'frame': 'map', 'kind': 'place', 'floor': 'floor 2'}
-
-    tasks.make_scratch = lambda run_id: str(tmp_path)
-    desk.open('Go to the call panel', context)
-
-    return SimpleNamespace(desk=desk, tasks=tasks, tracer=tracer, opened=opened, replies=replies, said=said, clock=clock)
+from fakes import FakeRunner, _context, _desk, _tick_until
 
 
 def _command(d, **command):

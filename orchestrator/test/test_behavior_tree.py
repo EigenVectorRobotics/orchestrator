@@ -7,55 +7,7 @@ from orchestrator.skill_leaf import make_leaf_factory
 
 from data_paths import CONTRACTS, TREES
 
-
-
-
-class FakeClock:
-    def __init__(self):
-        self.now = 0.0
-
-    def __call__(self) -> float:
-        return self.now
-
-
-class FakeHandle:
-    def __init__(self, script: list[Status], outputs: dict):
-        self.script    = list(script)
-        self.outputs   = outputs
-        self.message   = ''
-        self.cancelled = False
-
-    def poll(self) -> Status:
-        if self.cancelled:
-            return Status.FAILURE
-
-        return self.script.pop(0) if len(self.script) > 1 else self.script[0]
-
-    def cancel(self):
-        self.cancelled = True
-
-
-class FakeRunner:
-    """Each skill plays a script of statuses, one per tick; default: success at once"""
-
-    def __init__(self, scripts: dict[str, list] | None = None, outputs: dict | None = None):
-        self.scripts = scripts or {}
-        self.outputs = outputs or {}
-        self.calls   = []
-        self.handles = []
-
-    def start(self, contract, inputs):
-        self.calls.append((contract.name, inputs))
-
-        script = self.scripts.get(contract.name, [Status.SUCCESS])
-
-        if script and isinstance(script[0], list):     # one script per call
-            script = script.pop(0) if len(script) > 1 else script[0]
-
-        handle = FakeHandle(script, self.outputs.get(contract.name, {}))
-        self.handles.append(handle)
-
-        return handle
+from fakes import FakeClock, FakeRunner
 
 
 def _tree(body: str, runner: FakeRunner, clock: FakeClock | None = None, blackboard: dict | None = None) -> BehaviorTree:

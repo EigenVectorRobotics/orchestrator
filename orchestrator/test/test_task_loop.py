@@ -11,9 +11,7 @@ from orchestrator.planner import describe_catalog
 from orchestrator.task_loop import MAX_SECTION_CHARS, CodexDecider, DeciderError, TaskLoop, build_prompt
 from orchestrator.behavior_tree import Status
 
-from test_tasks import _tick_until
-from test_task_agent import _desk
-from test_behavior_tree import FakeRunner
+from fakes import FakeRunner, _desk, _tick_until
 
 SAY = {'name': 'say', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5.0,
        'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String'}}
