@@ -71,11 +71,17 @@ def _runner(tmp_path, code: str, runner=None, approve=None) -> CodeRunner:
     return skills
 
 
-def _finish(handle, seconds=20.0) -> Status:
+def _wait_until(done, seconds: float) -> bool:
     deadline = time.monotonic() + seconds
 
-    while handle.poll() == Status.RUNNING and time.monotonic() < deadline:
+    while not done() and time.monotonic() < deadline:
         time.sleep(0.02)
+
+    return done()
+
+
+def _finish(handle, seconds=20.0) -> Status:
+    _wait_until(lambda: handle.poll() != Status.RUNNING, seconds)
 
     return handle.poll()
 
@@ -222,12 +228,8 @@ def test_cancel_stops_the_code_and_its_call(tmp_path):
                                 '    return {}\n')
     handle  = code.start(code.registry.get('where_am_i'), {}, _context())
     started = tmp_path / 'scratch' / 'started'          # the code's folder is the sandbox scratch
-    deadline = time.monotonic() + 10.0
 
-    while not started.exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
-
-    assert started.exists(), 'the code did not start'
+    assert _wait_until(started.exists, 10.0), 'the code did not start'
     handle.cancel()
 
     assert _finish(handle, 5.0) in (Status.FAILURE, Status.SUCCESS)

@@ -24,6 +24,7 @@ from orchestrator.behavior_tree import BehaviorTree, Context, Status
 from orchestrator.skill_leaf import make_leaf_factory
 
 from data_paths import AGENT_SKILLS, CONTRACTS, TREES
+from fakes import FakeClock
 
 
 ROOT       = Path(__file__).resolve().parents[2]
@@ -73,19 +74,10 @@ def _config(tmp_path: Path) -> AgentConfig:
     return AgentConfig(skills_dir=str(AGENT_SKILLS), read_roots=[str(ROOT)], sandbox=SandboxConfig(scratch_dir=str(tmp_path / 'scratch')))
 
 
-class TickClock:
-    """The tree's clock: it moves 0.05 s each tick, so the tree's Delay of 1 s takes 20 ticks, not 1 s of real time"""
-
-    def __init__(self):
-        self.now = 0.0
-
-    def __call__(self) -> float:
-        return self.now
-
-
 def _step(tree: BehaviorTree) -> Status:
+    """One tick, then 0.5 s more on the tree's FakeClock. The tree's Delay of 1 s then takes 3 ticks, not 1 s"""
     status = tree.tick()
-    tree.context.clock.now += 0.05
+    tree.context.clock.now += 0.5
     time.sleep(0.005)                           # the agent runs in its own thread
 
     return status
@@ -102,7 +94,7 @@ def _run(tree: BehaviorTree, max_ticks: int = 500) -> Status:
 
 
 def _tree(xml_text: str, runner: FakeRunner, agent, scratch_dir: Path | None = None) -> BehaviorTree:
-    context = Context(blackboard={'call_panel': dict(PANEL)}, scratch_dir=scratch_dir and str(scratch_dir), clock=TickClock())
+    context = Context(blackboard={'call_panel': dict(PANEL)}, scratch_dir=scratch_dir and str(scratch_dir), clock=FakeClock())
 
     return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
 

@@ -123,14 +123,14 @@ def _tick_until(tasks, thread, max_ticks=200):
 
 
 def _desk(runner: FakeRunner, tmp_path, **limits):
-    """A desk with an open task. **limits goes to TaskDesk as it is, so a test can pass any of its arguments
-    (max_steps, runbook, writer, stale, ran, ...); do not replace it with a fixed list"""
+    """A desk with an open task. **limits goes to TaskDesk without change. Tests use it to give new TaskDesk
+    arguments, for example runbook, writer, stale and ran. Do not change it to a fixed list"""
     tasks, tracer, _ = _tasks(runner)
     opened, replies  = [], []
     said, clock      = [], FakeClock()
     desk             = TaskDesk(tasks, opened.append, replies.append, said.append, clock=clock, **limits)
     context          = _context()
-    context.blackboard['call_panel'] = {'x': 1.0, 'y': 2.0, 'yaw': 0.0, 'frame': 'map', 'kind': 'place', 'floor': 'floor 2'}
+    context.blackboard['call_panel'] = PANEL | {'kind': 'place', 'floor': 'floor 2'}
 
     tasks.make_scratch = lambda run_id: str(tmp_path)
     desk.open('Go to the call panel', context)

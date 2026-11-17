@@ -32,8 +32,9 @@ def test_a_written_skill_is_saved_untested_and_loaded_at_once(tmp_path):
 def test_a_version_that_the_registry_refuses_leaves_the_old_one_on_disk(tmp_path):
     saved = tmp_path / 'say_it.yaml'
 
-    def check(contract):                            # the types change after the save: the writer's check passes,
-        on_disk = yaml.safe_load(saved.read_text())['timeout_s'] if saved.exists() else None    # the registry's refuses
+    # the types change after the save: the writer's check passes, the registry's refuses
+    def check(contract):
+        on_disk = yaml.safe_load(saved.read_text())['timeout_s'] if saved.exists() else None
         return ['changed'] if contract.timeout_s == on_disk == 9 else []
 
     registry = Registry()

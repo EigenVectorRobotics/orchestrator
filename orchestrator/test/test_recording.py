@@ -199,17 +199,18 @@ def test_a_failed_write_marks_the_session_failed_and_does_not_raise(tmp_path):
     assert json.loads((recorder.path / 'finalization.json').read_text())['status'] == 'failed'
 
 
+def _git(where, *arguments):
+    subprocess.run(['git', '-C', str(where), *arguments], check=True, capture_output=True)
+
+
 def test_git_state_sees_local_edits(tmp_path):
     repo = tmp_path / 'repo'
     repo.mkdir()
 
-    def git(*arguments):
-        subprocess.run(['git', '-C', str(repo), *arguments], check=True, capture_output=True)
-
-    git('init', '-q')
+    _git(repo, 'init', '-q')
     (repo / 'a.txt').write_text('a')
-    git('add', 'a.txt')
-    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'a')
+    _git(repo, 'add', 'a.txt')
+    _git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'a')
 
     assert not git_state(repo)['dirty']
 
@@ -223,17 +224,14 @@ def test_git_state_sees_local_edits(tmp_path):
 
 
 def test_git_state_reads_a_repo_that_holds_an_untracked_repo(tmp_path):
-    """A worktree or a clone under the repo is listed by git as one directory entry, not as files, because git does
-    not look inside another repo. A plain untracked directory is listed by its files and passes even without the
-    fix, so the inner folder must be made with git init"""
+    """Git lists a repo inside the repo as one directory entry, because git does not look inside another repo.
+    Git lists a plain untracked directory by its files, and that test passes without the fix. Make the inner
+    folder with git init"""
     repo = tmp_path / 'repo'
 
-    def git(where, *arguments):
-        subprocess.run(['git', '-C', str(where), *arguments], check=True, capture_output=True)
-
-    git(tmp_path, 'init', '-q', str(repo))
-    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'a')
-    git(repo, 'init', '-q', 'inner')                       # an untracked directory with a .git of its own
+    _git(tmp_path, 'init', '-q', str(repo))
+    _git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'a')
+    _git(repo, 'init', '-q', 'inner')                       # an untracked directory with a .git of its own
 
     state = git_state(repo)
 

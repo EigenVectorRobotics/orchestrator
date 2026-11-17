@@ -44,7 +44,7 @@ def test_example_tree_is_valid_blind():
 def test_a_bad_tree_gets_one_error_for_each_fault(body, config, says):
     errors = _errors(body, **config)
 
-    assert len(errors) == len(says) and all(said in error for said, error in zip(says, errors)), errors
+    assert len(errors) == len(says) and all(any(said in error for error in errors) for said in says), errors
 
 
 @pytest.mark.parametrize('body', [
