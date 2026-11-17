@@ -6,6 +6,7 @@ What runs on the operator's computer: the agent bridge that answers every agent 
 |---|---|
 | `agent_bridge.py` | Answers the executor's `press_judge` and `manipulation_recovery` calls through the Claude Agent SDK, with the frames as images. Asks the operator in its terminal for `operator_confirm`. |
 | `agent_prompts.py` | The model's rules (`JUDGE_SYSTEM`, `recovery_system()`) and how each call's evidence becomes the prompt. |
+| `robot/` | Scripts that start, run, watch, cancel and stop a robot run on the NUC over ssh (`robot/README.md`). |
 | `test/test_agent_bridge.py` | Tests of the `operator_confirm` path (with a pipe as stdin), the protocol check, and the prompt built from a call. |
 
 The phases, their decisions, the answer schema, the limits the executor enforces and the link's framing are not written here: both the bridge and the executor import them from `orchestrator/orchestrator/agent_spec.py` (standard library only, so the bridge loads it without ROS).
