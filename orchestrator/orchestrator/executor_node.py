@@ -85,10 +85,10 @@ class ExecutorNode(Node):
             self.get_logger().warn('no agent: agent_push_host is not set (launch with site:=<name>); agent skills fail')
             return None
 
-        return Agent(self._make_push_backend(), RosReader(self, self.runner.latest_image, self.runner._tf),
+        return Agent(self._make_push_backend(speak), RosReader(self, self.runner.latest_image, self.runner._tf),
                      on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
 
-    def _make_push_backend(self) -> PushAgentBackend:
+    def _make_push_backend(self, speak) -> PushAgentBackend:
         """Every agent call goes to the agent bridge on the laptop over one TCP link; the request, reply and event topics carry it for the recorder"""
         host              = self.get_parameter('agent_push_host').value                          # the operator laptop, from the site
         port              = self.declare_parameter('agent_push_port', 8771).value
@@ -102,7 +102,8 @@ class ExecutorNode(Node):
             lambda request: request_publisher.publish(String(data=json.dumps(request, default=str))),
             lambda reply: reply_publisher.publish(String(data=json.dumps(reply))),
             lambda event: event_publisher.publish(String(data=json.dumps(event, default=str))),
-            self.runner.capture_dir
+            self.runner.capture_dir,
+            speak,
         )
 
     def _on_agent_event(self, kind: str, text: str, level: str = 'info', **data):

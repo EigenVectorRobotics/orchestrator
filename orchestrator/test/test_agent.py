@@ -111,6 +111,10 @@ class ScriptedLink:
         self.messages  = queue.Queue()
         self.connected = True
 
+    @property
+    def heard_at(self) -> float:
+        return time.monotonic()                 # a live bridge: heard from just now
+
     def open_call(self, header: dict, blobs: list[bytes]):
         while not self.messages.empty():
             self.messages.get_nowait()

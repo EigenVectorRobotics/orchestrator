@@ -311,3 +311,56 @@ def test_a_confirm_past_its_timeout_tells_the_bridge_to_drop_it(tmp_path):
         backend.link.close()
 
     assert status == Status.FAILURE and cancel['id'] == bridge.received[0][0]['id']
+
+
+def _closed_port() -> int:
+    """A port nothing listens on: the bridge is not up"""
+    server = socket.create_server(('127.0.0.1', 0))
+    port   = server.getsockname()[1]
+    server.close()
+
+    return port
+
+
+def test_an_unreachable_bridge_is_said_then_fails_the_call_and_the_next_at_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_push, 'UNREACHABLE_SAY_S', 0.2)
+    monkeypatch.setattr(agent_push, 'UNREACHABLE_FAIL_S', 0.6)
+    spoken  = []
+    backend = PushAgentBackend(PushLink('127.0.0.1', _closed_port()), speak=spoken.append)
+    agent   = Agent(backend, speak=spoken.append, press_evidence=lambda: _press(tmp_path))
+    tree    = _tree(JUDGE_TREE, FakeRunner([(True, 'Controller reached target', [])]), agent)
+    start   = time.monotonic()
+
+    try:
+        status  = _run(tree)
+        elapsed = time.monotonic() - start
+    finally:
+        tree.halt()
+        backend.link.close()
+
+    gave_up = 'My helper is still not connected. Going on without it.'
+    assert status == Status.FAILURE                     # the judge and then the diagnosis fail without a decision
+    assert spoken.count(agent_push.UNREACHABLE_SPEECH) == 1
+    assert spoken.count(gave_up) == 2
+    assert elapsed < 1.2                                # the diagnosis did not wait another minute
+
+
+def test_word_from_the_bridge_gives_the_next_call_its_wait_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_push, 'UNREACHABLE_SAY_S', 0.1)
+    monkeypatch.setattr(agent_push, 'UNREACHABLE_FAIL_S', 0.3)
+    spoken  = []
+    backend = PushAgentBackend(PushLink('127.0.0.1', _closed_port()), speak=spoken.append)
+    body    = '<root BTCPP_format="4"><BehaviorTree ID="t"><manipulation_recovery phase="stance_check" base_goal="{call_panel}"/></BehaviorTree></root>'
+
+    try:
+        for heard in (False, True):
+            if heard:
+                backend.link.heard_at = time.monotonic()      # a ping came in between the calls
+
+            tree = _tree(body, FakeRunner([]), Agent(backend))
+            assert _run(tree) == Status.FAILURE
+            tree.halt()
+    finally:
+        backend.link.close()
+
+    assert spoken.count(agent_push.UNREACHABLE_SPEECH) == 2

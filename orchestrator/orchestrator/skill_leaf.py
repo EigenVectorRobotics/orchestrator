@@ -297,6 +297,8 @@ class AgentLeaf(SkillLeaf):
             said = 'I have no helper connected.'
         elif text.startswith('recovery budget spent'):
             said = 'I have used up my recovery attempts for this task.'
+        elif 'the agent bridge is unreachable' in text:     # agent_push.UNREACHABLE
+            said = 'My helper is still not connected. Going on without it.'
         elif text.startswith('timeout after'):
             said = 'My helper did not answer in time.'
         else:

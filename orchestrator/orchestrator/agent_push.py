@@ -7,6 +7,10 @@ then the images back to back, as its "images" list gives them ({name, media_type
 reply (accepted or why not) and cancel; the bridge sends started (model and prompt), decision and failed. Both send
 ping every PING_S; a link silent for DEAD_S is closed and opened again, and the open call is sent again on it.
 
+A call waits for the bridge while it is unreachable (nothing heard from it, connected or not): after UNREACHABLE_SAY_S
+the robot says so once, and after UNREACHABLE_FAIL_S the call fails. A later call fails at once while nothing has been
+heard from the bridge since, so the tree is not held up a minute at each agent leaf.
+
 Each call is also published as a request (latched JSON on topics.AGENT_REQUEST_TOPIC: opened, then closed), each reply on
 topics.AGENT_REPLY_TOPIC, and what the bridge reports (started with model and prompt, each decision with its usage,
 failed) and a cancel on topics.AGENT_EVENT_TOPIC. The run recorder writes all of it into the run the call opened in;
@@ -36,6 +40,10 @@ PING_S      = 5.0
 DEAD_S      = 20.0
 RETRY_S     = 2.0
 MAX_REFUSED = 3                         # decisions refused in one call before it fails
+UNREACHABLE_SAY_S  = 15.0               # the robot says it lost the bridge after this long without a word from it
+UNREACHABLE_FAIL_S = 60.0               # and the call fails after this long
+UNREACHABLE        = 'the agent bridge is unreachable'      # the start of the error; the agent leaf says why it failed
+UNREACHABLE_SPEECH = 'I lost the connection to my helper. Waiting for it to come back.'
 USAGE_FIELDS = ('cost_usd', 'tokens_in', 'tokens_out', 'model_s')
 EXTENSIONS  = {'image/jpeg': 'jpg', 'image/png': 'png'}
 
@@ -45,6 +53,10 @@ class AgentStopped(AgentError):
 
 
 class LinkClosed(ConnectionError):
+    pass
+
+
+class BridgeUnreachable(AgentError):
     pass
 
 
@@ -126,6 +138,7 @@ class PushLink:
         self.on_state = on_state or (lambda text: None)
         self._sock    = None
         self._call    = None
+        self.heard_at = 0.0                     # time.monotonic() of the last connect or message from the bridge
         self._lock    = threading.Lock()
         self._closed  = threading.Event()
         self._thread  = threading.Thread(target=self._run, daemon=True)
@@ -190,6 +203,7 @@ class PushLink:
             with self._lock:
                 self._sock = sock
 
+            self.heard_at = time.monotonic()
             self.on_state(f'connected to the agent bridge at {self.host}:{self.port}')
 
             if self._call is not None:
@@ -216,7 +230,7 @@ class PushLink:
                 self.send({'type': 'ping'})
                 continue
 
-            heard = time.monotonic()
+            heard = self.heard_at = time.monotonic()
 
             if message[0].get('type') != 'ping':
                 self.messages.put(message[0])
@@ -244,8 +258,11 @@ class PushAgentBackend:
 
     def __init__(self, link: PushLink, publish_request: Callable[[dict], None] = lambda request: None,
                  publish_reply: Callable[[dict], None] = lambda reply: None,
-                 publish_event: Callable[[dict], None] = lambda event: None, capture_dir: str | Path | None = None):
+                 publish_event: Callable[[dict], None] = lambda event: None, capture_dir: str | Path | None = None,
+                 speak: Callable[[str], None] = lambda text: None):
         self.link             = link
+        self.speak            = speak
+        self._gave_up_at      = None            # link.heard_at when a call last failed on an unreachable bridge
         self.capture_dir      = Path(capture_dir).expanduser() if capture_dir else None
         self._publish_request = publish_request
         self._publish_reply   = publish_reply
@@ -261,6 +278,8 @@ class PushAgentBackend:
         request = {**request, 'phase': phase, 'images': self._image_files(request, images)}
         outcome = {'outcome': 'failed', 'error': 'the call ended without a decision'}
         refused = 0
+        opened  = time.monotonic()
+        warned  = False
 
         self._publish_request(request)
         self.link.open_call(header, [data for _, _, data in images])
@@ -275,6 +294,28 @@ class PushAgentBackend:
                     outcome = {'outcome': 'cancelled', 'error': 'cancelled or timed out'}
                     self._event(request, 'cancelled')
                     raise AgentStopped('cancelled or timed out')
+
+                # (2b) An unreachable bridge: say so once, then fail the call
+                if self._gave_up_at is not None and self.link.heard_at != self._gave_up_at:
+                    self._gave_up_at = None             # the bridge has been heard from since a call gave up on it
+
+                quiet = time.monotonic() - max(opened, self.link.heard_at)
+
+                if self._gave_up_at is not None:
+                    quiet = UNREACHABLE_FAIL_S          # nothing heard since the last call gave up: fail this one at once
+
+                if quiet >= UNREACHABLE_SAY_S and not warned and self._gave_up_at is None:
+                    warned = True
+                    self.speak(UNREACHABLE_SPEECH)
+                    on_event('agent_link', f'no word from the agent bridge for {quiet:.0f} s; waiting up to '
+                             f'{UNREACHABLE_FAIL_S:g} s', level='warn', call=request['id'])
+
+                if quiet >= UNREACHABLE_FAIL_S:
+                    error            = f'{UNREACHABLE} (no word from it for {UNREACHABLE_FAIL_S:g} s)'
+                    self._gave_up_at = self.link.heard_at
+                    outcome          = {'outcome': 'failed', 'error': error}
+                    self._event(request, 'failed', error=error)
+                    raise BridgeUnreachable(error)
 
                 try:
                     message = self.link.messages.get(timeout=0.2)
