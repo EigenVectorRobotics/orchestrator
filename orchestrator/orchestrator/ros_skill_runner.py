@@ -5,6 +5,7 @@ import dataclasses
 import json
 import math
 import time
+import threading
 
 from collections import deque
 
@@ -620,6 +621,7 @@ class RosSkillRunner:
         self._targets      = {}             # in_view pose topic -> (monotonic receive time, PoseStamped)
         self._target_topics = set()
         self._tf_buffer    = None
+        self._tf_lock      = threading.Lock()   # the agent's thread reads TF through this buffer too (RosReader)
 
         self._action_clients:  dict[str, ActionClient] = {}
         self._service_clients: dict[str, object]       = {}
@@ -754,13 +756,15 @@ class RosSkillRunner:
         self._tf()                                      # listen from the start, so TF is there at the first check
 
     def _tf(self):
-        if self._tf_buffer is None:
-            from tf2_ros import Buffer, TransformListener
+        """The executor's one TF buffer and listener, made on first use; the runner and the agent's RosReader share it"""
+        with self._tf_lock:
+            if self._tf_buffer is None:
+                from tf2_ros import Buffer, TransformListener
 
-            self._tf_buffer   = Buffer(cache_time=Duration(seconds=10))
-            self._tf_listener = TransformListener(self._tf_buffer, self.node)
+                self._tf_buffer   = Buffer(cache_time=Duration(seconds=10))
+                self._tf_listener = TransformListener(self._tf_buffer, self.node)
 
-        return self._tf_buffer
+            return self._tf_buffer
 
     def _check_alive(self, spec: dict) -> tuple[bool, str, dict]:
         """The listed topics have publishers, the services exist, the URLs answer"""

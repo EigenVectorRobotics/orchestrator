@@ -82,7 +82,7 @@ class ExecutorNode(Node):
         speaker = self.create_publisher(String, '/speak', 10)                  # unitree_interface's TTS (remapped ~/tts)
         speak   = lambda text: speaker.publish(String(data=text))
 
-        return Agent(self._make_push_backend(), RosReader(self, self.runner.latest_image),
+        return Agent(self._make_push_backend(), RosReader(self, self.runner.latest_image, self.runner._tf),
                      on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
 
     def _make_push_backend(self) -> PushAgentBackend:

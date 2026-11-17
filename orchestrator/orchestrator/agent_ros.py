@@ -1,7 +1,7 @@
 """Read-only ROS access for agent calls, on the executor's node: TF and the latest camera image.
 
-Called from the agent's thread while the executor spins its node in the main thread. It creates a TF listener and
-never a publisher.
+Called from the agent's thread while the executor spins its node in the main thread. It reads TF through the buffer
+it is given (the skill runner's), and never publishes.
 """
 
 import math
@@ -11,7 +11,6 @@ from typing import Callable
 
 from rclpy.node import Node
 from rclpy.time import Time
-from rclpy.duration import Duration
 
 
 class RosReadError(RuntimeError):
@@ -27,12 +26,10 @@ def _quaternion_to_rpy(x: float, y: float, z: float, w: float) -> list[float]:
 
 
 class RosReader:
-    def __init__(self, node: Node, latest_camera_image: Callable[[], bytes | None]):
+    def __init__(self, node: Node, latest_camera_image: Callable[[], bytes | None], tf_buffer: Callable[[], object]):
         self.node                = node
         self.latest_camera_image = latest_camera_image     # the last camera frame, as JPEG
-        self._tf_buffer          = None
-        self._tf_listener        = None
-        self._lock               = threading.Lock()
+        self._buffer             = tf_buffer               # the executor's one TF buffer (RosSkillRunner._tf)
 
     # ----- TF -----
 
@@ -64,16 +61,6 @@ class RosReader:
             'age_s':              round(age_s, 3),
             'meaning':            f'the pose of {source_frame} in {target_frame}',
         }
-
-    def _buffer(self):
-        with self._lock:
-            if self._tf_buffer is None:
-                from tf2_ros import Buffer, TransformListener
-
-                self._tf_buffer   = Buffer(cache_time=Duration(seconds=10))
-                self._tf_listener = TransformListener(self._tf_buffer, self.node)
-
-            return self._tf_buffer
 
     # ----- images -----
 
