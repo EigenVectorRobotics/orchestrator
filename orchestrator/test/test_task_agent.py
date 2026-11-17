@@ -172,3 +172,17 @@ def test_a_step_that_does_not_validate_says_why_and_what_was_logged(tmp_path):
 
     assert d.replies[-1]['status'] == 'error' and 'nowhere' in d.replies[-1]['message']
     assert any('rejected' in line for line in d.replies[-1]['trace'])      # the tap: an event reaches the agent too
+
+
+def test_a_step_says_its_skill_is_stale_and_keeps_that_it_ran(tmp_path):
+    """The seam: the executor hands the desk the stamps (stale, ran). Both have harmless defaults, so a mis-wire
+    is silent: the agent is never warned and no run is ever kept"""
+    kept = []
+    d    = _desk(FakeRunner({'navigate_to': [Status.SUCCESS]}), tmp_path,
+                 stale=lambda: {'navigate_to': 'the code moved under it: nav'},
+                 ran=lambda skill, run: kept.append((skill, run)))
+
+    _command(d, op='run', skill='navigate_to', inputs={'goal': '{call_panel}'}, subgoal='walk')
+
+    assert d.replies[-1]['status'] == 'success' and kept == [('navigate_to', 'r1')]
+    assert any('stale_skill' in line for line in d.replies[-1]['trace'])     # in the trace, not only in the prompt

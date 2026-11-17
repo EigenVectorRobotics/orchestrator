@@ -5,6 +5,7 @@ from skill_registry import Registry, parse_contract
 from skill_registry.contract import AGENT_MARK
 
 from orchestrator.skill_writer import SkillWriter
+from orchestrator.skill_stamps import Stamps
 
 
 SAY = {'name': 'say_it', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5, 'maturity': 'tested',
@@ -193,3 +194,17 @@ def test_python_sent_for_a_skill_that_is_not_code_is_refused(tmp_path):
 
     assert not writer.write(yaml.safe_dump(SAY), BODY)['ok']
     assert registry.get('say_it') is None
+
+
+def test_a_written_skill_is_stamped_with_what_proved_it(tmp_path):
+    """The seam: write_skill -> Stamps.write. Without it the stamp is never made and no skill is ever stale"""
+    stamps           = Stamps(tmp_path, [], code_dir=tmp_path / 'code')
+    writer, _, _     = _writer(tmp_path)
+    writer.stamps    = stamps
+
+    assert writer.write(yaml.safe_dump(SAY))['ok']
+
+    stamp = stamps.all()['say_it']
+
+    assert stamp['self'] == stamps.digest('say_it')                  # the file it stamped is the file on disk
+    assert stamps.reasons()['say_it']                                # no repo was found, so nothing proves it
