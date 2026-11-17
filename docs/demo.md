@@ -39,7 +39,7 @@ First stand the G1 in ready locomotion and remove the gantry: preflight does not
 ```bash
 ros2 topic pub --once -w 1 /orchestrator/task std_msgs/msg/String "{data: 'Take the freight elevator to target_floor_1.'}"
 ros2 run orchestrator planner_cli wait
-ros2 run orchestrator planner_cli answer --use-tree freight_elevator_go_to_place --param goal={target_floor_1}
+ros2 run orchestrator planner_cli answer --use-tree freight_elevator_go_to_place --param goal={target_floor_1} --note "To floor 1 by the freight elevator."
 ```
 
 From floor 1 to floor 2, use `target_floor_2` in both places.
