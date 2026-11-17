@@ -31,6 +31,8 @@ from .agent_sandbox import SandboxConfig
 from .tasks import CANCEL_TOPIC, STATUS_TOPIC, TASK_TOPIC, Tasks, parse_task_request
 from .task_loop import CodexDecider, TaskLoop
 from .planner import describe_catalog
+from .recording import DEFAULT_REPO_ROOTS, repo_states
+from .skill_stamps import Stamps
 from .skill_writer import SkillWriter
 from .contract_check import check_ros_types
 from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC, STEP_DECISION_TOPIC,
@@ -101,8 +103,10 @@ class ExecutorNode(Node):
             self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, STATUS_QOS),
         ]
         # contracts that change on disk load while it runs, checked as write_skill checks them (skill_writer.py)
-        self.writer              = SkillWriter(self.registry, Path(self.get_parameter('contracts_directory').value),
-                                               check_ros_types, self.runner.prepare, code_dir=self.code.code_dir)
+        contracts_dir            = Path(self.get_parameter('contracts_directory').value)
+        self.stamps              = self._make_stamps(contracts_dir)
+        self.writer              = SkillWriter(self.registry, contracts_dir, check_ros_types, self.runner.prepare,
+                                               code_dir=self.code.code_dir, stamps=self.stamps)
         self.desk                = self._make_desk() if mode == 'task' else None
         self.loop                = self._make_loop() if mode == 'task' else None
         self._tick_timer         = self.create_timer(1.0 / self.tick_hz, self._tick)
@@ -110,6 +114,25 @@ class ExecutorNode(Node):
 
         self._publish_status('idle')
         self.get_logger().info(f'{len(self.registry)} skills, {len(self.places())} places')
+
+    def _make_stamps(self, contracts_dir: Path) -> Stamps:
+        """What a skill was proved against. repo_roots is also run_recorder's parameter and both nodes default to
+        DEFAULT_REPO_ROOTS, but they are declared per node: set it on one only and the stamps and the run bundle
+        answer 'which code is this' about different repos, so the roots are logged at start"""
+        roots  = self.declare_parameter('repo_roots', DEFAULT_REPO_ROOTS).value
+        stamps = Stamps(contracts_dir, list(roots), code_dir=self.code.code_dir)
+        found  = len(repo_states(stamps.repo_roots))
+
+        if found:
+            self.get_logger().info(f'skill stamps: {found} repos under {", ".join(stamps.repo_roots)}')
+        else:
+            self.get_logger().warning(f'skill stamps: NO repo under {", ".join(stamps.repo_roots)}; '
+                                      f'a skill written here can never be proved. Check repo_roots')
+
+        return stamps
+
+    def _stale(self) -> dict[str, str]:
+        return self.stamps.reasons(self.registry)
 
     def _make_desk(self) -> TaskDesk:
         """Task mode: a session (agent_cli) does each task step by step through these topics"""
@@ -137,6 +160,8 @@ class ExecutorNode(Node):
             idle_s=self.declare_parameter('task_idle_s', 120.0).value,
             gate=self.gate,
             writer=self.writer if writes else None,
+            stale=self._stale,
+            ran=self.stamps.ran,
         )
 
         def on_command(message: String):                # a run blocks until its step ends: not on the spin thread
@@ -169,7 +194,7 @@ class ExecutorNode(Node):
                                timeout_s=self.declare_parameter('codex_timeout_s', 180.0).value)
         self.get_logger().info(f'task agent: codex {decider.model}, one decision per turn')
 
-        return TaskLoop(self.desk, decider, lambda: describe_catalog(self.registry, self.essential_devices),
+        return TaskLoop(self.desk, decider, lambda: describe_catalog(self.registry, self.essential_devices, self._stale()),
                         self.runner.latest_image, self.tracer)
 
     def _runbook_file(self) -> Path:

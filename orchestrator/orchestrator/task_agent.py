@@ -157,7 +157,8 @@ class TaskDesk:
                  speak: Callable[[str], None], known: Callable[[], str] = lambda: '',
                  runbook: Callable[[], str] = lambda: '', max_steps: int = 40,
                  max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
-                 gate: StepGate | None = None, writer: SkillWriter | None = None):
+                 gate: StepGate | None = None, writer: SkillWriter | None = None,
+                 stale: Callable[[], dict[str, str]] = dict, ran: Callable[[str, str], None] = lambda name, run: None):
         self.tasks         = tasks
         self.writer        = writer                  # None: write_skill is refused
         self.gate          = gate                    # None: steps run without a person's approval (sim)
@@ -165,6 +166,8 @@ class TaskDesk:
         self.publish_reply = publish_reply
         self.speak         = speak
         self.known         = known                   # the knowledge store's prompt section, for the open task
+        self.stale         = stale                   # every stale skill and why, in one read (skill_stamps.reasons)
+        self.ran           = ran                     # a step that succeeded: kept with the skill's stamp as evidence
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
         self.max_steps     = max_steps
         self.max_task_s    = max_task_s
@@ -285,7 +288,7 @@ class TaskDesk:
             return self._write_skill(str(message['yaml']), str(message.get('code', '')))
 
         if op == 'skills':
-            return {'ok': True, 'catalog': describe_catalog(self.tasks.registry, self.tasks.essential_devices)}
+            return {'ok': True, 'catalog': describe_catalog(self.tasks.registry, self.tasks.essential_devices, self.stale())}
 
         if op in ('done', 'give_up'):
             return self._end(task, 'done' if op == 'done' else 'gave_up', str(message.get('reason', '')))
@@ -327,9 +330,29 @@ class TaskDesk:
             if not decision['approve']:
                 return {'ok': False, 'status': 'refused', 'message': f'the operator refused the step: {decision["reason"]}'}
 
+        self._note_stale(skill)
         result = self.tasks.run_skill(skill, inputs, subgoal=subgoal)
 
+        if result.status == 'success':
+            self._keep(skill, task.run_id)
+
         return {'ok': result.status != 'error', **asdict(result)}
+
+    def _note_stale(self, skill: str) -> None:
+        """Say in the trace and the bundle that a step used a stale skill, not only in the agent's prompt"""
+        try:
+            if reason := self.stale().get(skill):
+                self.tasks.tracer.emit('stale_skill', f'{skill}: {reason}', level='warn', skill=skill)
+        except OSError as error:                     # bookkeeping must never decide whether a step runs
+            self.tasks.tracer.emit('stale_skill', f'{skill}: could not be checked: {error!r}', level='warn')
+
+    def _keep(self, skill: str, run_id: str) -> None:
+        """Keep that the skill ran. The step HAS happened: a failure to write it down must not be reported as a
+        failed command, or the agent runs the action again (command() turns an OSError into ok: false)"""
+        try:
+            self.ran(skill, run_id)
+        except OSError as error:
+            self.tasks.tracer.emit('stamp_error', f'{skill}: the run was not kept: {error!r}', level='warn')
 
     def ask_step(self, request: dict, still_open=None, step=None) -> dict:
         """Ask a person about one step and trace the answer; also used for a call inside a code skill"""

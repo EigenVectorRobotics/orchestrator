@@ -26,7 +26,8 @@ from .trace import TRACE_QOS, TRACE_TOPIC
 from .node_setup import declare_sources
 from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
 from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS
-from .recording import Recorder, RecorderConfig, directory_digests, file_digest, find_repos, git_state, largest_runs
+from .recording import (DEFAULT_REPO_ROOTS, Recorder, RecorderConfig, directory_digests, file_digest, find_repos,
+                        git_state, largest_runs)
 
 
 STATUS_TOPIC = '/orchestrator/recorder/status'
@@ -83,7 +84,7 @@ class RunRecorderNode(Node):
         root        = self.declare_parameter('root', RecorderConfig.root).value
         min_free_gb = self.declare_parameter('min_free_gb', RecorderConfig.min_free_gb).value
         capture_dir = self.declare_parameter('capture_dir', RecorderConfig.capture_dir).value
-        repo_roots  = self.declare_parameter('repo_roots', ['/home/vector/orchestrator_ws/src', '/home/vector/eigen_vector_ws/src']).value
+        repo_roots  = self.declare_parameter('repo_roots', DEFAULT_REPO_ROOTS).value
         record_bag  = self.declare_parameter('bag', True).value
         bag_topics  = self.declare_parameter('bag_topics', BAG_TOPICS).value
         agent_docs  = self.declare_parameter('agent_skills_dir', str(agent_skills_dir())).value

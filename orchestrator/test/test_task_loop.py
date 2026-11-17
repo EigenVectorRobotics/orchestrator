@@ -4,7 +4,9 @@ import threading
 
 import pytest
 
-from skill_registry import contract_grammar
+from skill_registry import Registry, contract_grammar, parse_contract
+
+from orchestrator.planner import describe_catalog
 
 from orchestrator.task_loop import MAX_SECTION_CHARS, CodexDecider, DeciderError, TaskLoop, build_prompt
 from orchestrator.behavior_tree import Status
@@ -12,6 +14,9 @@ from orchestrator.behavior_tree import Status
 from test_tasks import _tick_until
 from test_task_agent import _desk
 from test_behavior_tree import FakeRunner
+
+SAY = {'name': 'say', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5.0,
+       'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String'}}
 
 
 def _decision(op, **fields):
@@ -164,3 +169,11 @@ def test_the_prompt_shows_each_part_of_a_result_and_what_the_robot_logged():
 
     assert 'message: the goal was refused' in prompt and 'trace: validation:' in prompt   # a long failure keeps both
     assert len(failure) <= MAX_SECTION_CHARS + len('  failure: ')
+
+
+def test_a_stale_skill_reaches_the_prompt_the_model_reads():
+    """The seam: Stamps.reasons -> describe_catalog -> build_prompt. A break here leaves every other test green"""
+    catalog = describe_catalog(Registry([parse_contract(SAY)]), {'nuc'}, {'say': 'the code moved under it: nav'})
+    prompt  = build_prompt({'state': 'open', 'run_id': 'r1', 'task': 't'}, catalog, [])
+
+    assert 'the code moved under it: nav' in prompt and 'stale' in prompt

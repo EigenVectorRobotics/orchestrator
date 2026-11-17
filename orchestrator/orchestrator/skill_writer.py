@@ -26,12 +26,13 @@ CODE_MARK = '# written by the agent with write_skill; it runs in the sandbox and
 
 class SkillWriter:
     def __init__(self, registry: Registry, directory: Path, check_types: Callable[[Contract], list[str]],
-                 loaded: Callable[[Contract], None], code_dir: Path | None = None):
+                 loaded: Callable[[Contract], None], code_dir: Path | None = None, stamps=None):
         self.registry    = registry
         self.directory   = Path(directory)
         self.code_dir    = Path(code_dir) if code_dir else self.directory.parent / 'code'   # where CodeRunner looks
         self.check_types = check_types            # contract -> what does not match its ROS types
         self.loaded      = loaded                 # e.g. the runner makes its clients for the new skill
+        self.stamps      = stamps                 # skill_stamps.Stamps: what this skill was proved against; None: off
         self._lock       = threading.Lock()       # the timer's refresh must not read a file between its save and its check
 
     def write(self, text: str, code: str = '') -> dict:
@@ -81,6 +82,9 @@ class SkillWriter:
 
         if path.name in errors:
             return _refused(errors[path.name])
+
+        if self.stamps is not None:               # after the save: the stamp reads the files that are now on disk
+            self.stamps.write(contract)           # write_skill is the only thing that proves a skill
 
         message = f'{contract.name} {"replaced" if replaced else "added"}, maturity untested'
 

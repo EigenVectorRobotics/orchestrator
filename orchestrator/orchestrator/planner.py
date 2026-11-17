@@ -69,7 +69,7 @@ First, in a few short sentences, say what the robot will do and how it handles t
 '''
 
 
-def describe_contract(contract: Contract, essential_devices: set[str]) -> str:
+def describe_contract(contract: Contract, essential_devices: set[str], stale: str = '') -> str:
     def describe_port(port) -> str:
         text = f'{port.name}: {port.type}'
 
@@ -112,12 +112,16 @@ def describe_contract(contract: Contract, essential_devices: set[str]) -> str:
 
     lines.append(f'maturity: {contract.maturity}')
 
+    if stale:                     # its own line, as 'needs the cloud' is: maturity is the agent's word, not ours
+        lines.append(f'stale, test it before you trust it: {stale}')
+
     return '\n'.join(line for line in lines if line)
 
 
-def describe_catalog(registry: Registry, essential_devices: set[str]) -> str:
+def describe_catalog(registry: Registry, essential_devices: set[str], stale: dict[str, str] | None = None) -> str:
+    """stale: skill -> why its code no longer proves it (skill_stamps.Stamps.reasons), read once for the catalog"""
     return '\n\n'.join(
-        describe_contract(contract, essential_devices)
+        describe_contract(contract, essential_devices, (stale or {}).get(contract.name, ''))
         for contract in sorted(registry, key=lambda contract: contract.name)
     )
 

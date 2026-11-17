@@ -61,7 +61,11 @@ def git_state(repo: Path) -> dict:
 
     for name in filter(None, (git('ls-files', '--others', '--exclude-standard', '-z') or b'').split(b'\0')):
         path   = repo / name.decode()
-        size   = path.stat().st_size if path.is_file() else 0
+        if not path.is_file():                      # git lists an untracked DIRECTORY as one entry; it is not readable
+            edits += name
+            continue
+
+        size   = path.stat().st_size
         edits += name + (path.read_bytes() if size <= MAX_HASHED_BYTES else str(size).encode())
 
     return {
@@ -71,6 +75,24 @@ def git_state(repo: Path) -> dict:
         'dirty':    bool(edits),
         'edits':    hashlib.sha256(edits).hexdigest()[:16] if edits else None,
     }
+
+
+def repo_states(roots: list[str]) -> dict[str, str]:
+    """Each repo under roots as one short string: its revision, and its local edits when it has any (git_state).
+    It answers one question for a skill: is the code still the one it was proved against? The run bundle keeps the
+    full git_state per repo, so a stamp is the short form of what provenance.json already records"""
+    states = {}
+
+    for repo in find_repos(roots):
+        state = git_state(repo)
+
+        if state.get('revision'):
+            states[str(repo)] = state['revision'][:12] + (f'+{state["edits"][:8]}' if state.get('edits') else '')
+
+    return states
+
+
+DEFAULT_REPO_ROOTS = ['/home/vector/orchestrator_ws/src', '/home/vector/eigen_vector_ws/src']   # the recorder's and the stamps'
 
 
 def find_repos(roots: list[str]) -> list[Path]:
