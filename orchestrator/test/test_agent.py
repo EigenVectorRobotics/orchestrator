@@ -715,7 +715,7 @@ def test_each_press_checks_the_stance_then_presses_and_judges():
     presses = [inputs for name, inputs in runner.calls if name == 'press_button']
     assert [press['target_description'] for press in presses] == ['down button', 'floor 2']
     offsets = [inputs for name, inputs in runner.calls if name == 'set_press_offset']
-    assert [(o['x'], o['y'], o['z']) for o in offsets] == [(0.0, 0.0, 0.0), (0.003, 0.003, 0.003)]  # each panel's base offset before a first press
+    assert [(o['x'], o['y'], o['z']) for o in offsets] == [(0.0, 0.0, 0.0)] * 2 + [(0.003, 0.003, 0.003)] * 2  # each panel's base offset before its looks, then before its first press
     says  = [(index, inputs['text']) for index, (name, inputs) in enumerate(runner.calls) if name == 'say']
     holds = [index for index, text in says if text == 'Holding still to reset my balance estimate.']
     assert len(holds) == 2                                                                  # before each press
@@ -741,7 +741,7 @@ def test_an_offset_retry_presses_again_with_the_offset_the_agent_gave():
 
     assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
     offsets = [(o['x'], o['y'], o['z']) for name, o in runner.calls if name == 'set_press_offset']
-    assert offsets == [(0.0, 0.0, 0.0), (0.012, 0.0126, 0.0032), (0.003, 0.003, 0.003)]   # call press, its retry, the floor press
+    assert offsets == [(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.012, 0.0126, 0.0032), (0.003, 0.003, 0.003), (0.003, 0.003, 0.003)]   # call panel looks, its press, its retry; floor panel looks, its press
     assert runner.names().count('press_button') == 3
 
 

@@ -5,6 +5,9 @@
             <SetBlackboard output_key="stance_lost" value="no"/>
             <Fallback>
                 <Sequence>
+                    <ForceSuccess>          <!-- the panel's base offset before the looks, so check_reach checks the goal this panel presses; a failure here leaves it to the press slot's own set_press_offset -->
+                        <set_press_offset x="{press_base_offset_x}" y="{press_base_offset_y}" z="{press_base_offset_z}"/>
+                    </ForceSuccess>
                     <SubTree ID="stance_check" name="stance_check"/>
                     <SubTree ID="press_and_recover"/>
                     <release_arms/>
