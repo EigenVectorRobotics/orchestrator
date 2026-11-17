@@ -268,3 +268,14 @@ def test_preflight_tree_is_valid():
     issues    = validator.validate((PACKAGE / 'preflight' / 'preflight.xml').read_text())
 
     assert [issue.message for issue in issues if issue.level == 'error'] == []
+
+
+def test_a_setblackboard_copy_from_a_missing_place_is_refused():
+    copy = '<Sequence><SetBlackboard value="{target_floor_1}" output_key="goal"/><navigate_to goal="{goal}"/></Sequence>'
+
+    assert any('value={target_floor_1} reads a key that is not a named place' in error
+               for error in _errors(copy, known_keys={'call_panel'}))
+    assert not _errors(copy, known_keys={'target_floor_1'})
+    assert not _errors(copy)                                                # no places given: keys are not checked
+    written = '<Sequence><SetBlackboard value="2" output_key="floor"/><SetBlackboard value="{floor}" output_key="goal_floor"/></Sequence>'
+    assert not _errors(written, known_keys=set())                           # a key the tree writes itself

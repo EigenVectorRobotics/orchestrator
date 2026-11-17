@@ -131,6 +131,12 @@ class TreeValidator:
             return issues
 
         if tag in BUILTIN_LEAVES:
+            value = element.get('value', '') if tag == 'SetBlackboard' else ''
+
+            if value.startswith('{') and value.endswith('}') and not self._is_known_key(value[1:-1]):
+                # a copy from a key nothing holds fails only at run time (KeyError), so refuse it here
+                issues.append(Issue('error', frame.path, f'SetBlackboard: value={value} reads a key that is not a named place and that the tree never writes'))
+
             return issues
 
         if len(element):

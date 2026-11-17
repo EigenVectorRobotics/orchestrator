@@ -189,10 +189,16 @@ def test_system_prompt_lists_a_tree_with_its_parameters():
     assert '- freight_elevator_go_to_place(goal="{target_floor_2}", goal_floor="2"): ' in prompt
 
 
+RIDE_PLACES = {name: {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'} for name in (
+    'freight_elevator_call_panel_preapproach', 'freight_elevator_call_panel', 'freight_elevator_call_panel_floor_1',
+    'inside_freight_elevator_button_panel', 'inside_freight_elevator_button_panel_floor_1',
+    'freight_elevator_door_out_floor_1', 'freight_elevator_door_out_floor_2', 'target_floor_1', 'target_floor_2')}
+
+
 def test_use_tree_overrides_parameters_and_keeps_the_others():
     events     = []
     planner, _ = _planner(['Floor 1.\n<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}" goal_floor="1"/>'], events, load_tree_library(TREES))
-    result     = planner.plan('go to floor 1', PLACES)
+    result     = planner.plan('go to floor 1', RIDE_PLACES)
 
     assert result.reused == 'freight_elevator_go_to_place'
     assert tree_parameters(result.tree) == {'goal': '{target_floor_1}', 'goal_floor': '1'}
@@ -222,7 +228,7 @@ def test_system_prompt_lists_subtrees_with_their_keys():
 def test_use_tree_replaces_a_subtree_with_another_tree():
     library    = {**load_tree_library(TREES), 'press_by_hand': ('Ask a person to press the button', BY_HAND)}
     planner, _ = _planner(['<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}" goal_floor="1"><replace subtree="press_panel_button" with="press_by_hand"/></use_tree>'], library=library)
-    result     = planner.plan('go to floor 1', PLACES)
+    result     = planner.plan('go to floor 1', RIDE_PLACES)
 
     assert result.reused == 'freight_elevator_go_to_place'
     assert '<BehaviorTree ID="press_panel_button">\n    <SubTree ID="ask_press"/>\n  </BehaviorTree>' in result.tree
