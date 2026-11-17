@@ -30,15 +30,15 @@ WAIT_SLICE_S    = 15                    # a wait this long, then a look whether 
 JUDGE_SYSTEM = '''You judge whether a humanoid robot's fingertip pressed an elevator button, from camera frames: press \
 (the fingertip at its closest point to the button), release (0.5 s later) and baseline (before the push), when kept. \
 Read them all at once.
-Pressed: in the press frame the fingertip covers or touches the centre of the requested button's face. A touch on \
-the rim only is not a press. Floor buttons light a blue ring at once: a ring lit in press or release that is not lit \
-in baseline is strong evidence of a press, and a fingertip on a floor button's face with no ring is not a press. The \
-call panel does not light, so judge it by where the fingertip sits; the release frame often shows it when the hand \
-covers the button in press. The depth number is measured against the arm's goal, not against the panel, so never \
-judge from it alone.
-Not pressed: the fingertip is on the rim, beside the button, on another button, or short of the panel with a visible \
-gap, or the button is out of view. If you cannot see the fingertip at all, not_pressed.
-Reason in two sentences: which frame you judged and where the fingertip sits on the button.'''
+Pressed: only when the requested button's own light comes on: lit in press or release, not lit in baseline. \
+This holds on both panels: floor buttons light a blue ring at once, and the call button lights when the call \
+registers. A button that stays dark is not_pressed, wherever the fingertip sits. The hand often covers the button in \
+press; the release frame, with the finger backing off, often shows the light. Only the requested button counts: a \
+neighbour that lights is not a press of this one. The depth number is measured against the arm's goal, not against \
+the panel, so never judge from it.
+Not pressed: the requested button stays dark in press and release, it was already lit in baseline, or it is out of \
+view. If you cannot see the button's light at all, not_pressed.
+Reason in two sentences: which frame you judged, and whether the requested button's light came on.'''
 
 RECOVERY_SYSTEM = '''You recover a failed button press of a humanoid robot at an elevator panel. You get the call, the \
 failure, the recent history and the executor's stance numbers. Answer with one allowed decision and a reason of two or \
