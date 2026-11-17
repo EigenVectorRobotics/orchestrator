@@ -60,6 +60,7 @@ class PlannerNode(Node):
         self.preflight   = load_tree(self.preflight_tree) if self.preflight_tree else ''
         self._preflight_done   = threading.Event()
         self._preflight_status = ''
+        self._preflight_started = False
         self.live_skills = None
         self.busy        = threading.Lock()
         self.planner     = Planner(
@@ -147,17 +148,28 @@ class PlannerNode(Node):
         self._speak_publisher.publish(String(data=text))
 
     def _on_trace(self, message: String):
-        """The executor's end of the preflight run"""
+        """The executor's end of the preflight run, or its refusal of the preflight tree"""
         event = json.loads(message.data)
 
-        if event.get('source') == 'executor' and event.get('tree_id') == 'preflight' and event.get('kind') in ('finished', 'halted', 'error'):
+        if event.get('source') != 'executor' or self._preflight_done.is_set():
+            return
+
+        if event.get('kind') == 'started':
+            self._preflight_started = event.get('tree_id') == 'preflight'
+        elif event.get('tree_id') == 'preflight' and event.get('kind') in ('finished', 'halted', 'error'):
             self._preflight_status = event.get('status') or event.get('kind')
+            self._preflight_done.set()
+        elif event.get('kind') == 'rejected' and not self._preflight_started:
+            # refused before it started (recorder not ready, validation, build): the tree id of the event may be an
+            # older run's, so a refusal while the preflight has not started is the preflight's
+            self._preflight_status = 'rejected'
             self._preflight_done.set()
 
     def _run_preflight(self) -> bool:
         """Send the preflight tree to the executor and wait for its end: stacks up, G1 in ready locomotion"""
         self._preflight_done.clear()
-        self._preflight_status = ''
+        self._preflight_status  = ''
+        self._preflight_started = False
         self.tracer.emit('preflight', 'preflight sent to the executor')
         self._tree_publisher.publish(String(data=self.preflight))
 
