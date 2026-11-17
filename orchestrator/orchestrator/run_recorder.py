@@ -30,10 +30,12 @@ from .recording import Recorder, RecorderConfig, directory_digests, file_digest,
 STATUS_TOPIC = '/orchestrator/recorder/status'
 BAG_STOP_S   = 10.0                             # SIGINT, then this long to close the file, then SIGKILL
 
-BAG_TOPICS = [
+BAG_TOPICS = [                                  # the bag_topics parameter's default; the one list (config leaves it out)
     TRACE_TOPIC, REQUEST_TOPIC, REPLY_TOPIC,
     '/speak', '/route_goal', '/route_planner/status', '/nav_state', '/state_estimation', '/odom_base_link',
     '/track_3d/is_tracking', '/track_3d/selected_target_3d', '/slam_elevatorlio/status',
+    '/track_3d/selected_normal_pose',                       # the button pose track_3d fits (raw)
+    '/track_3d/selected_normal_pose_filtered/arm_upright',  # the pose the press plans to (filtered)
 ]
 
 
