@@ -6,6 +6,7 @@ Agentic planning for the G1. An LLM writes a behavior tree, a validator checks i
 |---|---|
 | `skill_registry` | Skill contracts (`contracts/*.yaml`), the tree validator, live-skill discovery, the tree library (`trees/`, curated example trees the planner can reuse) |
 | `orchestrator` | Tree executor, ROS skill runner, planner, trace, fake robot; `test_trees/`, trees for tests and runs (not shown to the planner) |
+| `run_viewer` | The Run Viewer (not a ROS package): the tree, map, camera and agent calls of a run in a browser, from the recorder's session folders; see `run_viewer/README.md` |
 
 ## Documents
 

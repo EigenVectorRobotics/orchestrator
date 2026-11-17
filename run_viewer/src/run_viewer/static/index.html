@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Run Viewer · {{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky status bar; two columns: the tree (top level, then the press_button level) beside the map and the agent; timing, chat and decisions below */
+/* Light only: the user does not want a dark mode */
+:root {
+  --bg: #f5f6f4; --panel: #ffffff; --fg: #1d2420; --muted: #66706a; --line: #dde1dd;
+  --in: #2f6f9f; --out: #d9822b; --decide: #b3261e; --ok: #2e8b3e; --err: #d1342f; --run: #c77700;
+  --mapbg: #e8ebe7; --route: #2f6fb0; --arm: #8a3fb5;
+  --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans) }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 8px max(16px, env(safe-area-inset-left)); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center }
+h1 { font-size: 15px; font-weight: 600; margin: 0; display: flex; align-items: center }
+.live { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); margin-right: 7px }
+.live.on { background: var(--ok) }
+.treestate { font: 500 13px var(--mono) } .running { color: var(--run) } .success { color: var(--ok) } .failure, .error, .halted { color: var(--err) }
+select { font: 12px var(--mono); background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; max-width: 100% }
+.state { font: 500 12px var(--mono); border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px; color: var(--muted) }
+.state.open { color: var(--ok); border-color: var(--ok) } .state.closed { color: var(--err); border-color: var(--err) } .state.in { color: var(--in); border-color: var(--in) } .state.out { color: var(--out); border-color: var(--out) }
+.state.busy { color: var(--run); border-color: var(--run) }
+.src { font: 11px var(--mono); color: var(--muted); overflow-wrap: anywhere; flex-basis: 100% }
+main { padding: 12px max(16px, env(safe-area-inset-left)) 60px; display: grid; gap: 14px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(380px, 1fr); grid-template-areas: "left right" "agent side"; align-items: start }
+/* Each column stacks its own panes: shared grid rows left a gap under the top level as tall as the map pane is taller */
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0 }
+#c-left { grid-area: left } #c-right { grid-area: right } #p-agent { grid-area: agent } #p-side { grid-area: side }
+@media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "left" "right" "agent" "side" } }
+.cambox { position: relative; background: #111; aspect-ratio: 16 / 9; max-width: 100% }
+.cambox canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; min-width: 0 }
+.pane h2 { font: 600 12px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; min-height: 39px }
+.pane h2 .sp { margin-left: auto; font: 11px var(--mono); text-transform: none; letter-spacing: 0 }
+.pane h2 .nm { text-transform: none; letter-spacing: 0; font: 11px var(--mono); color: var(--fg); overflow-wrap: anywhere }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; text-transform: none; letter-spacing: 0 }
+.tools button { font: 500 11px var(--sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer }
+.tools button.on { border-color: var(--in); color: var(--in) }
+.tools button:focus-visible { outline: 2px solid var(--in) }
+.diagram { overflow: auto; min-height: 140px }
+#topdiagram { max-height: 34vh } #diagram { max-height: 52vh; min-height: 260px }
+.diagram svg { display: block }
+.crumb { font: 11px var(--mono); color: var(--muted); padding: 5px 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere }
+.edge { fill: none; stroke: var(--line); stroke-width: 1.5 } .edge.seen { stroke: var(--muted) }
+.nd rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2 }
+.nd text { font: 11.5px var(--mono); fill: var(--fg); dominant-baseline: middle }
+.nd .sym { font-weight: 600; fill: var(--muted) } .nd .ts { font-size: 10px; fill: var(--muted) }
+.nd.ctl rect { fill: var(--bg) }
+.nd.sub rect { stroke: var(--in); stroke-dasharray: 4 3 } .nd.sub text { fill: var(--in) } .nd.sub { cursor: pointer }
+.nd.seen rect { stroke: var(--muted) }
+.nd.success rect { stroke: var(--ok); fill: color-mix(in srgb, var(--ok) 14%, var(--panel)) }
+.nd.failure rect, .nd.error rect { stroke: var(--err); fill: color-mix(in srgb, var(--err) 14%, var(--panel)) }
+.nd.running rect { stroke: var(--run); fill: color-mix(in srgb, var(--run) 16%, var(--panel)) }
+.nd.onpath rect { stroke: var(--run); stroke-width: 2 }
+.nd.cur rect { stroke-width: 3; stroke: var(--run) }
+.nd.focus rect { stroke: var(--in); stroke-width: 3; stroke-dasharray: none }
+/* map */
+.mapbox { position: relative; height: 40vh; min-height: 280px; background: var(--mapbg) }
+.mapbox canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab }
+.mapcap { font: 11px var(--mono); color: var(--muted); padding: 6px 12px; border-top: 1px solid var(--line); overflow-wrap: anywhere; font-variant-numeric: tabular-nums }
+.mapcap b { color: var(--fg); font-weight: 500 } .mapcap .stale { color: var(--err); font-weight: 600 }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 11px var(--mono); color: var(--muted); padding: 0 12px 6px }
+.legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px }
+.legend i.dash { border-top-style: dashed } .legend i.dot { width: 7px; height: 7px; border: 0; border-radius: 50% }
+/* agent */
+.calls { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto }
+.call { border-bottom: 1px solid var(--line); padding: 8px 12px 9px; display: grid; gap: 5px }
+.call:last-child { border-bottom: 0 }
+.call.open { background: color-mix(in srgb, var(--run) 9%, var(--panel)) }
+.ch { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font: 12px var(--mono); font-variant-numeric: tabular-nums }
+.ch b { font: 600 13.5px var(--sans) } .ch .m { color: var(--muted) } .ch .st { margin-left: auto; color: var(--muted) }
+.rows { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 13px; align-items: baseline }
+.rows dt { font: 500 10.5px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em }
+.rows dd { margin: 0; min-width: 0; overflow-wrap: anywhere }
+.pill { display: inline-block; font: 500 11px var(--mono); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; margin: 1px 4px 1px 0; background: var(--bg) }
+a.node { font: 500 12.5px var(--mono); color: var(--in); cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--in) 40%, transparent) }
+.small { font-size: 11.5px; color: var(--muted) }
+.num { font: 12.5px var(--mono) }
+.dec { font: 600 14px var(--mono); color: var(--decide) }
+.fold { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer }
+.fold:not(.open)::before { content: '▸ '; color: var(--in) } .fold.open::before { content: '▾ '; color: var(--in) }
+.fold:hover { color: var(--fg) }
+.fold.open { white-space: pre-wrap; overflow-wrap: anywhere }
+/* A call's whole record (request, messages, summary, images), opened from its card */
+.calls details.more { margin-top: 4px } .calls details.more > summary { font: 500 11px var(--mono); color: var(--in); cursor: pointer }
+.calls .detail { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 10px; margin-top: 4px; max-height: 60vh; overflow-y: auto }
+.step { border-left: 2px solid var(--line); padding: 2px 0 4px 8px; margin: 6px 0 } .step .lab { font: 600 11px var(--mono); color: var(--muted); overflow-wrap: anywhere }
+.step pre { margin: 2px 0 0; font: 11.5px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere } .step summary { font: 11.5px var(--mono); cursor: pointer; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.frames { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px } .frames img { height: 110px; border: 1px solid var(--line); border-radius: 4px; display: block }
+.wait { font: 600 13px var(--mono); color: var(--run) }
+.no { color: var(--err) }
+/* side tabs (timing, chat, decisions) */
+.log { list-style: none; margin: 0; padding: 4px 0; max-height: 40vh; overflow-y: auto }
+.log li { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); cursor: pointer }
+.log li:last-child { border-bottom: 0 }
+.log .t { font: 11px var(--mono); color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums }
+.log .what { font-weight: 500; overflow-wrap: anywhere } .log .why { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
+.log .why.full { white-space: pre-wrap; display: block }
+.chip { display: inline-block; font: 600 11px var(--mono); padding: 0 6px; border-radius: 3px; margin-right: 6px; border: 1px solid currentColor }
+.c-decide { color: var(--decide) } .c-agent { color: var(--in) } .c-fail { color: var(--err) } .c-branch { color: var(--out) } .c-tree { color: var(--fg) } .c-ok { color: var(--ok) }
+.tabs { display: flex; gap: 4px } .tabs button { font: 600 12px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 2px 6px; cursor: pointer }
+.tabs button.on { color: var(--fg); border-bottom-color: var(--in) }
+.side { max-height: 40vh; overflow-y: auto }
+.timing { width: 100%; border-collapse: collapse; font: 12px var(--mono); font-variant-numeric: tabular-nums }
+.timing th { position: sticky; top: 0; background: var(--panel); text-align: right; font-weight: 600; color: var(--muted); padding: 6px; border-bottom: 1px solid var(--line) }
+.timing td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap }
+.timing th:first-child, .timing td:first-child { text-align: left; white-space: normal; overflow-wrap: break-word; min-width: 160px; width: 100% }
+.timing tr { cursor: pointer } .timing .ctx { color: var(--muted); font-size: 10.5px; display: block }
+.timing td.now { color: var(--run); font-weight: 600 } .bar { height: 3px; background: var(--out); margin-top: 2px; border-radius: 2px }
+.sumline { font: 11px var(--mono); color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--line) }
+.chat { list-style: none; margin: 0; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px }
+.msg { max-width: 88%; border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; cursor: pointer }
+.msg.l { align-self: flex-start; background: var(--bg) } .msg.r { align-self: flex-end; background: color-mix(in srgb, var(--in) 10%, var(--panel)); border-color: color-mix(in srgb, var(--in) 40%, var(--line)) }
+.msg.sys { align-self: center; border: 0; padding: 0 4px; font: 11px var(--mono); color: var(--muted); max-width: 100% }
+.msg .who { font: 600 11px var(--mono); color: var(--muted); display: flex; gap: 8px } .msg .who .gap { margin-left: auto; font-weight: 400 } .msg .who .gap.slow { color: var(--err); font-weight: 600 }
+.msg .txt { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px }
+.msg.full .txt { display: block }
+.empty { color: var(--muted); padding: 24px 12px; text-align: center; font-size: 13px; display: block !important }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="live" id="live"></span>Run Viewer</h1>
+  <span class="treestate" id="treestate">no tree yet</span>
+  <select id="sessel" aria-label="session" hidden></select>
+  <select id="runsel" aria-label="tree run" hidden></select>
+  <span class="state" id="st-side" title="/slam_elevatorlio/elevator_side">elevator: ?</span>
+  <span class="state" id="st-door" title="/door_state">door: ?</span>
+  <span class="state" id="st-floor" title="/slam_elevatorlio/floor">floor: ?</span>
+  <span class="state" id="st-agent" title="the newest agent call">agent: idle</span>
+  <div class="src" id="src"></div>
+</header>
+
+<main>
+  <div class="col" id="c-left">
+  <section class="pane" id="p-top">
+    <h2>Tree · top level <span class="nm" id="treename"></span>
+      <span class="tools"><button id="t-fit" class="on" title="Fit the width of the pane">Fit</button><button id="t-in">+</button><button id="t-out">−</button></span></h2>
+    <div class="diagram" id="topdiagram"><div class="empty">The tree appears when the executor starts a run.</div></div>
+  </section>
+
+  <section class="pane" id="p-press">
+    <h2>press_button level <span class="nm" id="focusname"></span>
+      <span class="tools"><button id="b-follow" class="on" title="Open only the branch that runs now">Follow</button><button id="b-fit">Fit</button><button id="b-active">Active path</button><button id="b-open">Open all</button><button id="b-fold">Fold all</button><button id="b-in">+</button><button id="b-out">−</button></span></h2>
+    <div class="crumb" id="crumb">Click a SubTree in the top level to show it here. The subtree that holds press_button opens by itself.</div>
+    <div class="diagram" id="diagram"><div class="empty">No tree yet.</div></div>
+  </section>
+  </div>
+
+  <div class="col" id="c-right">
+  <section class="pane" id="p-map">
+    <h2>Map <span class="nm" id="mapname"></span>
+      <span class="tools"><button id="m-robot" class="on" title="Centre on the robot">Robot</button><button id="m-floor" title="The whole floor">Floor</button><button id="m-in">+</button><button id="m-out">−</button></span></h2>
+    <div class="mapbox"><canvas id="map" aria-label="Floor map with the robot, route, goal, check circle, obstacles and local path"></canvas></div>
+    <div class="legend">
+      <span><i class="dash" style="border-color: var(--route)"></i>route</span>
+      <span><i class="dot" style="background: var(--out)"></i>waypoint</span>
+      <span><i class="dash" style="border-color: var(--run)"></i>check circle</span>
+      <span><i class="dot" style="background: var(--err)"></i>obstacle in it</span>
+      <span><i class="dot" style="background: rgba(209, 52, 47, 0.35)"></i>terrain obstacle outside it</span>
+      <span><i class="dot" style="background: rgba(46, 139, 62, 0.4)"></i>free paths</span>
+      <span><i style="border-color: var(--ok); border-top-width: 3px"></i>local path</span>
+      <span><i style="border-color: var(--arm); border-top-width: 3px"></i>arm goal</span>
+      <span style="opacity: .7">prior map faint: route planner only</span>
+    </div>
+    <div class="mapcap" id="mapcap">Waiting for the nav state from the robot.</div>
+  </section>
+
+  <section class="pane" id="p-camera">
+    <h2>Camera · EdgeTAM masks <span class="nm" id="camname"></span></h2>
+    <div class="cambox"><canvas id="cam" aria-label="Colour camera frame with the EdgeTAM mask outlines"></canvas></div>
+    <div class="mapcap" id="camcap">Waiting for the colour image.</div>
+  </section>
+  </div>
+
+  <section class="pane" id="p-agent">
+    <h2>Agent <span class="sp" id="a-sum"></span></h2>
+    <ul class="calls" id="calls"><li class="empty">Each agent call: its input, what it checked, the BT node that failed, and its decision.</li></ul>
+  </section>
+
+  <section class="pane" id="p-side">
+    <h2><span class="tabs"><button data-tab="timing">Timing</button><button data-tab="chat">Chat</button><button data-tab="decisions">Decisions</button></span>
+      <span class="sp" id="tabtools"></span></h2>
+    <div class="side" id="p-timing">
+      <div class="sumline" id="t-sum"></div>
+      <table class="timing"><thead><tr><th>node</th><th>calls</th><th>total</th><th>mean</th><th>max</th><th>running</th></tr></thead><tbody id="t-body"></tbody></table>
+    </div>
+    <div class="side" id="p-chat"><ul class="chat" id="chat"></ul></div>
+    <div id="p-decisions">
+      <div class="sumline"><label><input type="checkbox" id="f-fail" checked> failures</label></div>
+      <ul class="log" id="log"><li class="empty">Agent decisions, branches and failures appear here with their time.</li></ul>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const CLOCK = new Intl.DateTimeFormat([], {hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit'});   // made once: a formatter per call is slow
+const fmt = t => CLOCK.format(new Date(t * 1000));
+const tokens = {};
+const css = name => tokens[name] ??= getComputedStyle(document.documentElement).getPropertyValue(name).trim();   // light only: the tokens never change
+const runs = [];
+let seq = 0, shownRun = -1;
+const picked = new URLSearchParams(location.search).get('session') || '';   // a recorder session to replay; none: the live one
+let sessionName = picked;
+
+/* ---------- tree ---------- */
+const NS = 'http://www.w3.org/2000/svg';
+const BOX_H = 28, ROW = 33, PAD = 12, GAP = 18, MIN_BOX_W = 128;   // a column is as wide as its longest label: no label is cut
+const measure = document.createElement('canvas').getContext('2d');
+const SYM = {Sequence: '→', ReactiveSequence: '⇉', Fallback: '?', ReactiveFallback: '??', Parallel: '⇶', Inverter: '¬', ForceFailure: '✗', ForceSuccess: '✓',
+  RetryUntilSuccessful: '↻', Repeat: '⟳', Sleep: '⏱', SetBlackboard: '=', Timeout: '⌛'};
+const TOP_MIN_SCALE = 0.7;       // Fit never makes the top level smaller than this: it scrolls instead
+let zoom = 1, follow = true, topZoom = 1, topFit = true;
+
+function newRun(ev) {
+  runs.push({ev, root: null, byPath: {}, history: {}, decisions: [], cur: null, lastFail: null, stats: {}, chat: pendingChat.splice(0), end: null,
+    focus: null, focusCur: null, pressSubs: []});
+  const opt = document.createElement('option');
+  opt.value = runs.length - 1; opt.textContent = `${fmt(ev.time)}  ${ev.title.replace(/^running /, '')}`;
+  $('runsel').appendChild(opt); $('runsel').hidden = runs.length < 2;
+  showRun(runs.length - 1);
+}
+
+function showRun(i) {
+  shownRun = i; $('runsel').value = i;
+  const run = runs[i];
+  if (!run.root) {
+    const doc = new DOMParser().parseFromString(run.ev.xml || '<root/>', 'application/xml');
+    const trees = {};
+    doc.querySelectorAll('BehaviorTree').forEach(t => { trees[t.getAttribute('ID')] = t });
+    run.mainId = run.ev.tree_id || Object.keys(trees)[0];
+    run.root = trees[run.mainId] ? buildTree(trees, run.mainId, run.mainId, null, run, []) : null;
+    run.pressSubs = run.root ? pressSubs(run.root) : [];
+    run.focus = run.pressSubs[0] || null;
+  }
+  $('treename').textContent = run.mainId || '';
+  render(false); renderSide();
+  const log = $('log'); log.textContent = '';
+  if (!run.decisions.length) log.innerHTML = '<li class="empty">No decisions yet in this run.</li>';
+  run.decisions.forEach(li => log.appendChild(li));
+  refilterLog();
+}
+
+function buildTree(trees, id, path, parent, run, visiting) {
+  const root = trees[id] && trees[id].children[0];
+  if (!root || visiting.includes(id)) return null;
+  return build(trees, root, `${path}/${root.tagName}`, parent, run, [...visiting, id]);
+}
+
+/* Node paths as the executor makes them (orchestrator/behavior_tree.py _build): {path}/{tag}, {path}[{i}]/{tag}; a SubTree expands in place */
+function build(trees, el, path, parent, run, visiting) {
+  if (el.tagName === 'SubTree') {
+    const id = el.getAttribute('ID');
+    const node = {kind: 'sub', tag: id, label: id, path: path + '#sub', parent, collapsed: true, children: []};
+    const child = buildTree(trees, id, path, node, run, visiting);
+    if (child) node.children.push(child);
+    return node;
+  }
+  const attrs = [...el.attributes].filter(a => a.name !== 'ID');
+  const node = {kind: el.children.length ? 'ctl' : 'leaf', tag: el.tagName, path, parent, collapsed: false,
+    attrs: attrs.map(a => `${a.name}=${a.value}`).join(' '), short: attrs.map(a => a.value).join(' '), children: []};
+  run.byPath[path] = node;
+  if (parent && parent.kind === 'sub') run.byPath[parent.path.replace(/#sub$/, '')] = parent;
+  [...el.children].forEach((c, i) => node.children.push(build(trees, c, `${path}[${i}]/${c.tagName}`, node, run, visiting)));
+  return node;
+}
+
+/* The SubTrees that hold a press_button leaf directly (the nearest SubTree above it), in tree order */
+function pressSubs(root) {
+  const found = [];
+  (function walk(node) {
+    if (node.kind === 'leaf' && node.tag === 'press_button') {
+      let n = node.parent; while (n && n.kind !== 'sub') n = n.parent;
+      if (n && !found.includes(n)) found.push(n);
+    }
+    node.children.forEach(walk);
+  })(root);
+  return found;
+}
+
+function pressSubOf(run, path) {
+  for (let n = run.byPath[path]; n; n = n.parent) if (run.pressSubs.includes(n)) return n;
+  return null;
+}
+
+const base = run => run.focus || run.root;
+
+function statusOf(run, node) { return run.history[node.path] || run.history[node.path.replace(/#sub$/, '')] }
+
+function seen(run, node) {
+  if (node.seen !== undefined) return node.seen;
+  node.seen = !!statusOf(run, node) || node.children.some(c => seen(run, c));
+  return node.seen;
+}
+
+function clearSeen(node) { node.seen = undefined; node.children.forEach(clearSeen) }
+
+function layout(node, depth, state, kidsOf) {
+  node.depth = depth;
+  const kids = kidsOf(node);
+  if (!kids.length) { node.y = PAD + state.row * ROW; state.row += 1; return }
+  kids.forEach(c => layout(c, depth + 1, state, kidsOf));
+  node.y = (kids[0].y + kids[kids.length - 1].y) / 2;
+}
+
+function svgEl(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+
+function count(node) { return node.children.reduce((a, c) => a + 1 + count(c), 0) }
+
+function boxText(node, closed) {
+  if (node.kind === 'sub') return (closed ? '▸ ' : '▾ ') + node.tag;
+  if (node.kind === 'ctl') return `${closed ? '▸' : SYM[node.tag] || '•'} ${node.tag}${node.short ? ' ' + node.short : ''}`;
+  return node.tag + (node.short ? ' ' + node.short : '');
+}
+
+/* Draw the tree under root into box; kidsOf decides what is open; returns the group of the current node */
+function drawTree(run, root, box, scale, kidsOf, onClick, at) {
+  clearSeen(root);
+  const state = {row: 0};
+  layout(root, 0, state, kidsOf);
+  measure.font = `11.5px ${css('--mono')}`;
+  const colW = [];
+  (function label(node) {
+    const kids = kidsOf(node), closed = node.children.length && !kids.length;
+    node.label = boxText(node, closed) + (closed ? ` +${count(node)}` : '');
+    colW[node.depth] = Math.max(colW[node.depth] || MIN_BOX_W, Math.ceil(measure.measureText(node.label).width) + 18);
+    kids.forEach(label);
+  })(root);
+  const colX = [PAD];
+  colW.forEach((cw, d) => { colX[d + 1] = colX[d] + cw + GAP });
+  (function place(node) { node.x = colX[node.depth]; node.w = colW[node.depth]; kidsOf(node).forEach(place) })(root);
+  const w = colX[colW.length - 1] + colW[colW.length - 1] + PAD, h = PAD * 2 + Math.max(state.row - 1, 0) * ROW + BOX_H;
+  const svg = svgEl('svg', {width: w * scale, height: h * scale, viewBox: `0 0 ${w} ${h}`});
+  const edges = svgEl('g', {}, svg), nodes = svgEl('g', {}, svg);
+  let curEl = null;
+  (function draw(node) {
+    const st = statusOf(run, node), kids = kidsOf(node), closed = node.children.length && !kids.length;
+    const path = onPathOf(run, node, at) && node !== run.byPath[at];
+    const cls = ['nd', node.kind, seen(run, node) ? 'seen' : '', st ? st.status : '', at === node.path ? 'cur' : '',
+      path ? 'onpath' : '', node === run.focus && root !== node ? 'focus' : ''].join(' ');
+    const g = svgEl('g', {class: cls, transform: `translate(${node.x},${node.y})`}, nodes);
+    svgEl('rect', {width: node.w, height: BOX_H, rx: node.kind === 'leaf' ? 4 : 13}, g);
+    const t = svgEl('text', {x: 8, y: st ? 9 : BOX_H / 2}, g);
+    t.textContent = node.label;
+    if (st) { const ts = svgEl('text', {x: 8, y: 20, class: 'ts'}, g); ts.textContent = `${st.status} ${fmt(st.time)}` }
+    const tip = svgEl('title', {}, g); tip.textContent = `${node.tag} ${node.attrs || ''}${st ? `\n${st.status} at ${fmt(st.time)}` : ''}`;
+    if (onClick(node)) { g.style.cursor = 'pointer'; g.addEventListener('click', () => onClick(node)()) }
+    if (at === node.path || (path && !kids.length)) curEl = g;
+    kids.forEach(c => {
+      const x1 = node.x + node.w, y1 = node.y + BOX_H / 2, x2 = c.x, y2 = c.y + BOX_H / 2, mx = x1 + (x2 - x1) / 2;
+      svgEl('path', {class: 'edge' + (seen(run, c) ? ' seen' : ''), d: `M${x1},${y1} H${mx} V${y2} H${x2}`}, edges);
+      draw(c);
+    });
+  })(root);
+  box.textContent = ''; box.appendChild(svg);
+  return {svg, curEl, w, h};
+}
+
+/* The wrapper SubTrees of the top level (e.g. ride_to_goal): while only one SubTree shows, it only wraps the skills, so open it */
+function unwrapped(run) {
+  if (run.unwrapped) return run.unwrapped;
+  const open = new Set();
+  for (;;) {
+    const shown = [];
+    (function walk(node) { if (node.kind === 'sub' && !open.has(node)) { shown.push(node); return } node.children.forEach(walk) })(run.root);
+    if (shown.length !== 1) break;
+    open.add(shown[0]);
+  }
+  run.unwrapped = open;
+  return open;
+}
+
+/* Top level: the main tree down to its skills, every skill SubTree closed; a click on one shows it in the press_button pane */
+function renderTop(scroll) {
+  const run = runs[shownRun], box = $('topdiagram');
+  if (!run || !run.root) { box.innerHTML = '<div class="empty">No tree XML in the started event.</div>'; return }
+  const open = unwrapped(run);
+  const kidsOf = node => node.kind === 'sub' && !open.has(node) ? [] : node.children;
+  const onClick = node => node.kind === 'sub' && !open.has(node) ? () => { run.focus = node; run.focusCur = lastIn(run, node); setFollow(true); render(true) } : null;
+  const out = drawTree(run, run.root, box, topZoom, kidsOf, onClick, run.cur);
+  if (topFit) {                  // the scale changes only the size of the svg, not its layout
+    topZoom = Math.max(TOP_MIN_SCALE, Math.min(1.2, (box.clientWidth - 8) / out.w));
+    out.svg.setAttribute('width', out.w * topZoom); out.svg.setAttribute('height', out.h * topZoom);
+  }
+  if (out.curEl && scroll) out.curEl.scrollIntoView({block: 'nearest', inline: 'nearest'});
+}
+
+/* press_button level: the focused SubTree (or the whole tree when it has no press_button), with Follow and folding */
+function render(scroll) {
+  renderTop(scroll);
+  const run = runs[shownRun], box = $('diagram');
+  if (!run || !run.root) { box.innerHTML = '<div class="empty">No tree XML in the started event.</div>'; return }
+  const root = base(run);
+  root.collapsed = false;
+  if (follow) followCur(run);
+  $('focusname').textContent = run.focus ? run.focus.tag : `${run.mainId} (no press_button in this tree)`;
+  $('crumb').textContent = run.focus ? [run.mainId, ...subsAbove(run.focus), run.focus.tag].join(' › ') : 'This tree has no press_button leaf, so the whole tree shows here.';
+  const kidsOf = node => node.collapsed && node !== root ? [] : node.children;
+  const onClick = node => node.children.length && node !== root ? () => { setFollow(false); node.collapsed = !node.collapsed; render(false) } : null;
+  const out = drawTree(run, root, box, zoom, kidsOf, onClick, target(run));
+  if (scroll && out.curEl) out.curEl.scrollIntoView({block: 'nearest', inline: 'nearest'});
+}
+
+/* The node the press_button pane follows: the current node when it is inside the pane's root, else the last one that ran there */
+function target(run) { return onPathOf(run, base(run), run.cur) ? run.cur : run.focusCur }
+
+/* The path that ran last inside node, from the history; null when nothing ran there */
+function lastIn(run, node) {
+  let best = null, time = -Infinity;
+  Object.entries(run.history).forEach(([path, st]) => { if (st.time >= time && onPathOf(run, node, path)) { best = path; time = st.time } });
+  return best;
+}
+
+function subsAbove(node) { const out = []; for (let n = node.parent; n; n = n.parent) if (n.kind === 'sub') out.unshift(n.tag); return out }
+
+function openPath(run, path) {
+  for (let n = run.byPath[path] && run.byPath[path].parent; n; n = n.parent) n.collapsed = false;
+}
+
+/* Open all opens every node (Follow folds control nodes too); Fold all folds the SubTrees */
+function setAll(node, collapsed) { node.collapsed = collapsed && node.kind === 'sub'; node.children.forEach(c => setAll(c, collapsed)) }
+
+function activeOnly(run) {
+  (function walk(node) { node.collapsed = node.kind === 'sub' && !seen(run, node); node.children.forEach(walk) })(base(run));
+  if (run.cur) openPath(run, run.cur);
+}
+
+function onPathOf(run, node, path) { for (let n = path && run.byPath[path]; n; n = n.parent) if (n === node) return true; return false }
+
+function followCur(run) {
+  const root = base(run), at = target(run);
+  if (!at) { setAll(root, false); return }
+  (function walk(node) { node.collapsed = node !== root && !onPathOf(run, node, at); node.children.forEach(walk) })(root);
+}
+
+function setFollow(on) { follow = on; $('b-follow').classList.toggle('on', on) }
+
+function fit() {
+  const run = runs[shownRun], svg = $('diagram').querySelector('svg'); if (!run || !svg) return;
+  const w = Number(svg.getAttribute('viewBox').split(' ')[2]);
+  zoom = Math.max(0.3, Math.min(1.5, ($('diagram').clientWidth - 8) / w)); render(true);
+}
+
+let pending = false;
+function scheduleRender() { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; render(true) }) }
+
+/* The node that runs now (or that a person clicked); the press_button pane follows its subtree */
+function setCur(run, path) { run.cur = path; const sub = pressSubOf(run, path); if (sub) { run.focus = sub; run.focusCur = path } }
+
+function markCur(run, path, scroll) { setCur(run, path); openPath(run, path); render(scroll) }
+
+function leafEvent(ev) {
+  const run = runs[runs.length - 1]; if (!run || !ev.path) return;
+  run.history[ev.path] = {status: ev.status, time: ev.time};
+  setCur(run, ev.path);
+  if (!follow) openPath(run, ev.path);
+  if (shownRun === runs.length - 1) scheduleRender();
+}
+
+/* ---------- map ---------- */
+let floors = null, nav = null, mapView = 'robot', mapZoom = 1, pan = null;
+const mapImgs = {};
+const WINDOW_M = 12;             // width of the robot view at zoom 1
+const PRIOR_ALPHA = 0.4;
+const ROBOT_M = 0.18;            // robot marker: tip this far ahead of the pose
+const ARM_LEN_M = 0.12, ARM_MIN_PX = 10, ARM_MAX_PX = 26, ARM_STALE_S = 30;   // arm goal arrow: true length, kept between these on screen
+
+fetch('/maps/floors.json').then(r => r.ok ? r.json() : null).then(j => {
+  floors = j; if (!j) return;
+  Object.entries(j.floors).forEach(([k, f]) => { const im = new Image(); im.onload = drawMap; im.src = '/maps/' + f.file; mapImgs[k] = im });
+}).catch(() => {});
+
+/* Size a canvas to its box for the device pixel ratio and clear it; drawing is in CSS pixels */
+function fitCanvas(cv) {
+  const box = cv.parentElement, dpr = window.devicePixelRatio || 1, W = box.clientWidth, H = box.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr) }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  return {ctx, W, H};
+}
+
+/* Map pixels per metre: the robot view is WINDOW_M wide at zoom 1, the floor view fits the floor */
+function mapScale(f, W, H) { return (mapView === 'robot' ? W / WINDOW_M : Math.min(W / (f.w * f.res), H / (f.h * f.res))) * mapZoom }
+
+async function pollNav() {
+  try {
+    const j = await (await fetch('/latest', {cache: 'no-store'})).json();
+    nav = j.nav || null; drawMap();
+    if (j.camera && (!camera || j.camera.time !== camera.time)) { camera = j.camera; camImg.src = 'data:image/jpeg;base64,' + camera.jpeg }
+    else drawCamera();                       // no new frame: redraw, so the caption shows how old the frame is
+  } catch (e) {}
+}
+
+/* ---------- camera ---------- */
+let camera = null;
+const camImg = new Image();
+camImg.onload = drawCamera;
+
+function drawCamera() {
+  const {ctx, W, H} = fitCanvas($('cam'));
+  if (!camera || !camImg.complete || !camImg.naturalWidth) return;
+  const s = Math.min(W / camera.w, H / camera.h), ox = (W - camera.w * s) / 2, oy = (H - camera.h * s) / 2;
+  ctx.drawImage(camImg, ox, oy, camera.w * s, camera.h * s);
+  ctx.lineWidth = 2; ctx.lineCap = 'round';
+  camera.segments.forEach(([x1, y1, x2, y2], i) => {
+    ctx.strokeStyle = camera.colors[i];
+    ctx.beginPath(); ctx.moveTo(ox + x1 * s, oy + y1 * s); ctx.lineTo(ox + x2 * s, oy + y2 * s); ctx.stroke();
+  });
+  const age = Date.now() / 1000 - camera.time;
+  $('camname').textContent = camera.topic || '';
+  $('camcap').innerHTML = `${camera.w}x${camera.h} JPEG of the frame · ${camera.segments.length ? `<b>${camera.segments.length}</b> outline segments from /track_3d/mask_outlines` +
+    (camera.mask_lag_s !== null ? ` (mask ${Math.abs(camera.mask_lag_s).toFixed(2)} s ${camera.mask_lag_s >= 0 ? 'older' : 'newer'} than the frame)` : '') : 'no mask outline'}` +
+    (age > 3 ? ` · <span class="stale">frame ${age.toFixed(0)} s old</span>` : '');
+}
+new ResizeObserver(drawCamera).observe($('cam').parentElement);
+
+function floorOf(n) {
+  if (!floors) return null;
+  if (n.floor !== null && n.floor !== undefined && floors.floors[String(n.floor)]) return String(n.floor);
+  return Object.keys(floors.floors).sort((a, b) => Math.abs(n.pose[2] - floors.floors[a].ground_z - 0.5) - Math.abs(n.pose[2] - floors.floors[b].ground_z - 0.5))[0];
+}
+
+function drawMap() {
+  const {ctx, W, H} = fitCanvas($('map'));
+  const say = text => { ctx.fillStyle = css('--muted'); ctx.font = '12px ' + css('--mono'); ctx.fillText(text, 12, 22) };
+  if (!floors) { say('No floor maps: run scripts/make_floor_maps.py.'); return }
+  if (!nav || !nav.pose) { say('Waiting for /odom_base_link.'); return }
+  const fk = floorOf(nav), f = floors.floors[fk], img = mapImgs[fk];
+  const [rx, ry, , ryaw] = nav.pose;
+  const scale = mapScale(f, W, H);
+  let [cx, cy] = mapView === 'robot' ? [rx, ry] : [f.x0 + f.w * f.res / 2, f.y0 + f.h * f.res / 2];
+  if (pan) { cx += pan[0]; cy += pan[1] }
+  const X = x => W / 2 + (x - cx) * scale, Y = y => H / 2 - (y - cy) * scale;
+  if (img && img.complete && img.naturalWidth) {
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.globalAlpha = PRIOR_ALPHA;           // the prior map is only the route planner's; the local planner sees the terrain map
+    ctx.drawImage(img, X(f.x0), Y(f.y0 + f.h * f.res), f.w * f.res * scale, f.h * f.res * scale);
+    ctx.globalAlpha = 1;
+  }
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const line = (pts, color, width, dash) => {
+    if (!pts || pts.length < 2) return;
+    ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)));
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.stroke(); ctx.setLineDash([]);
+  };
+  const disc = (x, y, r, fill, edge, edgeWidth) => {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI);
+    if (fill) { ctx.fillStyle = fill; ctx.fill() }
+    if (edge) { ctx.strokeStyle = edge; ctx.lineWidth = edgeWidth || 1.5; ctx.stroke() }
+  };
+  const dots = (pts, r, fill) => {           // one path and one fill per colour, not one per point
+    if (!pts || !pts.length) return;
+    ctx.beginPath(); pts.forEach(([x, y]) => { ctx.moveTo(X(x) + r, Y(y)); ctx.arc(X(x), Y(y), r, 0, 2 * Math.PI) });
+    ctx.fillStyle = fill; ctx.fill();
+  };
+  const boxes = [];
+  const label = (text, x, y, color) => {
+    const w = ctx.measureText(text).width, box = [x - 2, y - 11, x + w + 2, y + 3];
+    if (boxes.some(b => box[0] < b[2] && b[0] < box[2] && box[1] < b[3] && b[1] < box[3])) return;   // no label over another
+    boxes.push(box);
+    ctx.lineWidth = 3; ctx.strokeStyle = '#ffffff'; ctx.strokeText(text, x, y); ctx.fillStyle = color; ctx.fillText(text, x, y);
+  };
+  // places of this floor, nearest to the robot first: a small ring, and the name when zoomed in enough and when it has room
+  ctx.font = '11px ' + css('--sans');
+  const robotBox = [X(rx) - 14, Y(ry) - 14, X(rx) + 14, Y(ry) + 14];
+  boxes.push(robotBox);
+  if (nav.arm) boxes.push([X(nav.arm.x) - 14, Y(nav.arm.y) - 14, X(nav.arm.x) + 14, Y(nav.arm.y) + 14]);
+  (floors.places || []).filter(p => p.floor === fk).sort((a, b) => Math.hypot(a.x - rx, a.y - ry) - Math.hypot(b.x - rx, b.y - ry)).forEach(p => {
+    disc(X(p.x), Y(p.y), 3.5, '#ffffff', css('--muted'), 1.2);
+    if (scale > 25) label(p.name, X(p.x) + 6, Y(p.y) + 4, css('--muted'));
+  });
+  // route, then the check circle with its obstacles, then the local path, the waypoint and the robot on top
+  line(nav.route, css('--route'), 3, [8, 6]);
+  if (nav.radius && nav.goal) {          // the check circle matters only while the planner has a goal
+    disc(X(rx), Y(ry), nav.radius * scale, 'rgba(199, 119, 0, 0.10)', null);
+    ctx.setLineDash([6, 5]); disc(X(rx), Y(ry), nav.radius * scale, null, css('--run'), 1.6); ctx.setLineDash([]);
+  }
+  const dot = Math.max(2.2, 0.035 * scale);
+  dots(nav.free, Math.max(1.2, 0.012 * scale), 'rgba(46, 139, 62, 0.28)');
+  dots(nav.terrain, dot * 0.8, 'rgba(209, 52, 47, 0.30)');
+  dots(nav.obstacles, nav.goal ? dot : dot * 0.8, nav.goal ? css('--err') : 'rgba(209, 52, 47, 0.30)');   // without a goal the planner checks nothing: all pale
+  if (nav.goal) line([[rx, ry], nav.goal], css('--out'), 1.2, [2, 5]);
+  line(nav.local, '#ffffff', 6);
+  line(nav.local, css('--ok'), 3.5);
+  if (nav.goal) {
+    const gx = X(nav.goal[0]), gy = Y(nav.goal[1]);
+    disc(gx, gy, 11, 'rgba(217, 130, 43, 0.18)', css('--out'), 1.5);
+    disc(gx, gy, 5, css('--out'), '#ffffff', 1.5);
+  }
+  const size = Math.max(8, ROBOT_M * scale);    // about the robot's own size, so the arm goal ahead of it stays clear
+  ctx.save(); ctx.translate(X(rx), Y(ry)); ctx.rotate(-ryaw);
+  ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(-size * 0.7, size * 0.62); ctx.lineTo(-size * 0.35, 0); ctx.lineTo(-size * 0.7, -size * 0.62); ctx.closePath();
+  ctx.fillStyle = css('--fg'); ctx.fill(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+  if (nav.arm) {                              // arm goal: tip on the goal, along its x axis; real size, but readable at any zoom
+    const a = nav.arm, gx = X(a.x), gy = Y(a.y), flat = Math.hypot(a.dx, a.dy);
+    const len = Math.max(ARM_MIN_PX, Math.min(ARM_MAX_PX, ARM_LEN_M * scale)), color = a.age_s > ARM_STALE_S ? css('--muted') : css('--arm');
+    if (flat > 0.2) {
+      const ux = a.dx / flat, uy = -a.dy / flat, head = Math.max(6, Math.min(9, len * 0.5));
+      const bx = gx - ux * len, by = gy - uy * len, nx = gx - ux * head * 0.8, ny = gy - uy * head * 0.8;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(nx, ny); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 5; ctx.stroke();
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(gx, gy);                       // the tip is the goal
+      ctx.lineTo(gx - ux * head - uy * head * 0.55, gy - uy * head + ux * head * 0.55);
+      ctx.lineTo(gx - ux * head + uy * head * 0.55, gy - uy * head - ux * head * 0.55); ctx.closePath();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = color; ctx.fill();
+    } else disc(gx, gy, 3.5, color, '#ffffff', 1.5);          // the goal x axis points up or down: a dot
+  }
+  // scale bar
+  const metres = [0.5, 1, 2, 5, 10, 20, 50].find(m => m * scale > 70) || 50;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'; ctx.fillRect(8, H - 34, metres * scale + 12, 26);
+  ctx.fillStyle = css('--fg'); ctx.fillRect(14, H - 14, metres * scale, 2);
+  ctx.fillRect(14, H - 18, 1.5, 6); ctx.fillRect(14 + metres * scale - 1.5, H - 18, 1.5, 6);
+  ctx.font = '11px ' + css('--mono'); ctx.fillText(`${metres} m`, 14, H - 20);
+  mapCaption(fk);
+}
+
+function mapCaption(fk) {
+  const n = nav, p = n.params || {}, deg = n.pose[3] * 180 / Math.PI;
+  const age = Date.now() / 1000 - n.time;
+  const floorSrc = n.floor === null || n.floor === undefined ? 'from z' : '/slam_elevatorlio/floor';
+  $('st-floor').textContent = `floor: ${fk}`; $('st-floor').title = floorSrc;
+  $('mapname').textContent = `floor ${fk} · ${floors.map}`;
+  const goal = n.goal ? `waypoint <b>${n.goal_m.toFixed(2)} m</b> (${n.goal_age_s} s ago)` : 'no waypoint yet';
+  const circle = !n.goal ? 'no check circle without a goal' : p.path_crop_by_goal ? `circle r <b>${n.radius.toFixed(2)} m</b> = min(${n.goal_m.toFixed(2)} + ${p.goal_clear_range}, ${p.adjacent_range})` : `circle r <b>${n.radius.toFixed(2)} m</b> (adjacent_range)`;
+  $('mapcap').innerHTML = `robot <b>x ${n.pose[0].toFixed(2)} y ${n.pose[1].toFixed(2)} yaw ${deg.toFixed(0)}°</b> · floor ${fk} (${floorSrc}) · ${goal} · ${circle} · ` +
+    (n.goal ? `<b>${(n.obstacles || []).length}</b> /terrain_map obstacles over ${p.obstacle_height_threshold} m in it, ${(n.terrain || []).length} more within ${p.adjacent_range} m · `
+      : `${(n.obstacles || []).length + (n.terrain || []).length} /terrain_map obstacles over ${p.obstacle_height_threshold} m within ${p.adjacent_range} m · `) +
+    `${(n.free || []).length ? `${n.free.length} /free_paths pts · ` : 'no /free_paths · '}route ${n.route.length} pts · ` +
+    (n.arm ? `arm goal <b>x ${n.arm.x.toFixed(2)} y ${n.arm.y.toFixed(2)}</b>, ${(n.arm.z - floors.floors[fk].ground_z).toFixed(2)} m above the floor (${n.arm.age_s} s ago) · ` : 'no arm goal · ') +
+    `params from ${n.params_from}` +
+    (age > 3 ? ` · <span class="stale">nav ${age.toFixed(0)} s old</span>` : '');
+}
+
+let mapPending = false;
+function scheduleMap() { if (mapPending) return; mapPending = true; requestAnimationFrame(() => { mapPending = false; drawMap() }) }   // pan and zoom: one draw per frame
+
+function setMapView(v) { mapView = v; mapZoom = 1; pan = null; $('m-robot').classList.toggle('on', v === 'robot'); $('m-floor').classList.toggle('on', v === 'floor'); drawMap() }
+(() => {
+  const cv = $('map'); let drag = null;
+  cv.addEventListener('pointerdown', e => { drag = [e.clientX, e.clientY, pan ? [...pan] : [0, 0]]; cv.setPointerCapture(e.pointerId) });
+  cv.addEventListener('pointermove', e => {
+    if (!drag || !nav || !floors) return;
+    const scale = mapScale(floors.floors[floorOf(nav)], cv.clientWidth, cv.clientHeight);
+    pan = [drag[2][0] - (e.clientX - drag[0]) / scale, drag[2][1] + (e.clientY - drag[1]) / scale]; scheduleMap();
+  });
+  cv.addEventListener('pointerup', () => { drag = null });
+  cv.addEventListener('dblclick', () => { pan = null; drawMap() });
+  cv.addEventListener('wheel', e => { e.preventDefault(); mapZoom = Math.max(0.2, Math.min(40, mapZoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); scheduleMap() }, {passive: false});
+})();
+$('m-robot').addEventListener('click', () => setMapView('robot'));
+$('m-floor').addEventListener('click', () => setMapView('floor'));
+$('m-in').addEventListener('click', () => { mapZoom = Math.min(40, mapZoom * 1.4); drawMap() });
+$('m-out').addEventListener('click', () => { mapZoom = Math.max(0.2, mapZoom / 1.4); drawMap() });
+new ResizeObserver(drawMap).observe($('map').parentElement);
+setInterval(pollNav, 500);
+
+/* ---------- agent ---------- */
+const calls = [], reqById = {}, recById = {}, replyById = {};
+const FAIL_BEFORE_S = 60;        // a failed leaf this long before an agent call is the call's failure, when no request names one
+let lastFailure = null, lastPress = null, lastButton = '';
+const openFolds = new Set();     // the agent texts a person opened; the pane redraws every second
+const USES = {reposition: ['dx', 'dy', 'dyaw'], offset_retry: ['ox', 'oy', 'oz'], switch_arm: ['use_left_arm']};   // fields a decision always shows, zero too
+let curCall = null, agentPending = false;
+
+/* Join what came for this call id before the trace named it; a card made from a responder record alone gives way to it */
+function attach(c) {
+  if (!c.id) return;
+  c.request = c.request || reqById[c.id]; c.record = c.record || recById[c.id]; c.reply = c.reply || replyById[c.id];
+  const orphan = calls.findIndex(x => x !== c && x.fromRecord && x.id === c.id);
+  if (orphan >= 0) calls.splice(orphan, 1);
+}
+
+function agentEvent(ev) {
+  const k = ev.kind;
+  if (k === 'agent_start') {
+    if (curCall && isOpen(curCall)) { curCall.gone = 'no decision: the next call started'; curCall.end = ev.time }
+    const m = ev.title.match(/^(\S+)(?:\s+\(([^)]*)\))?/) || [];
+    curCall = {id: null, skill: m[1] || ev.title, phase: ev.phase || m[2] || '', start: ev.time, tools: [], button: lastButton};
+    const judge = curCall.phase === 'judge';
+    curCall.failure = judge ? lastPress : (lastFailure && ev.time - lastFailure.time < FAIL_BEFORE_S ? lastFailure : null);
+    calls.push(curCall);
+  } else if (k === 'agent_request') {
+    reqById[ev.call] = ev;
+    let c = calls.find(x => x.id === ev.call && !x.fromRecord);
+    if (!c && curCall && !curCall.id && !curCall.decision) { c = curCall; c.id = ev.call }
+    if (c) { c.request = ev; attach(c) }
+  } else if (k === 'agent_reply') {
+    replyById[ev.call] = ev; const c = calls.find(x => x.id === ev.call); if (c) c.reply = ev;
+  } else if (k === 'call') {
+    recById[ev.call] = ev;
+    let c = calls.find(x => x.id === ev.call);
+    if (!c) { c = {id: ev.call, skill: ev.skill, phase: ev.phase || '', start: ev.time, tools: [], fromRecord: true}; calls.push(c) }
+    c.record = ev; c.phase = c.phase || ev.phase || '';
+  } else if (curCall) {
+    if (k === 'agent_tool') curCall.tools.push({tool: ev.tool || ev.title, args: ev.arguments});
+    else if (k === 'agent_wait') { curCall.id = curCall.id || ev.call; attach(curCall) }
+    else if (k === 'agent_rule') curCall.rule = ev.title;
+    else if (k === 'agent_decision') { curCall.decision = {name: ev.decision, text: ev.title, answer: ev.answer}; curCall.end = ev.time }
+  }
+  scheduleAgent();
+}
+
+/* claude-opus-5-5 -> Opus 5.5; any other name stays as it is */
+function modelName(id) {
+  const m = String(id || '').match(/^claude-([a-z]+)-(\d+)(?:-(\d+))?/);
+  return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? '.' + m[3] : ''}` : String(id || '');
+}
+
+function lastModel() { for (let i = calls.length - 1; i >= 0; i--) if (calls[i].record && calls[i].record.model) return calls[i].record.model; return '' }
+
+function isOpen(c) { return !c.decision && !c.rule && !c.gone && !(c.record && c.record.decision) }
+
+function closeCalls(why, t) { calls.filter(isOpen).forEach(c => { c.gone = why; c.end = t }); scheduleAgent() }
+
+function scheduleAgent() { if (agentPending) return; agentPending = true; setTimeout(() => { agentPending = false; renderAgent() }, 200) }
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const num = v => typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')) : v;
+
+const EVIDENCE = {get_failure: 'failure record', get_history: 'action history', get_stance: 'stance (TF vs base goal)', get_press: 'press (frames, fingertip TF)',
+  get_image: 'camera image', read_file: 'file', run_python: 'python'};
+
+/* What the agent looked at: the evidence tools the executor ran for it, and any topic it read */
+function checkedOf(c) {
+  const out = [];
+  c.tools.filter(t => t.tool !== 'decide').forEach(t => {
+    const a = t.args || {};
+    const label = t.tool === 'ros_read' ? (a.topic || a.target || 'ros_read') : t.tool === 'get_image' ? `camera ${a.camera || ''}`.trim() : (EVIDENCE[t.tool] || t.tool);
+    if (!out.includes(label)) out.push(label);
+  });
+  return out;
+}
+
+function inputOf(c) {
+  const text = (c.request && c.request.task) || (c.record && c.record.prompt) || '';
+  const button = (text.match(/Button:\s*([^.\n]+)/) || [])[1] || c.button;
+  return [c.phase, button ? `button ${button}` : ''].filter(Boolean).join(' · ') || '—';
+}
+
+/* The BT node that failed: from the request when it was seen, else the last failed leaf in the trace just before the call */
+function failedAt(c) {
+  const q = c.request && c.request.failure;
+  const f = q && q.path ? {path: q.path, msg: q.message || ''} : c.failure;
+  if (!f) return '<span class="small">no failure before this call</span>';
+  const run = runs[shownRun], node = run && run.byPath[f.path];
+  const name = node ? node.tag + (node.short ? ' ' + node.short : '') : f.path.split('/').pop();
+  const ctx = node ? contextOf(run, f.path) : '';
+  return `<a class="node" data-path="${esc(f.path)}">${esc(name)}</a>${ctx ? ` <span class="small">in ${esc(ctx)}</span>` : ''}` +
+    (f.msg ? `<div class="small fold" data-fold="msg">${esc(String(f.msg))}</div>` : '');
+}
+
+function answerOf(c, now) {
+  const a = (c.decision && c.decision.answer) || (c.record && c.record.decision) || null;
+  const name = (a && a.decision) || (c.decision && c.decision.name);
+  if (!name) return c.gone ? `<span class="small">${esc(c.gone)}</span>` : c.rule ? `<span class="dec">rule</span><div class="small fold" data-fold="rule">${esc(c.rule)}</div>`
+    : `<span class="wait">waiting ${fmtDur(Math.max(0, now - c.start))}</span>`;
+  const used = USES[name] || [];
+  const nums = a ? Object.entries(a).filter(([k, v]) => !['decision', 'reason'].includes(k) && v !== null && v !== undefined && v !== '' && (used.includes(k) || (v !== 0 && v !== false)))
+    .map(([k, v]) => `${k} ${num(v)}`).join('  ') : '';
+  const reason = (a && a.reason) || (c.decision ? c.decision.text.split(': ').slice(1).join(': ') : '');
+  const rejected = c.reply && !c.reply.accepted ? ' <span class="no">rejected</span>' : '';
+  return `<span class="dec">${esc(name)}</span>${nums ? ` <span class="num">${esc(nums)}</span>` : ''}${rejected}` +
+    (reason ? `<div class="small fold" data-fold="why">${esc(reason)}</div>` : '');
+}
+
+function renderAgent() {
+  const ul = $('calls'), now = nowRobot();
+  const open = calls.filter(isOpen);
+  const live = open.length ? open[open.length - 1] : null;
+  const model = modelName(lastModel());
+  $('st-agent').textContent = (live ? `agent: ${live.skill} ${Math.round(now - live.start)} s` : 'agent: idle') + (model ? ` · ${model}` : '');
+  $('st-agent').title = model ? `model of the last agent call: ${lastModel()}` : 'no agent call summary yet, so the model is not known';
+  $('st-agent').className = 'state' + (live ? ' busy' : '');
+  $('a-sum').textContent = `${calls.length} calls${model ? ` · ${model}` : ''}`;
+  if (!calls.length) return;
+  ul.textContent = '';
+  calls.slice(-40).reverse().forEach(c => {
+    const done = !isOpen(c), took = (c.end || (c.record && c.record.time + (c.record.seconds || 0)) || now) - c.start;
+    const m = c.record && c.record.model ? modelName(c.record.model) : '';
+    const li = document.createElement('li');
+    li.className = 'call' + (done ? '' : ' open');
+    li.innerHTML = `<div class="ch"><b>${esc(c.skill)}</b><span class="m">${fmt(c.start)}</span>${m ? `<span class="pill">${esc(m)}</span>` : ''}
+      <span class="st">${c.gone ? 'no answer' : done ? fmtDur(Math.max(0, took)) : ''}</span></div>
+      <dl class="rows">
+        <dt>input</dt><dd>${esc(inputOf(c))}</dd>
+        <dt>checked</dt><dd>${checkedOf(c).map(x => `<span class="pill">${esc(x)}</span>`).join('') || '<span class="small">—</span>'}</dd>
+        <dt>${c.phase === 'judge' ? 'judges' : 'failed at'}</dt><dd>${failedAt(c)}</dd>
+        <dt>decision</dt><dd>${answerOf(c, now)}</dd>
+        ${c.record ? `<dt>cost</dt><dd>${esc(costOf(c.record))}</dd>` : ''}
+      </dl>
+      ${c.id ? `<details class="more"${openDetails.has(c.id) ? ' open' : ''}><summary>the whole call</summary><div class="detail"></div></details>` : ''}`;
+    const more = li.querySelector('details.more');
+    if (more) {
+      if (more.open) drawCall(c, more.querySelector('.detail'));
+      more.addEventListener('toggle', () => { if (more.open) { openDetails.add(c.id); loadCall(c, more.querySelector('.detail')) } else openDetails.delete(c.id) });
+    }
+    li.querySelectorAll('.fold').forEach(f => {
+      const key = `${c.start}|${f.dataset.fold}`;
+      f.classList.toggle('open', openFolds.has(key));
+      f.addEventListener('click', () => { f.classList.toggle('open'); f.classList.contains('open') ? openFolds.add(key) : openFolds.delete(key) });
+    });
+    li.querySelectorAll('a.node').forEach(a => a.addEventListener('click', () => { const r = runs[shownRun]; if (r && r.byPath[a.dataset.path]) markCur(r, a.dataset.path, true) }));
+    ul.appendChild(li);
+  });
+}
+setInterval(() => { if (calls.some(isOpen)) renderAgent() }, 1000);
+
+/* ---------- one call's record: <session>/runs/<run>/agent/<id>/ on the robot host ---------- */
+const openDetails = new Set();   // the calls whose whole record a person opened; the pane redraws every second
+const money = v => typeof v === 'number' ? `$${v.toFixed(v < 0.1 ? 4 : 2)}` : '';
+
+function costOf(r) {
+  return [r.state, r.seconds != null ? `${r.seconds} s` : '', money(r.cost_usd), r.tokens_in ? `tokens ${r.tokens_in} in / ${r.tokens_out} out` : '',
+    r.model_s ? `model ${r.model_s} s` : '', r.refused ? `${r.refused} refused` : ''].filter(Boolean).join(' · ') || '—';
+}
+
+function loadCall(c, box) {
+  drawCall(c, box);
+  if (c.detail && !c.detail.missing && !isOpen(c)) return;
+  fetch(`/call?session=${encodeURIComponent(sessionName)}&id=${encodeURIComponent(c.id)}`).then(r => r.ok ? r.json() : null)
+    .then(x => { c.detail = x || {missing: true}; drawCall(c, box) }).catch(() => {});
+}
+
+const brief = v => typeof v === 'string' ? v : JSON.stringify(v, null, 1);
+
+function step(box, label, body, fold) {
+  const el = document.createElement('div'); el.className = 'step';
+  const lab = document.createElement('div'); lab.className = 'lab'; lab.textContent = label; el.appendChild(lab);
+  if (body !== undefined && body !== null && body !== '') {
+    const text = brief(body), pre = document.createElement('pre'); pre.textContent = text;
+    if (fold || (fold === undefined && text.length > 280)) { const det = document.createElement('details'), sum = document.createElement('summary'); sum.textContent = text.replace(/\s+/g, ' ').slice(0, 110); det.append(sum, pre); el.appendChild(det) }
+    else el.appendChild(pre);
+  }
+  box.appendChild(el);
+  return el;
+}
+
+/* The images the model got: the request's images by file, and the press frames */
+function imagesOf(r) {
+  const out = (r.images || []).map(i => (i && (i.path || i.file)) || i).filter(p => typeof p === 'string');
+  (function walk(v) { if (typeof v === 'string' && /\.(jpe?g|png)$/i.test(v)) out.push(v); else if (v && typeof v === 'object') Object.values(v).forEach(walk) })(r.press);
+  return [...new Set(out)];
+}
+
+function drawCall(c, box) {
+  const x = c.detail || {}, r = x.request || {}, f = x.summary || c.record || {};
+  box.textContent = '';
+  if (!c.detail) { step(box, 'loading the call record…'); return }
+  if (x.missing) { step(box, `no record of call ${c.id} in session ${sessionName || '?'}`); return }
+  step(box, `request · ${r.skill || ''}${r.phase ? ' · ' + r.phase : ''}${x.run ? ' · run ' + x.run : ''}${r.opened ? ' · opened ' + fmt(Number(r.opened)) : ''}${r.closed ? ' · closed ' + fmt(Number(r.closed)) : ''}`,
+    [r.task, r.decisions ? `allowed: ${[].concat(r.decisions).join(', ')}` : ''].filter(Boolean).join('\n\n'), false);
+  const shots = imagesOf(r);
+  if (shots.length) {
+    const el = step(box, `images · ${shots.length}`), row = document.createElement('div'); row.className = 'frames';
+    shots.forEach(p => { const a = document.createElement('a'), img = document.createElement('img'); a.href = img.src = `/frame?session=${encodeURIComponent(sessionName)}&id=${encodeURIComponent(c.id)}&path=${encodeURIComponent(p)}`; a.target = '_blank'; img.alt = img.title = p.split('/').pop(); img.loading = 'lazy'; a.appendChild(img); row.appendChild(a) });
+    el.appendChild(row);
+  }
+  if (r.failure) step(box, `failure · ${r.failure.skill || ''}: ${String(r.failure.message || '').slice(0, 120)}`, r.failure, true);
+  if (r.stance) step(box, 'stance', r.stance, true);
+  if (r.press) step(box, 'press', r.press, true);
+  if (r.history && r.history.length) step(box, `history · ${r.history.length} earlier records`, r.history.map(h => `${h.skill || h.kind || ''} ${h.status || ''} ${h.message || ''}`).join('\n'), true);
+  (x.messages || []).forEach(m => {
+    const {kind, time, ...rest} = m, t = typeof time === 'number' ? fmt(time) + ' ' : '';
+    if (kind === 'started') step(box, `${t}started · ${rest.model || ''}${rest.effort ? ' · effort ' + rest.effort : ''}`, rest.prompt, true);
+    else if (kind === 'decision') {
+      const d = rest.decision || {}, cost = [money(rest.cost_usd), rest.tokens_in ? `${rest.tokens_in} in / ${rest.tokens_out} out` : ''].filter(Boolean).join(' · ');
+      step(box, `${t}decision · ${d.decision || ''} · ${rest.accepted ? 'accepted' : 'refused'}${cost ? ' · ' + cost : ''}`,
+        [d.reason, Object.entries(d).filter(([k, v]) => !['decision', 'reason'].includes(k) && v != null).map(([k, v]) => `${k} ${v}`).join('  '), rest.accepted ? '' : rest.reply].filter(Boolean).join('\n\n'), false);
+    } else if (kind === 'opened' || kind === 'closed') step(box, `${t}${kind}${rest.outcome ? ' · ' + rest.outcome : ''}${rest.error ? ' · ' + rest.error : ''}`);
+    else step(box, `${t}${kind || 'message'}`, Object.keys(rest).length ? rest : undefined);
+  });
+  step(box, `summary · ${costOf(f)}`);
+}
+
+/* ---------- decision log ---------- */
+function decisionOf(ev) {
+  if (ev.kind === 'tree') return {chip: 'tree', cls: ev.status === 'running' ? 'c-tree' : (ev.status === 'success' ? 'c-ok' : 'c-fail'), what: ev.title, why: ''};
+  if (ev.kind === 'agent_start') return {chip: 'agent', cls: 'c-agent', what: `called ${ev.title}`, why: ''};
+  if (ev.kind === 'agent_decision') {
+    const [d, ...rest] = ev.title.split(': ');
+    return {chip: 'decide', cls: 'c-decide', what: ev.decision || d, why: (ev.answer && ev.answer.reason) || rest.join(': ')};
+  }
+  if (ev.kind === 'node' && /decision_is/.test(ev.path || '')) return {chip: 'branch', cls: 'c-branch', what: ev.title, why: '', path: ev.path};
+  if (ev.kind === 'record' && (ev.status === 'failure' || ev.status === 'error')) return {chip: 'fail', cls: 'c-fail', what: ev.title, why: '', path: ev.path, fail: true};   // a skill that failed; a node failure is often branching (at_floor)
+  return null;
+}
+
+function logDecision(ev) {
+  const d = decisionOf(ev); if (!d) return;
+  const run = runs[runs.length - 1]; if (!run) return;
+  if (d.fail && run.lastFail === d.path) return;
+  run.lastFail = d.fail ? d.path : null;
+  const li = document.createElement('li');
+  li.innerHTML = '<span class="t"></span><div><div class="what"><span class="chip"></span><span class="w"></span></div><div class="why"></div></div>';
+  li.querySelector('.t').textContent = fmt(ev.time);
+  const chip = li.querySelector('.chip'); chip.textContent = d.chip; chip.className = 'chip ' + d.cls;
+  li.querySelector('.w').textContent = d.what;
+  const why = li.querySelector('.why'); why.textContent = d.why; why.hidden = !d.why;
+  if (d.fail) li.dataset.fail = '1';
+  li.addEventListener('click', () => {
+    why.classList.toggle('full');
+    if (d.path && runs[shownRun].byPath[d.path]) markCur(runs[shownRun], d.path, true);
+  });
+  run.decisions.push(li);
+  if (shownRun === runs.length - 1) {
+    const log = $('log'), atEnd = log.scrollTop + log.clientHeight > log.scrollHeight - 40;
+    log.querySelector('.empty')?.remove();
+    log.appendChild(li); li.hidden = d.fail && !$('f-fail').checked;
+    if (atEnd) log.scrollTop = log.scrollHeight;
+  }
+}
+
+function refilterLog() { $('log').querySelectorAll('li[data-fail]').forEach(li => { li.hidden = !$('f-fail').checked }) }
+
+/* ---------- timing ---------- */
+let skew = Infinity, sideMode = 'leaf', sidePending = false;
+const fmtDur = s => s < 60 ? `${s.toFixed(1)} s` : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const nowRobot = () => Date.now() / 1000 - (isFinite(skew) ? skew : 0);
+
+function timingEvent(ev) {
+  const run = runs[runs.length - 1]; if (!run || !ev.path) return;
+  const s = run.stats[ev.path] || (run.stats[ev.path] = {path: ev.path, name: ev.node || ev.path.split('/').pop(), calls: 0, total: 0, max: 0, start: null});
+  if (ev.status === 'running') { if (s.start === null) s.start = ev.time }
+  else closeStat(s, ev.time);
+  if (tab === 'timing') scheduleSide();       // the chat pane need not be built again for a node event
+}
+
+/* End one call of a node at time t; a node with no running start counts 0 s */
+function closeStat(s, t) { const d = s.start === null ? 0 : Math.max(0, t - s.start); s.calls += 1; s.total += d; s.max = Math.max(s.max, d); s.start = null }
+
+function closeRun(run, t) { run.end = t; Object.values(run.stats).forEach(s => { if (s.start !== null) closeStat(s, t) }) }
+
+function contextOf(run, path) { const n = run.byPath[path]; return n ? subsAbove(n).slice(-2).join(' › ') : '' }
+
+function kindOf(run, path) { const n = run.byPath[path]; return n ? n.kind : (path.endsWith('/SubTree') ? 'sub' : 'leaf') }
+
+function timingRows(run) {
+  const now = nowRobot(), rows = [];
+  const live = s => s.start !== null ? Math.max(0, now - s.start) : 0;
+  const stats = Object.values(run.stats);
+  if (sideMode === 'skill') {
+    const by = {};
+    stats.filter(s => kindOf(run, s.path) === 'leaf').forEach(s => {
+      const r = by[s.name] || (by[s.name] = {label: s.name, ctx: '', calls: 0, total: 0, max: 0, now: 0, path: null, n: 0});
+      r.calls += s.calls; r.total += s.total + live(s); r.max = Math.max(r.max, s.max, live(s)); r.now = Math.max(r.now, live(s)); r.n += 1;
+    });
+    Object.values(by).forEach(r => { r.ctx = `${r.n} place${r.n > 1 ? 's' : ''} in the tree`; rows.push(r) });
+  } else {
+    stats.filter(s => kindOf(run, s.path) === sideMode).forEach(s => {
+      const n = run.byPath[s.path], label = sideMode === 'sub' && n ? n.tag : `${s.name}${n && n.short ? ' ' + n.short : ''}`;
+      rows.push({label, ctx: contextOf(run, s.path), calls: s.calls, total: s.total + live(s), max: Math.max(s.max, live(s)), now: live(s), path: s.path});
+    });
+  }
+  return rows.sort((a, b) => b.total - a.total);
+}
+
+function renderTiming() {
+  const run = runs[shownRun], body = $('t-body');
+  if (!run) { body.innerHTML = '<tr><td colspan="6" class="empty">Times appear when a tree runs.</td></tr>'; $('t-sum').textContent = ''; return }
+  const rows = timingRows(run), top = rows.length ? rows[0].total : 0;
+  const start = run.ev.time, wall = (run.end || nowRobot()) - start;
+  const agent = run.chat.filter(m => m.wait).reduce((a, m) => a + m.wait, 0);
+  $('t-sum').textContent = `run ${fmtDur(Math.max(0, wall))}${run.end ? '' : ' so far'} · agent answers ${fmtDur(agent)} · sorted by total time`;
+  body.textContent = '';
+  if (!rows.length) { body.innerHTML = '<tr><td colspan="6" class="empty">No nodes of this kind ran yet.</td></tr>'; return }
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><span></span><span class="ctx"></span><div class="bar"></div></td><td>${r.calls}</td><td>${fmtDur(r.total)}</td><td>${r.calls ? fmtDur(r.total / Math.max(r.calls, 1)) : '–'}</td><td>${fmtDur(r.max)}</td><td class="${r.now ? 'now' : ''}">${r.now ? fmtDur(r.now) : ''}</td>`;
+    tr.querySelector('span').textContent = r.label; tr.querySelector('.ctx').textContent = r.ctx;
+    tr.querySelector('.bar').style.width = `${top ? Math.max(1, 100 * r.total / top) : 0}%`;
+    if (r.path && run.byPath[r.path]) tr.addEventListener('click', () => markCur(run, r.path, true));
+    body.appendChild(tr);
+  });
+}
+
+/* ---------- chat ---------- */
+const pendingChat = [];
+function chatEvent(ev) {
+  const run = runs[runs.length - 1];
+  const k = ev.kind === 'chat' ? ev.sub : ev.kind;
+  let m;
+  if (ev.kind === 'chat') {
+    if (k === 'task') m = {side: 'l', who: 'operator → planner', text: ev.title};
+    else if (k === 'plan') m = {side: 'r', who: 'planner session', text: ev.title};
+    else m = {side: 'sys', who: k, text: ev.title};
+  } else if (k === 'agent_start') m = {side: 'l', who: `orchestrator → agent${ev.phase ? ' · ' + ev.phase : ''}`, text: ev.title, start: true};
+  else if (k === 'agent_tool') m = {side: 'r', who: `agent · ${ev.tool || 'tool'}`, text: ev.title};
+  else if (k === 'agent_wait') m = {side: 'sys', who: 'waiting', text: ev.title, waitFrom: true};
+  else if (k === 'agent_decision') m = {side: 'r', who: `agent decides · ${ev.decision || ''}`, text: ev.title, decision: true};
+  else m = {side: 'sys', who: k.replace(/^agent_/, 'agent '), text: ev.title};
+  m.time = ev.time;
+  const list = ev.kind === 'chat' || !run ? pendingChat : run.chat;
+  if (m.decision) { const from = [...list].reverse().find(x => x.waitFrom || x.start); if (from) m.wait = Math.max(0, m.time - from.time) }
+  list.push(m);
+  if (list !== pendingChat && tab === 'chat') scheduleSide();
+}
+
+function renderChat() {
+  const run = runs[shownRun], ul = $('chat'), atEnd = $('p-chat').scrollTop + $('p-chat').clientHeight > $('p-chat').scrollHeight - 40;
+  ul.textContent = '';
+  if (!run || !run.chat.length) { ul.innerHTML = '<li class="empty">The planner and agent conversation of this run appears here.</li>'; return }
+  run.chat.forEach((m, i) => {
+    const li = document.createElement('li'); li.className = `msg ${m.side}`;
+    const gap = i ? m.time - run.chat[i - 1].time : 0;
+    li.innerHTML = '<div class="who"><span class="a"></span><span class="gap"></span></div><div class="txt"></div>';
+    li.querySelector('.a').textContent = `${fmt(m.time)} ${m.who}`;
+    const g = li.querySelector('.gap'); g.textContent = m.wait !== undefined ? `answered in ${fmtDur(m.wait)}` : (gap >= 1 ? `+${fmtDur(gap)}` : '');
+    if ((m.wait || gap) >= 30) g.classList.add('slow');
+    li.querySelector('.txt').textContent = m.text;
+    li.addEventListener('click', () => li.classList.toggle('full'));
+    ul.appendChild(li);
+  });
+  if (atEnd) $('p-chat').scrollTop = $('p-chat').scrollHeight;
+}
+
+/* ---------- side tabs ---------- */
+let tab = 'timing';
+try { tab = localStorage.getItem('rv-tab') || 'timing' } catch (e) {}
+function setTab(t) {
+  tab = t; try { localStorage.setItem('rv-tab', t) } catch (e) {}
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  ['timing', 'chat', 'decisions'].forEach(n => { $('p-' + n).hidden = n !== t });
+  $('tabtools').innerHTML = t === 'timing'
+    ? '<select id="t-mode" aria-label="group"><option value="leaf">by node</option><option value="skill">by skill</option><option value="sub">by subtree</option></select>' : '';
+  if (t === 'timing') { $('t-mode').value = sideMode; $('t-mode').addEventListener('change', e => { sideMode = e.target.value; renderSide() }) }
+  renderSide();
+}
+function renderSide() { if (tab === 'timing') renderTiming(); else if (tab === 'chat') renderChat() }
+function scheduleSide() { if (sidePending) return; sidePending = true; setTimeout(() => { sidePending = false; if (shownRun === runs.length - 1) renderSide() }, 250) }
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+setInterval(() => { const r = runs[shownRun]; if (tab === 'timing' && r && !r.end && Object.values(r.stats).some(s => s.start !== null)) renderTiming() }, 1000);
+
+/* ---------- stream ---------- */
+const NOT_TRACE = ['call', 'agent_request', 'agent_reply'];   // these carry the clock of another host or of the echo
+const held = [];
+let traceNow = 0;
+const answeredAt = r => r.time + (r.seconds || 0) - 2;
+
+function handle(batch) {
+  for (const ev of batch) {
+    if (ev.statusline) { $('src').textContent = ev.statusline; continue }
+    if (ev.kind === 'session') { if (!picked) sessionName = (ev.path || '').split('/').slice(-2)[0] || ''; continue }
+    if (ev.kind === 'state') {
+      const el = $(ev.name === 'side' ? 'st-side' : 'st-door');
+      el.textContent = `${ev.name === 'side' ? 'elevator' : 'door'}: ${ev.value}`;
+      el.className = 'state ' + String(ev.value).toLowerCase();
+      el.title = `${ev.name === 'side' ? '/slam_elevatorlio/elevator_side' : '/door_state'} since ${new Date(ev.time * 1000).toLocaleTimeString()}`;
+      continue;
+    }
+    if (typeof ev.time === 'number' && ev.time > 1e9 && !NOT_TRACE.includes(ev.kind)) {
+      skew = Math.min(skew, Date.now() / 1000 - ev.time);
+      traceNow = Math.max(traceNow, ev.time);
+      held.filter(r => answeredAt(r) <= traceNow).forEach(r => { held.splice(held.indexOf(r), 1); agentEvent(r) });
+    }
+    if (ev.kind === 'call' && answeredAt(ev) > traceNow && runs.length && !runs[runs.length - 1].end) { held.push(ev); continue }   // a record shows when the trace reaches its answer
+    if (ev.kind === 'chat' || ((ev.kind || '').startsWith('agent_') && !['agent_request', 'agent_reply'].includes(ev.kind))) chatEvent(ev);
+    if ((ev.kind || '').startsWith('agent_') || ev.kind === 'call') agentEvent(ev);
+    if (ev.kind === 'node' && ev.path) timingEvent(ev);
+    if (ev.kind === 'tree') {
+      if (ev.status === 'running' && ev.xml) newRun(ev);
+      if (ev.status !== 'running') held.splice(0).forEach(agentEvent);   // the run ended: its call summaries need wait no longer
+      if (ev.status !== 'running' && runs.length) { closeRun(runs[runs.length - 1], ev.time); closeCalls(`no decision: the tree ${ev.status}`, ev.time); scheduleSide() }
+      const s = $('treestate'); s.textContent = ev.title; s.className = 'treestate ' + (ev.status || '');
+    }
+    if ((ev.kind === 'node' || ev.kind === 'record') && ev.path) leafEvent(ev);
+    if (ev.kind === 'record' && ev.path) {          // records are the calls that ran; node failures are often normal branching (at_floor, decision_is)
+      if (ev.status === 'failure' || ev.status === 'error') lastFailure = {path: ev.path, msg: ev.title, time: ev.time};
+      if (/\/press_button$/.test(ev.path)) lastPress = {path: ev.path, msg: ev.title, time: ev.time};
+      if (ev.button) lastButton = ev.button;
+    }
+    logDecision(ev);
+  }
+}
+
+let boot = null;
+function connect() {
+  const es = new EventSource(`/stream?from=${seq}${picked ? '&session=' + encodeURIComponent(picked) : ''}`);
+  es.addEventListener('boot', m => { if (boot && m.data !== boot) location.reload(); boot = m.data });   // the viewer restarted: its events start again at 0
+  es.onopen = () => $('live').classList.add('on');
+  es.onmessage = m => { seq = Number(m.lastEventId); handle(JSON.parse(m.data)) };
+  es.onerror = () => { $('live').classList.remove('on'); es.close(); setTimeout(connect, 2000) };
+}
+
+$('runsel').addEventListener('change', e => showRun(Number(e.target.value)));
+$('sessel').addEventListener('change', e => { const o = e.target.selectedOptions[0]; location.search = o.dataset.live ? '' : '?session=' + encodeURIComponent(o.value) });
+fetch('/sessions').then(r => r.json()).then(list => {
+  const sel = $('sessel'); sel.textContent = '';
+  list.forEach(x => { const o = document.createElement('option'); o.value = x.name; if (x.live) o.dataset.live = '1';
+    o.textContent = `${new Date(x.mtime * 1000).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false})}  ${x.name}${x.live ? '  (live)' : ''}  ${(x.size / 1e6).toFixed(1)} MB`; sel.appendChild(o) });
+  sel.value = picked || (list[0] && list[0].name) || ''; sel.hidden = !list.length;
+}).catch(() => {});
+/* A fold button of the press_button pane: Follow off, then act on the shown run */
+const foldButton = (act, scroll) => () => { setFollow(false); const r = runs[shownRun]; if (r && r.root) { act(r); render(scroll) } };
+function setTopFit(on) { topFit = on; $('t-fit').classList.toggle('on', on) }
+$('b-follow').addEventListener('click', () => { setFollow(!follow); const r = runs[shownRun]; if (follow && r && r.root) { followCur(r); render(true) } });
+$('b-fit').addEventListener('click', fit);
+$('b-active').addEventListener('click', foldButton(activeOnly, true));
+$('b-open').addEventListener('click', foldButton(r => setAll(base(r), false), false));
+$('b-fold').addEventListener('click', foldButton(r => setAll(base(r), true), false));
+$('b-in').addEventListener('click', () => { zoom = Math.min(zoom * 1.2, 2.5); render(false) });
+$('b-out').addEventListener('click', () => { zoom = Math.max(zoom / 1.2, 0.3); render(false) });
+$('t-fit').addEventListener('click', () => { setTopFit(!topFit); renderTop() });
+$('t-in').addEventListener('click', () => { setTopFit(false); topZoom = Math.min(topZoom * 1.2, 2.5); renderTop() });
+$('t-out').addEventListener('click', () => { setTopFit(false); topZoom = Math.max(topZoom / 1.2, 0.3); renderTop() });
+$('f-fail').addEventListener('change', refilterLog);
+setTab(tab);
+connect();
+</script>
+</body>
+</html>

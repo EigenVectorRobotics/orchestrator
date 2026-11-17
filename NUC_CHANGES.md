@@ -67,12 +67,12 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 
 ### 9. Clear old press references after a map or place change. Status: open, when needed
 
-- The executor keeps every press judged pressed in `~/.ros/orchestrator_press_references.jsonl` and uses it to suggest stances. The file never expires. After the map or a panel place moves, move the old file aside.
+- The executor keeps every press judged pressed in `~/orch_state/press_references.jsonl` (it moves the old `~/.ros/orchestrator_press_references.jsonl` there on the first save) and uses it to suggest stances. The file never expires. After the map or a panel place moves, move the old file aside.
 
 ### 10. Small things the demo assumes. Status: check
 
 - `~/bags/` exists (`docs/demo.md` step 3 records the raw bag there).
-- `~/run_viewer/` is checked out (`launch_run_viewer` starts it).
+- `launch_run_viewer` starts the viewer from this repository (`~/orchestrator_ws/src/orchestrator/run_viewer/`). The hand copy in `~/run_viewer/` is no longer used; move it aside once the new one runs.
 - `~/fake_button_pose.py` stays disabled; delete it if nobody needs it.
 
 ## Orin
