@@ -10,7 +10,7 @@ Built: `orchestrator/recording.py`, `orchestrator/run_recorder.py`. Not built ye
 
 ## What we have now
 
-- `/orchestrator/trace`: JSON events (`started` with the tree XML, `node`, `record`, `agent_start`, `agent_wait`, `agent_rule`, `agent_tool`, `agent_say`, `agent_decision`, `agent_link`, `finished`, `halted`, `rejected`, `validation`, `error`, and the planner's `sent` and `preflight`).
+- `/orchestrator/trace`: JSON events (`started` with the tree XML, `node`, `record`, `agent_start`, `agent_wait`, `agent_rule`, `agent_refused` (a decision the executor refused), `agent_camera`, `agent_reference`, `agent_say`, `agent_decision`, `agent_link`, `finished`, `halted`, `rejected`, `validation`, `error`, and the planner's `sent` and `preflight`).
 - `record` events carry the full record of each finished call, with the action feedback over time.
 - Agent calls go out on `/orchestrator/agent/request`, and the executor's replies to the bridge's decisions on `/orchestrator/agent/reply`.
 - Press frames go to `capture_dir` (`~/.ros/orchestrator_captures`).

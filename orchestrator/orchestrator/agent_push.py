@@ -22,7 +22,7 @@ import threading
 from typing import Callable
 from pathlib import Path
 
-from .agent import PHASE_DECISIONS, PRESS_PHASES, STANCE_PHASES, AgentError, ToolOutput
+from .agent import PHASE_DECISIONS, PRESS_PHASES, STANCE_PHASES, AgentError, AgentSession
 
 
 DECISION_FIELDS = ('decision', 'reason', 'dx', 'dy', 'dyaw', 'use_left_arm', 'ox', 'oy', 'oz')
@@ -44,16 +44,7 @@ class LinkClosed(ConnectionError):
     pass
 
 
-def _evidence(call_tool: Callable[[str, dict], ToolOutput], name: str):
-    output = call_tool(name, {})
-
-    try:
-        return json.loads(output.text)
-    except json.JSONDecodeError:
-        return None                                 # e.g. "no action has failed in this tree"
-
-
-def open_request(skill: str, phase: str, task: str, call_tool: Callable[[str, dict], ToolOutput]) -> dict:
+def open_request(skill: str, phase: str, task: str, evidence: dict) -> dict:
     """The call as the bridge gets it: the task, the allowed decisions and all the evidence"""
     request = {
         'id':        uuid.uuid4().hex[:8],
@@ -62,15 +53,15 @@ def open_request(skill: str, phase: str, task: str, call_tool: Callable[[str, di
         'opened':    time.time(),
         'task':      task,
         'decisions': list(PHASE_DECISIONS[phase]),
-        'failure':   _evidence(call_tool, 'get_failure'),
-        'history':   _evidence(call_tool, 'get_history'),
+        'failure':   evidence.get('last_failure') or None,
+        'history':   evidence.get('history') or [],
     }
 
     if phase in PRESS_PHASES:
-        request['press'] = _evidence(call_tool, 'get_press')
+        request['press'] = evidence.get('press') or None
 
     if phase in STANCE_PHASES:
-        request['stance'] = _evidence(call_tool, 'get_stance')
+        request['stance'] = evidence.get('stance') or None
 
     return request
 
@@ -227,7 +218,7 @@ class PushLink:
                 self.messages.put(message[0])
 
 
-def call_images(request: dict, call_tool: Callable[[str, dict], ToolOutput]) -> list[tuple[str, str, bytes]]:
+def call_images(request: dict, session: AgentSession) -> list[tuple[str, str, bytes]]:
     """The images a call carries, as (name, media type, bytes): the press frames it names, and for a recovery the
     camera image now"""
     images = []
@@ -238,11 +229,8 @@ def call_images(request: dict, call_tool: Callable[[str, dict], ToolOutput]) -> 
         except OSError:
             continue
 
-    if request['skill'] == 'manipulation_recovery':
-        output = call_tool('get_image', {'source': 'camera'})
-
-        if output.image:
-            images.append(('camera', output.media_type, output.image))
+    if request['skill'] == 'manipulation_recovery' and (camera := session.camera()) is not None:
+        images.append(('camera', camera[1], camera[0]))
 
     return images
 
@@ -257,11 +245,11 @@ class PushAgentBackend:
         self._publish_request = publish_request
         self._publish_reply   = publish_reply
 
-    def run(self, skill: str, phase: str, task: str, call_tool: Callable[[str, dict], ToolOutput],
+    def run(self, skill: str, phase: str, task: str, session: AgentSession,
             should_stop: Callable[[], bool], on_event: Callable[..., None]):
         # (1) The call with all its evidence and frames, sent now and again on each reconnect
-        request = open_request(skill, phase, task, call_tool)
-        images  = call_images(request, call_tool)
+        request = open_request(skill, phase, task, session.evidence)
+        images  = call_images(request, session)
         header  = {**request, 'type': 'call', 'phase': phase,
                    'images': [{'name': name, 'media_type': media, 'size': len(data)} for name, media, data in images]}
         record  = {'call': request['id'], 'skill': skill, 'model': None, 'effort': None, 'started': round(request['opened'], 1),
@@ -302,7 +290,7 @@ class PushAgentBackend:
                     continue
 
                 decision = {key: message[key] for key in DECISION_FIELDS if key in message}
-                output   = call_tool('decide', dict(decision))
+                output   = session.decide(dict(decision))
                 reply    = {'id': request['id'], 'accepted': output.final, 'message': output.text}
                 self.link.send({'type': 'reply', **reply})
                 self._publish_reply({**reply, 'decision': decision})

@@ -182,16 +182,16 @@ def test_decision_outputs_keep_the_arm_unless_switched():
 def test_decide_checks_the_phase_and_the_fields():
     session = AgentSession('stance_check', {'base_goal': PANEL}, {}, None, lambda *a, **k: None)
 
-    assert session.call('decide', {'decision': 'reposition', 'reason': 'x'}).is_error                  # no dx, dy
-    assert session.call('decide', {'decision': 'switch_arm', 'reason': 'x', 'use_left_arm': True}).is_error
-    assert session.call('decide', {'decision': 'continue', 'reason': ''}).is_error
-    assert session.call('decide', {'decision': 'continue', 'reason': 'button in view'}).final
-    assert session.call('decide', {'decision': 'abort', 'reason': 'again'}).is_error
+    assert session.decide({'decision': 'reposition', 'reason': 'x'}).is_error                  # no dx, dy
+    assert session.decide({'decision': 'switch_arm', 'reason': 'x', 'use_left_arm': True}).is_error
+    assert session.decide({'decision': 'continue', 'reason': ''}).is_error
+    assert session.decide({'decision': 'continue', 'reason': 'button in view'}).final
+    assert session.decide({'decision': 'abort', 'reason': 'again'}).is_error
 
     diagnose = AgentSession('diagnose', {'base_goal': PANEL}, {}, None, lambda *a, **k: None)
 
-    assert diagnose.call('decide', {'decision': 'reposition', 'reason': 'far', 'dx': 0.2}).is_error   # no dy
-    assert diagnose.call('decide', {'decision': 'reposition', 'reason': 'far', 'dx': 0.1, 'dy': 0.0}).final
+    assert diagnose.decide({'decision': 'reposition', 'reason': 'far', 'dx': 0.2}).is_error   # no dy
+    assert diagnose.decide({'decision': 'reposition', 'reason': 'far', 'dx': 0.1, 'dy': 0.0}).final
 
 
 # ========== In a tree ==========
@@ -454,9 +454,9 @@ def test_not_pressed_is_the_failed_check_of_the_press_for_the_recovery(tmp_path)
 def test_offset_retry_needs_the_whole_offset_within_50_mm():
     session = AgentSession('diagnose', {}, {}, None, lambda *a, **k: None)
 
-    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.005}).is_error
-    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'r', 'ox': 0.06, 'oy': 0.0, 'oz': 0.0}).is_error
-    assert not session.call('decide', {'decision': 'offset_retry', 'reason': 'rim', 'ox': 0.005, 'oy': 0.0075, 'oz': 0.0034}).is_error
+    assert session.decide({'decision': 'offset_retry', 'reason': 'r', 'ox': 0.005}).is_error
+    assert session.decide({'decision': 'offset_retry', 'reason': 'r', 'ox': 0.06, 'oy': 0.0, 'oz': 0.0}).is_error
+    assert not session.decide({'decision': 'offset_retry', 'reason': 'rim', 'ox': 0.005, 'oy': 0.0075, 'oz': 0.0034}).is_error
 
     outputs = decision_outputs(session.decision, {}, {'inputs': {'left_arm': False}})
 
@@ -561,10 +561,10 @@ def _full_tree(runner: FakeRunner, agent) -> BehaviorTree:
 def test_stance_check_decisions():
     session = AgentSession('stance_check', {'base_goal': PANEL}, {}, None, lambda *a, **k: None)
 
-    assert session.call('decide', {'decision': 'offset_retry', 'reason': 'x', 'ox': 0, 'oy': 0, 'oz': 0}).is_error
-    assert session.call('decide', {'decision': 'ask_help', 'reason': 'x'}).is_error
-    assert session.call('decide', {'decision': 'switch_arm', 'reason': 'x', 'use_left_arm': True}).is_error   # the arm is chosen by rule
-    assert session.call('decide', {'decision': 'reposition', 'reason': 'too close', 'dx': -0.25, 'dy': 0.0}).final
+    assert session.decide({'decision': 'offset_retry', 'reason': 'x', 'ox': 0, 'oy': 0, 'oz': 0}).is_error
+    assert session.decide({'decision': 'ask_help', 'reason': 'x'}).is_error
+    assert session.decide({'decision': 'switch_arm', 'reason': 'x', 'use_left_arm': True}).is_error   # the arm is chosen by rule
+    assert session.decide({'decision': 'reposition', 'reason': 'too close', 'dx': -0.25, 'dy': 0.0}).final
 
 
 def test_a_failed_stance_check_is_recorded_for_the_agent():
@@ -926,10 +926,10 @@ def test_the_stance_rule_gives_way_to_the_agent_after_two_resends_until_a_press_
 def test_a_reposition_into_the_panel_is_refused():
     session = AgentSession('diagnose', {'base_goal': PANEL}, {}, None, lambda *a, **k: None)
 
-    assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.39, 'dy': 0.1}).is_error
-    assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.0, 'dy': 0.3}).is_error
-    assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': -0.7, 'dy': 0.0}).is_error
-    assert session.call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': -0.05}).final
+    assert session.decide({'decision': 'reposition', 'reason': 'r', 'dx': 0.39, 'dy': 0.1}).is_error
+    assert session.decide({'decision': 'reposition', 'reason': 'r', 'dx': 0.0, 'dy': 0.3}).is_error
+    assert session.decide({'decision': 'reposition', 'reason': 'r', 'dx': -0.7, 'dy': 0.0}).is_error
+    assert session.decide({'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': -0.05}).final
 
 
 REACH_MISS = {'skill': 'check_reach', 'status': 'failure', 'outputs': {}}
@@ -958,9 +958,9 @@ def test_a_diagnosis_may_not_reposition_from_a_stance_the_reach_check_passed():
         reach = {'reachable': True, 'message': 'in reach', 'target_moved_since_check_m': {'xyz': [moved, 0.0, 0.0], 'norm': moved}}
         return AgentSession('diagnose', {'base_goal': PANEL}, {'stance': {'reach': reach}}, None, lambda *a, **k: None)
 
-    assert session(0.01).call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': 0.0}).is_error
-    assert session(0.01).call('decide', {'decision': 'retry', 'reason': 'r'}).final
-    assert session(0.05).call('decide', {'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': 0.0}).final
+    assert session(0.01).decide({'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': 0.0}).is_error
+    assert session(0.01).decide({'decision': 'retry', 'reason': 'r'}).final
+    assert session(0.05).decide({'decision': 'reposition', 'reason': 'r', 'dx': 0.1, 'dy': 0.0}).final
 
 
 def test_the_stance_rule_keeps_the_stance_a_reposition_asked_for():

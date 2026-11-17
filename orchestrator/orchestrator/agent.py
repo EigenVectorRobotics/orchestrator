@@ -89,7 +89,7 @@ class AgentBackend(Protocol):
         skill: str,
         phase: str,
         task: str,
-        call_tool: Callable[[str, dict], ToolOutput],
+        session: 'AgentSession',
         should_stop: Callable[[], bool],
         on_event: Callable[..., None]
     ): ...
@@ -274,12 +274,10 @@ def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None, ro
     return outputs
 
 
-def _json(value) -> str:
-    return json.dumps(value, indent=1, default=str)
-
 
 class AgentSession:
-    """One agent call: the evidence gathered for it, the camera, and the decision once the executor accepts it"""
+    """One agent call: the evidence gathered for it, the camera, and the decision once the executor accepts it.
+    The backend reads the evidence as it is and sends each decision it gets through decide()"""
 
     def __init__(self, phase: str, inputs: dict, evidence: dict, ros: RosAccess | None, on_event):
         self.phase    = phase
@@ -289,53 +287,28 @@ class AgentSession:
         self.on_event = on_event
         self.decision = None
 
-    def call(self, name: str, arguments: dict) -> ToolOutput:
-        self.on_event('agent_tool', f'{name} {_brief(arguments)}', tool=name, arguments=arguments)
-
-        handler = getattr(self, f'_tool_{name}', None)
-
-        if handler is None:
-            return ToolOutput(f'unknown tool {name}', is_error=True)
+    def camera(self) -> tuple[bytes, str] | None:
+        """The latest camera frame and its media type, or None when there is none"""
+        if self.ros is None:
+            return None
 
         try:
-            output = handler(**arguments)
+            return self.ros.image('camera')
+        except Exception as error:                      # no frame yet: the call goes without the image
+            self.on_event('agent_camera', f'no camera image: {error}', level='warn')
+            return None
+
+    def decide(self, arguments: dict) -> ToolOutput:
+        """Check a decision; final when accepted. A refusal says why, for the backend to ask again"""
+        try:
+            output = self._tool_decide(**arguments)
         except TypeError as error:
-            output = ToolOutput(f'bad arguments for {name}: {error}', is_error=True)
-        except Exception as error:                      # a failed read or a bad decision goes back to the backend, not up the stack
-            output = ToolOutput(f'{name} failed: {error}', is_error=True)
+            output = ToolOutput(f'bad decision fields: {error}', is_error=True)
 
         if output.is_error:
-            self.on_event('agent_tool', f'{name} error: {output.text[:300]}', level='warn', tool=name)
+            self.on_event('agent_refused', output.text[:300], level='warn')
 
         return output
-
-    # ----- the evidence and the decision -----
-
-    def _tool_get_failure(self) -> ToolOutput:
-        failure = self.evidence.get('last_failure')
-
-        return ToolOutput(_json(failure) if failure else 'no action has failed in this tree')
-
-    def _tool_get_press(self) -> ToolOutput:
-        press = self.evidence.get('press')
-
-        return ToolOutput(_json(press) if press else 'no press frames were kept')
-
-    def _tool_get_stance(self) -> ToolOutput:
-        found = self.evidence.get('stance')
-
-        return ToolOutput(_json(found) if found else 'no stance: TF or the base goal was not available')
-
-    def _tool_get_history(self) -> ToolOutput:
-        return ToolOutput(_json(self.evidence.get('history', [])))
-
-    def _tool_get_image(self, source: str) -> ToolOutput:
-        if self.ros is None:
-            return ToolOutput('ROS access is not available here', is_error=True)
-
-        data, media_type = self.ros.image(source)
-
-        return ToolOutput(f'{source} image, {len(data)} bytes', image=data, media_type=media_type)
 
     def _tool_decide(self, decision: str, reason: str, dx: float | None = None, dy: float | None = None,
                      dyaw: float | None = None, use_left_arm: bool | None = None, ox: float | None = None,
@@ -393,12 +366,6 @@ class AgentSession:
         self.on_event('agent_decision', f'{decision}: {reason.strip()}', decision=self.decision)
 
         return ToolOutput(f'decision recorded: {decision}', final=True)
-
-
-def _brief(arguments: dict) -> str:
-    text = ', '.join(f'{key}={value!r}' for key, value in arguments.items())
-
-    return text if len(text) <= 200 else text[:200] + '...'
 
 
 # ========== Running a call ==========
@@ -483,7 +450,7 @@ class Agent:
 
             self.on_event('agent_start', f'{contract.name} ({phase}) on {self.backend.name}', phase=phase)
             self._say(PHASE_SPEECH.get(phase))
-            self.backend.run(contract.interface.skill, phase, _task(phase, inputs), session.call, stop.is_set, self.on_event)
+            self.backend.run(contract.interface.skill, phase, _task(phase, inputs), session, stop.is_set, self.on_event)
 
             if session.decision is None:
                 raise AgentError('the agent ended without a decision')
@@ -552,7 +519,7 @@ class Agent:
                 'target_map':    stance.transform_point(self.ros.tf('map', PRESS_FRAME, 1.0), press['goal']),
             })
         except Exception as error:                      # a missing transform costs the reference, never the press
-            self.on_event('agent_tool', f'press reference not kept: {error}', level='warn')
+            self.on_event('agent_reference', f'press reference not kept: {error}', level='warn')
 
     def say(self, text: str):
         """Say one sentence for the agent leaf (e.g. why a call failed)"""
