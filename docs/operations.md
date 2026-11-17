@@ -79,13 +79,34 @@ Or, with the trace echo and `agent_cli wait` started beside it, each writing to 
 
 `stop_cycle.sh` matters: an orphaned `ros2 topic echo` holds a DDS participant (N-001). Read progress with `grep -o '"text": "[^"]*"' <run folder>/trace.txt`.
 
-Test trees, in `orchestrator/test_trees/`:
+Test trees, in `orchestrator/test_trees/`, to run a part of the task:
 
 | Tree | Starts with the robot | Does |
 |---|---|---|
+| `freight_elevator_down_floor1_agentic.xml` | anywhere on floor 2, localized | the call panel, down, the door, the cabin, floor 1 |
+| `freight_elevator_floor1_from_door_agentic.xml` | at the call panel, down pressed | waits for the door, walks in, floor 1 |
+| `freight_elevator_floor1_press_agentic.xml` | at the inside place | EKF reset, floor 1 |
+| `freight_elevator_floor1_walk_in_again_agentic.xml` | in the cabin, off the inside place by less than a reposition can fix | backs up 0.35 m behind the inside place, walks in, floor 1 |
+| `freight_call_elevator_down_agentic.xml`, `freight_call_elevator_agentic.xml` | anywhere on floor 2 | the down or up call press alone |
+| `call_elevator_agentic.xml` | anywhere, localized, with a place `call_panel` | the up call press with the agent's recovery |
 | `call_elevator.xml` | anywhere, localized, with a place `call_panel` | walks to the call panel, presses up, waits for the door; runs blind (no cloud) |
+| `freight_elevator_ride_agentic.xml` | | disabled: not in use |
+| `freight_call_panel_press_repeat.xml` | anywhere on floor 2 | five cycles of walk in, down press, up press; the repeatability test below |
+| `freight_elevator_floor_press_repeat.xml` | in the cabin on floor 2, the door held open | five cycles of walk in, floor 1, 2 and 3 presses, walk out |
 
-The freight elevator test trees (`freight_elevator_down_floor1_agentic`, `freight_elevator_floor1_*_agentic`, `freight_call_elevator_*_agentic`, `call_elevator_agentic`, `freight_elevator_ride_agentic`) and the press repeatability trees (`freight_call_panel_press_repeat`, `freight_elevator_floor_press_repeat`) were removed on 2026-11-16 (`539938b`): they used skills that `88016d2` removed. Later commits of PR #8 (`fix/elevator-run-fixes`) bring back fixed versions of some of them.
+The trees from 2026-11-16 on reset the EKF with `reset_ekf`, check the view after a reposition with `button_in_view`, and set the press offset before their first press (`press_button` refuses to run before any `set_press_offset`).
+
+### Repeatability test at the call panel
+
+The test measures how often one press hits each call button, with no retries. Each cycle walks to the call panel, holds still for the EKF reset, presses the down button, then the up button, both with the right arm. The agent judges every press, and the tree goes on whatever the judge says.
+
+1. Launch the NUC with the cabin2 map (section 5) and check `"localized": true`. The Orin and the Thor run as usual.
+2. Start the orchestrator (section 2) with `places_file:=/home/vector/maps/two_floor_clean_cabin2.places.yaml`.
+3. Start the run: `~/orchestrator_ws/src/orchestrator/scripts/start_cycle.sh ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_panel_press_repeat.xml`. It prints the run folder.
+4. Answer each `press_judge` call from the agent session (`agent_cli show`, then `agent_cli decide pressed|not_pressed --reason ... --send`). `agent_cli wait` returns after one call, so run it again after each answer. A press that move_to_pose refuses ("target out of reach") or that finds no target opens no call, so expect up to ten. A person by the panel notes the true outcome of each press, in order.
+5. When the trace shows the tree ended, run `stop_cycle.sh <run folder>`.
+
+Compare the person's labels with the judge's decisions and the `press_judge` records in `~/orch_runs/<session>/runs/<n>-freight_call_panel_press_repeat/records.jsonl`. Each press record holds the capture (deepest point, sideways distance, `residual_m`) and the frame paths.
 
 ## 5. Bring a machine up by hand
 

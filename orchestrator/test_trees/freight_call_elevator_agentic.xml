@@ -27,6 +27,7 @@
 
   <BehaviorTree ID="press_up">
     <Sequence>
+      <set_press_offset x="0.0" y="0.0" z="0.0"/>   <!-- press_button refuses to run before any set_press_offset -->
       <press_button target_description="up button"/>
       <button_lit target_description="up button"/>
     </Sequence>

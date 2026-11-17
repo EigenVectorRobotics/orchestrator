@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from skill_registry import Registry, load_tree
+from skill_registry import Registry, TreeValidator, ValidatorConfig, load_tree
 
 from orchestrator import agent_backends
 from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentConfig, AgentSession, decision_outputs, offset_goal, rule_offset
@@ -229,6 +229,52 @@ def test_the_executor_says_when_a_call_opens_and_what_was_decided(tmp_path):
     assert spoken == [PHASE_SPEECH['diagnose'], DECISION_SPEECH['retry']]
 
 
+def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(tmp_path):
+    backend = ScriptedAgentBackend([
+        [['get_failure', {}], ['decide', {'decision': 'reposition', 'reason': 'stalled 0.13 m short', 'dx': 0.15, 'dy': 0.0}]],
+    ])
+    runner  = FakeRunner([MISS, (True, 'Controller reached target', [])])
+    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
+
+    assert _run(tree) == Status.SUCCESS
+
+    walks = [inputs['goal'] for name, inputs in runner.calls if name == 'navigate_to']
+
+    assert len(walks) == 2 and walks[1]['y'] == pytest.approx(2.15)
+    assert 'Planning failed' in backend.calls[0][2].text                   # the agent saw the recorded failure
+    assert [record['decision'] for record in tree.context.history if 'decision' in record] == ['reposition']
+    names = [name for name, _ in runner.calls]
+    assert names.index('navigate_to', 1) < names.index('button_in_view') < names.index('press_button', names.index('navigate_to', 1))
+
+
+def test_abort_ends_the_tree_at_once(tmp_path):
+    backend = ScriptedAgentBackend([[['decide', {'decision': 'abort', 'reason': 'button not in view'}]]])
+    runner  = FakeRunner([MISS])
+    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
+
+    assert _run(tree) == Status.FAILURE
+    assert 'button not in view' in tree.context.abort_reason
+    assert 'say' not in [name for name, _ in runner.calls]                 # no fallback ran after the abort
+
+
+def test_after_ask_help_the_agent_is_not_called_again(tmp_path):
+    backend = ScriptedAgentBackend([[['decide', {'decision': 'ask_help', 'reason': 'wrong object tracked'}]]])
+    runner  = FakeRunner([MISS])
+    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
+
+    assert _run(tree) == Status.SUCCESS                                    # a person is asked; the door then opens
+    assert len(backend.calls) == 1
+    assert 'say' in [name for name, _ in runner.calls]
+
+
+def test_the_agentic_tree_validates_online_only():
+    registry = Registry.from_directory(CONTRACTS)
+    xml_text = (TREES / 'call_elevator_agentic.xml').read_text()
+
+    assert TreeValidator(registry).is_valid(xml_text)
+    assert not TreeValidator(registry, ValidatorConfig(blind=True)).is_valid(xml_text)
+
+
 # ========== OpenAI-compatible backend ==========
 
 def test_openai_compatible_backend_sends_tool_results_back(monkeypatch, tmp_path):
@@ -249,6 +295,55 @@ def test_openai_compatible_backend_sends_tool_results_back(monkeypatch, tmp_path
 
     assert session.decision['decision'] == 'retry'
     assert sent[1]['messages'][-1]['role'] == 'tool' and 'navigate_to' in sent[1]['messages'][-1]['content']
+
+
+# ========== External backend (a session answers through agent_cli) ==========
+
+def test_external_backend_waits_checks_and_closes_the_call(tmp_path):
+    requests, replies = [], []
+    backend = ExternalAgentBackend(requests.append, replies.append)
+    runner  = FakeRunner([MISS])
+    tree    = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
+
+    for _ in range(400):
+        tree.tick()
+
+        if requests:
+            break
+
+        time.sleep(0.005)
+
+    request = requests[-1]
+
+    assert request['state'] == 'open' and request['skill'] == 'manipulation_recovery'
+    assert request['failure']['message'] == 'Planning failed: empty trajectory' and request['failure']['feedback']
+    assert 'continue' not in request['decisions']
+
+    backend.deliver({'id': 'other', 'decision': 'retry', 'reason': 'r'})
+    backend.deliver({'id': request['id'], 'decision': 'continue', 'reason': 'wrong phase'})
+    backend.deliver({'id': request['id'], 'decision': 'ask_help', 'reason': 'the session wants a person'})
+
+    assert _run(tree) == Status.SUCCESS                                    # say, then the door opens
+    assert [reply['accepted'] for reply in replies] == [False, False, True]
+    assert requests[-1]['state'] == 'closed'
+    assert 'say' in [name for name, _ in runner.calls]
+
+
+def test_the_session_gets_a_long_failure_whole(tmp_path):
+    """A 60 s press keeps 120 feedback samples, over the 40 kB a model's tool output is cut to"""
+    requests, replies = [], []
+    backend  = ExternalAgentBackend(requests.append, replies.append)
+    goal     = {'header': {'frame_id': 'foot_world'}, 'pose': {'position': {'x': 0.4, 'y': -0.1, 'z': 1.0}}}
+    feedback = [{'t': 0.5 * index, 'distance_to_goal': float('inf'), 'tracking_lost': False, 'current_goal': goal,
+                 'padding': 'x' * 300} for index in range(120)]
+    runner   = FakeRunner([(False, 'timeout after 60 s', feedback)])
+    tree     = _tree((TREES / 'call_elevator_agentic.xml').read_text(), runner, Agent(backend, _config(tmp_path)))
+
+    request = _wait_request(tree, requests, 1)
+
+    assert request['failure'] is not None and len(request['failure']['feedback']) == 120
+    backend.deliver({'id': request['id'], 'decision': 'ask_help', 'reason': 'r'})
+    _run(tree)
 
 
 # ========== say ==========
@@ -435,7 +530,127 @@ def test_a_failed_stance_check_is_recorded_for_the_agent():
     assert tree.context.last_failure['inputs'] == {'query': 'down button'}
 
 
-# ========== confirm ===
+FULL_TREE = TREES / 'freight_elevator_down_floor1_agentic.xml'
+
+
+PLACES    = {name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'}
+             for name in ('freight_elevator_call_panel_preapproach', 'freight_elevator_call_panel', 'inside_freight_elevator_button_panel')}
+
+
+def _full_tree(runner: FakeRunner, agent) -> BehaviorTree:
+    now     = [0.0]
+    clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]          # the tree's Sleeps pass in a few ticks
+    context = Context(blackboard={name: dict(pose) for name, pose in PLACES.items()}, clock=clock)
+
+    return BehaviorTree(FULL_TREE.read_text(), make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
+
+
+def test_a_poor_stance_is_fixed_before_the_first_press(tmp_path):
+    """The view check fails at both panels: outside the agent repositions before pressing, inside it presses as is"""
+    backend = ScriptedAgentBackend([
+        [['get_failure', {}], ['decide', {'decision': 'reposition', 'reason': 'stopped 17 cm past', 'dx': -0.3, 'dy': 0.0}]],
+        [['decide', {'decision': 'pressed', 'reason': 'lit'}]],
+        [['get_failure', {}], ['decide', {'decision': 'continue', 'reason': 'IK reaches both poses'}]],
+        [['decide', {'decision': 'pressed', 'reason': 'lit'}]],
+    ])
+    runner  = FakeRunner([(True, 'Controller reached target', []), (True, 'Controller reached target', [])], failing=('button_in_view',))
+    tree    = _full_tree(runner, Agent(backend, _config(tmp_path), press_evidence=lambda: PRESS_EVIDENCE))
+
+    assert _run(tree, max_ticks=3000) == Status.SUCCESS
+
+    names   = [name for name, _ in runner.calls]
+    walks   = [inputs['goal'] for name, inputs in runner.calls if name == 'navigate_to']
+    phases  = [record['phase'] for record in tree.context.history if 'decision' in record]
+
+    assert phases == ['stance_check', 'judge', 'stance_check', 'judge']
+    assert walks[2]['x'] == pytest.approx(0.7) and walks[2]['z'] == pytest.approx(-0.46)   # 0.3 m back, same storey
+    assert names.index('navigate_to', names.index('button_in_view')) < names.index('press_button')
+    assert names.count('press_button') == 2
+    assert 'button_in_view' in backend.calls[0][2].text                                  # the agent saw which check failed
+
+
+def test_without_an_agent_a_failed_stance_check_still_presses():
+    pressed = (True, 'Controller reached target', [])
+    runner  = FakeRunner([pressed, pressed], failing=('button_in_view',))
+    tree    = _full_tree(runner, None)
+
+    assert _run(tree, max_ticks=3000) == Status.SUCCESS                     # each press_judge fails: a person is asked
+    assert [name for name, _ in runner.calls].count('press_button') == 2
+
+
+# ========== The ride tree ==========
+
+RIDE_TREE   = TREES / 'freight_elevator_ride_agentic.xml'
+
+
+RIDE_PLACES = ('inside_freight_elevator_button_panel', 'exit_goal')
+
+
+class RideRunner(FakeRunner):
+    """The floor counter reads floor 2 until the press, then floor 3 (a stop on the way), then floor 1"""
+
+    def __init__(self, presses: list[tuple], failing: tuple = (), stops: tuple = ('3', '3', '1')):
+        super().__init__(presses, failing)
+        self.floor = '2'
+        self.stops = list(stops)
+
+    def start(self, contract, inputs):
+        if contract.name == 'press_button':
+            self.floor = 'riding'
+
+        if contract.name == 'elevator_floor_is':
+            self.calls.append((contract.name, inputs))
+
+            if 'press_button' in [name for name, _ in self.calls] and self.stops:     # one poll per stop
+                self.floor = self.stops.pop(0)
+
+            return FakeHandle(Status.SUCCESS if inputs['floor'] == self.floor else Status.FAILURE, f'data = {self.floor}')
+
+        return super().start(contract, inputs)
+
+
+def _ride_tree(runner: FakeRunner) -> BehaviorTree:
+    now     = [0.0]
+    clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]
+    context = Context(blackboard={name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'} for name in RIDE_PLACES}, clock=clock)
+
+    return BehaviorTree(RIDE_TREE.read_text(), make_leaf_factory(Registry.from_directory(CONTRACTS), runner, None), context)
+
+
+def test_the_ride_tree_presses_the_target_waits_for_it_and_walks_out():
+    runner = RideRunner([(True, 'Controller reached target', [])])
+    tree   = _ride_tree(runner)
+
+    assert _run(tree, max_ticks=5000) == Status.SUCCESS
+    names = [name for name, _ in runner.calls]
+    press = names.index('press_button')
+
+    assert runner.calls[press][1]['target_description'] == 'floor 1'
+    assert runner.calls[names.index('elevator_floor_is')][1]['floor'] == '2'                  # the start floor first
+    assert names.index('door_open') > max(i for i, name in enumerate(names) if name == 'elevator_floor_is')
+    assert runner.calls[-1 - names[::-1].index('navigate_to')][1]['goal']['x'] == 1.0          # exit_goal
+
+
+def test_a_door_that_stays_closed_stops_the_ride_before_walking_out():
+    runner = RideRunner([(True, 'Controller reached target', [])], failing=('door_open',))
+    tree   = _ride_tree(runner)
+
+    assert _run(tree, max_ticks=8000) == Status.FAILURE
+    names = [name for name, _ in runner.calls]
+
+    assert names.count('navigate_to') == 1                                                    # in only
+
+
+def test_a_counter_that_disagrees_with_the_start_floor_stops_before_walking():
+    runner = RideRunner([], stops=())
+    runner.floor = '1'
+    tree   = _ride_tree(runner)
+
+    assert _run(tree) == Status.FAILURE
+    assert 'navigate_to' not in [name for name, _ in runner.calls]
+
+
+# ========== confirm ==========
 def test_confirm_phase_relays_the_question():
     from orchestrator.agent import GOING_ON, PHASE_DECISIONS, _task
 
