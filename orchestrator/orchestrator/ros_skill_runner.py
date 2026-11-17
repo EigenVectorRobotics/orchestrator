@@ -464,11 +464,12 @@ class _ReachHandle(_ServiceHandle):
         max_age   = float(interface.limits.get('max_age_s', 2.0))
         stale     = pose is None or time.monotonic() - pose[0] > max_age
         request   = None
+        offset    = runner.press_offset or (0.0, 0.0, 0.0)   # no set_press_offset yet (a look runs before the first press): 0
 
         if not stale:
             target                   = copy.deepcopy(pose[1])
             turn                     = target.pose.orientation
-            shift                    = rotate((turn.x, turn.y, turn.z, turn.w), runner.press_offset)
+            shift                    = rotate((turn.x, turn.y, turn.z, turn.w), offset)
             target.pose.position.x  += shift[0]
             target.pose.position.y  += shift[1]
             target.pose.position.z  += shift[2]
@@ -477,7 +478,7 @@ class _ReachHandle(_ServiceHandle):
             request.left_arm         = bool(inputs.get('left_arm', False))
 
         super().__init__(runner._service_client(interface.name, service), request, contract, runner.server_wait_s)
-        self.offset = runner.press_offset
+        self.offset = offset
 
         if stale:
             age = 'none yet' if pose is None else f'{time.monotonic() - pose[0]:.1f} s old'
