@@ -34,7 +34,7 @@ tmux new -d -s rawbag "bash -c 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"
 
 ## 4. Send the task (NUC)
 
-Put the robot near the call panel on its floor. To go from floor 2 to floor 1:
+First stand the G1 in ready locomotion and remove the gantry: preflight does not stand the robot up, and stops the task if it is not in ready locomotion. Put the robot near the call panel on its floor. To go from floor 2 to floor 1:
 
 ```bash
 ros2 topic pub --once -w 1 /orchestrator/task std_msgs/msg/String "{data: 'Take the freight elevator to target_floor_1.'}"
@@ -46,11 +46,11 @@ From floor 1 to floor 2, use `target_floor_2` in both places.
 
 ## 5. Preflight
 
-Preflight runs before the ride. It starts any stack that is down, then the Run Viewer at `http://vector-nuc:8780`, and stands the robot. Your part:
+Preflight runs before the ride. It starts any stack that is down, then the Run Viewer at `http://vector-nuc:8780`, checks localization, and checks that the robot stands in ready locomotion; it does not stand the robot up or ask about the gantry. Your part:
 
 1. Keep the robot still while the NUC stack starts. SLAM measures the IMU offset in its first seconds.
 2. If the robot says "Please relocalize me", send `/initialpose` from Foxglove within 2 minutes.
-3. When the bridge rings and asks whether the gantry is removed, remove it, then type `y` and Enter.
+3. If the robot says "Task aborted: I am not in ready locomotion", stand it up and send the task again (step 4).
 
 Preflight ends with "All nodes are running and my localization is healthy".
 

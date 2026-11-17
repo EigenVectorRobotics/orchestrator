@@ -50,9 +50,9 @@ The agent bridge on the laptop answers the agent calls, and a session answers th
    ros2 topic pub --once -w 1 /orchestrator/task std_msgs/msg/String "{data: 'Take the freight elevator from floor 2 to floor 1.'}"
    ```
 
-3. **Preflight runs first** (`skill_registry/preflight/preflight.xml`). It starts the Run Viewer and whichever of the NUC, Orin and Thor stacks are not up (`launch_*_stack`, over ssh from the NUC), checks SLAM (relocalizes in place, else asks to be relocalized), stands the G1 in ready locomotion in the gantry, and asks whether the gantry is removed. The operator:
-   - sends `/initialpose` from Foxglove (`ws://vector-nuc:8765`) within 2 minutes when the robot says "Please relocalize me";
-   - removes the gantry, then types `y gantry removed` in the bridge window.
+3. **Preflight runs first** (`skill_registry/preflight/preflight.xml`). It starts the Run Viewer and whichever of the NUC, Orin and Thor stacks are not up (`launch_*_stack`, over ssh from the NUC), checks SLAM (relocalizes in place, else asks to be relocalized), and checks that the G1 already stands in ready locomotion (`robot_ready`, loco FSM id 801). It never stands the robot up and never asks about the gantry: a robot that is not in ready locomotion stops the task ("Task aborted: I am not in ready locomotion"), since `ready_locomotion` damps a standing robot first. The operator:
+   - before sending the task, stands the G1 in ready locomotion and removes the gantry;
+   - sends `/initialpose` from Foxglove (`ws://vector-nuc:8765`) within 2 minutes when the robot says "Please relocalize me".
 
    Right after the stacks are up, preflight stops when a robot-control node runs twice (`no_duplicate_nodes`) and warns about nodes started outside the launch and orphaned helpers (`no_stray_processes`). Run the same check by hand: `python3 -m orchestrator.stale_nodes report`.
 
