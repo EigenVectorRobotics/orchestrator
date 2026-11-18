@@ -66,7 +66,6 @@ class TopicWatch:
         self.history.append((message, None))
 
 
-
 class HoldTimer:
     """How long a value has equalled spec.equals without a break; expired once that reaches spec.hold_s"""
 

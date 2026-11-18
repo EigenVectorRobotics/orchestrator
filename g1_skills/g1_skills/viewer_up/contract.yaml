@@ -8,5 +8,5 @@ interface:
     http: [http://127.0.0.1:8780/]
 timeout_s: 10
 maturity: untested
-source: orchestrator/orchestrator/preflight_checks.py (judge_alive)
+source: orchestrator/orchestrator/health/checks.py (judge_alive)
 notes: Before a task (preflight). The operator opens it through ssh -L 8780:127.0.0.1:8780 vector@vector-nuc.

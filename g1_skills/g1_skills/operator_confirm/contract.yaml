@@ -23,5 +23,5 @@ outputs:
 needs_cloud: true
 timeout_s: 120
 maturity: untested
-source: orchestrator/orchestrator/agent.py (phase confirm)
+source: g1_skills/operator_confirm (spec.py, agent.py)
 notes: The bridge rings the bell and prints the question; it drops the question when the call times out or is cancelled.

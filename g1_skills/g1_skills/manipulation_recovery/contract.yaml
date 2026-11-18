@@ -42,7 +42,7 @@ outputs:
 needs_cloud: true
 timeout_s: 600
 maturity: untested
-source: orchestrator/orchestrator/agent.py
+source: g1_skills/manipulation_recovery (spec.py, agent.py, rules.py, prompt.py)
 notes: >-
   The agent reads the failure, the history and the stance; it never publishes and never moves the robot. The agent
   bridge on the laptop answers through the Claude Agent SDK, with the camera image attached.

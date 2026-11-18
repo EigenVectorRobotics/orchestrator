@@ -17,8 +17,6 @@ from typing import Callable
 from .backends import BackendError, Reply
 
 
-
-
 class ExternalPlannerBackend:
     """One reply per call, from a session"""
 

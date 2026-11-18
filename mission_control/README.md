@@ -4,8 +4,7 @@ What runs on the operator's computer: the agent bridge that answers every agent 
 
 | File | What it does |
 |---|---|
-| `agent_bridge.py` | Answers the executor's `press_judge` and `manipulation_recovery` calls through the Claude Agent SDK, with the frames as images. Asks the operator in its terminal for `operator_confirm`. |
-| `agent_prompts.py` | The model's rules (`JUDGE_SYSTEM`, `recovery_system()`) and how each call's evidence becomes the prompt. |
+| `agent_bridge.py` | Answers every agent skill's calls: the model (Claude Agent SDK, frames as images) for a skill whose `spec.py` says `ANSWERED_BY = 'model'`, the operator in its terminal for `operator_confirm`. |
 | `robot/` | Scripts that start, run, watch, cancel and stop a robot run on the NUC over ssh (`robot/README.md`). |
 | `test/test_agent_bridge.py` | Tests of the `operator_confirm` path (with a pipe as stdin), the protocol check, the warm models, the prompt built from a call, and the system prompt and prompts-file hash a call reports. |
 
@@ -32,9 +31,9 @@ It listens on the site's `agent_bridge` address (`orchestrator/config/sites/stan
 
 Run the bridge from a checkout of the branch the NUC runs, and restart it after a pull. Each call carries:
 
-- `protocol`, `agent_spec.PROTOCOL` on the NUC. A bridge with another `PROTOCOL` fails the call at once with both numbers ("protocol mismatch: ..."): pull the NUC's branch on the laptop and restart the bridge.
-- The call's own fields: `phase`, `button`, `base_goal`, `question`, `decisions`, and `offset_in_force` (the offset the last press used).
-- `limits`, what the executor enforces (`agent_spec.limits()`). The prompt and the recovery's system prompt state these, so a limit changed on the NUC alone still reaches the model. A call whose limits differ from the bridge's own starts a model without warm-up.
+- `protocol`, `protocol.PROTOCOL` on the NUC. A bridge with another `PROTOCOL` fails the call at once with both numbers ("protocol mismatch: ..."): pull the NUC's branch on the laptop and restart the bridge.
+- `phase` and `decisions`, and the fields the skill adds (its `agent.py`): for the press skills `button`, `base_goal` and `offset_in_force` (the offset the last press used); for `operator_confirm`, `question`.
+- `limits`, what the executor enforces (the skill's `spec.limits()`). The prompt and the recovery's system prompt state these, so a limit changed on the NUC alone still reaches the model. A call whose limits differ from the bridge's own starts a model without warm-up.
 
 ## Answer operator_confirm
 

@@ -9,5 +9,5 @@ interface:
     services: [/gripper_estimation/get_parameters]
 timeout_s: 10
 maturity: untested
-source: orchestrator/orchestrator/preflight_checks.py (judge_alive)
+source: orchestrator/orchestrator/health/checks.py (judge_alive)
 notes: Before a task (preflight). Checked from the NUC through the ROS graph.

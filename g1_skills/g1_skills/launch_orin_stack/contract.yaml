@@ -10,5 +10,5 @@ interface:
     REMOTE
 timeout_s: 30
 maturity: untested
-source: orchestrator/orchestrator/preflight_checks.py (run_command)
+source: orchestrator/orchestrator/health/checks.py (run_command)
 notes: Uses the NUC's key for unitree@192.168.123.164. Poll orin_up (about 15 s). orin.launch.py (bringup on the Orin, since 2026-11-08) starts gripper_pose_estimator (humanoid_arm_skills, manipulation_stack main), which publishes the gripper estimate frames on TF from the depth camera; a second one in tmux gripper_est would duplicate its TF frames. env -u LD_PRELOAD - ssh aborts with the executor's preloaded DDS libraries.

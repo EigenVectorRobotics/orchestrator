@@ -25,7 +25,7 @@ outputs:
 needs_cloud: true
 timeout_s: 600
 maturity: wip
-source: orchestrator/orchestrator/agent.py
+source: g1_skills/press_judge (spec.py, agent.py, prompt.py)
 notes: >-
   Put it right after press_button. The agent bridge on the laptop answers through the Claude Agent SDK, with the
   press frames attached as images.

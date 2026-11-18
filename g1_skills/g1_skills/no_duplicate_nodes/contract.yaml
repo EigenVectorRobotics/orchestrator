@@ -9,7 +9,7 @@ interface:
   command: python3 -m orchestrator.health.stale_nodes duplicates
 timeout_s: 45
 maturity: untested
-source: orchestrator/orchestrator/stale_nodes.py (judge, duplicate_findings)
+source: orchestrator/orchestrator/health/stale_nodes.py (judge, duplicate_findings)
 notes: >-
   Two copies of a control node both command the robot or publish the same topics, e.g. a second unitree_interface
   from another workspace. Reads ros2 node list (timeout 15 s) and ps on the NUC and, over ssh, on the Orin. The

@@ -10,7 +10,7 @@ interface:
     services: [/unitree_interface/change_mode]
 timeout_s: 10
 maturity: untested
-source: orchestrator/orchestrator/preflight_checks.py (judge_alive)
+source: orchestrator/orchestrator/health/checks.py (judge_alive)
 notes: >-
   Before a task (preflight). /unitree_interface/fsm_id needs unitree_interface with the FSM id topic. The last four
   topics are one per navigation node (terrain_analysis, local_planner, path_follower, route_planner): a partial stack

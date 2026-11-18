@@ -11,5 +11,5 @@ interface:
     REMOTE
 timeout_s: 30
 maturity: untested
-source: orchestrator/orchestrator/preflight_checks.py (run_command)
+source: orchestrator/orchestrator/health/checks.py (run_command)
 notes: Uses the NUC's key for vector@192.168.123.1 (the robot wire). Poll thor_up (about 30 s with the edgellm container).

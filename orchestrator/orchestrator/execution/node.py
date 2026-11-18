@@ -56,8 +56,6 @@ def preflight_gate(tree_id: str, passed: bool, skip: bool, required: bool) -> tu
                    f'first, or send_tree --skip-preflight to run {tree_id} without it')
 
 
-
-
 class ExecutorNode(Node):
     def __init__(self):
         super().__init__('orchestrator_executor')

@@ -8,7 +8,7 @@ interface:
     services: [/vlm_ground_server/ground_boxes]
 timeout_s: 10
 maturity: untested
-source: orchestrator/orchestrator/preflight_checks.py (judge_alive)
+source: orchestrator/orchestrator/health/checks.py (judge_alive)
 notes: >-
   Before a task (preflight). Only the grounding is checked: button_in_view and press_button need it. The VLM endpoint
   (cosmos_vlm_server, the executor's vlm_base_url) is not checked: no tree asks the VLM (only ask_vlm and the disabled

@@ -9,5 +9,5 @@ interface:
     tmux new-session -d -s run_viewer "env -u LD_PRELOAD python3 ~/orchestrator_ws/src/orchestrator/run_viewer/scripts/start_viewer.py --robot local --port 8780 --host 127.0.0.1 --host $(tailscale ip -4 | head -1) 2>&1 | tee ~/run_viewer.log"
 timeout_s: 15
 maturity: untested
-source: orchestrator/orchestrator/preflight_checks.py (run_command); viewer in run_viewer/ of this repository
+source: orchestrator/orchestrator/health/checks.py (run_command); viewer in run_viewer/ of this repository
 notes: Poll viewer_up (about 2 s). The viewer reads the recorder's session folders (events.jsonl, runs/*/agent/<id>/); its echo scripts read a few topics through ~/eigen_vector_ws/env.sh.

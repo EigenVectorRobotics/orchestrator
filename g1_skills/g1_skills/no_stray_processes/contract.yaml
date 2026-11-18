@@ -9,7 +9,7 @@ interface:
   command: python3 -m orchestrator.health.stale_nodes strays
 timeout_s: 45
 maturity: untested
-source: orchestrator/orchestrator/stale_nodes.py (judge, stray_findings, orphan_findings)
+source: orchestrator/orchestrator/health/stale_nodes.py (judge, stray_findings, orphan_findings)
 notes: >-
   A node restarted by hand (tmux, nohup) still works, but a stack restart would start a second copy. An orphan is a
   helper whose parent is init, older than its grace (10 min, 3 h for a bag record); it holds a DDS participant
