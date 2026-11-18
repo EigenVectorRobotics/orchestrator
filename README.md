@@ -45,7 +45,7 @@ ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the 
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-`fake_robot` stands in for the robot; without a site no agent bridge is set, so agent skills fail. Its parameters, the planner backends and `send_tree` are in `docs/architecture.md`.
+`fake_robot` stands in for the robot, and no preflight runs; without a site no agent bridge is set, so agent skills fail. Its parameters, the planner backends and `send_tree` are in `docs/architecture.md`.
 
 ## Add a skill
 

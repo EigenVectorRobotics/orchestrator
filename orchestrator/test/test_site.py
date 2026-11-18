@@ -75,6 +75,15 @@ def test_without_a_site_the_code_defaults_and_no_bridge_or_raw_bag():
     assert _resolve({'fake': 'true'}, 'stanley')['raw_bag'] is None          # a fake run records no raw topics
 
 
+def test_a_fake_run_has_no_preflight_unless_asked_and_a_robot_run_has_one():
+    assert _resolve({}, 'stanley')['preflight'] is True
+    assert _resolve({'preflight': 'false'}, 'stanley')['preflight'] is False
+    assert _resolve({'fake': 'true'})['preflight'] is False          # the fake robot cannot pass it: the stacks are not there
+    assert _resolve({'fake': 'true', 'preflight': ''})['preflight'] is False   # the launch's default value
+    assert _resolve({'preflight': ''}, 'stanley')['preflight'] is True
+    assert _resolve({'fake': 'true', 'preflight': 'true'})['preflight'] is True
+
+
 def test_the_bridge_takes_its_address_from_the_site(monkeypatch):
     pytest.importorskip('claude_agent_sdk')
     sys.path.insert(0, str(PACKAGE.parent / 'mission_control'))

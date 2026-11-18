@@ -88,7 +88,7 @@ A skill that is not `tested` gives a warning.
 
 The preflight tree starts the Run Viewer, starts the NUC, Orin and Thor stacks that are not up (`nuc_up`, `orin_up`, `thor_up`), stops on a control node that runs twice (`no_duplicate_nodes`), waits for a healthy localization (asking a person to relocalize, two minutes at most), checks that the G1 is in ready locomotion (`robot_ready`), and relocalizes where the robot stands.
 
-The executor runs a task tree only after a preflight has passed since the launch (`require_preflight`, set by the launch argument `preflight`, default true). A preflight that does not succeed closes the gate again. `send_tree --skip-preflight` runs a tree anyway and leaves a `preflight_skipped` warning in the trace. The executor also refuses a tree while the recorder is not ready (`require_recorder`, set by `record`).
+The executor runs a task tree only after a preflight has passed since the launch (`require_preflight`, set by the launch argument `preflight`, default true, false with `fake:=true`). With `preflight` false the launch also gives the planner no preflight tree (`preflight_tree` empty), so no task runs one. A preflight that does not succeed closes the gate again. `send_tree --skip-preflight` runs a tree anyway and leaves a `preflight_skipped` warning in the trace. The executor also refuses a tree while the recorder is not ready (`require_recorder`, set by `record`).
 
 ## Walking into and out of the cabin
 
@@ -137,7 +137,7 @@ ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the 
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-`fake_robot` has the robot's topics, services, navigation and arm actions, and a VLM server on `vlm_port`. The two actions need `navigation_interfaces` and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`; `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback); `nav_blocked:=true` (every route turns blocked until cancelled, so `navigate_to` fails after its `hold_s`, 10 s); `vlm_answers:=door=closed`; `nav_time_s:=5.0`. With no site, agent skills fail.
+`fake_robot` has the robot's topics, services, navigation and arm actions, and a VLM server on `vlm_port`. The two actions need `navigation_interfaces` and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`; `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback); `nav_blocked:=true` (every route turns blocked until cancelled, so `navigate_to` fails after its `hold_s`, 10 s); `vlm_answers:=door=closed`; `nav_time_s:=5.0`. With no site, agent skills fail. A fake run has no preflight (it would try to start the robot stacks and fail on the missing NUC topics); `preflight:=true` runs it anyway.
 
 Run one tree with no planner:
 

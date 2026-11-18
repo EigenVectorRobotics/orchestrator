@@ -106,7 +106,7 @@ On the NUC (no script sends a single tree):
 ros2 run orchestrator send_tree <tree.xml>                 # add --blind for a tree that must run with no cloud
 ```
 
-The executor runs a task tree only after a preflight passed since the launch: a task through the planner runs one first, and a preflight that fails or is cancelled closes the gate again. Before that, `send_tree` is refused ("no preflight has passed since the launch"); add `--skip-preflight` to run the tree anyway, which the trace marks (`preflight_skipped`). `preflight:=false` at launch turns the gate off.
+The executor runs a task tree only after a preflight passed since the launch: a task through the planner runs one first, and a preflight that fails or is cancelled closes the gate again. Before that, `send_tree` is refused ("no preflight has passed since the launch"); add `--skip-preflight` to run the tree anyway, which the trace marks (`preflight_skipped`). `preflight:=false` at launch turns the gate off, and the planner then runs no preflight before a task.
 
 The bridge answers its agent calls, as in section 4. The recorder keeps the trace in `~/orch_runs/<session>/events.jsonl`.
 

@@ -36,7 +36,7 @@ def resolve(given: dict, site: dict, share: Path, registry_share: Path) -> dict:
     found  = {
         'fake':            fake,
         'record':          given.get('record') != 'false',
-        'preflight':       given.get('preflight') != 'false',
+        'preflight':       given.get('preflight') == 'true' if fake else given.get('preflight') != 'false',   # fake: off unless asked
         'params_file':     given.get('params_file') or str(share / 'config' / 'orchestrator.yaml'),
         'contracts':       given.get('contracts_directory') or str(registry_share / 'contracts'),
         'places_file':     given.get('places_file') or site.get('places_file') or str(share / 'config' / 'places.yaml'),
@@ -71,7 +71,8 @@ def _actions(context):
         Node(package='skill_registry', executable='registry_node', output='screen', parameters=shared),
         Node(package='orchestrator', executable='executor_node', output='screen', parameters=[*shared, executor]),
         Node(package='orchestrator', executable='planner_node', output='screen',
-             parameters=[*shared, {'backend': found['planner_backend'], 'model': found['planner_model']}]),
+             parameters=[*shared, {'backend': found['planner_backend'], 'model': found['planner_model'],
+                                   **({} if found['preflight'] else {'preflight_tree': ''})}]),
     ]
 
     if found['record']:
@@ -105,7 +106,8 @@ def generate_launch_description():
         DeclareLaunchArgument('params_file', default_value='', description='parameters for all nodes; default: config/orchestrator.yaml'),
         DeclareLaunchArgument('contracts_directory', default_value=''),
         DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses trees while it is not ready'),
-        DeclareLaunchArgument('preflight', default_value='true', description='the executor refuses a task tree until a preflight passed (send_tree --skip-preflight runs one anyway)'),
+        DeclareLaunchArgument('preflight', default_value='', description='the planner runs the preflight before each task and the executor refuses a task tree until one passed '
+                              '(send_tree --skip-preflight runs one anyway); true | false, default true, false with fake:=true'),
         DeclareLaunchArgument('raw_bag', default_value='true', description='record the site raw_bag topics beside the orchestrator'),
         OpaqueFunction(function=_actions),
     ])
