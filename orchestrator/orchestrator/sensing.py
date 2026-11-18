@@ -3,7 +3,7 @@ import threading
 from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.duration import Duration
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo, Image
 from geometry_msgs.msg import PoseStamped
 
 from .common.images import ImageError, image_to_jpeg
@@ -30,16 +30,20 @@ class FrameBuffer:
 
 
 class Camera:
-    """The head camera: its latest frame as JPEG, its size, and the last seconds of frames by their stamps"""
+    """The head camera: its latest frame as JPEG, its size, optical frame and intrinsics, and the last seconds of
+    frames by their stamps"""
 
-    def __init__(self, node: Node, topic: str):
-        self.node   = node
-        self.topic  = topic
-        self.jpeg   = None
-        self.size   = None              # (width, height) of the last frame
-        self.frames = FrameBuffer()
+    def __init__(self, node: Node, topic: str, info_topic: str = '/camera/camera/color/camera_info'):
+        self.node     = node
+        self.topic    = topic
+        self.jpeg     = None
+        self.size     = None            # (width, height) of the last frame
+        self.frame_id = None            # the images' optical frame, from their header
+        self.k        = None            # the intrinsics, 3x3 row-major, from camera_info
+        self.frames   = FrameBuffer()
 
         node.create_subscription(Image, topic, self._on_image, SENSOR_QOS)
+        node.create_subscription(CameraInfo, info_topic, self._on_info, SENSOR_QOS)
 
     def _on_image(self, message: Image):
         """Raw frames from the RealSense, encoded here: the Orin publishes no compressed transport"""
@@ -49,10 +53,14 @@ class Camera:
             self.node.get_logger().warn(f'camera frame dropped: {error}', throttle_duration_sec=10.0)
             return
 
-        stamp     = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
-        self.jpeg = jpeg
-        self.size = (message.width, message.height)
+        stamp         = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        self.jpeg     = jpeg
+        self.size     = (message.width, message.height)
+        self.frame_id = message.header.frame_id or self.frame_id
         self.frames.add(stamp or self.node.get_clock().now().nanoseconds * 1e-9, jpeg)
+
+    def _on_info(self, message: CameraInfo):
+        self.k = [[float(value) for value in message.k[row * 3:row * 3 + 3]] for row in range(3)]
 
 
 class TfError(RuntimeError):

@@ -61,6 +61,7 @@ class ExecutorNode(Node):
 
         self.tick_hz      = self.declare_parameter('tick_hz', 10.0).value
         self.image_topic  = self.declare_parameter('image_topic', '/camera/camera/color/image_raw').value
+        self.camera_info_topic = self.declare_parameter('camera_info_topic', '/camera/camera/color/camera_info').value
         self.vlm_base_url = self.declare_parameter('vlm_base_url', 'http://vector-thor:8090/v1').value
         self.vlm_model    = self.declare_parameter('vlm_model', 'local').value
         self.vlm_timeout  = self.declare_parameter('vlm_timeout_s', 40.0).value    # Cosmos on the Thor: one request at a time
@@ -73,7 +74,7 @@ class ExecutorNode(Node):
         self.tracer   = Tracer(self, 'executor')
         self.ctx      = SkillContext(
             self,
-            Camera(self, self.image_topic),
+            Camera(self, self.image_topic, self.camera_info_topic),
             VlmClient(VlmClientConfig(base_url=self.vlm_base_url, model=self.vlm_model, timeout_s=self.vlm_timeout)),
             artifacts_dir=self.capture_dir
         )
