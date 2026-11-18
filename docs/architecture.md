@@ -13,7 +13,7 @@ How the orchestrator turns a task into robot motion: the nodes, the skills and t
 | `fake_robot` | laptop | The robot's topics, services, actions and a VLM server, for tests (`fake:=true`) |
 | `mission_control/agent_bridge.py` | operator laptop | Answers every agent call (`docs/agents.md`, `mission_control/README.md`) |
 
-`orchestrator/launch/orchestrator.launch.py` starts the registry, the executor, the planner and, unless `record:=false`, the recorder. All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments passed to every node. A site file (`site:=stanley`, `orchestrator/config/sites/stanley.yaml`) gives the places file, the planner backend, the agent bridge's address and the raw bag; a launch argument given on the command line wins over the site. Without a site no agent bridge is set, so agent skills fail.
+`orchestrator/launch/orchestrator.launch.py` starts the registry, the executor, the planner and, unless `record:=false`, the recorder. All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). `contracts_directory` (empty: the skill packages' folders, parameter `skill_packages`, default `g1_skills`), `places_file` and `vlm_base_url` are launch arguments passed to every node. A site file (`site:=stanley`, `orchestrator/config/sites/stanley.yaml`) gives the places file, the planner backend, the agent bridge's address and the raw bag; a launch argument given on the command line wins over the site. Without a site no agent bridge is set, so agent skills fail.
 
 ## A task, step by step
 
@@ -24,6 +24,10 @@ How the orchestrator turns a task into robot motion: the nodes, the skills and t
 5. The planner publishes the tree on `/orchestrator/tree` (or `/orchestrator/tree_blind`). The executor validates it again, checks the preflight gate and the recorder, then ticks it at `tick_hz` (10 Hz).
 6. Each leaf is a skill. The executor calls it as its contract says. An agent skill opens a call to the agent bridge (`docs/agents.md`).
 7. Every step goes to the trace; the recorder writes it all to the run's folder.
+
+## The code
+
+The core, `orchestrator/orchestrator/`, runs trees, calls skills through their transports, talks to the agent bridge, plans and records; it names no skill. The skills live in `g1_skills/g1_skills/`, one folder each. What each folder of the code holds is in `docs/code/orchestrator.md`, `docs/code/g1_skills.md` and `docs/code/skill_registry.md`.
 
 ## Topics
 
@@ -42,11 +46,11 @@ How the orchestrator turns a task into robot motion: the nodes, the skills and t
 | `/skills/live` | The live skills (latched JSON list) |
 | `/speak` | Sentences for the robot's text to speech |
 
-All names are in `orchestrator/orchestrator/topics.py`.
+All names are in `orchestrator/orchestrator/common/topics.py`.
 
 ## Skills and contracts
 
-A skill is one YAML contract in `skill_registry/contracts/` (schema: `skill_registry/skill_registry/contract.py`). It names its `kind` (action or condition), its `device`, its inputs and outputs, its `interface`, `timeout_s`, `fallback` and `maturity` (`tested`, `wip`, `untested`, `disabled`). The executor needs no code for a new skill if it uses one of these transports:
+A skill is one folder in `g1_skills/g1_skills/`: its `contract.yaml` (schema: `skill_registry/skill_registry/contract.py`) and, when it needs them, `skill.py` (its own code around or instead of the transport), and for an agent skill `spec.py`, `agent.py` and `prompt.py`. How to write one is in `g1_skills/README.md`; the orchestrator core names no skill. It names its `kind` (action or condition), its `device`, its inputs and outputs, its `interface`, `timeout_s`, `fallback` and `maturity` (`tested`, `wip`, `untested`, `disabled`). The executor needs no code for a new skill if it uses one of these transports:
 
 | Transport | Example | What the executor does |
 |---|---|---|
@@ -55,19 +59,19 @@ A skill is one YAML contract in `skill_registry/contracts/` (schema: `skill_regi
 | `topic` | `cancel_nav.yaml` | Publishes one message; with `success_when`, waits until a topic shows the result |
 | `watch` | `door_open.yaml`, `at_floor.yaml` | Reads a topic and compares a field; `equals_input` compares with a tree input |
 | `vlm` | `ask_vlm.yaml` | Asks the VLM a closed question |
-| `in_view` | `button_in_view.yaml` | Seeds track_anything with the button's name; checks the first 2D box and 3D pose after the seed exist and the box is away from the image edges |
-| `reach` | `check_reach.yaml` | IK only: can the arm reach the target from here |
+| `python` | `button_in_view`, `check_reach` | The skill's `skill.py` runs every call: `button_in_view` seeds track_anything and judges the first 2D box and 3D pose after the seed; `check_reach` asks ik_server whether the arm reaches the target. `interface.requires` names what must be up for it to be live |
 | `agent` | `press_judge.yaml`, `manipulation_recovery.yaml`, `operator_confirm.yaml` | Opens an agent call (`docs/agents.md`) |
 | `compare`, `alive`, `command` | `decision_is.yaml`, `nuc_up.yaml`, `launch_nuc_stack.yaml` | Runs inside the executor: compare two values, check that topics, services or URLs exist, run a shell command |
 
 - An input's `field` can index a sequence: `set_press_offset.yaml` sets `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters.
 - A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`. Give z on the two-storey map, or the route planner takes the lowest storey.
+- A `skill.py` may also run code around any transport (`before`, `wrap`): `press_button` keeps its frames around the action this way, and `set_press_offset` keeps the offset in force for `press_button` and `check_reach`. Its own settings are the contract's `config`.
 - A condition with `record: true` has every answer recorded in the history, a pass included (`check_reach.yaml`). Actions are always recorded.
-- A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, and a `floors` table). Names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}` (`orchestrator/orchestrator/places.py`).
+- A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, and a `floors` table). Names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}` (`orchestrator/orchestrator/common/config.py`).
 
 ## Live skills
 
-`registry_node` loads every contract from `contracts_directory` and checks the ROS graph once a second. A skill is live when what its contract calls is in the graph now: an action server, a service server, a topic's subscriber (and the publisher of its `success_when` topic), a watched topic's publisher, the `in_view` box topic's publisher; a `vlm` skill while `vlm_base_url/models` answers (probed every 5 s). `agent`, `compare`, `alive` and `command` skills are always live; a `tree` contract never is. The registry publishes the sorted list on `/skills/live` (latched) when it changes.
+`registry_node` loads every contract from the skill packages (or `contracts_directory`) and checks the ROS graph once a second. A skill is live when what its contract calls is in the graph now: an action server, a service server, a topic's subscriber (and the publisher of its `success_when` topic), a watched topic's publisher, what a `python` skill's `interface.requires` names; a `vlm` skill while `vlm_base_url/models` answers (probed every 5 s). `agent`, `compare`, `alive` and `command` skills are always live; a `tree` contract never is. The registry publishes the sorted list on `/skills/live` (latched) when it changes.
 
 The planner subscribes to `/skills/live` (`use_live_skills`, default true), tells the LLM to use only those skills, and its validator refuses a skill that is not live. Until the first list arrives, there is no such check. The executor does not check liveness: it reads the contracts from `contracts_directory`.
 
@@ -99,18 +103,18 @@ The subtrees `walk_in` and `walk_out` (`skill_registry/trees/subtrees/walk.xml`)
 
 ## Press frames
 
-`press_button` keeps three camera frames for `press_judge` (`interface.capture` in its contract; `orchestrator/orchestrator/press_capture.py`): a baseline when the end effector reaches the pre-grasp, the first frame at least `press_delay_s` after the deepest point of the push, and the first frame at least `release_delay_s` after the retreat began. The phases come from TF `right_ee` or `left_ee` in the goal's frame against the action feedback's `current_goal`. Each frame is also cropped around track_anything's box for that frame, grown `crop_scale` times; a frame without a box of its own uses the baseline's. The frames go to `capture_dir` (default `~/.ros/orchestrator_captures`); the recorder moves them into the run. Why the tracker counts only samples near the button axis is in `docs/agents.md`.
+`press_button` keeps three camera frames for `press_judge` (`config.capture` in its contract; `g1_skills/g1_skills/press_button/capture.py`): a baseline when the end effector reaches the pre-grasp, the first frame at least `press_delay_s` after the deepest point of the push, and the first frame at least `release_delay_s` after the retreat began. The phases come from TF `right_ee` or `left_ee` in the goal's frame against the action feedback's `current_goal`. Each frame is also cropped around track_anything's box for that frame, grown `crop_scale` times; a frame without a box of its own uses the baseline's. The frames go to `capture_dir` (default `~/.ros/orchestrator_captures`); the recorder moves them into the run. It also keeps the camera's pose and the gripper's depth fit through the press: the first gives the recovery its aim crops, the second moves the residual to the real fingertip (`docs/agents.md`). Why the tracker counts only samples near the button axis is in `docs/agents.md` too.
 
 - The camera runs at 6 fps, so a chosen frame can be up to about 0.17 s after its moment.
 - Frame times are the camera's header stamps and pose times the NUC's: the Orin's and the NUC's clocks must agree.
 
 ## VLM conditions
 
-The executor's `vlm` skills post to `vlm_base_url` (default `http://vector-thor:8090/v1`) and wait up to `vlm_timeout_s`. On the Thor, `ros2 run orchestrator cosmos_vlm_server --port 8090` answers with the Cosmos daemon, one request at a time. No tree in the library asks the VLM now (`ask_vlm` is the only enabled `vlm` skill), so `thor_up` checks only the grounding service.
+The executor's `vlm` skills post to `vlm_base_url` (default `http://vector-thor:8090/v1`) and wait up to `vlm_timeout_s`. On the Thor, `ros2 run orchestrator vlm_server --port 8090` answers with a VLM, the Edge-LLM Cosmos daemon by default (`--model`), one request at a time; a question may carry several images, and the model decides what to do with them (Edge-LLM answers on the first). No tree in the library asks the VLM now (`ask_vlm` is the only enabled `vlm` skill), so `thor_up` checks only the grounding service.
 
 ## Trace
 
-Every planner and executor step goes to `/orchestrator/trace` as JSON (`time`, `source`, `kind`, `text`, and the event's fields) and to `/orchestrator/log` for Foxglove (`orchestrator/orchestrator/trace.py`). The executor's events carry `run_id` and `tree_id`. A finished skill call is a `record` event with its full record (an action's feedback over time included). The event kinds are listed in `docs/recorder.md`. The executor also writes the agent bridge's link state to its ROS log, where the robot scripts read it.
+Every planner and executor step goes to `/orchestrator/trace` as JSON (`time`, `source`, `kind`, `text`, and the event's fields) and to `/orchestrator/log` for Foxglove (`orchestrator/orchestrator/execution/node_setup.py`). The executor's events carry `run_id` and `tree_id`. A finished skill call is a `record` event with its full record (an action's feedback over time included). The event kinds are listed in `docs/recorder.md`. The executor also writes the agent bridge's link state to its ROS log, where the robot scripts read it.
 
 ## Recording
 

@@ -8,7 +8,7 @@ What runs on the operator's computer: the agent bridge that answers every agent 
 | `robot/` | Scripts that start, run, watch, cancel and stop a robot run on the NUC over ssh (`robot/README.md`). |
 | `test/test_agent_bridge.py` | Tests of the `operator_confirm` path (with a pipe as stdin), the protocol check, the warm models, the prompt built from a call, and the system prompt and prompts-file hash a call reports. |
 
-The phases, their decisions, the answer schema, the limits the executor enforces and the link's framing are not written here: both the bridge and the executor import them from `orchestrator/orchestrator/agent_spec.py` (standard library only, so the bridge loads it without ROS). The model is told only what `agent_prompts.py` gives it, with no tools and no documents; what each call does and how the tree uses the answer is in [docs/agents.md](../docs/agents.md). How a robot run uses the bridge is in [docs/run.md](../docs/run.md#4-run-a-task).
+Nothing about a skill is written here. Each agent skill is a folder of `g1_skills/g1_skills/` with `spec.py` (its phases, decisions, decision fields and limits) and `prompt.py` (its system prompt and the prompt built from a call); the bridge finds them at start and takes the link's framing from `orchestrator/orchestrator/agent/protocol.py`. All of these use only the standard library, so the bridge runs without ROS. The model is told only what the skill's `prompt.py` gives it, with no tools and no documents; what each call does and how the tree uses the answer is in [docs/agents.md](../docs/agents.md). How a robot run uses the bridge is in [docs/run.md](../docs/run.md#4-run-a-task).
 
 ## Set up once
 
@@ -37,6 +37,6 @@ Run the bridge from a checkout of the branch the NUC runs, and restart it after 
 
 ## Answer operator_confirm
 
-An `operator_confirm` call never goes to the model. The bridge rings the bell and prints the question in its window. Type `y` or `n`, then an optional reason, and Enter: `y gantry removed`. The bridge keeps answering the link while it waits. When the call times out (`timeout_s` in `skill_registry/contracts/operator_confirm.yaml`, 120 s) or is cancelled, the bridge drops the question.
+An `operator_confirm` call never goes to the model. The bridge rings the bell and prints the question in its window. Type `y` or `n`, then an optional reason, and Enter: `y gantry removed`. The bridge keeps answering the link while it waits. When the call times out (`timeout_s` in `g1_skills/g1_skills/operator_confirm/contract.yaml`, 120 s) or is cancelled, the bridge drops the question.
 
 `COLCON_IGNORE` keeps colcon from building this folder on the robot.

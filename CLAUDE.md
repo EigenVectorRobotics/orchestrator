@@ -19,12 +19,14 @@ Each document below is read by a session at the moment named; a document that no
 | `mission_control/robot/README.md` | When you use the robot scripts |
 | `run_viewer/README.md` | When you use or change the Run Viewer |
 | `README.md` | For the overview and to run on a laptop with no robot |
+| `g1_skills/README.md` | Before you add or change a skill: its folder, and the four ways to extend one |
+| `docs/code/orchestrator.md`, `docs/code/orchestrator/agent.md`, `docs/code/orchestrator/common.md`, `docs/code/orchestrator/execution.md`, `docs/code/orchestrator/health.md`, `docs/code/orchestrator/planning.md`, `docs/code/orchestrator/recording.md`, `docs/code/orchestrator/skills.md`, `docs/code/orchestrator/tree.md`, `docs/code/orchestrator/vlm.md`, `docs/code/g1_skills.md`, `docs/code/skill_registry.md` | When you look for where a piece of code lives: a few lines per module |
 
 The single source of each kind of fact:
 
-- **What the model is told**: `mission_control/agent_prompts.py`. No document is given to a model.
-- **Phases, decisions, limits, framing of agent calls**: `orchestrator/orchestrator/agent_spec.py`.
-- **Skills**: `skill_registry/contracts/*.yaml`. **Trees**: `skill_registry/trees/` (the planner's library) and `orchestrator/test_trees/`.
+- **What the model is told**: each agent skill's `prompt.py` (`g1_skills/g1_skills/press_judge/prompt.py`, `g1_skills/g1_skills/manipulation_recovery/prompt.py`). No document is given to a model.
+- **Phases, decisions, limits of agent calls**: each agent skill's `spec.py`; **the link's framing and protocol**: `orchestrator/orchestrator/agent/protocol.py`.
+- **Skills**: one folder each in `g1_skills/g1_skills/`: `contract.yaml` and the skill's own code; the orchestrator core names no skill. **Trees**: `skill_registry/trees/` (the planner's library) and `orchestrator/test_trees/`.
 - **Robot run values** (places file, planner backend, bridge address, raw bag): `orchestrator/config/sites/stanley.yaml`.
 - Documents name the constant, parameter or file a number comes from; they do not keep their own copy of it.
 
@@ -40,8 +42,9 @@ Your part in a run: start the orchestrator, send the task, watch, and cancel whe
 
 ## Changing code and documents
 
-- Run the tests before every commit: `source /opt/ros/jazzy/setup.bash; export PYTHONPATH=$PWD/orchestrator:$PWD/skill_registry:$PYTHONPATH; PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest -q orchestrator/test skill_registry/test mission_control/test`. Check a changed tree with `ros2 run skill_registry validate_tree <tree.xml>` (0 errors).
+- Run the tests before every commit: `source /opt/ros/jazzy/setup.bash; export PYTHONPATH=$PWD/orchestrator:$PWD/skill_registry:$PWD/g1_skills:$PYTHONPATH; PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 /usr/bin/python3 -m pytest -q orchestrator/test skill_registry/test g1_skills/test mission_control/test`. Check a changed tree with `ros2 run skill_registry validate_tree <tree.xml>` (0 errors).
 - **Delete or rename something, and clean every reference to it in the same change**: documents, code comments, contracts, trees, config. `grep -rn "<name>" --exclude-dir=.git .` finds them.
+- **Skill logic lives in its skill folder** (`g1_skills/README.md`), never in `orchestrator/orchestrator/`.
 - **A change in behaviour updates its document in the same change**: a skill or tree in `docs/architecture.md`, an agent call or prompt in `docs/agents.md`, a run step in `docs/run.md`.
 - **A new document is added to the table above**, with when to read it. `orchestrator/test/test_docs.py` fails on a document that is not listed, a link that does not resolve, or a file path in backticks that does not exist.
 - **Observations from a run** go in `docs/architecture.md` under **Open problems** while nothing handles them: what was seen, the numbers, the evidence (session, run, call id), and its status (confirmed, reported, suspected). A session drafts the text; a person approves it word for word before it goes in. When the code or a prompt comes to handle it, the entry is deleted, and its reason moves, as one sentence, next to the mechanism that handles it.

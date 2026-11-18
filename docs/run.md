@@ -64,7 +64,7 @@ The agent bridge on the laptop answers the agent calls, and `planner_cli` (or a 
    ~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley
    ```
 
-   Keep this window in view: the robot asks you questions here. A bridge on another `agent_spec.PROTOCOL` fails every call with "protocol mismatch". `--model` (default `claude-opus-5-5`) and `--effort` (default `low`) choose the model. It listens on the site's `agent_bridge` address, and the executor connects there (launched with the same site). The executor pushes each call with its evidence and frames over one TCP link. The model answers `press_judge` and `manipulation_recovery` in a few seconds, with the frames as images. `operator_confirm` rings the bell in the bridge window and waits for you to type `y` or `n`, then an optional reason. The record of each call is kept on the NUC, in the run's `agent/<call id>/` ([recorder.md](recorder.md)); with `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/` on the laptop. The executor keeps each press judged pressed in `~/orch_state/press_references.jsonl` on the NUC (the old `~/.ros/orchestrator_press_references.jsonl` is read until the first new reference moves it over).
+   Keep this window in view: the robot asks you questions here. A bridge on another `protocol.PROTOCOL` fails every call with "protocol mismatch". `--model` (default `claude-opus-5-5`) and `--effort` (default `low`) choose the model. It listens on the site's `agent_bridge` address, and the executor connects there (launched with the same site). The executor pushes each call with its evidence and frames over one TCP link. The model answers `press_judge` and `manipulation_recovery` in a few seconds, with the frames as images. `operator_confirm` rings the bell in the bridge window and waits for you to type `y` or `n`, then an optional reason. The record of each call is kept on the NUC, in the run's `agent/<call id>/` ([recorder.md](recorder.md)); with `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/` on the laptop. The executor keeps each press judged pressed in `~/orch_state/press_references.jsonl` on the NUC (the old `~/.ros/orchestrator_press_references.jsonl` is read until the first new reference moves it over).
 2. **Stand the robot up.** Stand the G1 in ready locomotion and remove the gantry: preflight does not stand the robot up, and stops the task if it is not in ready locomotion. Put the robot near the call panel on its floor.
 3. **Send the task and answer the planner.** From the laptop:
 
@@ -84,7 +84,7 @@ The agent bridge on the laptop answers the agent calls, and `planner_cli` (or a 
    - sends `/initialpose` from Foxglove within 2 minutes when the robot says "Please relocalize me";
    - on "Task aborted: I am not in ready locomotion", stands the robot up and sends the task again (step 3).
 
-   Right after the stacks are up, preflight stops when a robot-control node runs twice (`no_duplicate_nodes`) and warns about nodes started outside the launch and orphaned helpers (`no_stray_processes`). Run the same check by hand: `python3 -m orchestrator.stale_nodes report`.
+   Right after the stacks are up, preflight stops when a robot-control node runs twice (`no_duplicate_nodes`) and warns about nodes started outside the launch and orphaned helpers (`no_stray_processes`). Run the same check by hand: `python3 -m orchestrator.health.stale_nodes report`.
 
    Preflight ends with a relocalization in place and "All nodes are running and my localization is healthy". If it fails, the planner does not plan; the trace says why.
 5. **Planning by hand.** When `planner_cli run` is not used, send the task (`ros2 topic pub --once -w 1 /orchestrator/task std_msgs/msg/String "{data: '...'}"`), then in the planner session:
@@ -95,7 +95,7 @@ The agent bridge on the laptop answers the agent calls, and `planner_cli` (or a 
    ```
 
    `--use-tree` reuses a library tree (`--tree <file>` sends a new one); `--param` sets its parameters. `freight_elevator_go_to_place` needs only `goal`, a place on the other floor: the planner fills `goal_floor` from the place's z, and the tree derives the panels, the floor button and the door-out place from it. With no `--param` it rides from floor 1 to `{target_floor_2}`.
-6. **During the ride** the robot calls the elevator, walks in, presses the floor button, rides, and walks to the goal. The bridge answers each call as it comes; watch the Run Viewer. If the robot asks you to press a button, press it. To stop at any time, cancel (section 7). A connected bridge has up to the call's contract timeout (`timeout_s` in `skill_registry/contracts/press_judge.yaml`, `manipulation_recovery.yaml` and `operator_confirm.yaml`). With no word from the bridge, the robot says so at 15 s and the call fails at 60 s (`UNREACHABLE_SAY_S`, `UNREACHABLE_FAIL_S` in `orchestrator/orchestrator/agent_push.py`); later calls fail at once until the bridge is heard from again ([troubleshooting.md](troubleshooting.md)). A failed call fails its agent skill, and the tree goes on as after any failure of that step (in the end, a person is asked to press).
+6. **During the ride** the robot calls the elevator, walks in, presses the floor button, rides, and walks to the goal. The bridge answers each call as it comes; watch the Run Viewer. If the robot asks you to press a button, press it. To stop at any time, cancel (section 7). A connected bridge has up to the call's contract timeout (`timeout_s` in `g1_skills/g1_skills/press_judge/contract.yaml`, `manipulation_recovery.yaml` and `operator_confirm.yaml`). With no word from the bridge, the robot says so at 15 s and the call fails at 60 s (`UNREACHABLE_SAY_S`, `UNREACHABLE_FAIL_S` in `orchestrator/orchestrator/agent/link.py`); later calls fail at once until the bridge is heard from again ([troubleshooting.md](troubleshooting.md)). A failed call fails its agent skill, and the tree goes on as after any failure of that step (in the end, a person is asked to press).
 7. **Results.** The run ends when the viewer shows `freight_elevator_go_to_place: success`. Results are under `~/orch_runs/<session>/runs/<n>-<tree>/` on the NUC: `tree.xml` (what ran), `records.jsonl`, `outcome.json`, the bag, and each agent call in `agent/<call id>/`. The session folder holds `events.jsonl`, the whole trace ([recorder.md](recorder.md)). The raw bag is in `~/bags/`.
 
 ## 5. Run one tree
@@ -136,7 +136,7 @@ Compare the person's labels with the judge's decisions and the `press_judge` rec
 
 ## 6. Bring a machine up by hand
 
-Preflight starts the stacks itself (the `launch_nuc_stack`, `launch_orin_stack` and `launch_thor_stack` contracts in `skill_registry/contracts/`); no robot script does. When preflight cannot, start them one at a time and check each before the next.
+Preflight starts the stacks itself (the `launch_nuc_stack`, `launch_orin_stack` and `launch_thor_stack` contracts in `g1_skills/g1_skills/`); no robot script does. When preflight cannot, start them one at a time and check each before the next.
 
 **NUC** (robot interface, arm control, body EKF, navigation, `door_state_node`), with `scripts/deploy.sh` of the `eigen_vector` repository, from the laptop's `eigen_vector` checkout:
 
@@ -184,7 +184,7 @@ Ready when the new part of `~/eigen_vector_ws/launch.log` (after its `[INFO] [la
 
 ```bash
 tmux -L eigen_vector_bringup new-session -d -s eigen_vector_bringup "bash -lc 'source ~/eigen_vector_ws_bringup/env.sh && ros2 launch bringup thor.launch.py 2>&1 | tee ~/eigen_vector_ws_bringup/launch.log'"
-tmux new -d -s cosmos_vlm "env -i HOME=$HOME USER=$USER LANG=C.UTF-8 PATH=/usr/local/bin:/usr/bin:/bin bash --noprofile --norc -c 'source ~/eigen_vector_ws_bringup/env.sh && exec python3 ~/orchestrator_ws/src/orchestrator/orchestrator/orchestrator/cosmos_vlm_server.py --port 8090'"
+tmux new -d -s vlm_server "env -i HOME=$HOME USER=$USER LANG=C.UTF-8 PATH=/usr/local/bin:/usr/bin:/bin bash --noprofile --norc -c 'source ~/eigen_vector_ws_bringup/env.sh && exec python3 ~/orchestrator_ws/src/orchestrator/orchestrator/orchestrator/vlm_server.py --port 8090'"
 ```
 
 The grounding is up when the log has `grounding service on /vlm_ground_server/ground_boxes` and `docker ps` shows `edgellm`; the VLM endpoint when `curl -s http://vector-thor:8090/v1/models` answers from the NUC. Both use the one Cosmos daemon, one request at a time. `launch_thor_stack` (preflight) runs the same two commands. `thor_up` checks only the grounding, so preflight passes without the VLM endpoint.
@@ -218,7 +218,7 @@ By hand, on the NUC:
    ```
 
 4. Stop the orchestrator with Ctrl-C in its session (`tmux send-keys -t orchestrator C-c`, then `tmux kill-session -t orchestrator` once the log ends): Ctrl-C lets the raw bag close its file.
-5. Stop the stacks, when wanted: the NUC with `scripts/deploy.sh stop nuc` from the laptop's `eigen_vector` checkout (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t cosmos_vlm` on the Thor.
+5. Stop the stacks, when wanted: the NUC with `scripts/deploy.sh stop nuc` from the laptop's `eigen_vector` checkout (or `tmux -L eigen_vector send-keys -t eigen_vector C-c` on the NUC), the Orin and the Thor the same way in their tmux sessions, and `tmux kill-session -t vlm_server` on the Thor.
 6. Stop the bridge with Ctrl-C in its terminal.
 
 The next tree clears `/stop` itself. Never use `ready_locomotion` on a standing robot: it damps the robot, then stands it up again.

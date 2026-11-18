@@ -6,7 +6,6 @@ The core that plans, runs and records trees. It knows no skill: skills come from
 - **`common/`**: Small helpers with no executor state: geometry, images, topic names, places, sites and file locations.
 - **`execution/`**: The executor node, which validates and ticks trees, and the tools that feed it.
 - **`health/`**: Checks that stacks are up, stack launch commands, and the stale process finder.
-- **`knowledge/`**: The claims store and its command line.
 - **`planning/`**: The planner node and its LLM backends: a task becomes a validated tree.
 - **`recording/`**: The run recorder: one folder per run, with provenance, events, agent calls and a bag.
 - **`skills/`**: The skill API, the runner that starts every call, and one module per transport.

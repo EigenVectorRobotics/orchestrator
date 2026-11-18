@@ -1,8 +1,8 @@
 # Agent skills
 
-An agent skill hands one decision of a tree to a model or to the operator. There are three: `press_judge`, `manipulation_recovery` and `operator_confirm`. Each contract (`skill_registry/contracts/<name>.yaml`) has `transport: agent`; the leaf is `AgentLeaf` (`orchestrator/orchestrator/skill_leaf.py`) and the runner is `Agent` (`orchestrator/orchestrator/agent.py`).
+An agent skill hands one decision of a tree to a model or to the operator. There are three: `press_judge`, `manipulation_recovery` and `operator_confirm`. Each is a folder of `g1_skills/g1_skills/` whose `contract.yaml` has `transport: agent`, with `spec.py` (phases, decisions, decision fields, limits), `agent.py` (an `AgentSkill`: the evidence, the executor's rules and checks, the outputs) and, when the model answers it, `prompt.py`. The leaf is `AgentLeaf` (`orchestrator/orchestrator/tree/leaf.py`) and the runner is `Agent` (`orchestrator/orchestrator/agent/api.py`), which know no skill.
 
-The agent bridge on the operator laptop (`mission_control/agent_bridge.py`) answers every call. For `press_judge` and `manipulation_recovery` it asks a Claude model that has no tools and reads no documents: it sees only the system prompt and the user message built in `mission_control/agent_prompts.py`. When this document and the prompt disagree, the prompt is what the model follows; when either disagrees with the code, the code is right. What the executor and the bridge share (phases, decisions, decision fields, the answer schema, the limits, the link framing) is written once, in `orchestrator/orchestrator/agent_spec.py`.
+The agent bridge on the operator laptop (`mission_control/agent_bridge.py`) answers every call. For `press_judge` and `manipulation_recovery` it asks a Claude model that has no tools and reads no documents: it sees only the system prompt and the user message built in the skill's `prompt.py`. When this document and the prompt disagree, the prompt is what the model follows; when either disagrees with the code, the code is right. What the executor and the bridge share is written once: each skill's phases, decisions, decision fields and limits in its `spec.py`, and the link framing and protocol number in `orchestrator/orchestrator/agent/protocol.py`.
 
 ## The skills at a glance
 
@@ -11,9 +11,9 @@ The agent bridge on the operator laptop (`mission_control/agent_bridge.py`) answ
 | `press_judge` | `judge` | Right after every `press_button` that succeeded | the model, `JUDGE_SYSTEM` | `pressed`, `not_pressed` | 600 s |
 | `manipulation_recovery` | `stance_check` | A look before the first press failed (`button_in_view`, `check_reach`, or any other step of the look) | the model, `recovery_system(limits)` | `continue`, `reposition`, `abort` | 600 s |
 | `manipulation_recovery` | `diagnose` | `press_button` failed, `press_judge` said `not_pressed`, or another step of a press failed | the model, `recovery_system(limits)` | `reposition`, `switch_arm`, `offset_retry`, `retry`, `ask_help` | 600 s |
-| `operator_confirm` | `confirm` | No tree on this branch calls it; the tests do (`orchestrator/test/test_agent_push.py`, `mission_control/test/test_agent_bridge.py`) | the operator, in the bridge's terminal | `confirmed`, `not_confirmed` | 120 s |
+| `operator_confirm` | `confirm` | No tree on this branch calls it; the tests do (`g1_skills/test/test_agent_push.py`, `mission_control/test/test_agent_bridge.py`) | the operator, in the bridge's terminal | `confirmed`, `not_confirmed` | 120 s |
 
-`PHASE_DECISIONS` in `agent_spec.py` is the source for the decisions per phase. A decision in `GOING_ON` makes the leaf succeed; `not_pressed`, `not_confirmed`, `ask_help` and `abort` make it fail, and `abort` also fails the whole tree at once with the reason (`context.abort`).
+`PHASES` in each skill's `spec.py` is the source for the decisions per phase. A decision in its `GOING_ON` makes the leaf succeed; `not_pressed`, `not_confirmed`, `ask_help` and `abort` make it fail, and `abort` also fails the whole tree at once with the reason (`context.abort`).
 
 ## The press slot
 
@@ -36,48 +36,51 @@ Pressing needs the bridge: every press is judged by `press_judge`, so with no ag
 ## The bridge link
 
 - **Executor parameters**: `agent_backend` (`push`, or `none`: agent skills then fail), `agent_push_host`, `agent_push_port` (8771). The launch sets the host and port from the site's `agent_bridge` (`orchestrator/config/sites/<site>.yaml`); with no host set, agent skills fail. Running the bridge: `mission_control/README.md`.
-- **One TCP link** (`PushLink`, `orchestrator/orchestrator/agent_push.py`): JSON with the images after it, framed by `agent_spec.HEADER`. Both ends ping every `PING_S` (5 s); a link silent for `DEAD_S` (20 s) is opened again, and the open call is sent again on it. The executor logs each connect and drop (`agent_link` in the trace, and its log, where the robot scripts read it).
+- **One TCP link** (`PushLink`, `orchestrator/orchestrator/agent/link.py`): JSON with the images after it, framed by `protocol.HEADER`. Both ends ping every `PING_S` (5 s); a link silent for `DEAD_S` (20 s) is opened again, and the open call is sent again on it. The executor logs each connect and drop (`agent_link` in the trace, and its log, where the robot scripts read it).
 - **Unreachable bridge**: with no word from it, the robot says "I lost the connection to my helper. Waiting for it to come back." after `UNREACHABLE_SAY_S` (15 s) and the call fails after `UNREACHABLE_FAIL_S` (60 s). Later calls fail at once until the bridge is heard from again, so the tree is not held a minute at each agent leaf.
-- **Protocol**: each call carries `agent_spec.PROTOCOL`; a bridge with another value fails the call with both numbers.
-- **The model**: `--model` (default `claude-opus-5-5`) at `--effort` (default `low`), through the Claude Agent SDK, with no tools, no setting sources, and a JSON schema of one answer (`agent_spec.schema`). One warm model process waits per kind of call. The bridge's `MODEL_TIMEOUT` is 120 s per answer.
-- **Refusals**: a decision the executor refuses goes back to the model with the reason ("Decide again, same schema"). The third refused decision fails the call (`MAX_REFUSED` in `agent_push.py`; the bridge's `MAX_RETRIES` 2).
-- **Record**: each call goes out on `/orchestrator/agent/request` (opened, then closed), each reply on `/orchestrator/agent/reply`, and the bridge's `started` (model, effort, prompt, system prompt, its sha256, the sha256 of `agent_prompts.py`), each decision with its usage, `failed`, and a cancel on `/orchestrator/agent/event`. The run recorder writes each call to the run's `agent/<call id>/` (`docs/recorder.md`).
+- **Protocol**: each call carries `protocol.PROTOCOL`; a bridge with another value fails the call with both numbers.
+- **The model**: `--model` (default `claude-opus-5-5`) at `--effort` (default `low`), through the Claude Agent SDK, with no tools, no setting sources, and a JSON schema of one answer (`protocol.schema`, from the skill's `FIELDS`). One warm model process waits per kind of call. The bridge's `MODEL_TIMEOUT` is 120 s per answer.
+- **Refusals**: a decision the executor refuses goes back to the model with the reason ("Decide again, same schema"). The third refused decision fails the call (`MAX_REFUSED` in `link.py`; the bridge's `MAX_RETRIES` 2).
+- **Record**: each call goes out on `/orchestrator/agent/request` (opened, then closed), each reply on `/orchestrator/agent/reply`, and the bridge's `started` (model, effort, prompt, system prompt, its sha256, the sha256 of the skill's `prompt.py`), each decision with its usage, `failed`, and a cancel on `/orchestrator/agent/event`. The run recorder writes each call to the run's `agent/<call id>/` (`docs/recorder.md`).
 
 ## What the call carries
 
-`Agent.start` gathers the evidence once per call; `open_request` (`agent_push.py`) builds the call.
+`Agent.start` gathers the evidence once per call: the failure and the history, then what the skill's `evidence()` adds. `open_request` (`link.py`) builds the call from the generic fields and the skill's `request_fields()`.
 
 | Field | What it holds |
 |---|---|
-| `id`, `state`, `protocol`, `skill`, `phase`, `opened`, `task` | The call; `task` is the same call as text (`_task` in `agent.py`), for the record |
-| `button`, `question`, `base_goal` | The leaf's `target_description`, `question` (`operator_confirm`) and `base_goal` (the panel place, `map`) |
-| `decisions`, `limits` | `PHASE_DECISIONS[phase]` and `agent_spec.limits()` |
-| `failure` | `context.last_failure`: the last failed action call or check, uncut, with every feedback sample (`MAX_FEEDBACK` in `ros_skill_runner.py`). A `not_pressed` is recorded as a failed check whose `checked_call` is the judged press |
+| `id`, `state`, `protocol`, `skill`, `phase`, `opened`, `task` | The call; `task` is the same call as text (`task_text`, with the skill's `task_lines()`), for the record |
+| `button`, `base_goal`, `question` | The press skills: the leaf's `target_description` and `base_goal` (the panel place, `map`); `operator_confirm`: `question` |
+| `decisions`, `limits` | `PHASES[phase]` and `limits()` of the skill's `spec.py` |
+| `failure` | `context.last_failure`: the last failed action call or check, uncut, with every feedback sample (`MAX_FEEDBACK` in `orchestrator/orchestrator/skills/transports.py`). A `not_pressed` is recorded as a failed check whose `checked_call` is the judged press |
 | `history` | The tree's last `MAX_HISTORY` (50) records, oldest first, without feedback: finished calls, every `check_reach` answer (`record: true`), and every agent decision with `phase`, `offset`, `goal`, `base_goal`, `left_arm`, `rule`, `rule_name` |
 | `offset_in_force` | The offset the last press used (from its capture), else the last `set_press_offset` since the last press judged pressed, else 0 |
-| `press` | `judge`, and `diagnose` after a judged miss (`press_evidence` in `ros_skill_runner.py`): `left_arm`, `goal` (press goal, `foot_world`), `press_offset_m`, `capture` (`pregrasp_t`, `deepest_t`, `release_t`, `max_depth_m`, `lateral_at_max_m`, `residual_m`, frame times, boxes), `frames` (name to saved path) |
-| `stance` | `diagnose` and `stance_check`: `stance.evidence` (`stance.py`), or `{error}` when a transform was missing |
-| images | The press frames named in `press`, and for `manipulation_recovery` the latest camera frame, saved as `call_<id>_camera.jpg` in `capture_dir` |
+| `press` | `judge`, and `diagnose` after a judged miss (`PressState.evidence`, `g1_skills/g1_skills/lib/press.py`): `left_arm`, `goal` (press goal, `foot_world`), `goal_axis`, `press_offset_m`, `capture` (`pregrasp_t`, `deepest_t`, `release_t`, `max_depth_m`, `lateral_at_max_m`, `residual_m`, `residual_from`, frame times, boxes), `frames` (name to saved path), `aim` (the aim crops, below; none without the intrinsics or a camera pose) |
+| `stance` | `diagnose` and `stance_check`: `stance.evidence` (`g1_skills/g1_skills/manipulation_recovery/stance.py`), or `{error}` when a transform was missing |
+| images | The press frames named in `press`; for `manipulation_recovery` also its aim crops and the latest camera frame, saved as `call_<id>_camera.jpg` in `capture_dir` |
 
 `stance` holds `stance_from_base_goal` (`pelvis` against the base goal: `forward_m`, `left_m`, `yaw_rad`); `target_in_pelvis` (the last `current_goal` of the failed or judged press, none in `stance_check`); `left_arm`; `reference` (the latest press of this button judged pressed with this arm whose target lies within `REFERENCE_DISTANCE_M` of this target in `map`, or of the base goal before any press); `match` (the stance that puts the target where the reference had it in `pelvis`); `other_arm` (the same for the other arm, with `target_offset_m`); `to_base_goal`; `reach` (the last `check_reach` since the last walk, with `target_moved_since_check_m`); `reach_move` (the reposition that cancels the horizontal IK miss plus `REACH_MARGIN_M`, with `fixable`, `within_limits`, `step_pelvis_m`); and a `note`.
 
 What the model sees is less than the call carries:
 
 - **Judge** (`judge_prompt`): the button, the panel type (from the button's name), the arm, which frames are attached and which are missing, `max_depth_m` and `lateral_at_max_m`; then the images in the order `press`, `press_crop`, `release`, `release_crop`, `baseline`, `baseline_crop`, each after its label. Not the failure, the history or `residual_m`.
-- **Recovery** (`recovery_prompt`): the failure message (and the judged press's, so a judge's reason reaches the diagnosis), the box numbers of a failed `button_in_view`, the arm and the offset in force, the press capture and the suggested offset (offset in force minus residual), the stance, the target in `pelvis`, the button in the base-goal frame, the reference and the detection check (`SUSPECT` or consistent), the candidate stances (`Match`, `Nominal`, and in `stance_check` `Reference stance` and `Back-off stance`, then `Base goal`) with their distance and whether they are inside the limits, `Other arm`, the reach check and its reach move, and the last 12 history records without `QUIET_SKILLS`. Only the camera image is attached; the press frames are not. The feedback samples are not shown.
+- **Recovery** (`recovery_prompt`): the failure message (and the judged press's, so a judge's reason reaches the diagnosis), the box numbers of a failed `button_in_view`, the arm and the offset in force, the press capture and the residual-based offset (offset in force minus residual, from the gripper estimate or the encoders), the aim crops with each one's mm per pixel and image right and down in the press frame, the stance, the target in `pelvis`, the button in the base-goal frame, the reference and the detection check (`SUSPECT` or consistent), the candidate stances (`Match`, `Nominal`, and in `stance_check` `Reference stance` and `Back-off stance`, then `Base goal`) with their distance and whether they are inside the limits, `Other arm`, the reach check and its reach move, and the last 12 history records without `QUIET_SKILLS`. The aim crops (`contact_aim`, then `before_aim`) and the camera image are attached; the press frames are not. The feedback samples are not shown.
 
 ## press_judge
 
 `press_button` can report `Controller reached target` with the fingertip far short (67 mm once), so every press is judged from its frames.
 
-**The frames** (`orchestrator/orchestrator/press_capture.py`, configured by `interface.capture` in `press_button.yaml`). The phase tracker samples TF `right_ee` or `left_ee` in the goal's frame against the feedback's `current_goal`:
+**The frames** (`g1_skills/g1_skills/press_button/capture.py` and `skill.py`, configured by `config.capture` in `press_button`'s contract). The phase tracker samples TF `right_ee` or `left_ee` in the goal's frame against the feedback's `current_goal`:
 
 - `baseline`: the first frame once the end effector reaches the pre-grasp, `approach_offset_m` (0.10 m) before the offset goal.
 - `press`: the first frame at least `press_delay_s` (5 ms) after the deepest point along the button normal. The camera runs at 6 fps, so it can come up to about 0.17 s late.
 - `release`: the first frame at least `release_delay_s` (0.5 s) after the retreat began (depth `retreat_drop_m` below its deepest, or the action ended).
 - `<name>_crop`: each frame cropped around track_anything's box for that frame, grown `crop_scale` (2.5) times; a frame without its own box uses the baseline's, with neither there is no crop.
+- `before_aim`, `contact_aim` (the aim crops, `aim_view`): the baseline and press frames cut around the press goal projected into the image, 220x160 px upscaled twice, each with its mm per pixel at the button and the image's right and down in the press frame. They need the camera intrinsics (`camera_info_topic`) and the camera's pose in the goal's frame near each frame's time (TF from the image's optical frame), sampled with the end effector.
 
-The phase tracker counts only samples within `lateral_tolerance_m` of the button axis until the pre-grasp, because counting the arm's swing up from rest once reported 19 to 23 cm sideways misses after good presses. Before the call the executor waits up to 8 s for the frames to be chosen (`press_evidence`), then saves them as `press_<time>_<name>.jpg` in `capture_dir` (default `~/.ros/orchestrator_captures`); the recorder moves them into the run. Frame times are the camera's stamps and pose times the NUC's, so the Orin's and the NUC's clocks must agree.
+The skill also samples the gripper's depth fit (TF `<gripper>_estimate`, `right_gripper_frame`, `left_gripper_frame`) against the encoder gripper at the fit's stamp. Near the deepest point the fit's shift moves the residual to the real fingertip (`residual_from` `gripper estimate`; else `encoders`).
+
+The phase tracker counts only samples within `lateral_tolerance_m` of the button axis until the pre-grasp, because counting the arm's swing up from rest once reported 19 to 23 cm sideways misses after good presses. Before the call the executor waits up to 8 s for the frames to be chosen (`PressState.evidence`), then saves them as `press_<time>_<name>.jpg` in `capture_dir` (default `~/.ros/orchestrator_captures`); the recorder moves them into the run. Frame times are the camera's stamps and pose times the NUC's, so the Orin's and the NUC's clocks must agree.
 
 **The rules** (`JUDGE_SYSTEM`): rule 1, the requested button's own light decides on both panels (lit in `press` or `release`: `pressed`; dark in both: `not_pressed`); rule 2, a light already on in `baseline` is `pressed`; rule 3, only the requested button's own light counts (not the card reader, the floor display or other buttons); rule 4, no frame shows that light: `not_pressed`. The reason names the light per frame, where the fingertip sits, and the rule number. Floor buttons light a blue ring at once, still visible in the release frame; the call button lights when the call registers, and the release frame often shows it when the hand covers it in the press frame.
 
@@ -89,25 +92,24 @@ The phase tracker counts only samples within `lateral_tolerance_m` of the button
 
 ### Executor rules: decided without the model
 
-Answers go in the history with `rule: true`, `rule_name`, and a reason starting `rule:`; they do not count toward `max_rounds`. In `diagnose` the executor tries `rule_offset`, then `rule_stance`; in `stance_check`, `rule_stance`, then `rule_reach`. Their thresholds are constants at the top of `agent.py`.
+Answers go in the history with `rule: true`, `rule_name`, and a reason starting `rule:`; they do not count toward `max_rounds`. In `diagnose` the executor tries `rule_stance`; in `stance_check`, `rule_stance`, then `rule_reach`. A missed press always goes to the model, with its aim crops. The rules and their thresholds are in `g1_skills/g1_skills/manipulation_recovery/rules.py`.
 
 | Rule | Phase | When | Decision |
 |---|---|---|---|
-| `rule_offset` | `diagnose` | The first diagnosis since the last press judged pressed, after a `not_pressed` whose press missed by `RULE_MISS_M` (5 to 50 mm) in the button plane, or hit it in the plane but stopped more than `RULE_SHORT_M` (3 mm) short | `offset_retry`: offset in force minus `residual_m`, plus `RULE_DEPTH_MARGIN_M` (5 mm) deeper when short; not taken when an axis would pass `MAX_PRESS_OFFSET_M` |
 | `rule_stance` | both | The robot stands more than `STANCE_TOLERANCE_M` or `STANCE_TOLERANCE_RAD` off its target stance (the last reposition since the last press judged pressed, else the base goal; the base goal again after a `continue` that came after that reposition, as the tree walks there); at most `STANCE_RULE_MAX` (2) times since then | `reposition` to that stance |
 | `rule_reach` | `stance_check` | `check_reach` failed and its `reach_move` is `fixable` and `within_limits`; at most `REACH_RULE_MAX` (2) times since the last press judged pressed | `reposition` to `reach_move` |
 
-The aim error repeats per panel and arm, so a miss is corrected by the offset in force minus the residual; floor buttons also lose a few mm to the waist giving on contact, hence deeper when short. `reach_move` is not fixable when the horizontal miss is at most `REACH_TOLERANCE_M` (an orientation miss) or the vertical miss passes `REACH_MAX_Z_M` (`stance.py`).
+The aim error repeats per panel and arm, so the model corrects a miss with the offset in force minus the miss it reads off `contact_aim` (O1 to O4 below); floor buttons also lose a few mm to the waist giving on contact, hence deeper when short. `reach_move` is not fixable when the horizontal miss is at most `REACH_TOLERANCE_M` (an orientation miss) or the vertical miss passes `REACH_MAX_Z_M` (`stance.py`).
 
 ### AgentLeaf gates: failed before any call
 
-`AgentLeaf._start_call` fails the call at once when no agent is configured; when an earlier decision of the same skill for the same `base_goal` was `ask_help`; or, in `diagnose`, when `max_rounds` (contract input, default 5) diagnoses not decided by a rule are in the history (across both panels, within its 50 records).
+`AgentLeaf._start_call` fails the call at once when no agent is configured. It then asks the skill's `refuse()`: `manipulation_recovery` refuses when an earlier decision of the same skill for the same `base_goal` was `ask_help`, or, in `diagnose`, when `max_rounds` (contract input, default 5) diagnoses not decided by a rule are in the history (across both panels, within its 50 records).
 
 ### decide() refusals
 
-`AgentSession.decide` (`agent.py`) refuses, with a reason the model sees:
+`AgentSession.decide` (`orchestrator/orchestrator/agent/api.py`) and the skill's `check()` (`manipulation_recovery/agent.py`) refuse, with a reason the model sees:
 
-- a decision not in `PHASE_DECISIONS[phase]`, or an empty reason;
+- a field the skill's `FIELDS` does not have, a decision not in `PHASES[phase]`, or an empty reason;
 - `reposition` without a base goal, or without `dx` and `dy` (`dyaw` defaults to 0);
 - `reposition` in `diagnose` after a passed `check_reach` from this stance when the press target moved under `STANCE_CHANGED_M` in `pelvis` since the check (`stance_unchanged`);
 - `reposition` past `REPOSITION_LIMITS_M` from the base goal (forward, back, side);
@@ -116,7 +118,7 @@ The aim error repeats per panel and arm, so a miss is corrected by the offset in
 
 ### What the tree does with each decision
 
-`decision_outputs` (`agent.py`) gives the leaf `decision`, `reason`, `goal` (the base goal, moved for a reposition), `approach`, `walk_in`, `left_arm` and `offset_x/y/z`.
+`decision_outputs` (`manipulation_recovery/rules.py`) gives the leaf `decision`, `reason`, `goal` (the base goal, moved for a reposition), `approach`, `walk_in`, `left_arm` and `offset_x/y/z`.
 
 | Decision | Phase | The tree |
 |---|---|---|
@@ -147,7 +149,8 @@ The system prompt is `recovery_system(limits)`, built with the limits of the cal
 | Hard rule 6 | No stance from another button or panel | No |
 | Hard rule 7 | Reach ahead of the pelvis in presses that worked; nothing past forward limit plus `REACH_AHEAD_MAX_M` | No |
 | D1 | Detection suspect: `retry` once since the last walk, else `ask_help`; never reposition toward it | No |
-| D2 | Aim miss after a reached goal: `offset_retry` with the suggested offset | Offset limit only |
+| D2 | Aim miss after a reached goal, the fingertip a few mm off or short of the face in the aim crops (or the residual): `offset_retry` | Offset limit only |
+| O1 to O4 | Setting the offset: the miss of the fingertip from the face centre in `contact_aim`, in the press frame, moves `oy` and `oz`; `ox` goes deeper by the shortfall plus 5 mm when the press stopped short on the face; without crops, the residual-based offset | Offset limit only |
 | D3a | `target out of reach` after a passed check and an unchanged target: `retry` once, then `ask_help` | Via hard rule 3 |
 | D3b | Otherwise `reposition` to `Match`, else `Nominal`, inside the limits, else `ask_help` | Limits only |
 | D4 | Two failed repositions, or a repeat within 0.05 m: `ask_help` | No |
@@ -159,7 +162,7 @@ The system prompt is `recovery_system(limits)`, built with the limits of the cal
 | S4 | No track or box but the button in the camera image: `continue` | No |
 | S5 | Button not in the camera image: `abort` | No |
 
-D3a's reason is the press start: the check plans from the arm at rest, the press starts wherever the arm is (after an earlier press it may still be raised). The reason must quote the numbers used and name the deciding step. The numbers the executor does not check are constants at the top of `agent_prompts.py`: `DETECTION_JUMP_M`, `BACK_OFF_M`, `SIDE_SHIFT_M`, `NOMINAL_TARGET_M`, `REACH_AHEAD_MAX_M`.
+D3a's reason is the press start: the check plans from the arm at rest, the press starts wherever the arm is (after an earlier press it may still be raised). The reason must quote the numbers used and name the deciding step. The numbers the executor does not check are constants at the top of `manipulation_recovery/prompt.py`: `DETECTION_JUMP_M`, `BACK_OFF_M`, `SIDE_SHIFT_M`, `NOMINAL_TARGET_M`, `REACH_AHEAD_MAX_M`.
 
 ## operator_confirm
 
@@ -171,27 +174,27 @@ The executor publishes one short sentence at a time on `/speak` (`std_msgs/Strin
 
 | When | Source |
 |---|---|
-| A model call opens | `PHASE_SPEECH` in `agent.py` |
-| A decision comes | `DECISION_SPEECH` in `agent.py` (`ask_help` has none; the tree says `press_ask`) |
-| A rule answers | "The press just missed the button. Correcting my aim and pressing again." (`rule_offset`), "I am not standing where I should. Walking to my spot again." (`rule_stance`), "The button is just out of my reach. Stepping closer to it." (`rule_reach`) |
-| A call fails without a decision | `AgentLeaf._say_failure`: "I have no helper connected.", "I have used up my recovery attempts for this task.", "My helper is still not connected. Going on without it.", "My helper did not answer in time." (contract timeout), "My helper could not decide." (anything else); silent after an `ask_help` at this panel |
-| The bridge goes quiet | `UNREACHABLE_SPEECH` in `agent_push.py`, after 15 s |
+| A model call opens | `phase_speech` of the skill's `agent.py` |
+| A decision comes | `decision_speech` of the skill's `agent.py` (`ask_help` has none; the tree says `press_ask`) |
+| A rule answers | `RULE_SPEECH` in `manipulation_recovery/agent.py`: "I am not standing where I should. Walking to my spot again." (`rule_stance`), "The button is just out of my reach. Stepping closer to it." (`rule_reach`) |
+| A call fails without a decision | `AgentLeaf._say_failure`: "I have no helper connected.", "I have used up my recovery attempts for this task." (from `manipulation_recovery`'s `refuse`), "My helper is still not connected. Going on without it.", "My helper did not answer in time." (contract timeout), "My helper could not decide." (anything else); silent after an `ask_help` at this panel |
+| The bridge goes quiet | `UNREACHABLE_SPEECH` in `link.py`, after 15 s |
 | The tree | `ekf_hold`: "Holding still to reset my balance estimate."; `press_ask`; the lost-stance sentence above |
 
 ## Limits
 
-`agent_spec.py` holds the limits the executor enforces; every call carries them in `limits`, and the prompt states them.
+`manipulation_recovery/spec.py` holds the limits the executor enforces; every call carries them in `limits`, and the prompt states them.
 
 | Constant | Value | Used by |
 |---|---|---|
-| `REPOSITION_LIMITS_M` | 0.15 m forward, 0.60 m back, 0.25 m side, from the base goal | `decide`, `reach_move.within_limits`, hard rule 1 |
-| `MAX_PRESS_OFFSET_M` | 0.05 m per axis | `decide`, `rule_offset`, hard rule 4 |
-| `STANCE_CHANGED_M` | 0.03 m of target movement in `pelvis` | `decide` (`stance_unchanged`), hard rule 3 |
+| `REPOSITION_LIMITS_M` | 0.15 m forward, 0.60 m back, 0.25 m side, from the base goal | `check`, `reach_move.within_limits`, hard rule 1 |
+| `MAX_PRESS_OFFSET_M` | 0.05 m per axis | `check`, hard rule 4 |
+| `STANCE_CHANGED_M` | 0.03 m of target movement in `pelvis` | `check` (`stance_unchanged`), hard rule 3 |
 | `STANCE_TOLERANCE_M`, `STANCE_TOLERANCE_RAD` | 0.06 m, 0.15 rad | `rule_stance` |
 | `WALK_MIN_M`, `APPROACH_BACK_M` | 0.10 m, 0.15 m | `decision_outputs` (`walk_in`, `approach`), hard rule 2 |
-| `max_rounds` | 5 (contract input) | `AgentLeaf` gate |
+| `max_rounds` | 5 (contract input) | `refuse` |
 
-Elsewhere: the rule thresholds in `agent.py`, the reach-move and reference constants in `stance.py`, the prompt-only numbers in `agent_prompts.py`, the capture settings in `press_button.yaml` and `CaptureConfig` (`press_capture.py`), the link timings in `agent_push.py`, `MODEL_TIMEOUT` and `CONFIRM_S` in `agent_bridge.py`, and the round counts (4 looks, 4 presses, 3 looks after a reposition) in `press.xml`.
+Elsewhere: the rule thresholds in `rules.py`, the reach-move and reference constants in `stance.py`, the prompt-only numbers in `prompt.py` (all in `manipulation_recovery/`), the capture settings in `press_button`'s `config.capture` and `CaptureConfig` (`press_button/capture.py`), the link timings in `link.py`, `MODEL_TIMEOUT` and `CONFIRM_S` in `agent_bridge.py`, and the round counts (4 looks, 4 presses, 3 looks after a reposition) in `press.xml`.
 
 ## Failure messages from this repository
 
@@ -199,14 +202,14 @@ The arm planner's own messages (`Planning failed: ...` and the like) come from m
 
 | Message | Where | Meaning |
 |---|---|---|
-| `press_button: no set_press_offset since the executor started; run it first (x=0 y=0 z=0 for no offset)` | `ros_skill_runner.py` | The executor refused the press; move_to_pose may hold an offset from before |
-| `goal rejected` | `ros_skill_runner.py` | The action server refused the goal |
-| `timeout after 60 s` | `skill_leaf.py` | `press_button`'s contract timeout ended it; read the feedback in `failure` |
+| `press_button: no set_press_offset since the executor started; run it first (x=0 y=0 z=0 for no offset)` | `press_button/skill.py` | The executor refused the press; move_to_pose may hold an offset from before |
+| `goal rejected` | `orchestrator/orchestrator/skills/transports.py` | The action server refused the goal |
+| `timeout after 60 s` | `tree/leaf.py` | `press_button`'s contract timeout ended it; read the feedback in `failure` |
 | `<arm> arm, target out of reach: the arm ends X mm and Y deg from it; miss in the pelvis frame ...` | `check_reach` | IK from the arm at rest, on the press goal plus the offset in force; a pass reads `<arm> arm, in reach: ...` |
 | `no target pose on /track_3d/selected_normal_pose_filtered/arm_upright within 2 s (...): look first` | `check_reach` | No fresh filtered goal, so no miss to walk by |
 | `<arm> arm: <ik_server message>` | `check_reach` | No plan at all, so no miss to walk by |
 | `10 s after seeding "<button>": no track, no 2D box, no 3D pose ...` | `button_in_view` | What was missing after the seed |
-| `the target is at the edge of the image (...; needs 5%): ...` | `button_in_view` (`stance_checks.py`) | The box is within `margin_frac` of an edge; `outputs` has `box`, `image_size`, `centre_frac`, `edge_px` |
+| `the target is at the edge of the image (...; needs 5%): ...` | `button_in_view` (`judge_view`, `button_in_view/skill.py`) | The box is within `margin_frac` of an edge; `outputs` has `box`, `image_size`, `centre_frac`, `edge_px` |
 
 ## Recoveries outside the agent
 
@@ -233,7 +236,7 @@ What the arm, the camera and the walk do underneath the skills: read it to inter
 - **Upright goal**: same position, yaw-only, +X into the panel. This is `current_goal` and the press pose.
 - **Pre-grasp**: the upright goal moved 0.10 m along its own −X. Both poses must be reachable; the pre-grasp can hit the torso when the panel is near.
 - **Press offset**: `arm_safety_distance_{x,y,z}` on move_to_pose shifts every target in its own frame (x deeper, y left, z up). The press slot sets the panel's base offset (0 at the call panel, +3 mm on each axis inside) before the looks, and `set_press_offset` sets it again before every press: the base offset, then the last `offset_retry`. It resets to 0 on a relaunch. `press_button` refuses to run until a `set_press_offset` has run since the executor started. `check_reach` adds the offset of the last `set_press_offset` to its target itself, since ik_server keeps its launch offset (0).
-- **Residual** (`residual_m`): fingertip minus goal at the deepest point, in the goal's frame made level: x along the goal's +X flattened to the horizontal (into the panel), z up, y = z cross x (left). Minus the residual is the correction.
+- **Residual** (`residual_m`): fingertip minus goal at the deepest point, in the goal's frame made level (the press frame): x along the goal's +X flattened to the horizontal (into the panel), z up, y = z cross x (left). Minus the residual is the correction. The fingertip is the gripper's depth fit when one is near the deepest point (`residual_from`), else the encoders'.
 
 ### Topics and TF
 
@@ -304,4 +307,4 @@ The facts in this document were read from these versions. Update it when they ch
 - track_anything `main` @ `f5a1f47`: `track_3d.py`, `track_3d_parameters.yaml`, `launch/track_3d.launch.py`
 - navigation_stack `main` @ `6242b3e`: `route_planner_node.py`, `local_planner.cpp`, `{local_planner,route_planner}/config/unitree_g1.yaml`
 - NUC: `src/bringup/launch/nuc.launch.py`
-- orchestrator (`ltx-reorg`): `orchestrator/orchestrator/{agent,agent_spec,agent_push,stance,press_capture,stance_checks,ros_skill_runner,skill_leaf}.py`, `mission_control/{agent_bridge,agent_prompts}.py`, `skill_registry/contracts/{press_button,press_judge,check_reach,button_in_view,set_press_offset,manipulation_recovery}.yaml`, `skill_registry/trees/subtrees/{press,elevator}.xml`
+- orchestrator: the skill folders `g1_skills/g1_skills/{press_button,press_judge,check_reach,button_in_view,set_press_offset,manipulation_recovery,operator_confirm}/`, `orchestrator/orchestrator/agent/{api,link,protocol}.py`, `orchestrator/orchestrator/tree/leaf.py`, `mission_control/agent_bridge.py`, `skill_registry/trees/subtrees/{press,elevator}.xml`

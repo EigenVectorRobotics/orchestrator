@@ -1,6 +1,6 @@
 # Run recorder and retrospection (recorder built, retrospection not built)
 
-Built: `orchestrator/orchestrator/recording.py` (no ROS: the folders and files), `orchestrator/orchestrator/run_recorder.py` (the node `orchestrator_recorder`, started by the launch unless `record:=false`). Not built yet: planner attempts, the `parameters`, `models` and `devices` parts of `provenance.json`, `skill_version` and `device` on trace events, `retrospect`. Model: HomeBody's `session/recorder.py` and `live_recorder.py` (Stanford-TML/homebody, 2388aa4).
+Built: `orchestrator/orchestrator/recording/recorder.py` (no ROS: the folders and files), `orchestrator/orchestrator/recording/node.py` (the node `orchestrator_recorder`, started by the launch unless `record:=false`). Not built yet: planner attempts, the `parameters`, `models` and `devices` parts of `provenance.json`, `skill_version` and `device` on trace events, `retrospect`. Model: HomeBody's `session/recorder.py` and `live_recorder.py` (Stanford-TML/homebody, 2388aa4).
 
 ## Goal
 
@@ -55,10 +55,10 @@ The node `run_recorder` (package `orchestrator`, node name `orchestrator_recorde
 
 ### What an agent call record does and does not hold
 
-- The prompt in `started` and `summary.json` is the user message the bridge built from the request (`mission_control/agent_prompts.py`, `judge_prompt` or `recovery_prompt`).
-- `started` in `messages.jsonl` also holds the system prompt the model had (`system`, from `system_prompt` in `agent_prompts.py`, with the call's limits), its sha256 (`system_sha256`) and the sha256 of the `agent_prompts.py` the bridge loaded (`prompts_sha256`). `summary.json` keeps the two sha256s, not the text.
+- The prompt in `started` and `summary.json` is the user message the bridge built from the request (the skill's `prompt.py`: `judge_prompt` in `g1_skills/g1_skills/press_judge/prompt.py`, `recovery_prompt` in `g1_skills/g1_skills/manipulation_recovery/prompt.py`).
+- `started` in `messages.jsonl` also holds the system prompt the model had (`system`, from the skill's `prompt.py`, with the call's limits), its sha256 (`system_sha256`) and the sha256 of the skill's `prompt.py` the bridge loaded (`prompts_sha256`). `summary.json` keeps the two sha256s, not the text.
 - The images the model got are named in `request.json` `images` and copied to `captures/`.
-- The bridge's code is not in `provenance.json`: it runs on the laptop. The links to the bridge that answered are the request's `protocol` (`orchestrator/orchestrator/agent_spec.py` `PROTOCOL`) and, for a model call, `prompts_sha256`.
+- The bridge's code is not in `provenance.json`: it runs on the laptop. The links to the bridge that answered are the request's `protocol` (`orchestrator/orchestrator/agent/protocol.py` `PROTOCOL`) and, for a model call, `prompts_sha256`.
 - An `operator_confirm` call has model `operator`; its prompt is the question.
 
 ### provenance.json
@@ -67,9 +67,9 @@ Built:
 
 - `schema_version` (1) and `created_utc`.
 - `git`: for each git checkout under `repo_roots` (default `/home/vector/orchestrator_ws/src` and `/home/vector/eigen_vector_ws/src`): path, revision, branch, `dirty`, and `edits`, a hash of the tracked diff and the untracked files (as HomeBody's `source_digest`), so a run with uncommitted changes is not mistaken for a commit. A copied folder such as `bringup` is not a checkout and is not listed.
-- `contracts`: file name → hash of each `*.yaml` in `contracts_directory`. No contract `version`: contracts have none.
+- `skills`: for each skill package folder, the path of each file in its skill folders (contract, code, prompts) → its hash. No contract `version`: contracts have none.
 - `places`: the path and hash of the places file.
-- `press_references`: the path, line count and hash of the press references the agent calls read (`~/orch_state/press_references.jsonl`, or the old `~/.ros/orchestrator_press_references.jsonl` while only it exists).
+- `state`: what the skills keep across runs, `state_dir` (default `~/orch_state`): each `*.jsonl` file's line count and hash, such as the press references the agent calls read (`press_references.jsonl`).
 
 Not built:
 
@@ -91,7 +91,7 @@ Not built:
 
 ### bag/
 
-- `ros2 bag record -s mcap` of the topics in `BAG_TOPICS` (`orchestrator/orchestrator/run_recorder.py`, the `bag_topics` parameter's default): the trace, the agent request, reply and event topics, `/rosout`, `/speak`, `/route_goal`, `/route_planner/status`, `/nav_state`, `/state_estimation`, `/odom_base_link`, `/track_3d/is_tracking`, `/track_3d/selected_target_3d`, `/slam_elevatorlio/status`, and the raw and filtered button poses (`/track_3d/selected_normal_pose`, `/track_3d/selected_normal_pose_filtered/arm_upright`). `/terrain_map`, the route and local paths, TF and the camera are not recorded.
+- `ros2 bag record -s mcap` of the topics in `BAG_TOPICS` (`orchestrator/orchestrator/recording/node.py`, the `bag_topics` parameter's default): the trace, the agent request, reply and event topics, `/rosout`, `/speak`, `/route_goal`, `/route_planner/status`, `/nav_state`, `/state_estimation`, `/odom_base_link`, `/track_3d/is_tracking`, `/track_3d/selected_target_3d`, `/slam_elevatorlio/status`, and the raw and filtered button poses (`/track_3d/selected_normal_pose`, `/track_3d/selected_normal_pose_filtered/arm_upright`). `/terrain_map`, the route and local paths, TF and the camera are not recorded.
 - The camera at full rate is about 17 MB/s raw on the NUC; record it at full rate only around a press (the press frames already cover the closest point).
 - **One bag per tree run, not per session.** The recorder starts the bag at the executor's `started` and stops it at `finished`, `halted` or `error` (SIGINT, then SIGKILL after 10 s). Preflight is a tree run too, so it has its own bag. A bring-up with no tree makes no bag. The recorder's parameter `bag` (default true; not a launch argument) turns the bags off.
 

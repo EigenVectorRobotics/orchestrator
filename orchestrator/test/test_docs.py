@@ -10,7 +10,7 @@ import pytest
 
 ROOT      = Path(__file__).resolve().parents[2]
 SKIP_DIRS = {'.git', 'build', 'install', 'log', 'node_modules', '.pytest_cache', '__pycache__', '.claude'}
-TOP_DIRS  = ('orchestrator/', 'skill_registry/', 'mission_control/', 'docs/', 'run_viewer/')
+TOP_DIRS  = ('orchestrator/', 'skill_registry/', 'g1_skills/', 'mission_control/', 'docs/', 'run_viewer/')
 LINK      = re.compile(r'\[[^\]]*\]\(([^)\s]+)\)')
 CODE      = re.compile(r'`([^`\n]+)`')
 HEADING   = re.compile(r'^#{1,6}\s+(.*)$', re.M)

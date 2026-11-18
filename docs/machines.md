@@ -22,7 +22,7 @@ What to check on the robot is in "Re-check on the robot", as questions.
 |---|---|---|---|---|
 | NUC | robot interface, arm control, body EKF, navigation, `door_state_node`, the orchestrator | `ssh vector@vector-nuc` (tailscale); `192.168.123.5` on the robot wire | Ubuntu 24.04, Jazzy | `~/eigen_vector_ws` (stack), `~/orchestrator_ws` (orchestrator, an overlay on it) |
 | Orin | camera (`realsense2_camera`, apt), `seed_bbox`, `track_3d`, gripper pose estimator | from the NUC: `ssh unitree@192.168.123.164` (the NUC has the key) | Ubuntu 22.04, Humble | `~/eigen_vector_ws` |
-| Thor | Cosmos daemon (docker container `edgellm`), `ground_server`, `cosmos_vlm_server` | from the NUC: `ssh vector@192.168.123.1` (the NUC has the key); `vector-thor` over tailscale | Ubuntu 24.04, Jazzy | `~/eigen_vector_ws_bringup` (stack), `~/orchestrator_ws` (only for `cosmos_vlm_server`) |
+| Thor | Cosmos daemon (docker container `edgellm`), `ground_server`, `vlm_server` | from the NUC: `ssh vector@192.168.123.1` (the NUC has the key); `vector-thor` over tailscale | Ubuntu 24.04, Jazzy | `~/eigen_vector_ws_bringup` (stack), `~/orchestrator_ws` (only for `vlm_server`) |
 
 - `env.sh` in each workspace is written by `eigen_vector/scripts/deploy.sh`; source it before any ROS command on that machine. On the NUC, `~/orchestrator_ws/env.sh` sources the stack's environment too.
 - Passwords are not kept in the repository: ask the team. From the laptop, the Orin and the Thor are reached most reliably through the NUC (`ssh vector@vector-nuc "ssh unitree@192.168.123.164 '...'"`); `ssh -J` to them has timed out.
@@ -70,10 +70,10 @@ Branch @ commit, and local changes, as checked on 2026-11-08. "No upstream": the
 | `~/eigen_vector_ws_bringup` | `bringup` | from `eigen_vector` `main`, `bringup/`, copied by `deploy.sh`; not a git checkout | |
 | | `vlm` | `main` @ `3ca4861` | clean; `ground_server` runs from here |
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
-| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-reorg` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd` (2026-11-04), a branch now deleted on GitHub and in the team's clones. `launch_thor_stack` starts `cosmos_vlm_server.py` from this checkout; since `thor_up` checks only the grounding, preflight does not need it |
+| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-reorg` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd` (2026-11-04), a branch now deleted on GitHub and in the team's clones. `launch_thor_stack` starts `vlm_server.py` from this checkout; since `thor_up` checks only the grounding, preflight does not need it |
 | `~/eigen_vector_ws` | `track_anything` `trt` @ `f5a1f47`, `vlm` `thor` @ `3ca4861` | | not in use |
 
-Running when checked (2026-11-08): on the Thor, the tmux session `eigen_vector_bringup` (`ground_server`); no `cosmos_vlm` session, so the VLM endpoint `http://vector-thor:8090/v1` did not answer. The Thor rebooted on its own on 2026-11-08 at about 21:20 and came back with no stack ([troubleshooting.md](troubleshooting.md), "Machines and processes").
+Running when checked (2026-11-08): on the Thor, the tmux session `eigen_vector_bringup` (`ground_server`); no `vlm_server` session, so the VLM endpoint `http://vector-thor:8090/v1` did not answer. The Thor rebooted on its own on 2026-11-08 at about 21:20 and came back with no stack ([troubleshooting.md](troubleshooting.md), "Machines and processes").
 
 ### Only on a machine (not in any repository)
 
@@ -111,7 +111,7 @@ Questions the next check must answer. Each is open until someone looks on the ma
 6. NUC: do `navigation_stack` (`jean/elevator-side`), `elevator_states` (`jean/door-state-in-out`) and their local changes still run, while `eigen_vector` `repos/nuc.repos` names `navigation_stack` `main` and `elevator_states` `feat/door_state`? Which is meant to run?
 7. NUC: does `~/maps/two_floor_clean_cabin2.places.yaml` have the `floors` table, and is the places file at `~/maps/` (the site file's path)?
 8. Orin: which `manipulation_stack` and `track_anything` are built, and does `orin.launch.py` start `gripper_pose_estimator`?
-9. Thor: does the tmux session `eigen_vector_bringup` come up after a reboot, and is `cosmos_vlm` still started (`launch_thor_stack` starts it)?
+9. Thor: does the tmux session `eigen_vector_bringup` come up after a reboot, and is `vlm_server` started (`launch_thor_stack` starts it in the session `vlm_server`)?
 10. Laptop: is the agent bridge address in `orchestrator/config/sites/stanley.yaml` (`agent_bridge`) the operator laptop's Tailscale address?
 
 ### Not in use
@@ -171,7 +171,7 @@ Repository side checked against `ltx-reorg` and GitHub on 2026-11-17. Robot side
 #### 4. Run the NUC stack from `nuc.launch.py`, not the two split launch files. Status: check
 
 - **Why:** the stale-node check in preflight (`no_stray_processes`) expects every stack node to come from `nuc.launch.py`. On 2026-11-08 the NUC ran `~/nuc_manip_only.launch.py` and `~/nuc_nav_only.launch.py` instead. Then every preflight warns about every node and pauses 4.5 s.
-- **Repository side:** `launch_nuc_stack` starts `bringup nuc.launch.py`, and `HOSTS` in `orchestrator/orchestrator/stale_nodes.py` expects `nuc.launch.py` on the NUC and `orin.launch.py` on the Orin.
+- **Repository side:** `launch_nuc_stack` starts `bringup nuc.launch.py`, and `HOSTS` in `orchestrator/orchestrator/health/stale_nodes.py` expects `nuc.launch.py` on the NUC and `orin.launch.py` on the Orin.
 - **Change:** go back to the single `nuc.launch.py` (with item 3), or add the split launch files to the NUC's entry in `HOSTS`.
 
 #### 5. Remove `floor_map_selector`. Status: open
@@ -202,7 +202,7 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 
 #### 8. The places file must have a `floors` table. Status: check
 
-- **Why:** the planner fills `goal_floor` from the floor of the goal place (`fill_floor_parameters` in `orchestrator/orchestrator/planner.py`). Without a `floors` table in the places file nothing is filled, the tree keeps its default `goal_floor`, and a goal on the other floor can be refused.
+- **Why:** the planner fills `goal_floor` from the floor of the goal place (`fill_floor_parameters` in `orchestrator/orchestrator/planning/planner.py`). Without a `floors` table in the places file nothing is filled, the tree keeps its default `goal_floor`, and a goal on the other floor can be refused.
 - **File:** `~/maps/two_floor_clean_cabin2.places.yaml` on the NUC. It needs `floors: {"floor 1": {z_min, z_max}, "floor 2": {z_min, z_max}}`, and every place used by `freight_elevator_go_to_place` (`target_floor_1/2`, the call panels, the inside panels, the door-out places).
 - Start the orchestrator with `site:=stanley`: the site file names this places file. Without a site the launch takes `orchestrator/config/places.yaml`, the placeholder used without a site, which cannot run the elevator tree.
 - **Repository side:** the planner fills `goal_floor` when the table is there; `orchestrator/config/sites/stanley.yaml` names `/home/vector/maps/two_floor_clean_cabin2.places.yaml`.
@@ -216,6 +216,12 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 - `launch_run_viewer` starts the viewer from this repository (`~/orchestrator_ws/src/orchestrator/run_viewer/`; repository side done, `9e8e87e`). The hand copy in `~/run_viewer/` is no longer used; move it aside once the new one runs.
 - `~/fake_button_pose.py` stays disabled; delete it if nobody needs it.
 
+#### 10b. Build the `g1_skills` package. Status: open
+
+- **Why:** the skills are the package `g1_skills`, one folder per skill (contract and code). Every node reads the contracts from it, and the executor loads the skills' code from it.
+- **Change:** build the three packages, one worker: `MAKEFLAGS=-j1 nice -n 19 ionice -c3 colcon build --parallel-workers 1 --packages-select skill_registry orchestrator g1_skills`.
+- **Check:** the executor logs `45 skills` at start, and `ros2 run skill_registry validate_tree <tree>` finds the contracts.
+
 ### Orin
 
 #### 11. `orin.launch.py` must start `gripper_pose_estimator`. Status: check
@@ -226,10 +232,10 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 
 ### Thor
 
-#### 12. `cosmos_vlm_server` on the Thor: no longer required. Status: open (robot side only)
+#### 12. `vlm_server` on the Thor: no longer required. Status: open (robot side only)
 
 - **Repository side:** done (`9ae7b2f`). `thor_up` checks only `/vlm_ground_server/ground_boxes`; it no longer requires `http://vector-thor:8090/v1/models`. No tree asks the VLM (only `ask_vlm` and the disabled `door_open_vlm` use it), so a Thor whose VLM is down no longer stops preflight.
-- **Still on the robot:** `launch_thor_stack` still starts `cosmos_vlm_server.py` in the session `cosmos_vlm`, from the Thor's `~/orchestrator_ws`, which is on an old branch deleted on GitHub (the snapshot above). Redeploy that checkout from `ltx-reorg`, or leave it: preflight passes either way.
+- **Still on the robot:** the Thor's `~/orchestrator_ws` is on an old branch deleted on GitHub (the snapshot above), and runs the server as `cosmos_vlm_server.py` in the session `cosmos_vlm`. `launch_thor_stack` now starts `orchestrator/orchestrator/vlm/server.py` (model-agnostic, `--model edgellm` by default) in the session `vlm_server`. After a redeploy, stop the old `cosmos_vlm` session first, or the new server cannot take port 8090. Preflight passes either way.
 
 ### Laptop (operator)
 
@@ -238,4 +244,4 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 - The bridge's address is `agent_bridge` in `orchestrator/config/sites/stanley.yaml` (the laptop's Tailscale address, port 8771). The executor (launched with `site:=stanley`) and `agent_bridge.py --site stanley` both read it. For another laptop, change it there and rebuild on the NUC.
 - `~/bags/` is created by the launch when the site records the raw bag.
 - Set up once as in [mission_control/README.md](../mission_control/README.md) (the venv with `claude-agent-sdk`).
-- Run the bridge from a checkout of the branch the NUC runs: a call with another `agent_spec.PROTOCOL` fails with both versions in its error.
+- Run the bridge from a checkout of the branch the NUC runs: a call with another `protocol.PROTOCOL` fails with both versions in its error. The bridge reads each agent skill's `spec.py` and `prompt.py` from `g1_skills/` in its checkout.
