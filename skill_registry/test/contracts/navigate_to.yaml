@@ -1,0 +1,12 @@
+name: navigate_to
+kind: action
+device: nuc
+interface:
+  transport: action
+  name: /test/walk
+  ros_type: test_msgs/action/Walk
+  failure_when: {field: state, equals: blocked, hold_s: 10}
+inputs:
+- {name: goal, type: pose, field: goal}
+resources: [base]
+timeout_s: 120

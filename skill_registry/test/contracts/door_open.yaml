@@ -1,0 +1,8 @@
+name: door_open
+kind: condition
+device: thor
+interface:
+  transport: vlm
+  question: Is the door in front of you open?
+  choices: [open, closed]
+  success_answer: open

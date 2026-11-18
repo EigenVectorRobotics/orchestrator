@@ -1,0 +1,5 @@
+name: ready_walk          # denied: the deny list names this service
+kind: action
+device: nuc
+interface: {transport: service, name: /unitree_interface/ready_locomotion, ros_type: std_srvs/srv/Trigger}
+timeout_s: 5

@@ -1,0 +1,8 @@
+name: set_profile
+kind: action
+device: nuc
+interface: {transport: service, name: /test/set_profile, ros_type: test_msgs/srv/SetProfile}
+inputs:
+- {name: profile, type: enum, field: profile, values: {slow: 0, normal: 1}}
+resources: [arms]
+timeout_s: 3

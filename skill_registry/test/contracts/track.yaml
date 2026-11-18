@@ -1,0 +1,12 @@
+name: track
+kind: action
+device: orin
+interface:
+  transport: topic
+  name: /test/track_query
+  ros_type: std_msgs/msg/String
+  success_when: {topic: /test/is_tracking, ros_type: std_msgs/msg/Bool}
+inputs:
+- {name: query, type: string, field: data}
+resources: [tracker]
+timeout_s: 10

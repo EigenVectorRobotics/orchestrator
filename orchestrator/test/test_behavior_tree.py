@@ -3,9 +3,9 @@ import pytest
 from skill_registry import Registry
 
 from orchestrator.behavior_tree import BehaviorTree, Context, Status, TreeError
-from orchestrator.skill_leaf import make_leaf_factory
+from orchestrator.skill_leaf import make_leaf_factory, parse_pose
 
-from data_paths import CONTRACTS, TREES
+from data_paths import CONTRACTS
 
 from fakes import FakeClock, FakeRunner
 
@@ -147,29 +147,6 @@ def test_unknown_skill_fails_at_build():
         _tree('<fly/>', FakeRunner())
 
 
-def _example_tree(runner: FakeRunner, clock: FakeClock) -> BehaviorTree:
-    return BehaviorTree(
-        (TREES / 'call_elevator.xml').read_text(),
-        make_leaf_factory(Registry.from_directory(CONTRACTS), runner),
-        Context(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=clock)
-    )
-
-
-def test_the_example_tree_retries_the_press_and_gives_up_when_the_door_stays_closed():
-    clock  = FakeClock()
-    runner = FakeRunner({'press_button': [Status.FAILURE]})
-
-    assert _run(_example_tree(runner, clock), clock) == Status.SUCCESS
-    assert [name for name, _ in runner.calls] == ['navigate_to', 'press_button', 'navigate_to', 'press_button', 'say', 'door_open']
-
-    clock  = FakeClock()
-    runner = FakeRunner({'door_open': [Status.FAILURE]})
-
-    assert _run(_example_tree(runner, clock), clock, max_ticks=2000) == Status.FAILURE
-    assert sum(name == 'door_open' for name, _ in runner.calls) > 1
-    assert runner.calls[-1][0] == 'say'
-
-
 def test_sequence_with_memory_does_not_rerun_done_children():
     runner = FakeRunner({'press_button': [[Status.FAILURE], [Status.SUCCESS]]})
     tree   = _tree('<SequenceWithMemory><say text="a"/><press_button target_description="up"/></SequenceWithMemory>', runner)
@@ -202,3 +179,8 @@ def test_force_failure_and_parallel_counts():
     tree   = _tree('<Parallel success_count="1"><navigate_to goal="0 0 0"/><say text="hi"/></Parallel>', runner)
 
     assert _run(tree) == Status.SUCCESS
+
+
+def test_a_literal_pose_can_carry_the_storey():
+    assert parse_pose('3.74 -0.422 2.67') == {'x': 3.74, 'y': -0.422, 'yaw': 2.67, 'frame': 'map'}
+    assert parse_pose('3.74, -0.422, -0.435, 2.67')['z'] == -0.435

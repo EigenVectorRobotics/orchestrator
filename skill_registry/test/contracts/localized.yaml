@@ -1,0 +1,6 @@
+name: localized
+kind: condition
+device: nuc
+interface:
+  transport: watch
+  success_when: {topic: /test/localized, ros_type: std_msgs/msg/Bool}

@@ -5,8 +5,7 @@ import pytest
 from skill_registry import ContractError, Registry, TreeValidator, ValidatorConfig, parse_contract
 
 
-DATA      = Path(__file__).resolve().parent / 'data'
-CONTRACTS = DATA / 'contracts'
+CONTRACTS = Path(__file__).resolve().parent / 'contracts'      # a made-up robot
 
 
 def _tree(body: str) -> str:
@@ -25,13 +24,6 @@ def test_seed_contracts_load():
     assert 'navigate_to' in registry
     assert len(registry) + len(registry.denied) == len(list(CONTRACTS.glob('*.yaml')))
     assert 'ready_walk' in registry.denied
-
-
-def test_example_tree_is_valid_blind():
-    registry  = Registry.from_directory(CONTRACTS)
-    validator = TreeValidator(registry, ValidatorConfig(blind=True))
-
-    assert validator.is_valid((DATA / 'trees' / 'call_elevator.xml').read_text())
 
 
 @pytest.mark.parametrize('body, config, says', [

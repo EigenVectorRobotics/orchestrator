@@ -1,0 +1,10 @@
+name: ask_vlm
+kind: action
+device: thor
+interface: {transport: vlm, question: '{question}'}
+inputs:
+- {name: question, type: string}
+- {name: choices, type: string}
+outputs:
+- {name: answer, type: string}
+timeout_s: 5

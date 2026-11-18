@@ -1,0 +1,9 @@
+name: ground
+kind: action
+device: thor
+interface: {transport: service, name: /test/ground, ros_type: test_msgs/srv/Ground}
+inputs:
+- {name: query, type: enum, choices: [up, down]}
+outputs:
+- {name: detections, type: string}
+timeout_s: 5

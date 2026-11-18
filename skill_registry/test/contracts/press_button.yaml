@@ -1,0 +1,8 @@
+name: press_button
+kind: action
+device: nuc
+interface: {transport: action, name: /test/press, ros_type: test_msgs/action/Press}
+inputs:
+- {name: target_description, type: string}
+resources: [arms, tracker, base]
+timeout_s: 60
