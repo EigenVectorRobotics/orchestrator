@@ -36,6 +36,7 @@ def resolve(given: dict, site: dict, share: Path, registry_share: Path) -> dict:
     found  = {
         'fake':            fake,
         'record':          given.get('record') != 'false',
+        'preflight':       given.get('preflight') != 'false',
         'params_file':     given.get('params_file') or str(share / 'config' / 'orchestrator.yaml'),
         'contracts':       given.get('contracts_directory') or str(registry_share / 'contracts'),
         'places_file':     given.get('places_file') or site.get('places_file') or str(share / 'config' / 'places.yaml'),
@@ -62,7 +63,7 @@ def _actions(context):
                      Path(get_package_share_directory('skill_registry')))
     shared = [found['params_file'], {'contracts_directory': found['contracts'], 'places_file': found['places_file'],
                                      'vlm_base_url': found['vlm_base_url']}]
-    executor = {'require_recorder': found['record'], 'agent_backend': found['agent_backend'],
+    executor = {'require_recorder': found['record'], 'require_preflight': found['preflight'], 'agent_backend': found['agent_backend'],
                 'agent_push_host': found['agent_push_host'], 'agent_push_port': found['agent_push_port']}
     actions  = [
         LogInfo(msg=f'orchestrator: site {given.get("site") or "none"}, places {found["places_file"]}, '
@@ -104,6 +105,7 @@ def generate_launch_description():
         DeclareLaunchArgument('params_file', default_value='', description='parameters for all nodes; default: config/orchestrator.yaml'),
         DeclareLaunchArgument('contracts_directory', default_value=''),
         DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses trees while it is not ready'),
+        DeclareLaunchArgument('preflight', default_value='true', description='the executor refuses a task tree until a preflight passed (send_tree --skip-preflight runs one anyway)'),
         DeclareLaunchArgument('raw_bag', default_value='true', description='record the site raw_bag topics beside the orchestrator'),
         OpaqueFunction(function=_actions),
     ])

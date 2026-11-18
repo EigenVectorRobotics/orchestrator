@@ -120,6 +120,7 @@ Run one tree with no planner:
 
 ```bash
 ros2 run orchestrator send_tree my_tree.xml --blind            # --blind: validate and run it with no cloud link
+ros2 run orchestrator send_tree my_tree.xml --skip-preflight   # before any preflight passed: run it anyway (tests)
 ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
 ```
 

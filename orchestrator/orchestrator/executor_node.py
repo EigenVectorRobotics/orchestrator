@@ -26,6 +26,34 @@ from .topics import (AGENT_EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_
                      TREE_BLIND_TOPIC, TREE_TOPIC)
 
 
+PREFLIGHT_TREE = 'preflight'        # the ID of skill_registry/preflight/preflight.xml
+
+
+def tree_message(data: str) -> tuple[str, bool]:
+    """A tree message: the XML, or JSON {"tree": XML, "skip_preflight": true} from send_tree --skip-preflight"""
+    if data.lstrip().startswith('{'):
+        try:
+            message = json.loads(data)
+            return str(message['tree']), bool(message.get('skip_preflight', False))
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
+
+    return data, False
+
+
+def preflight_gate(tree_id: str, passed: bool, skip: bool, required: bool) -> tuple[bool, str]:
+    """Whether a tree may run, and what to trace: a task tree needs a preflight that passed since the launch, unless
+    preflight is not required (require_preflight false) or the sender skips it on purpose"""
+    if tree_id == PREFLIGHT_TREE or not required or passed:
+        return True, ''
+
+    if skip:
+        return True, f'{tree_id} runs without a passed preflight (skip_preflight)'
+
+    return False, (f'tree refused: no preflight has passed since the launch. Send the task to the planner, which runs it '
+                   f'first, or send_tree --skip-preflight to run {tree_id} without it')
+
+
 
 
 class ExecutorNode(Node):
@@ -41,6 +69,8 @@ class ExecutorNode(Node):
         self.vlm_timeout  = self.declare_parameter('vlm_timeout_s', 40.0).value    # Cosmos on the Thor: one request at a time
         self.capture_dir  = self.declare_parameter('capture_dir', DEFAULT_CAPTURE_DIR).value
         self.require_recorder = self.declare_parameter('require_recorder', False).value   # true: no tree runs unrecorded
+        self.require_preflight = self.declare_parameter('require_preflight', False).value  # true: no task tree before a passed preflight
+        self.preflight_passed  = False      # the last preflight run since the launch succeeded
         self.recorder_status  = {'ready': False, 'reason': 'no status from run_recorder yet'}
 
         self.tracer   = Tracer(self, 'executor')
@@ -120,7 +150,8 @@ class ExecutorNode(Node):
     def _on_recorder_status(self, message: String):
         self.recorder_status = json.loads(message.data)
 
-    def run(self, xml_text: str, blind: bool) -> bool:
+    def run(self, data: str, blind: bool) -> bool:
+        xml_text, skip = tree_message(data)
         recorder_up = self.count_publishers(RECORDER_TOPIC) > 0         # a latched ready outlives a recorder that died
 
         if self.require_recorder and not (recorder_up and self.recorder_status.get('ready')):
@@ -147,21 +178,35 @@ class ExecutorNode(Node):
             self._publish_status('rejected')
             return False
 
+        run_id  = uuid.uuid4().hex[:8]
+        context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record, run_id=run_id)
+
+        try:
+            tree = BehaviorTree(xml_text, make_leaf_factory(self.registry, self.runner, self.agent), context)
+        except (TreeError, ValueError) as error:
+            self.tracer.emit('rejected', f'tree does not build: {error}', level='error')
+            self._publish_status('rejected')
+            return False
+
+        allowed, note = preflight_gate(tree.id, self.preflight_passed, skip, self.require_preflight)
+
+        if not allowed:
+            self.tracer.emit('rejected', note, level='error', tree_id=tree.id)
+            self._publish_status('rejected')
+            return False
+
         if self.tree is not None:
             self.tree.halt()
             self.tracer.emit('halted', f'halted {self.tree.id} for a new tree', level='warn')
             self._clear_tree()
 
-        run_id  = uuid.uuid4().hex[:8]
-        context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record, run_id=run_id)
+        if tree.id == PREFLIGHT_TREE:
+            self.preflight_passed = False   # a preflight that does not succeed closes the gate again
 
-        try:
-            self.tree = BehaviorTree(xml_text, make_leaf_factory(self.registry, self.runner, self.agent), context)
-        except (TreeError, ValueError) as error:
-            self.tracer.emit('rejected', f'tree does not build: {error}', level='error')
-            self.tree = None
-            self._publish_status('rejected')
-            return False
+        if note:
+            self.tracer.emit('preflight_skipped', note, level='warn', tree_id=tree.id)
+
+        self.tree = tree
 
         self.tracer.fields = {'run_id': run_id, 'tree_id': self.tree.id}
         self.tracer.emit('started', f'running {self.tree.id}' + (' (blind)' if blind else ''), tree=xml_text, blind=blind)
@@ -201,6 +246,9 @@ class ExecutorNode(Node):
         reason = self.tree.context.abort_reason
         text   = f'{self.tree.id}: {status.value}' + (f' (aborted by {reason})' if reason else '')
         self.tracer.emit('finished', text, level=level, status=status.value, aborted=reason)
+
+        if self.tree.id == PREFLIGHT_TREE:
+            self.preflight_passed = status == Status.SUCCESS
         self._publish_status(status.value)
         self._clear_tree()
 

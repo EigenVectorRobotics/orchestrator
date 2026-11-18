@@ -78,6 +78,11 @@ The agent bridge on the laptop answers the agent calls, and a session answers th
 ros2 run orchestrator send_tree <tree.xml>                 # add --blind for a tree that must run with no cloud
 ```
 
+The executor runs a task tree only after a preflight passed since the launch: a task through the planner runs one
+first, and a preflight that fails or is cancelled closes the gate again. Before that, `send_tree` is refused
+("no preflight has passed since the launch"); add `--skip-preflight` to run the tree anyway, which the trace marks
+(`preflight_skipped`). `preflight:=false` at launch turns the gate off.
+
 The bridge answers its agent calls, as in section 3. The recorder keeps the trace in `~/orch_runs/<session>/events.jsonl`.
 
 Test trees, in `orchestrator/test_trees/`, to run a part of the task:
@@ -99,7 +104,7 @@ The test measures how often one press hits each call button, with no retries. Ea
 
 1. Launch the NUC with the cabin2 map (section 5) and check `"localized": true`. The Orin and the Thor run as usual.
 2. Start the orchestrator (section 2) with `site:=stanley`.
-3. Run the agent bridge on the laptop (section 3), then start the run: `ros2 run orchestrator send_tree ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_panel_press_repeat.xml`.
+3. Run the agent bridge on the laptop (section 3), then start the run: `ros2 run orchestrator send_tree ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_panel_press_repeat.xml` (add `--skip-preflight` when no task has run a preflight since the launch).
 4. The bridge judges each press. A press that move_to_pose refuses ("target out of reach") or that finds no target opens no call, so expect up to ten. A person by the panel notes the true outcome of each press, in order.
 
 Compare the person's labels with the judge's decisions and the `press_judge` records in `~/orch_runs/<session>/runs/<n>-freight_call_panel_press_repeat/records.jsonl`. Each press record holds the capture (deepest point, sideways distance, `residual_m`) and the frame paths.

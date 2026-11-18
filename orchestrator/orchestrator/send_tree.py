@@ -1,4 +1,5 @@
 import sys
+import json
 import argparse
 
 import rclpy
@@ -15,6 +16,8 @@ def main():
     parser = argparse.ArgumentParser(description='Send a tree file to the executor')
     parser.add_argument('tree', type=Path)
     parser.add_argument('--blind', action='store_true', help='validate it as a tree that must run with no cloud link')
+    parser.add_argument('--skip-preflight', action='store_true',
+                        help='run it although no preflight has passed since the launch (tests); the trace marks it')
     arguments = parser.parse_args()
     tree      = load_tree(arguments.tree)              # fails here, before ROS, on a missing or cyclic include
 
@@ -32,7 +35,8 @@ def main():
         print(f'no executor subscribes to {topic}', file=sys.stderr)
         sys.exit(1)
 
-    publisher.publish(String(data=tree))
+    data = json.dumps({'tree': tree, 'skip_preflight': True}) if arguments.skip_preflight else tree
+    publisher.publish(String(data=data))
     rclpy.spin_once(node, timeout_sec=0.5)
 
     node.destroy_node()
