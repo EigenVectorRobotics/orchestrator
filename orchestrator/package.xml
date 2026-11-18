@@ -19,8 +19,8 @@
   <exec_depend>rosidl_runtime_py</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
-  <exec_depend>python3-numpy</exec_depend>         <!-- press_capture, images, cosmos_vlm_server, fake_robot -->
-  <exec_depend>python3-pil</exec_depend>           <!-- press_capture crops -->
+  <exec_depend>python3-numpy</exec_depend>         <!-- images, cosmos_vlm_server, fake_robot -->
+  <exec_depend>python3-pil</exec_depend>           <!-- images: PNG frames -->
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 

@@ -1,0 +1,29 @@
+name: press_button
+kind: action
+device: nuc
+description: Find a button by text, reach it along its contact normal, and press it
+interface:
+  transport: action
+  name: humanoid_arm_visual_servoing
+  ros_type: humanoid_manipulation_interfaces/action/VisualServoingArm
+config:
+  capture:                                # three frames for press_judge: skill.py, capture.py
+    right_ee_frame: right_ee                 # sampled from TF in the goal's frame
+    left_ee_frame: left_ee
+    approach_offset_m: 0.10
+    press_delay_s: 0.005
+    release_delay_s: 0.5
+    box_topic: /track_3d/detections_2d       # the button's box per frame, for the crop
+    target_topic: /track_3d/selected_target_3d
+    crop_scale: 2.5                          # crop sides as a multiple of the box's
+inputs:
+  - {name: target_description, type: string, description: 'a GroundBoxes query: up button, down button, floor 1, floor 2, floor 3; other text, object:<description> included, fails the seed (ground_server: unsupported query, 2026-11-08)'}
+  - {name: left_arm, type: bool, required: false, default: false}
+outputs:
+  - {name: final_distance, type: float}
+  - {name: orientation_error_deg, type: float}
+resources: [arms, tracker, base]   # base: the robot stands still while the arm moves
+timeout_s: 60
+maturity: wip
+source: manipulation_stack/humanoid_arm_skills/humanoid_arm_skills/humanoid_arm_visual_servoing.py
+notes: Publishes /keyboard_input itself, so it owns the tracker. Branch planner/roadmap-tiered-replan. On manipulation_stack a5c9cb3 a press takes 17-25 s (pre-grasp pause, slow final 10 cm, 1 s hold, retreat); elevator_sim allows 60 s.

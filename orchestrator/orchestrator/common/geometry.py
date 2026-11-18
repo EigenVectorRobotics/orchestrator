@@ -1,7 +1,7 @@
 """Pose math shared by the executor's modules: quaternions (x, y, z, w), frame transforms and planar moves.
 
 No ROS and no numpy, so the stance checks, the stance evidence and the agent's tools can use it in tests.
-press_capture.py keeps its own numpy version for the per-sample phase tracking.
+press_button's capture keeps its own numpy version for the per-sample phase tracking.
 """
 
 import math

@@ -6,7 +6,7 @@ from orchestrator.planning.planner import Planner, build_system_prompt, extract_
 from orchestrator.planning.backends import BackendError, Reply, ScriptedBackend
 
 
-CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
+CONTRACTS = Path(__file__).resolve().parents[2] / 'g1_skills' / 'g1_skills'
 TREES      = Path(__file__).resolve().parents[2] / 'skill_registry' / 'trees'
 TEST_TREES = Path(__file__).resolve().parents[2] / 'orchestrator' / 'test_trees'
 PLACES    = {'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}

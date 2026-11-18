@@ -22,8 +22,7 @@ from std_msgs.msg import String
 from ..common.topics import (AGENT_EVENT_TOPIC as EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, COMMAND_QOS, LATCHED_QOS,
                      RECORDER_STATUS_TOPIC as STATUS_TOPIC, SPEAK_TOPIC, TASK_TOPIC, TRACE_QOS, TRACE_TOPIC)
 from ..execution.node_setup import declare_sources
-from ..stance import references_state
-from .recorder import Recorder, RecorderConfig, directory_digests, file_digest, find_repos, git_state, largest_runs
+from .recorder import STATE_DIR, Recorder, RecorderConfig, directory_digests, file_digest, find_repos, git_state, largest_runs, state_digests
 
 
 BAG_STOP_S   = 10.0                             # SIGINT, then this long to close the file, then SIGKILL
@@ -85,14 +84,15 @@ class RunRecorderNode(Node):
         repo_roots  = self.declare_parameter('repo_roots', ['/home/vector/orchestrator_ws/src', '/home/vector/eigen_vector_ws/src']).value
         record_bag  = self.declare_parameter('bag', True).value
         bag_topics  = self.declare_parameter('bag_topics', BAG_TOPICS).value
+        state_dir   = self.declare_parameter('state_dir', str(STATE_DIR)).value
 
-        contracts, places_file = declare_sources(self)
+        skill_dirs, places_file, _ = declare_sources(self)
 
         provenance = {
-            'git':          [git_state(repo) for repo in find_repos(repo_roots)],
-            'contracts':    directory_digests(Path(contracts), '*.yaml'),
-            'places':       {'path': places_file, 'sha256': file_digest(Path(places_file))},
-            'press_references': references_state(),     # the stance references the agent calls read from (orch_state)
+            'git':    [git_state(repo) for repo in find_repos(repo_roots)],
+            'skills': {str(directory): directory_digests(directory, '*/*') for directory in skill_dirs},
+            'places': {'path': places_file, 'sha256': file_digest(Path(places_file))},
+            'state':  {'path': state_dir, 'files': state_digests(Path(state_dir))},     # what skills keep across runs
         }
 
         self.bag      = RosBag(self, list(bag_topics)) if record_bag else None

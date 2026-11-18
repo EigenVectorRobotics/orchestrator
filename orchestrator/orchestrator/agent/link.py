@@ -1,0 +1,371 @@
+"""The agent backend: the executor sends each call, evidence and frames included, to a bridge on the laptop
+(mission_control/agent_bridge.py) over one TCP connection it keeps open, and waits for the decision on it. The bridge
+asks the model for press_judge and manipulation_recovery, and the operator in its terminal for operator_confirm.
+
+The framing is in protocol.py and each skill's decisions, fields and limits in its spec.py, which the bridge imports too;
+each call carries protocol.PROTOCOL, its phase and decisions, the limits the executor enforces, and the fields its skill
+adds (agent.py, AgentSkill.request_fields).
+
+A message is a header of two big-endian uint32 (the JSON length, then the length of the binary after it), the JSON,
+then the images back to back, as its "images" list gives them ({name, media_type, size}). The executor sends call,
+reply (accepted or why not) and cancel; the bridge sends started (model, prompt, system prompt, its sha256 and the
+sha256 of the skill's prompt.py), decision and failed. Both send ping every PING_S; a link silent for DEAD_S is closed and opened again, and the open call is sent again on it.
+
+A call waits for the bridge while it is unreachable (nothing heard from it, connected or not): after UNREACHABLE_SAY_S
+the robot says so once, and after UNREACHABLE_FAIL_S the call fails. A later call fails at once while nothing has been
+heard from the bridge since, so the tree is not held up a minute at each agent leaf.
+
+Each call is also published as a request (latched JSON on topics.AGENT_REQUEST_TOPIC: opened, then closed), each reply on
+topics.AGENT_REPLY_TOPIC, and what the bridge reports (started with model, prompt and system prompt, each decision with
+its usage, failed) and a cancel on topics.AGENT_EVENT_TOPIC. The run recorder writes all of it into the run the call opened in;
+nothing here writes a file except a call's image that is not saved yet (e.g. the camera image now), saved in the
+artifacts directory so the recorder can keep it.
+"""
+
+import json
+import time
+import uuid
+import queue
+import socket
+import threading
+
+from typing import Callable
+from pathlib import Path
+
+from .api import CallImage
+from .engine import AgentError, AgentSession
+from .protocol import HEADER, MAX_BINARY, MAX_JSON, PING_S, PROTOCOL
+
+
+DEAD_S      = 20.0
+RETRY_S     = 2.0
+MAX_REFUSED = 3                         # decisions refused in one call before it fails
+UNREACHABLE_SAY_S  = 15.0               # the robot says it lost the bridge after this long without a word from it
+UNREACHABLE_FAIL_S = 60.0               # and the call fails after this long
+UNREACHABLE        = 'the agent bridge is unreachable'      # the start of the error; the agent leaf says why it failed
+STARTED_FIELDS     = ('model', 'effort', 'prompt', 'system', 'system_sha256', 'prompts_sha256', 'received')   # of the bridge's started
+UNREACHABLE_SPEECH = 'I lost the connection to my helper. Waiting for it to come back.'
+USAGE_FIELDS = ('cost_usd', 'tokens_in', 'tokens_out', 'model_s')
+EXTENSIONS  = {'image/jpeg': 'jpg', 'image/png': 'png'}
+
+
+class AgentStopped(AgentError):
+    pass
+
+
+class LinkClosed(ConnectionError):
+    pass
+
+
+class BridgeUnreachable(AgentError):
+    pass
+
+
+def open_request(session: AgentSession, task: str) -> dict:
+    """The call as the bridge gets it: the protocol, the phase and its decisions, the limits the executor enforces, the
+    failure and history, and the fields its skill adds. task is the same call as text, for the record and the viewer"""
+    skill, evidence = session.skill, session.evidence
+    request         = {
+        'id':        uuid.uuid4().hex[:8],
+        'state':     'open',
+        'protocol':  PROTOCOL,
+        'skill':     skill.name,
+        'phase':     session.phase,
+        'opened':    time.time(),
+        'task':      task,
+        'decisions': list(skill.spec.PHASES[session.phase]),
+        'limits':    skill.spec.limits() if hasattr(skill.spec, 'limits') else {},
+        'failure':   evidence.get('last_failure') or None,
+        'history':   evidence.get('history') or [],
+    }
+
+    return {**request, **skill.request_fields(session.call, evidence)}
+
+
+def send_message(sock: socket.socket, header: dict, blobs: list[bytes] = ()):
+    data = json.dumps(header, default=str).encode()
+    sock.sendall(HEADER.pack(len(data), sum(map(len, blobs))) + data + b''.join(blobs))
+
+
+def _read_exactly(sock: socket.socket, size: int) -> bytes:
+    chunks, left = [], size
+
+    while left:
+        chunk = sock.recv(min(left, 1 << 20))
+
+        if not chunk:
+            raise LinkClosed('the bridge closed the connection')
+
+        chunks.append(chunk)
+        left -= len(chunk)
+
+    return b''.join(chunks)
+
+
+def read_message(sock: socket.socket) -> tuple[dict, list[bytes]] | None:
+    """The next message, or None when none began within the socket's timeout"""
+    try:
+        first = sock.recv(1)
+    except socket.timeout:
+        return None
+
+    if not first:
+        raise LinkClosed('the bridge closed the connection')
+
+    sizes = HEADER.unpack(first + _read_exactly(sock, HEADER.size - 1))
+
+    if sizes[0] > MAX_JSON or sizes[1] > MAX_BINARY:
+        raise LinkClosed(f'a message of {sizes} bytes is too large')
+
+    header, binary = json.loads(_read_exactly(sock, sizes[0])), _read_exactly(sock, sizes[1])
+    blobs, start   = [], 0
+
+    for image in header.get('images', []):
+        blobs.append(binary[start:start + image['size']])
+        start += image['size']
+
+    return header, blobs
+
+
+class PushLink:
+    """One TCP connection to the bridge, opened in the background and opened again when it drops. Messages from
+    the bridge go to messages; the open call is sent again on each new connection"""
+
+    def __init__(self, host: str, port: int, on_state: Callable[[str], None] | None = None):
+        self.host     = host
+        self.port     = port
+        self.messages = queue.Queue()
+        self.on_state = on_state or (lambda text: None)
+        self._sock    = None
+        self._call    = None
+        self.heard_at = 0.0                     # time.monotonic() of the last connect or message from the bridge
+        self._lock    = threading.Lock()
+        self._closed  = threading.Event()
+        self._thread  = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    @property
+    def connected(self) -> bool:
+        return self._sock is not None
+
+    def send(self, header: dict, blobs: list[bytes] = ()) -> bool:
+        with self._lock:
+            sock = self._sock
+
+            if sock is None:
+                return False
+
+            try:
+                send_message(sock, header, blobs)
+                return True
+            except OSError:
+                self._drop(sock)
+                return False
+
+    def open_call(self, header: dict, blobs: list[bytes]):
+        while not self.messages.empty():          # answers to calls that closed before they came
+            self.messages.get_nowait()
+
+        self._call = (header, blobs)
+        self.send(header, blobs)
+
+    def close_call(self):
+        self._call = None
+
+    def close(self):
+        self._closed.set()
+
+        with self._lock:
+            if self._sock is not None:
+                self._drop(self._sock)
+
+    def _drop(self, sock: socket.socket):
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+        if self._sock is sock:
+            self._sock = None
+
+    def _run(self):
+        while not self._closed.is_set():
+            try:
+                sock = socket.create_connection((self.host, self.port), timeout=RETRY_S)
+            except OSError:
+                self._closed.wait(RETRY_S)
+                continue
+
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.settimeout(PING_S)
+
+            with self._lock:
+                self._sock = sock
+
+            self.heard_at = time.monotonic()
+            self.on_state(f'connected to the agent bridge at {self.host}:{self.port}')
+
+            if self._call is not None:
+                self.send(*self._call)
+
+            try:
+                self._read(sock)
+            except (OSError, ValueError) as error:     # a closed, reset, silent or garbled link: open it again
+                self.on_state(f'the agent bridge link dropped: {error}')
+
+            with self._lock:
+                self._drop(sock)
+
+    def _read(self, sock: socket.socket):
+        heard = time.monotonic()
+
+        while not self._closed.is_set():
+            message = read_message(sock)
+
+            if message is None:
+                if time.monotonic() - heard > DEAD_S:
+                    raise LinkClosed(f'nothing from the bridge for {DEAD_S:g} s')
+
+                self.send({'type': 'ping'})
+                continue
+
+            heard = self.heard_at = time.monotonic()
+
+            if message[0].get('type') != 'ping':
+                self.messages.put(message[0])
+
+
+class PushAgentBackend:
+    name = 'push'
+
+    def __init__(self, link: PushLink, publish_request: Callable[[dict], None] = lambda request: None,
+                 publish_reply: Callable[[dict], None] = lambda reply: None,
+                 publish_event: Callable[[dict], None] = lambda event: None, capture_dir: str | Path | None = None,
+                 speak: Callable[[str], None] = lambda text: None):
+        self.link             = link
+        self.speak            = speak
+        self._gave_up_at      = None            # link.heard_at when a call last failed on an unreachable bridge
+        self.capture_dir      = Path(capture_dir).expanduser() if capture_dir else None
+        self._publish_request = publish_request
+        self._publish_reply   = publish_reply
+        self._publish_event   = publish_event
+
+    def run(self, task: str, session: AgentSession, should_stop: Callable[[], bool], on_event: Callable[..., None]):
+        # (1) The call with all its evidence and images, sent now and again on each reconnect
+        request = open_request(session, task)
+        images  = session.skill.images(request, session)
+        header  = {**request, 'type': 'call',
+                   'images': [{'name': image.name, 'media_type': image.media_type, 'size': len(image.data)} for image in images]}
+        request = {**request, 'images': self._image_files(request, images)}
+        outcome = {'outcome': 'failed', 'error': 'the call ended without a decision'}
+        refused = 0
+        opened  = time.monotonic()
+        warned  = False
+
+        self._publish_request(request)
+        self.link.open_call(header, [image.data for image in images])
+        on_event('agent_wait', f'call {request["id"]} pushed to the agent bridge'
+                 + ('' if self.link.connected else ' (not connected yet; it goes when the bridge is up)'), call=request['id'])
+
+        try:
+            while True:
+                # (2) The next message for this call; a cancel or the leaf's timeout tells the bridge to drop it
+                if should_stop():
+                    self.link.send({'type': 'cancel', 'id': request['id']})
+                    outcome = {'outcome': 'cancelled', 'error': 'cancelled or timed out'}
+                    self._event(request, 'cancelled')
+                    raise AgentStopped('cancelled or timed out')
+
+                # (2b) An unreachable bridge: say so once, then fail the call
+                if self._gave_up_at is not None and self.link.heard_at != self._gave_up_at:
+                    self._gave_up_at = None             # the bridge has been heard from since a call gave up on it
+
+                quiet = time.monotonic() - max(opened, self.link.heard_at)
+
+                if self._gave_up_at is not None:
+                    quiet = UNREACHABLE_FAIL_S          # nothing heard since the last call gave up: fail this one at once
+
+                if quiet >= UNREACHABLE_SAY_S and not warned and self._gave_up_at is None:
+                    warned = True
+                    self.speak(UNREACHABLE_SPEECH)
+                    on_event('agent_link', f'no word from the agent bridge for {quiet:.0f} s; waiting up to '
+                             f'{UNREACHABLE_FAIL_S:g} s', level='warn', call=request['id'])
+
+                if quiet >= UNREACHABLE_FAIL_S:
+                    error            = f'{UNREACHABLE} (no word from it for {UNREACHABLE_FAIL_S:g} s)'
+                    self._gave_up_at = self.link.heard_at
+                    outcome          = {'outcome': 'failed', 'error': error}
+                    self._event(request, 'failed', error=error)
+                    raise BridgeUnreachable(error)
+
+                try:
+                    message = self.link.messages.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+
+                if message.get('id') != request['id']:
+                    continue
+
+                # (3) Act on it: a decision goes through decide, and a refusal goes back to the bridge
+                if message['type'] == 'started':
+                    self._event(request, 'started', **{key: message.get(key) for key in STARTED_FIELDS})
+
+                if message['type'] == 'failed':
+                    outcome = {'outcome': 'failed', 'error': message.get('error')}
+                    self._event(request, 'failed', error=message.get('error'), **usage(message))
+                    raise AgentError(f'the agent bridge failed: {message.get("error")}')
+
+                if message['type'] != 'decision':
+                    continue
+
+                fields   = {'decision', 'reason', *getattr(session.skill.spec, 'FIELDS', {})}
+                decision = {key: message[key] for key in fields if key in message}
+                output   = session.decide(dict(decision))
+                reply    = {'id': request['id'], 'accepted': output.final, 'message': output.text}
+                self.link.send({'type': 'reply', **reply})
+                self._publish_reply({**reply, 'decision': decision})
+                self._event(request, 'decision', decision=decision, accepted=output.final, reply=output.text, **usage(message))
+
+                if output.final:
+                    outcome = {'outcome': 'answered', 'error': None}
+                    return
+
+                refused += 1
+
+                if refused >= MAX_REFUSED:
+                    outcome = {'outcome': 'failed', 'error': f'{refused} decisions refused: {output.text}'}
+                    raise AgentError(f'{refused} decisions refused; the last: {output.text}')
+        finally:
+            self.link.close_call()
+            self._publish_request({**request, 'state': 'closed', 'closed': time.time(), **outcome})
+
+    def _event(self, request: dict, kind: str, **fields):
+        """What happened to the call, for the recorder: the bridge's started, each decision, failed, a cancel"""
+        self._publish_event({'id': request['id'], 'kind': kind, 'time': time.time(), **fields})
+
+    def _image_files(self, request: dict, images: list[CallImage]) -> list[dict]:
+        """The images the model gets, by file: where they are saved already, else saved in the capture directory, so
+        the recorder can keep them with the call"""
+        files = []
+
+        for image in images:
+            path = image.path
+
+            if path is None and self.capture_dir is not None:
+                path = self.capture_dir / f'call_{request["id"]}_{image.name}.{EXTENSIONS.get(image.media_type, "bin")}'
+
+                try:
+                    self.capture_dir.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(image.data)
+                except OSError:                             # a lost image never fails the call
+                    path = None
+
+            files.append({'name': image.name, 'media_type': image.media_type, 'path': None if path is None else str(path)})
+
+        return files
+
+
+def usage(message: dict) -> dict:
+    """The bridge's cost and timing of one model answer"""
+    return {key: message[key] for key in USAGE_FIELDS if key in message}

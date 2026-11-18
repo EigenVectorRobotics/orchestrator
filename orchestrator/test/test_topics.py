@@ -16,7 +16,9 @@ def test_the_recorder_loads_no_executor_module_for_its_topics():
     code   = 'import sys, orchestrator.recording.node; print(" ".join(sorted(m for m in sys.modules if m.startswith("orchestrator."))))'
     loaded = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=True).stdout.split()
 
-    assert 'orchestrator.ros_skill_runner' not in loaded and 'orchestrator.agent_push' not in loaded
+    heavy = [name for name in loaded if name.startswith(('orchestrator.skills.', 'orchestrator.agent', 'orchestrator.tree'))]
+
+    assert heavy == ['orchestrator.skills.loader']                 # stdlib only: where the skill packages are
 
 
 def test_the_latched_and_command_profiles():

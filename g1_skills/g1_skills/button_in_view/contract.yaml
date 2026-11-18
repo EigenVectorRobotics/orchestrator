@@ -1,0 +1,46 @@
+name: button_in_view
+kind: action
+device: orin
+description: >-
+  Before the first press: seed track_anything with the button's name, wait for it to track, then check that the
+  button is in the camera's view, away from the image edges, with a 3D pose. Judges the first 2D box and pose that
+  arrive after its own seed. Fails with what is missing: no track (the button is out of the frame, or the seed
+  failed), no 2D box, or no 3D pose (too close for depth). Gives the arm to press with: the left arm
+  when the button is in view and more than left_arm_min_y_m to the robot's left in the pelvis frame, else the right.
+interface:
+  transport: python
+  name: /keyboard_input
+  ros_type: std_msgs/msg/String
+  success_when:
+    topic: /track_3d/is_tracking
+    ros_type: std_msgs/msg/Bool
+    field: data
+    equals: true
+  requires:
+    published: [/track_3d/detections_2d]
+config:
+  target:
+    box_topic: /track_3d/detections_2d
+    target_topic: /track_3d/selected_target_3d
+    pose_topic: /track_3d/selected_normal_pose
+    frame: pelvis              # where the arm is chosen
+  limits:
+    max_wait_s: 10.0           # from the seed to a box and a pose; the grounding alone took 1.7 to 9 s
+    max_age_s: 1.0
+    margin_frac: 0.05          # each edge: 5 % of the image (36 px of 720)
+    left_arm_min_y_m: 0.10     # inside, the left arm failed at y +0.05 to +0.07 m and the right reached; a tree sets it per panel
+inputs:
+- {name: query, type: string, description: 'the button, as press_button is told'}
+- {name: margin_frac, type: float, required: false, description: 'the clear band each image edge must keep, as a fraction of the image'}
+- {name: left_arm_min_y_m, type: float, required: false, description: 'the left arm when the button is further left than this in pelvis (0.0 at the call panel, 0.10 inside)'}
+outputs:
+- {name: left_arm, type: bool, description: 'true for the left arm; false (the right) when the button is not in view'}
+resources:
+- tracker
+timeout_s: 15
+maturity: untested
+source: g1_skills/button_in_view (skill.py, checks.py)
+notes: >-
+  The VLM grounding runs on the Thor, so it fails when the Thor drops out. press_button seeds the tracker again for
+  its own goal. The margin is a first guess: a good down press had the button near y 540 of 720 at the call panel,
+  floor 1 near y 450 to 600 inside, and a failed one had it cut by the bottom edge.

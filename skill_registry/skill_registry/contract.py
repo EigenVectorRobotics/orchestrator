@@ -6,15 +6,14 @@ import yaml
 
 
 KINDS         = ('action', 'condition', 'composite')
-TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'in_view', 'alive', 'command',
-                 'reach')
-READ_ONLY     = ('watch', 'vlm', 'compare', 'alive', 'reach')   # the transports a condition may use
+TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'alive', 'command', 'python')
+READ_ONLY     = ('watch', 'vlm', 'compare', 'alive', 'python')   # the transports a condition may use
 # watch: read a topic, never publish. agent: one decision from the agent bridge's model or operator, on gathered evidence.
 # compare: the input value equals the input equals; nothing leaves the executor.
-# in_view: seed the tracker with the query, then judge the first 2D box and 3D pose after the seed: inside the image.
 # alive: each listed topic has a publisher, each service exists, each URL answers. command: run the contract's fixed
-# shell command on the executor's machine; success is exit code 0. reach: ask the IK check service (g1_pilot ik_server)
-# whether the arm reaches the latest pose on target.pose_topic, as move_to_pose would plan it; it never moves the arm.
+# shell command on the executor's machine; success is exit code 0. python: the skill's own skill.py runs every call; a
+# condition on it must only read, which its code keeps to.
+REQUIRES      = ('services', 'published', 'subscribed')         # interface.requires: what must be up for a python skill
 MATURITIES    = ('tested', 'wip', 'untested', 'disabled')   # disabled: kept for later, hidden from the planner, refused in a tree
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
@@ -80,10 +79,8 @@ class Interface:
     question:        str = ''               # vlm: may hold {input} fields
     choices:         list[str] = field(default_factory=list)   # vlm: the only answers; empty means the 'choices' input
     success_answer:  str = ''               # vlm: the answer that means success; empty means any answer
-    skill:           str = ''               # agent: the skill the bridge answers as (prompts in mission_control/agent_prompts.py)
-    capture:         dict = field(default_factory=dict)       # action: frames to keep around the call, e.g. {kind: press}
-    limits:          dict = field(default_factory=dict)       # in_view, reach: the thresholds
-    target:          dict = field(default_factory=dict)       # in_view: box_topic, target_topic, pose_topic
+    skill:           str = ''               # agent: the skill the bridge answers as: its skill folder's spec.py and prompt.py
+    requires:        dict = field(default_factory=dict)       # python: services, published and subscribed topics it needs up
     alive:           dict = field(default_factory=dict)       # alive: topics, services, http (lists)
     command:         str = ''               # command: the fixed shell command; inputs cannot change it
 
@@ -109,6 +106,7 @@ class Contract:
     source:      str = ''                                   # code the skill wraps
     notes:       str = ''
     record:      bool = False   # a condition: record every answer for the agent, even when it checks no action
+    config:      dict = field(default_factory=dict)         # the skill's own settings, read by its skill.py
 
     def input(self, name: str) -> Port | None:
         return next((port for port in self.inputs if port.name == name), None)
@@ -193,13 +191,8 @@ def parse_contract(raw: dict) -> Contract:
     if interface.failure_when is not None and interface.transport != 'action':
         raise ContractError(f'{name}: failure_when reads action feedback, so it needs an action skill')
 
-    if interface.capture and interface.capture.get('kind') != 'press':
-        raise ContractError(f'{name}: capture kind must be press')
-
-    if interface.transport == 'in_view' and not (interface.name and interface.success_when and interface.target.get('box_topic')
-                                                   and interface.target.get('pose_topic') and contract.input('query')):
-        raise ContractError(f'{name}: an in_view skill needs name (the seed topic), success_when (tracking), '
-                            f'target.box_topic, target.pose_topic and a query input')
+    if set(interface.requires) - set(REQUIRES):
+        raise ContractError(f'{name}: interface.requires takes {REQUIRES}, not {sorted(set(interface.requires) - set(REQUIRES))}')
 
     if interface.transport == 'alive' and not any(interface.alive.get(key) for key in ('topics', 'services', 'http')):
         raise ContractError(f'{name}: an alive skill needs alive.topics, alive.services or alive.http')

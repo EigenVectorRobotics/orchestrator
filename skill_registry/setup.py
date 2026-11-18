@@ -11,7 +11,6 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', [f'resource/{PACKAGE_NAME}']),
         (f'share/{PACKAGE_NAME}', ['package.xml']),
-        (f'share/{PACKAGE_NAME}/contracts', glob('contracts/*.yaml')),
         (f'share/{PACKAGE_NAME}/trees', glob('trees/*.xml')),
         (f'share/{PACKAGE_NAME}/trees/subtrees', glob('trees/subtrees/*.xml')),
         (f'share/{PACKAGE_NAME}/trees/tests', glob('trees/tests/*.xml')),
@@ -21,7 +20,7 @@ setup(
     zip_safe=True,
     maintainer='Karan Khanna',
     maintainer_email='karankha@andrew.cmu.edu',
-    description='Skill contracts, online skill discovery, and a validator for behavior trees before they run',
+    description='The skill contract model, online skill discovery, and a validator for behavior trees before they run',
     license='MIT',
     tests_require=['pytest'],
     entry_points={

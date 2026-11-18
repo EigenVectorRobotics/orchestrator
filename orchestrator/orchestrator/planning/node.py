@@ -32,7 +32,7 @@ class PlannerNode(Node):
     def __init__(self):
         super().__init__('orchestrator_planner')
 
-        self.registry, self.places, self.essential_devices = load_skills(self)
+        self.registry, self.places, self.essential_devices, _ = load_skills(self)
         self.place_floors = load_place_floors(self.get_parameter('places_file').value)   # key -> floor, for the task message
         self.robot_floor  = None                                                          # the latest floor on floor_topic
 

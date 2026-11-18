@@ -9,7 +9,9 @@ pytest.importorskip('rclpy')
 from skill_registry.contract import Watch
 
 from orchestrator.tree.engine import Status
-from orchestrator.ros_skill_runner import RosSkillRunner, TopicWatch, _ServiceHandle
+from orchestrator.skills.handles import ServiceHandle
+from orchestrator.skills.transports.watch import check_watch
+from orchestrator.skills.watch import TopicWatch
 
 
 NODE = SimpleNamespace(create_subscription=lambda *args: None)
@@ -42,27 +44,27 @@ def test_consecutive_one_reads_the_latest_only():
 
 
 def test_equals_input_compares_with_the_tree_input():
-    runner = SimpleNamespace(_watch=lambda spec: watch)
+    ctx    = SimpleNamespace(watch=lambda spec: watch)
     spec   = Watch(topic='/slam_elevatorlio/floor', ros_type='std_msgs/msg/Int32', equals_input='floor', latched=True)
     watch  = TopicWatch(NODE, spec.topic, spec.ros_type, True)
     watch._on_message(SimpleNamespace(data=2))
 
-    assert RosSkillRunner._check_watch(runner, spec, {'floor': 2}).status == Status.SUCCESS
-    assert RosSkillRunner._check_watch(runner, spec, {'floor': 1}).status == Status.FAILURE
+    assert check_watch(spec, {'floor': 2}, ctx).status == Status.SUCCESS
+    assert check_watch(spec, {'floor': 1}, ctx).status == Status.FAILURE
 
 
 def test_max_age_fails_a_watch_whose_latest_message_is_old():
-    runner = SimpleNamespace(_watch=lambda spec: watch)
+    ctx    = SimpleNamespace(watch=lambda spec: watch)
     spec   = Watch(topic='/body_ekf/torso_pose', ros_type='geometry_msgs/msg/PoseStamped', field='header.frame_id',
                    equals='foot_world', max_age_s=0.5)
     watch  = TopicWatch(NODE, spec.topic, spec.ros_type, False)
     watch._on_message(SimpleNamespace(header=SimpleNamespace(frame_id='foot_world')))
 
-    assert RosSkillRunner._check_watch(runner, spec, {}).status == Status.SUCCESS
+    assert check_watch(spec, {}, ctx).status == Status.SUCCESS
 
     watch.receive_time -= 1.0                       # no pose for a second: body_ekf is recalibrating
 
-    result = RosSkillRunner._check_watch(runner, spec, {})
+    result = check_watch(spec, {}, ctx)
     assert result.status == Status.FAILURE and 'for 1.0 s' in result.message
 
 
@@ -75,7 +77,7 @@ def test_a_service_with_a_watch_ends_on_a_message_after_its_response():
     future   = SimpleNamespace(done=lambda: True, result=lambda: response)
     client   = SimpleNamespace(service_is_ready=lambda: True, call_async=lambda request: future)
     contract = SimpleNamespace(interface=SimpleNamespace(name='/body_ekf/reset', success_when=spec), outputs=[])
-    handle   = _ServiceHandle(client, None, contract, 1.0, watch)
+    handle   = ServiceHandle(client, None, contract, 1.0, watch)
 
     watch._on_message(pose)                         # a pose from before the reset does not end it
     assert handle.poll() == Status.RUNNING

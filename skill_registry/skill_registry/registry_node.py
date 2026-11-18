@@ -11,9 +11,8 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
-from ament_index_python.packages import get_package_share_directory
 
-from .registry import GraphSnapshot, Registry, is_present
+from .registry import DEFAULT_SKILL_PACKAGES, GraphSnapshot, Registry, _absolute, contract_directories, is_present
 
 
 LIVE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -25,13 +24,13 @@ class RegistryNode(Node):
     def __init__(self):
         super().__init__('skill_registry')
 
-        default_directory = Path(get_package_share_directory('skill_registry')) / 'contracts'
-
-        self.contracts_directory = self.declare_parameter('contracts_directory', str(default_directory)).value
+        skill_packages           = self.declare_parameter('skill_packages', DEFAULT_SKILL_PACKAGES).value
+        self.contracts_directory = self.declare_parameter('contracts_directory', '').value     # empty: the skill packages
         self.vlm_base_url        = self.declare_parameter('vlm_base_url', 'http://vector-thor:8090/v1').value
         self.vlm_up              = False
 
-        self.registry = Registry.from_directory(Path(self.contracts_directory))
+        self.directories = contract_directories(list(skill_packages), self.contracts_directory)
+        self.registry    = Registry.from_directories(self.directories)
         self._live    = ''
 
         self._live_publisher = self.create_publisher(String, '/skills/live', LIVE_QOS)
@@ -39,7 +38,7 @@ class RegistryNode(Node):
 
         threading.Thread(target=self._probe_vlm_forever, daemon=True).start()
 
-        self.get_logger().info(f'{len(self.registry)} contracts from {self.contracts_directory}')
+        self.get_logger().info(f'{len(self.registry)} contracts from {[str(directory) for directory in self.directories]}')
 
     def _probe_vlm_forever(self):
         while rclpy.ok():
@@ -61,12 +60,14 @@ class RegistryNode(Node):
 
             if interface.transport == 'action':
                 services.add(f'{name}/_action/send_goal')
-            elif interface.transport in ('service', 'reach'):
+            elif interface.transport == 'service':
                 services.add(name)
             elif interface.transport == 'topic':
                 subscribed.add(name)
-            elif interface.transport == 'in_view':
-                published.add(interface.target['box_topic'])
+
+            services.update(_absolute(item) for item in interface.requires.get('services', []))
+            published.update(interface.requires.get('published', []))
+            subscribed.update(_absolute(item) for item in interface.requires.get('subscribed', []))
 
             if interface.success_when is not None:
                 published.add(interface.success_when.topic)

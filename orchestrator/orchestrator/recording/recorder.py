@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from operator import itemgetter
 from dataclasses import dataclass
 
-from ..press_capture import DEFAULT_CAPTURE_DIR
+from ..common.paths import ARTIFACTS_DIR, RUNS_DIR, STATE_DIR
 
 
 RUN_END_KINDS    = ('finished', 'halted', 'error')
@@ -51,8 +51,20 @@ def file_digest(path: Path) -> str | None:
 
 
 def directory_digests(directory: Path, pattern: str) -> dict:
-    """File name -> hash of its bytes, for the contracts"""
-    return {path.name: file_digest(path) for path in sorted(Path(directory).glob(pattern))}
+    """Path under directory -> hash of its bytes: the skill folders' contracts, code, prompts and notes"""
+    return {str(path.relative_to(directory)): file_digest(path) for path in sorted(Path(directory).glob(pattern))
+            if path.is_file() and '__pycache__' not in path.parts}
+
+
+def state_digests(directory: Path) -> dict:
+    """What the skills keep across runs (e.g. press references): each file's line count and hash"""
+    found = {}
+
+    for path in sorted(Path(directory).expanduser().glob('*.jsonl')):
+        data        = path.read_bytes()
+        found[path.name] = {'lines': data.count(b'\n'), 'sha256': file_digest(path)}
+
+    return found
 
 
 def git_state(repo: Path) -> dict:
@@ -173,9 +185,9 @@ def summarize_call(call: str, folder: Path) -> dict:
 
 @dataclass
 class RecorderConfig:
-    root:        str   = str(Path.home() / 'orch_runs')
+    root:        str   = str(RUNS_DIR)
     min_free_gb: float = 20.0
-    capture_dir: str   = DEFAULT_CAPTURE_DIR
+    capture_dir: str   = ARTIFACTS_DIR
 
 
 class NoBag:

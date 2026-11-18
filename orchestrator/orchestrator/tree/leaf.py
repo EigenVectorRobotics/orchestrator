@@ -2,9 +2,9 @@ import math
 
 from typing import Protocol
 
-from skill_registry import Contract, Registry
+from skill_registry import Contract
 
-from .engine import DONE, Context, Status, TreeError, TreeNode
+from .engine import DONE, Context, Status, TreeNode
 
 
 class SkillHandle(Protocol):
@@ -15,21 +15,6 @@ class SkillHandle(Protocol):
 
     def poll(self) -> Status: ...
     def cancel(self): ...
-
-
-class DoneHandle:
-    """A call that ended before it started"""
-
-    def __init__(self, success: bool, message: str = '', outputs: dict | None = None):
-        self.status  = Status.SUCCESS if success else Status.FAILURE
-        self.message = message
-        self.outputs = outputs or {}
-
-    def poll(self) -> Status:
-        return self.status
-
-    def cancel(self):
-        pass
 
 
 class SkillRunner(Protocol):
@@ -216,108 +201,3 @@ class SkillLeaf(TreeNode):
 
             if target.startswith('{') and target.endswith('}') and port.name in outputs:
                 self.context.blackboard[target[1:-1]] = outputs[port.name]
-
-
-class AgentRunner(Protocol):
-    def start(self, contract: Contract, inputs: dict, context: Context) -> SkillHandle: ...
-
-
-class AgentLeaf(SkillLeaf):
-    """A leaf that runs an agent skill; it sees the tree's record, and its decision can end the whole tree.
-
-    The handle's outputs carry decision and reason. ask_help ends the agent's part of the task: later calls fail
-    at once. abort fails the tree. max_rounds bounds the diagnoses in one task.
-    """
-
-    def _start_call(self) -> SkillHandle:
-        decisions = [record for record in self.context.history if record.get('skill') == self.contract.name]
-        here      = self.inputs.get('base_goal')     # the panel: an ask_help ends the calls for its own panel only
-        gave_up   = next((record for record in decisions if record.get('decision') == 'ask_help'
-                          and record.get('base_goal') == here), None)
-        rounds    = sum(1 for record in decisions if record.get('phase') == 'diagnose' and not record.get('rule'))
-
-        if self.runner is None:
-            return DoneHandle(False, 'no agent is configured (agent_backend)')
-
-        if gave_up is not None:
-            return DoneHandle(False, f'the agent already asked for help: {gave_up.get("reason", "")}')
-
-        if self.inputs.get('phase', 'diagnose') == 'diagnose' and rounds >= int(self.inputs.get('max_rounds', 5)):
-            return DoneHandle(False, f'recovery budget spent: {rounds} diagnoses in this task')
-
-        return self.runner.start(self.contract, self.inputs, self.context)
-
-    def _finish_call(self, status: Status):
-        outputs  = self.handle.outputs
-        decision = outputs.get('decision')
-
-        if not decision:                                # the agent did not decide: nothing to keep, but say why
-            self._say_failure()
-            return
-
-        self.context.record({
-            'time':     self.context.clock(),
-            'skill':    self.contract.name,
-            'path':     self.path,
-            'phase':    self.inputs.get('phase', 'diagnose'),
-            'decision': decision,
-            'reason':   outputs.get('reason', ''),
-            'offset':   outputs.get('offset'),
-            'goal':     outputs.get('goal'),
-            'base_goal': self.inputs.get('base_goal'),  # the panel, for the ask_help gate
-            'left_arm': outputs.get('left_arm'),
-            'rule':     bool(outputs.get('rule')),       # decided by the executor's rule, not the agent: outside max_rounds
-            'rule_name': outputs.get('rule_name'),       # which rule (offset, stance, reach): the rules count their own answers
-        })
-
-        checked = self.context.last_call
-
-        if (self.inputs.get('phase') == 'judge' and status == Status.FAILURE and checked is not None
-                and checked.get('status') == Status.SUCCESS.value):
-            # a failed check of the press: manipulation_recovery then sees the press as checked_call
-            record = {'time': self.context.clock(), 'kind': 'condition', 'skill': self.contract.name,
-                      'path': self.path, 'status': status.value, 'inputs': self.inputs, 'message': self.message,
-                      'outputs': dict(outputs), 'elapsed_s': round(self.context.clock() - self.start_time, 2),
-                      'checks': checked['skill']}
-            self.context.record(record, {**record, 'checked_call': checked})
-
-        if decision == 'abort':
-            self.context.abort(f'{self.contract.name}: {outputs.get("reason", "")}')
-
-
-    def _say_failure(self):
-        """A call that failed without a decision (no agent, budget spent, timeout, the bridge failed) goes on like an
-        ask_help in the tree; the robot says why, so a person near it knows the helper is the problem"""
-        text = self.message
-
-        if text.startswith('the agent already asked for help'):
-            return                                      # the robot asked for help at this panel already
-
-        if text.startswith('no agent is configured'):
-            said = 'I have no helper connected.'
-        elif text.startswith('recovery budget spent'):
-            said = 'I have used up my recovery attempts for this task.'
-        elif 'the agent bridge is unreachable' in text:     # agent_push.UNREACHABLE
-            said = 'My helper is still not connected. Going on without it.'
-        elif text.startswith('timeout after'):
-            said = 'My helper did not answer in time.'
-        else:
-            said = 'My helper could not decide.'
-
-        if callable(getattr(self.runner, 'say', None)):
-            self.runner.say(said)
-
-
-def make_leaf_factory(registry: Registry, runner: SkillRunner, agent: AgentRunner | None = None):
-    def build_leaf(skill_name: str, path: str, attributes: dict, context: Context) -> TreeNode:
-        contract = registry.get(skill_name)
-
-        if contract is None:
-            raise TreeError(f'{path}: unknown skill {skill_name}')
-
-        if contract.interface.transport == 'agent':
-            return AgentLeaf(contract, agent, path, attributes, context)
-
-        return SkillLeaf(contract, runner, path, attributes, context)
-
-    return build_leaf

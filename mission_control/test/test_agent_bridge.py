@@ -18,12 +18,16 @@ except ImportError:                     # the model path is not under test here:
     sys.modules['claude_agent_sdk'] = types.SimpleNamespace(ClaudeAgentOptions=dict, ClaudeSDKClient=None, ResultMessage=None)
 
 import agent_bridge
-import agent_prompts
 
-from orchestrator import agent_spec as spec
+from orchestrator.agent import protocol
+
+from g1_skills.manipulation_recovery import prompt as recovery_prompts
 
 
-CONFIRM = {'type': 'call', 'id': 'c1', 'protocol': spec.PROTOCOL, 'skill': 'operator_confirm', 'phase': 'confirm', 'images': [],
+RECOVERY_SPEC = protocol.load_spec('manipulation_recovery')
+
+
+CONFIRM = {'type': 'call', 'id': 'c1', 'protocol': protocol.PROTOCOL, 'skill': 'operator_confirm', 'phase': 'confirm', 'images': [],
            'decisions': ['confirmed', 'not_confirmed'], 'question': 'Is the gantry removed?',
            'task': 'Phase: confirm.\nQuestion: Is the gantry removed?\nAllowed decisions: confirmed, not_confirmed.'}
 
@@ -132,22 +136,31 @@ def test_a_call_of_another_protocol_fails_with_both_versions(tmp_path):
     async def main():
         models = []
         bridge, sent, _ = await _bridge(tmp_path, models)
-        await bridge._answer({**CONFIRM, 'protocol': spec.PROTOCOL + 1}, b'', time.time())
+        await bridge._answer({**CONFIRM, 'protocol': protocol.PROTOCOL + 1}, b'', time.time())
         return sent, models
 
     sent, models = asyncio.run(main())
 
     assert [message['type'] for message in sent] == ['failed'] and not models
-    assert f'PROTOCOL {spec.PROTOCOL + 1}' in sent[0]['error'] and f'has {spec.PROTOCOL}' in sent[0]['error']
+    assert f'PROTOCOL {protocol.PROTOCOL + 1}' in sent[0]['error'] and f'has {protocol.PROTOCOL}' in sent[0]['error']
 
 
-def test_the_warm_models_are_the_executor_phases():
-    assert agent_bridge.KINDS == [(spec.PHASE_SKILL[phase], tuple(spec.PHASE_DECISIONS[phase])) for phase in ('judge', 'diagnose', 'stance_check')]
+def test_the_warm_models_are_the_phases_the_model_answers():
+    judge = protocol.load_spec('press_judge')
+
+    assert sorted(agent_bridge.KINDS) == sorted([('manipulation_recovery', RECOVERY_SPEC.PHASES['diagnose']),
+                                                 ('manipulation_recovery', RECOVERY_SPEC.PHASES['stance_check']),
+                                                 ('press_judge', judge.PHASES['judge'])])
 
 
-RECOVERY = {'id': 'r1', 'protocol': spec.PROTOCOL, 'skill': 'manipulation_recovery', 'phase': 'stance_check',
+def test_the_operator_answers_operator_confirm_and_never_the_model():
+    assert agent_bridge.SKILLS['operator_confirm'].ANSWERED_BY == 'operator'
+    assert 'operator_confirm' not in {skill for skill, _ in agent_bridge.KINDS}
+
+
+RECOVERY = {'id': 'r1', 'protocol': protocol.PROTOCOL, 'skill': 'manipulation_recovery', 'phase': 'stance_check',
             'button': 'floor 1 button', 'base_goal': {'x': 1.0, 'y': 2.0, 'yaw': 0.0},
-            'decisions': list(spec.PHASE_DECISIONS['stance_check']), 'offset_in_force': [0.0, 0.0, 0.0],
+            'decisions': list(RECOVERY_SPEC.PHASES['stance_check']), 'offset_in_force': [0.0, 0.0, 0.0],
             'failure': {'skill': 'check_reach', 'status': 'failure', 'message': 'target out of reach'}, 'history': [],
             'stance': {'stance_from_base_goal': {'forward_m': 0.0, 'left_m': 0.0, 'yaw_rad': 0.0},
                        'reach': {'reachable': False, 'message': 'out of reach', 'pelvis_error_m': {'x': -0.05, 'y': 0.0, 'z': 0.0}},
@@ -156,8 +169,8 @@ RECOVERY = {'id': 'r1', 'protocol': spec.PROTOCOL, 'skill': 'manipulation_recove
 
 
 def test_the_prompt_takes_the_button_phase_and_limits_from_the_call():
-    limits = {**spec.limits(), 'reposition_m': {'forward': 0.10, 'back': 0.40, 'side': 0.20}}
-    text   = agent_prompts.recovery_prompt({**RECOVERY, 'limits': limits}, camera=False)
+    limits = {**RECOVERY_SPEC.limits(), 'reposition_m': {'forward': 0.10, 'back': 0.40, 'side': 0.20}}
+    text   = recovery_prompts.recovery_prompt({**RECOVERY, 'limits': limits}, camera=False)
     system = agent_bridge.system_prompt('manipulation_recovery', limits)
 
     assert text.startswith('Phase: stance_check. Button: floor 1 button (car panel')
@@ -171,7 +184,7 @@ def test_a_recovery_call_with_other_limits_gets_its_own_model(tmp_path):
     made   = []
     bridge._model = lambda skill, decisions, system=None: made.append(system) or object()
     usual  = agent_bridge.system_prompt('manipulation_recovery')
-    other  = agent_bridge.system_prompt('manipulation_recovery', {**spec.limits(), 'press_offset_max_m': 0.03})
+    other  = agent_bridge.system_prompt('manipulation_recovery', {**RECOVERY_SPEC.limits(), 'press_offset_max_m': 0.03})
 
     bridge._take('manipulation_recovery', ('continue',), usual)
     bridge._take('manipulation_recovery', ('continue',), other)

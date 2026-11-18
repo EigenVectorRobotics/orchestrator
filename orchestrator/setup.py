@@ -30,7 +30,7 @@ setup(
             'fake_robot = orchestrator.sim.fake_robot:main',
             'send_tree = orchestrator.execution.send_tree:main',
             'planner_cli = orchestrator.planning.cli:main',
-            'cosmos_vlm_server = orchestrator.sim.cosmos_vlm_server:main',
+            'cosmos_vlm_server = orchestrator.vlm.cosmos_server:main',
             'run_recorder = orchestrator.recording.node:main',
         ],
     },

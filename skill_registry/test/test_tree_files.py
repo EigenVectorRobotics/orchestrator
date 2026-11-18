@@ -6,7 +6,7 @@ from skill_registry import IncludeError, Registry, TreeValidator, ValidatorConfi
 
 
 PACKAGE   = Path(__file__).resolve().parents[1]
-CONTRACTS = PACKAGE / 'contracts'
+CONTRACTS = PACKAGE.parent / 'g1_skills' / 'g1_skills'      # the G1's skills: one folder each
 
 
 def _tree(tree_id: str, body: str = '<AlwaysSuccess/>') -> str:

@@ -11,16 +11,18 @@ from std_msgs.msg import Empty, String
 
 from skill_registry import TreeValidator, ValidatorConfig
 
-from ..agent import Agent
-from ..agent_push import PushAgentBackend, PushLink
-from .trace import Tracer
-from ..agent_ros import RosReader
-from .node_setup import load_skills
-from ..vlm_client import VlmClient, VlmClientConfig
-from ..tree.leaf import SkillLeaf, make_leaf_factory
+from ..agent.engine import Agent
+from ..agent.link import PushAgentBackend, PushLink
+from ..sensing.camera import Camera
+from ..common.paths import ARTIFACTS_DIR
+from ..skills.context import SkillContext
+from ..skills.runner import SkillRunner
+from ..tree.leaf import SkillLeaf
+from ..tree.factory import make_leaf_factory
 from ..tree.engine import BehaviorTree, Context, Status, TreeError
-from ..ros_skill_runner import RosSkillRunner
-from ..press_capture import DEFAULT_CAPTURE_DIR
+from ..vlm.client import VlmClient, VlmClientConfig
+from .trace import Tracer
+from .node_setup import load_skills
 from ..common.topics import (AGENT_EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, CANCEL_TOPIC, COMMAND_QOS,
                      LATCHED_QOS as STATUS_QOS, RECORDER_STATUS_TOPIC as RECORDER_TOPIC, SPEAK_TOPIC, STATUS_TOPIC,
                      TREE_BLIND_TOPIC, TREE_TOPIC)
@@ -60,27 +62,27 @@ class ExecutorNode(Node):
     def __init__(self):
         super().__init__('orchestrator_executor')
 
-        self.registry, self.places, self.essential_devices = load_skills(self)
+        self.registry, self.places, self.essential_devices, self.library = load_skills(self)
 
         self.tick_hz      = self.declare_parameter('tick_hz', 10.0).value
         self.image_topic  = self.declare_parameter('image_topic', '/camera/camera/color/image_raw').value
         self.vlm_base_url = self.declare_parameter('vlm_base_url', 'http://vector-thor:8090/v1').value
         self.vlm_model    = self.declare_parameter('vlm_model', 'local').value
         self.vlm_timeout  = self.declare_parameter('vlm_timeout_s', 40.0).value    # Cosmos on the Thor: one request at a time
-        self.capture_dir  = self.declare_parameter('capture_dir', DEFAULT_CAPTURE_DIR).value
+        self.capture_dir  = self.declare_parameter('capture_dir', ARTIFACTS_DIR).value     # files skills save for the agent and the recorder
         self.require_recorder = self.declare_parameter('require_recorder', False).value   # true: no tree runs unrecorded
         self.require_preflight = self.declare_parameter('require_preflight', False).value  # true: no task tree before a passed preflight
         self.preflight_passed  = False      # the last preflight run since the launch succeeded
         self.recorder_status  = {'ready': False, 'reason': 'no status from run_recorder yet'}
 
         self.tracer   = Tracer(self, 'executor')
-        self.runner   = RosSkillRunner(
+        self.ctx      = SkillContext(
             self,
-            self.registry,
+            Camera(self, self.image_topic),
             VlmClient(VlmClientConfig(base_url=self.vlm_base_url, model=self.vlm_model, timeout_s=self.vlm_timeout)),
-            self.image_topic,
-            capture_dir=self.capture_dir
+            artifacts_dir=self.capture_dir
         )
+        self.runner   = SkillRunner(self.ctx, self.registry, self.library)
 
         self.agent = self._make_agent()
         self.tree  = None
@@ -115,8 +117,7 @@ class ExecutorNode(Node):
             self.get_logger().warn('no agent: agent_push_host is not set (launch with site:=<name>); agent skills fail')
             return None
 
-        return Agent(self._make_push_backend(speak), RosReader(self, self.runner.latest_image, self.runner._tf),
-                     on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
+        return Agent(self._make_push_backend(speak), self.ctx, self.library, on_event=self._on_agent_event, speak=speak)
 
     def _on_link_state(self, text: str):
         """The agent bridge link connected or dropped: in the trace, and in the log, where the robot scripts read it"""
@@ -137,7 +138,7 @@ class ExecutorNode(Node):
             lambda request: request_publisher.publish(String(data=json.dumps(request, default=str))),
             lambda reply: reply_publisher.publish(String(data=json.dumps(reply))),
             lambda event: event_publisher.publish(String(data=json.dumps(event, default=str))),
-            self.runner.capture_dir,
+            self.capture_dir,
             speak,
         )
 

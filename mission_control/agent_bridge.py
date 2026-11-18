@@ -12,38 +12,38 @@ from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ResultMessage
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'orchestrator'))   # orchestrator.common.site and agent_spec: no ROS
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'orchestrator'))   # orchestrator: protocol and site, no ROS
+sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'g1_skills'))      # each agent skill's spec.py and prompt.py
 
-import agent_prompts as prompts
-
-from orchestrator import agent_spec as spec
+from orchestrator.agent import protocol
 from orchestrator.common.site import SiteError, load_site
 
 
 SITES = Path(__file__).resolve().parents[1] / 'orchestrator' / 'config' / 'sites'
 
-PROMPTS_SHA256 = hashlib.sha256(Path(prompts.__file__).read_bytes()).hexdigest()    # the agent_prompts.py this bridge loaded
 
 
 USAGE = '''Answer every agent call of the executor on the laptop.
 
 The executor keeps one TCP link to this bridge and pushes each call with its evidence and frames. The record of each
 call is kept on the NUC: the executor passes what the bridge reports (model, prompt, system prompt and its sha256, the
-sha256 of agent_prompts.py, decisions, usage, failure) to the run recorder. With --keep the bridge also keeps each call
-here in <local>/<call id>/ (call.json, the frames, bridge.json) and the timings in <local>/bridge_timing.jsonl, for debugging on the laptop. For press_judge and manipulation_recovery it asks
-the model with the evidence as text and the frames as images, no tools. A refused decision goes back to the model, at
-most twice. One warm model process waits per kind of call, so a call starts without process startup. An
-operator_confirm call never goes to the model: the bridge rings the bell, prints the question here, and sends the y or
-n typed in this terminal. The decisions, the answer schema and the framing come from orchestrator/agent_spec.py, which
-the executor uses too; a call of another agent_spec.PROTOCOL fails with the two versions in its error, so update this
-checkout to the branch the NUC runs. Run it in the venv that has claude-agent-sdk.'''
+sha256 of the skill's prompt.py, decisions, usage, failure) to the run recorder. With --keep the bridge also keeps each call here in <local>/<call id>/ (call.json, the frames,
+bridge.json) and the timings in <local>/bridge_timing.jsonl, for debugging on the laptop. Each agent skill is a folder of
+g1_skills with spec.py (its phases, decisions, fields and limits) and, when the model answers it, prompt.py (its system
+prompt and the prompt built from each call). The model gets the evidence as text and the frames as images, no tools. A refused decision goes back to the model, at
+most twice. One warm model process waits per kind of call, so a call starts without process startup. A
+skill answered by the operator (operator_confirm) never goes to the model: the bridge rings the bell, prints the
+question here, and sends the y or n typed in this terminal. The executor reads the same spec.py files and
+orchestrator/agent/protocol.py; a call of another protocol.PROTOCOL fails with the two versions in its error, so update
+this checkout to the branch the NUC runs. Run it in the venv that has claude-agent-sdk.'''
 
 MAX_RETRIES   = 2
 MODEL_TIMEOUT = 120.0
 CONFIRM_S     = 120.0                                   # operator_confirm's timeout_s: the executor gives up then
 ANSWERS       = {'y': 'confirmed', 'yes': 'confirmed', 'n': 'not_confirmed', 'no': 'not_confirmed'}
-KINDS         = [(spec.PHASE_SKILL[phase], tuple(spec.PHASE_DECISIONS[phase])) for phase in spec.MODEL_PHASES]   # warmed at start
+SKILLS        = protocol.agent_skills()                 # skill -> its spec.py
+KINDS         = [(skill, tuple(decisions)) for skill, spec in SKILLS.items() if spec.ANSWERED_BY == 'model'
+                 for decisions in dict.fromkeys(map(tuple, spec.PHASES.values()))]      # warmed at start
 
 
 def main():
@@ -73,22 +73,20 @@ def main():
     asyncio.run(Bridge(arguments).serve())
 
 
-def system_prompt(skill: str, limits: dict | None = None) -> str:
-    """The model's rules for skill; the recovery's carry the limits of the call (the bridge's own when warming up)"""
-    if skill == 'press_judge':
-        return prompts.JUDGE_SYSTEM
+def prompts_sha256(skill: str) -> str:
+    """The sha256 of the skill's prompt.py this bridge loaded, so a run record names the prompts that answered it"""
+    return hashlib.sha256(Path(protocol.load_prompt(skill).__file__).read_bytes()).hexdigest()
 
-    return prompts.recovery_system(limits or spec.limits())
+
+def system_prompt(skill: str, limits: dict | None = None) -> str:
+    """The model's rules for skill, with the limits of the call (the skill's own when warming up)"""
+    return protocol.load_prompt(skill).system(limits or SKILLS[skill].limits())
 
 
 def content(call: dict, images: dict) -> tuple[str, list[dict]]:
-    """The prompt text, and the user message: the text, then each image after its label"""
-    if call['skill'] == 'press_judge':
-        text, names = prompts.judge_prompt(call, set(images)), prompts.judge_images(set(images))
-    else:
-        text, names = prompts.recovery_prompt(call, 'camera' in images), ['camera'] if 'camera' in images else []
-
-    blocks = [{'type': 'text', 'text': text}]
+    """The prompt text, and the user message: the text, then each image the skill shows after its label"""
+    text, names = protocol.load_prompt(call['skill']).content(call, set(images))
+    blocks      = [{'type': 'text', 'text': text}]
 
     for name in names:
         media, data = images[name]
@@ -215,13 +213,13 @@ class Bridge:
 
         async with server:
             while True:
-                await asyncio.sleep(spec.PING_S)
+                await asyncio.sleep(protocol.PING_S)
                 await self.send({'type': 'ping'})
 
     def _model(self, skill: str, decisions: tuple, system: str | None = None) -> Model:
         return Model(ClaudeAgentOptions(
             model=self.arguments.model, effort=self.arguments.effort, tools=[], system_prompt=system or system_prompt(skill),
-            setting_sources=[], output_format={'type': 'json_schema', 'schema': spec.schema(skill, decisions)},
+            setting_sources=[], output_format={'type': 'json_schema', 'schema': protocol.schema(SKILLS[skill].FIELDS, decisions)},
             extra_args={'strict-mcp-config': None, 'no-session-persistence': None}, cwd=str(self.arguments.local),
         ))
 
@@ -239,7 +237,7 @@ class Bridge:
         data = json.dumps(header, default=str).encode()
 
         try:
-            self.writer.write(spec.HEADER.pack(len(data), 0) + data)
+            self.writer.write(protocol.HEADER.pack(len(data), 0) + data)
             await self.writer.drain()
         except (ConnectionError, RuntimeError):        # the executor sends the call again when it reconnects
             pass
@@ -253,9 +251,9 @@ class Bridge:
 
         try:
             while True:
-                sizes  = spec.HEADER.unpack(await reader.readexactly(spec.HEADER.size))
+                sizes  = protocol.HEADER.unpack(await reader.readexactly(protocol.HEADER.size))
 
-                if sizes[0] > spec.MAX_JSON or sizes[1] > spec.MAX_BINARY:     # a garbled header: drop the link
+                if sizes[0] > protocol.MAX_JSON or sizes[1] > protocol.MAX_BINARY:     # a garbled header: drop the link
                     raise ConnectionError(f'a message of {sizes} bytes is too large')
 
                 header = json.loads(await reader.readexactly(sizes[0]))
@@ -283,9 +281,10 @@ class Bridge:
 
     async def _answer(self, call: dict, binary: bytes, received: float):
         # (0) A call of another protocol: this checkout and the NUC's disagree on the call's shape, so fail it plainly
-        if call.get('protocol') != spec.PROTOCOL:
-            error = (f'protocol mismatch: the executor sends agent_spec.PROTOCOL {call.get("protocol")}, this bridge has '
-                     f'{spec.PROTOCOL}; run the bridge from the branch the NUC runs')
+        if call.get('protocol') != protocol.PROTOCOL or call.get('skill') not in SKILLS:
+            error = (f'protocol mismatch: the executor sends protocol.PROTOCOL {call.get("protocol")} for skill '
+                     f'{call.get("skill")}, this bridge has {protocol.PROTOCOL} and skills {sorted(SKILLS)}; run the bridge '
+                     'from the branch the NUC runs')
             print(f'{call["id"]}: {error}', flush=True)
             self.last[call['id']] = {'type': 'failed', 'id': call['id'], 'error': error}
             self.running.pop(call['id'], None)
@@ -312,7 +311,7 @@ class Bridge:
         log = {'call': call['id'], 'skill': call['skill'], 'phase': call.get('phase'), 'received': received, 'answers': []}
 
         try:
-            if call['skill'] == 'operator_confirm':
+            if SKILLS[call['skill']].ANSWERED_BY == 'operator':
                 await self._ask_operator(call, log)
             else:
                 await self._ask_model(call, images, log)
@@ -332,7 +331,7 @@ class Bridge:
         model        = self._take(call['skill'], decisions, system)
         text, blocks = content(call, images)
         prompt       = {'prompt': text, 'system': system, 'system_sha256': hashlib.sha256(system.encode()).hexdigest(),
-                        'prompts_sha256': PROMPTS_SHA256}
+                        'prompts_sha256': prompts_sha256(call['skill'])}
         log.update({'model': self.arguments.model, 'effort': self.arguments.effort, **prompt})
         await self.send({'type': 'started', 'id': call['id'], 'model': self.arguments.model, 'effort': self.arguments.effort, **prompt,
                          'received': log['received']})

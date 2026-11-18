@@ -3,7 +3,7 @@
 <package format="3">
   <name>skill_registry</name>
   <version>0.0.0</version>
-  <description>Skill contracts, online skill discovery, and a validator for behavior trees before they run</description>
+  <description>The skill contract model, online skill discovery, and a validator for behavior trees before they run</description>
   <maintainer email="karankha@andrew.cmu.edu">Karan Khanna</maintainer>
   <license>MIT</license>
 

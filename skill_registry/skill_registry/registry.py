@@ -1,3 +1,5 @@
+import importlib.util
+
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -15,10 +17,15 @@ class Registry:
 
     @classmethod
     def from_directory(cls, directory: Path) -> 'Registry':
-        paths = sorted(Path(directory).glob('*.yaml'))
+        return cls.from_directories([directory])
+
+    @classmethod
+    def from_directories(cls, directories: list[Path]) -> 'Registry':
+        """Every contract in the directories: a skill folder's contract.yaml, or a flat <name>.yaml"""
+        paths = [path for directory in directories for path in contract_paths(Path(directory))]
 
         if not paths:
-            raise ContractError(f'no contracts (*.yaml) in {directory}')
+            raise ContractError(f'no contracts (*/contract.yaml or *.yaml) in {[str(directory) for directory in directories]}')
 
         registry = cls([load_contract(path) for path in paths])
         registry.check_references()
@@ -60,6 +67,31 @@ class Registry:
                     raise ContractError(f'{contract.name}: unknown fallback {fallback}')
 
 
+DEFAULT_SKILL_PACKAGES = ['g1_skills']
+
+
+def contract_paths(directory: Path) -> list[Path]:
+    return sorted([*directory.glob('*/contract.yaml'), *directory.glob('*.yaml')])
+
+
+def contract_directories(skill_packages: list[str] | None = None, directory: str = '') -> list[Path]:
+    """Where the contracts are: directory when given, else each skill package's folder (one folder per skill)"""
+    if directory:
+        return [Path(directory)]
+
+    found = []
+
+    for package in skill_packages or DEFAULT_SKILL_PACKAGES:
+        spec = importlib.util.find_spec(package)
+
+        if spec is None or not spec.submodule_search_locations:
+            raise ContractError(f'no skill package {package}: build it, or give contracts_directory')
+
+        found.append(Path(next(iter(spec.submodule_search_locations))))
+
+    return found
+
+
 @dataclass
 class GraphSnapshot:
     """Names in the ROS graph at one moment: services with a server, topics with a publisher or a subscriber"""
@@ -80,7 +112,7 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport == 'action':
         return f'{_absolute(interface.name)}/_action/send_goal' in graph.services
 
-    if interface.transport in ('service', 'reach'):
+    if interface.transport == 'service':
         return _absolute(interface.name) in graph.services
 
     if interface.transport == 'watch':
@@ -98,7 +130,11 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport in ('agent', 'compare', 'alive', 'command'):
         return True                 # they run inside the executor; alive and command must work while the stacks are down
 
-    if interface.transport == 'in_view':
-        return interface.target['box_topic'] in graph.published
+    if interface.transport == 'python':
+        need = interface.requires
+
+        return (all(_absolute(name) in graph.services for name in need.get('services', []))
+                and all(name in graph.published for name in need.get('published', []))
+                and all(_absolute(name) in graph.subscribed for name in need.get('subscribed', [])))
 
     return False                    # a tree is not a name in the graph

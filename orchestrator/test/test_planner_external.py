@@ -11,7 +11,7 @@ from orchestrator.planning.backends import BackendError
 from orchestrator.planning.external import ExternalPlannerBackend
 
 
-CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
+CONTRACTS = Path(__file__).resolve().parents[2] / 'g1_skills' / 'g1_skills'
 TREES     = Path(__file__).resolve().parents[2] / 'orchestrator' / 'test_trees'
 PLACES    = {'inside_freight_elevator_button_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}
 

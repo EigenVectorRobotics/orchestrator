@@ -2,11 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from skill_registry import ContractError, Registry, TreeValidator, ValidatorConfig, load_tree, parse_contract
+from skill_registry import ContractError, GraphSnapshot, Registry, TreeValidator, ValidatorConfig, is_present, load_tree, parse_contract
 
 
 PACKAGE   = Path(__file__).resolve().parent.parent
-CONTRACTS = PACKAGE / 'contracts'
+CONTRACTS = PACKAGE.parent / 'g1_skills' / 'g1_skills'      # the G1's skills: one folder each
 
 
 def _tree(body: str) -> str:
@@ -23,7 +23,7 @@ def test_seed_contracts_load():
     registry = Registry.from_directory(CONTRACTS)
 
     assert 'navigate_to' in registry
-    assert len(registry) == len(list(CONTRACTS.glob('*.yaml')))
+    assert len(registry) == len(list(CONTRACTS.glob('*/contract.yaml')))
 
 
 def test_the_library_tree_is_valid_online_only():
@@ -198,27 +198,39 @@ def test_failure_when_reads_action_feedback_only():
     assert (held.field, held.equals, held.hold_s) == ('state', 'blocked', 10)
 
 
-def test_the_stance_checks_need_their_topics_and_only_conditions_record():
+def test_a_python_skill_may_be_a_condition_and_names_what_it_needs_up():
     base = {'name': 'x', 'kind': 'condition', 'device': 'nuc'}
+    view = {'transport': 'python', 'name': '/keyboard_input', 'ros_type': 'std_msgs/msg/String',
+            'requires': {'published': ['/b']}}
 
-    view = {'transport': 'in_view', 'name': '/keyboard_input', 'ros_type': 'std_msgs/msg/String',
-            'success_when': {'topic': '/track_3d/is_tracking', 'ros_type': 'std_msgs/msg/Bool', 'field': 'data', 'equals': True},
-            'target': {'box_topic': '/b', 'pose_topic': '/p'}}
-    seek = {**base, 'kind': 'action', 'timeout_s': 15, 'inputs': [{'name': 'query', 'type': 'string'}]}
+    assert parse_contract({**base, 'interface': view}).interface.requires == {'published': ['/b']}
+    assert parse_contract({**base, 'config': {'target': {'pose_topic': '/p'}}, 'interface': view}).config['target']['pose_topic'] == '/p'
+
+    with pytest.raises(ContractError, match='interface.requires takes'):
+        parse_contract({**base, 'interface': {**view, 'requires': {'nodes': ['/n']}}})
 
     with pytest.raises(ContractError, match='a condition must only read'):
-        parse_contract({**base, 'interface': view})
-
-    with pytest.raises(ContractError, match='target.pose_topic and a query input'):
-        parse_contract({**seek, 'interface': {**view, 'target': {'box_topic': '/b'}}})
-
-    assert parse_contract({**seek, 'interface': view}).interface.target['pose_topic'] == '/p'
+        parse_contract({**base, 'interface': {'transport': 'topic', 'name': '/t', 'ros_type': 'std_msgs/msg/Empty'}})
 
     with pytest.raises(ContractError, match='record is for conditions'):
         parse_contract({**base, 'kind': 'action', 'timeout_s': 1, 'record': True,
                         'interface': {'transport': 'topic', 'name': '/t', 'ros_type': 'std_msgs/msg/Empty'}})
 
-    assert parse_contract({**base, 'record': True, 'interface': {'transport': 'reach'}}).record
+    assert parse_contract({**base, 'record': True, 'interface': {'transport': 'python'}}).record
+
+
+def test_a_python_skill_is_live_when_what_it_needs_is_up():
+    contract = parse_contract({'name': 'x', 'kind': 'condition', 'device': 'nuc',
+                               'interface': {'transport': 'python', 'requires': {'services': ['/check_reach'], 'published': ['/b']}}})
+
+    assert is_present(contract, GraphSnapshot(services={'/check_reach'}, published={'/b'}, subscribed=set()), vlm_up=False)
+    assert not is_present(contract, GraphSnapshot(services=set(), published={'/b'}, subscribed=set()), vlm_up=False)
+
+
+def test_flat_contract_files_still_load(tmp_path):
+    (tmp_path / 'say.yaml').write_text((CONTRACTS / 'say' / 'contract.yaml').read_text())
+
+    assert 'say' in Registry.from_directory(tmp_path)
 
 
 def test_a_watch_equals_input_names_an_input():
