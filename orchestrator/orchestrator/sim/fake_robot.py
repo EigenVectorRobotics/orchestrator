@@ -19,6 +19,8 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import Trigger
+from rcl_interfaces.msg import SetParametersResult
+from rcl_interfaces.srv import SetParameters
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped, TransformStamped
 from tf2_ros import TransformBroadcaster
@@ -66,6 +68,7 @@ class FakeRobot(Node):
         self.create_subscription(String, SPEAK_TOPIC, self._on_tts, COMMAND_QOS)
 
         self.create_service(Trigger, '/unitree_interface/release_arms', self._on_trigger)
+        self.create_service(SetParameters, '/move_to_pose_server/set_parameters', self._on_set_parameters)   # set_press_offset
 
         self._make_nav_action()
         self._make_arm_action()
@@ -216,6 +219,11 @@ class FakeRobot(Node):
 
     def _on_tts(self, message: String):
         self.get_logger().info(f'SAY: {message.data}')
+
+    def _on_set_parameters(self, request, response):
+        self.get_logger().info(f'press offset: {[(item.name, item.value.double_value) for item in request.parameters]}')
+        response.results = [SetParametersResult(successful=True) for _ in request.parameters]
+        return response
 
     def _on_trigger(self, request, response):
         response.success = True

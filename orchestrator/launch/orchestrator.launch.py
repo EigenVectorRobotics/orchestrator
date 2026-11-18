@@ -27,7 +27,7 @@ DEFAULTS = {
 }
 
 
-def resolve(given: dict, site: dict, share: Path, registry_share: Path) -> dict:
+def resolve(given: dict, site: dict, share: Path) -> dict:
     """Every value the nodes get: a launch argument given on the command line, else the site, else the default"""
     value  = lambda name: given.get(name) or site.get(name) or DEFAULTS[name]
     fake   = given.get('fake') == 'true'
@@ -38,7 +38,7 @@ def resolve(given: dict, site: dict, share: Path, registry_share: Path) -> dict:
         'record':          given.get('record') != 'false',
         'preflight':       given.get('preflight') == 'true' if fake else given.get('preflight') != 'false',   # fake: off unless asked
         'params_file':     given.get('params_file') or str(share / 'config' / 'orchestrator.yaml'),
-        'contracts':       given.get('contracts_directory') or str(registry_share / 'contracts'),
+        'contracts':       given.get('contracts_directory') or '',          # empty: the skill packages' folders
         'places_file':     given.get('places_file') or site.get('places_file') or str(share / 'config' / 'places.yaml'),
         'vlm_base_url':    'http://127.0.0.1:8090/v1' if fake else value('vlm_base_url'),
         'planner_backend': value('planner_backend'),
@@ -59,8 +59,7 @@ def resolve(given: dict, site: dict, share: Path, registry_share: Path) -> dict:
 def _actions(context):
     share  = Path(get_package_share_directory('orchestrator'))
     given  = dict(context.launch_configurations)
-    found  = resolve(given, load_site(given.get('site', ''), share / 'config' / 'sites'), share,
-                     Path(get_package_share_directory('skill_registry')))
+    found  = resolve(given, load_site(given.get('site', ''), share / 'config' / 'sites'), share)
     shared = [found['params_file'], {'contracts_directory': found['contracts'], 'places_file': found['places_file'],
                                      'vlm_base_url': found['vlm_base_url']}]
     executor = {'require_recorder': found['record'], 'require_preflight': found['preflight'], 'agent_backend': found['agent_backend'],
@@ -104,7 +103,7 @@ def generate_launch_description():
         DeclareLaunchArgument('vlm_base_url', default_value='', description=f'default: {DEFAULTS["vlm_base_url"]}'),
         DeclareLaunchArgument('agent_backend', default_value='push', description='push | none'),
         DeclareLaunchArgument('params_file', default_value='', description='parameters for all nodes; default: config/orchestrator.yaml'),
-        DeclareLaunchArgument('contracts_directory', default_value=''),
+        DeclareLaunchArgument('contracts_directory', default_value='', description='one folder of contracts instead of the skill packages (g1_skills)'),
         DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses trees while it is not ready'),
         DeclareLaunchArgument('preflight', default_value='', description='the planner runs the preflight before each task and the executor refuses a task tree until one passed '
                               '(send_tree --skip-preflight runs one anyway); true | false, default true, false with fake:=true'),

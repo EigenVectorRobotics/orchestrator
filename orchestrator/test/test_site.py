@@ -53,7 +53,7 @@ def _launch():
 
 
 def _resolve(given: dict, site: str = ''):
-    return _launch().resolve(given, load_site(site, SITES), PACKAGE, Path('/registry'))
+    return _launch().resolve(given, load_site(site, SITES), PACKAGE)
 
 
 def test_the_launch_takes_the_site_and_a_given_argument_wins():
