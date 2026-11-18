@@ -1,13 +1,13 @@
 name: launch_thor_stack
 kind: action
 device: nuc
-description: Start the Thor bringup and cosmos_vlm_server in tmux over ssh from the NUC. Does nothing for a part that runs.
+description: Start the Thor bringup and vlm_server in tmux over ssh from the NUC. Does nothing for a part that runs.
 interface:
   transport: command
   command: |
     env -u LD_PRELOAD ssh -o BatchMode=yes -o ConnectTimeout=5 vector@192.168.123.1 bash -s <<'REMOTE'
     tmux -L eigen_vector_bringup has-session -t eigen_vector_bringup 2>/dev/null || tmux -L eigen_vector_bringup new-session -d -s eigen_vector_bringup "bash -lc 'source ~/eigen_vector_ws_bringup/env.sh && ros2 launch bringup thor.launch.py 2>&1 | tee ~/eigen_vector_ws_bringup/launch.log'"
-    tmux has-session -t cosmos_vlm 2>/dev/null || tmux new -d -s cosmos_vlm "env -i HOME=\$HOME USER=\$USER LANG=C.UTF-8 PATH=/usr/local/bin:/usr/bin:/bin bash --noprofile --norc -c 'source ~/eigen_vector_ws_bringup/env.sh && exec python3 ~/orchestrator_ws/src/orchestrator/orchestrator/orchestrator/vlm/cosmos_server.py --port 8090'"
+    tmux has-session -t vlm_server 2>/dev/null || tmux new -d -s vlm_server "env -i HOME=\$HOME USER=\$USER LANG=C.UTF-8 PATH=/usr/local/bin:/usr/bin:/bin bash --noprofile --norc -c 'source ~/eigen_vector_ws_bringup/env.sh && exec python3 ~/orchestrator_ws/src/orchestrator/orchestrator/orchestrator/vlm/server.py --port 8090'"
     REMOTE
 timeout_s: 30
 maturity: untested

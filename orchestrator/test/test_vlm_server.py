@@ -8,7 +8,7 @@ from http.server import ThreadingHTTPServer
 
 from PIL import Image
 
-from orchestrator.vlm.cosmos_server import CosmosAnswerer, make_handler, parse_request
+from orchestrator.vlm.server import VlmAnswerer, make_handler, parse_request
 
 
 def _jpeg(colour, size=(64, 48)) -> bytes:
@@ -17,7 +17,7 @@ def _jpeg(colour, size=(64, 48)) -> bytes:
     return buffer.getvalue()
 
 
-class FakeCosmos:
+class FakeVlm:
     def __init__(self, busy_times: int = 0):
         self.busy_times = busy_times
         self.prompts    = []
@@ -37,18 +37,18 @@ def _request(question: str) -> dict:
         {'type': 'image_url', 'image_url': {'url': url}}, {'type': 'text', 'text': question}]}]}
 
 
-def test_the_cosmos_server_answers_one_image_and_waits_out_a_busy_daemon():
+def test_the_server_answers_one_image_and_waits_out_a_busy_model():
     image, text, max_tokens = parse_request(_request('Is it lit?'))
-    model                   = FakeCosmos(busy_times=2)
-    answerer                = CosmosAnswerer(model, busy_wait_s=5.0)
+    model                   = FakeVlm(busy_times=2)
+    answerer                = VlmAnswerer(model, busy_wait_s=5.0)
 
     assert text == 'Is it lit?' and max_tokens == 64
     assert answerer.answer(image, text, max_tokens) == 'lit'
     assert model.prompts[0][0] == (48, 64, 3)
 
 
-def test_the_cosmos_server_speaks_chat_completions():
-    server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(CosmosAnswerer(FakeCosmos())))
+def test_the_server_speaks_chat_completions():
+    server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(VlmAnswerer(FakeVlm())))
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     try:

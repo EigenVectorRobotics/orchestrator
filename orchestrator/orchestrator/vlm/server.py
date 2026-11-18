@@ -1,13 +1,13 @@
-"""cosmos_vlm_server: an OpenAI-compatible /v1/chat/completions endpoint on the Thor, answered by the resident Cosmos daemon.
+"""vlm_server: an OpenAI-compatible /v1/chat/completions endpoint in front of any VLM with query(image, prompt, max_tokens).
 
-The executor's VLM conditions (door_open_vlm, ask_vlm) post one image and one closed question to vlm_base_url. On the
-Thor the model is the Edge-LLM Cosmos-Reason2 daemon, which the vlm package reaches through its file queue
-(vlm.models.EdgeLlmVlm) and which serves one request at a time, also for ground_server. This server answers each
-request with one daemon query, and waits while the daemon is busy.
+The executor's VLM conditions (door_open_vlm, ask_vlm) post one image and one closed question to vlm_base_url. This
+server answers each request with one query, one at a time, and waits while the model says it is busy. A model is an
+entry of MODELS; edgellm is the Thor's Edge-LLM Cosmos-Reason2 daemon, which the vlm package reaches through its file
+queue (vlm.models.EdgeLlmVlm) and which also serves ground_server.
 
-Run it on the Thor, in the environment that runs ground_server (it needs the vlm package and the daemon):
+Run it on the Thor, in the environment that runs ground_server (edgellm needs the vlm package and the daemon):
 
-  ros2 run orchestrator cosmos_vlm_server --port 8090
+  ros2 run orchestrator vlm_server --port 8090
 
 Only the first image and the text of the last user message are used; response_format is not enforced, so the
 question itself must name the answers (the executor's VLM client does).
@@ -29,15 +29,20 @@ import numpy as np
 DATA_URL = re.compile(r'^data:image/[a-z]+;base64,(.*)$', re.DOTALL)
 
 
-class CosmosAnswerer:
-    """One closed question about one image, through the daemon; retries while it is busy"""
+def edgellm_model():
+    """The Thor's Edge-LLM daemon; the vlm package exists only on the Thor, so it is imported here"""
+    from vlm.models import EdgeLlmConfig, EdgeLlmVlm
 
-    def __init__(self, model=None, busy_wait_s: float = 20.0, max_tokens: int = 64):
-        if model is None:
-            from vlm.models import EdgeLlmConfig, EdgeLlmVlm       # on the Thor, from the vlm package
+    return EdgeLlmVlm(EdgeLlmConfig())
 
-            model = EdgeLlmVlm(EdgeLlmConfig())
 
+MODELS = {'edgellm': edgellm_model}            # --model name -> a factory of an object with query(image, prompt, max_tokens)
+
+
+class VlmAnswerer:
+    """One closed question about one image, through the model; retries while it says it is busy"""
+
+    def __init__(self, model, busy_wait_s: float = 20.0, max_tokens: int = 64):
         self.model       = model
         self.busy_wait_s = busy_wait_s
         self.max_tokens  = max_tokens
@@ -53,7 +58,7 @@ class CosmosAnswerer:
             while True:
                 try:
                     return self.model.query(image, prompt, max_tokens=min(max_tokens, self.max_tokens))
-                except Exception as error:              # VlmError from the vlm package; busy is the one to wait out
+                except Exception as error:              # a busy model is the one error to wait out
                     if 'busy' not in str(error) or time.monotonic() > deadline:
                         raise
 
@@ -78,7 +83,7 @@ def parse_request(body: dict) -> tuple[bytes, str, int]:
     return base64.b64decode(match.group(1)), text, int(body.get('max_tokens') or 64)
 
 
-def make_handler(answerer: CosmosAnswerer):
+def make_handler(answerer: VlmAnswerer, model_name: str = 'vlm'):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             if not self.path.rstrip('/').endswith('/chat/completions'):
@@ -92,13 +97,13 @@ def make_handler(answerer: CosmosAnswerer):
 
             try:
                 answer = answerer.answer(image, text, max_tokens)
-            except Exception as error:                  # the daemon is down, busy too long, or failed
-                return self._reply(503, {'error': f'cosmos: {error}'})
+            except Exception as error:                  # the model is down, busy too long, or failed
+                return self._reply(503, {'error': f'{model_name}: {error}'})
 
             self._reply(200, {'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': answer}, 'finish_reason': 'stop'}]})
 
         def do_GET(self):
-            self._reply(200, {'data': [{'id': 'cosmos', 'object': 'model'}]})
+            self._reply(200, {'data': [{'id': model_name, 'object': 'model'}]})
 
         def _reply(self, code: int, payload: dict):
             data = json.dumps(payload).encode()
@@ -115,14 +120,16 @@ def make_handler(answerer: CosmosAnswerer):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='OpenAI-compatible endpoint for the Cosmos daemon on the Thor')
+    parser = argparse.ArgumentParser(description='OpenAI-compatible endpoint in front of a VLM (default: the Edge-LLM daemon on the Thor)')
+    parser.add_argument('--model', choices=sorted(MODELS), default='edgellm')
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8090)
-    parser.add_argument('--busy-wait', type=float, default=20.0, help='seconds to wait while the daemon serves another request')
+    parser.add_argument('--busy-wait', type=float, default=20.0, help='seconds to wait while the model serves another request')
     arguments = parser.parse_args()
 
-    server = ThreadingHTTPServer((arguments.host, arguments.port), make_handler(CosmosAnswerer(busy_wait_s=arguments.busy_wait)))
-    print(f'cosmos_vlm_server on {arguments.host}:{arguments.port}', flush=True)
+    answerer = VlmAnswerer(MODELS[arguments.model](), busy_wait_s=arguments.busy_wait)
+    server   = ThreadingHTTPServer((arguments.host, arguments.port), make_handler(answerer, arguments.model))
+    print(f'vlm_server ({arguments.model}) on {arguments.host}:{arguments.port}', flush=True)
 
     try:
         server.serve_forever()

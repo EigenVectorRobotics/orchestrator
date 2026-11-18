@@ -11,5 +11,5 @@ maturity: untested
 source: orchestrator/orchestrator/health/checks.py (judge_alive)
 notes: >-
   Before a task (preflight). Only the grounding is checked: button_in_view and press_button need it. The VLM endpoint
-  (cosmos_vlm_server, the executor's vlm_base_url) is not checked: no tree asks the VLM (only ask_vlm and the disabled
+  (vlm_server, the executor's vlm_base_url) is not checked: no tree asks the VLM (only ask_vlm and the disabled
   door_open_vlm use it), so a Thor whose VLM is down no longer stops every task.
