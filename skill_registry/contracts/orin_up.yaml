@@ -1,11 +1,12 @@
 name: orin_up
 kind: condition
 device: nuc
-description: The Orin stack runs - camera, track_3d and gripper_pose_estimator (one pose topic per arm)
+description: The Orin stack runs - camera, track_3d and gripper_pose_estimator (node gripper_estimation, which publishes only TF)
 interface:
   transport: alive
   alive:
-    topics: [/camera/camera/color/image_raw, /track_3d/detections_2d, /left_gripper_pose, /right_gripper_pose]
+    topics: [/camera/camera/color/image_raw, /track_3d/detections_2d]
+    services: [/gripper_estimation/get_parameters]
 timeout_s: 10
 maturity: untested
 source: orchestrator/orchestrator/preflight_checks.py (judge_alive)

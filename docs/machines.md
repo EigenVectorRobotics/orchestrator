@@ -220,7 +220,7 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 
 #### 11. `orin.launch.py` must start `gripper_pose_estimator`. Status: check
 
-- **Why:** `orin_up` waits for `/left_gripper_pose` and `/right_gripper_pose`, and `launch_orin_stack` no longer starts a second estimator in tmux.
+- **Why:** `orin_up` waits for the estimator's node (`/gripper_estimation/get_parameters`), and `launch_orin_stack` no longer starts a second estimator in tmux.
 - **Repository side:** done. `eigen_vector` `main` `bringup/launch/orin.launch.py` starts `humanoid_arm_skills` `gripper_pose_estimator`, and `manipulation_stack` `main` has it (#10).
 - **When checked:** the Orin ran `manipulation_stack` `cam-gripper-estimation` @ `ba0cbfa` with 2 uncommitted files. Deploy `main` and bringup from `eigen_vector` `main`.
 
