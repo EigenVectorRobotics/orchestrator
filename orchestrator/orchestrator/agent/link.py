@@ -32,8 +32,7 @@ import threading
 from typing import Callable
 from pathlib import Path
 
-from .api import CallImage
-from .engine import AgentError, AgentSession
+from .api import AgentError, AgentSession, CallImage
 from .protocol import HEADER, MAX_BINARY, MAX_JSON, PING_S, PROTOCOL
 
 

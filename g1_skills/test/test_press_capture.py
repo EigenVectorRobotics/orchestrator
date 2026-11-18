@@ -8,9 +8,9 @@ from skill_registry import Registry
 
 from pathlib import Path
 
-from orchestrator.sensing.frames import FrameBuffer
+from orchestrator.sensing import FrameBuffer
 
-from g1_skills.lib.boxes import BoxBuffer
+from g1_skills.lib.tracking import BoxBuffer
 from g1_skills.press_button.capture import CaptureConfig, PhaseTracker, PressCapture, crop_around
 
 
@@ -220,7 +220,7 @@ def test_the_residual_is_in_the_goal_frame_x_in_y_left_z_up():
 
 def test_a_service_field_path_can_index_a_sequence():
     from rcl_interfaces.srv import SetParameters
-    from orchestrator.skills.messages import build_message
+    from orchestrator.skills.transports import build_message
 
     contract = Registry.from_directory(CONTRACTS).get('set_press_offset')
     build_message(SetParameters.Request, contract, {'x': 0.0, 'y': 0.0, 'z': 0.0}, None)      # the contract stays reusable

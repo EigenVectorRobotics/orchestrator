@@ -1,7 +1,7 @@
 
 import pytest
 
-from g1_skills.button_in_view.checks import judge_arm, judge_view
+from g1_skills.button_in_view.skill import judge_arm, judge_view
 
 
 IMAGE = (1280, 720)

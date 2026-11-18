@@ -15,7 +15,7 @@ from rosidl_runtime_py.utilities import get_action, get_message, get_service
 
 from skill_registry import Registry
 
-from orchestrator.skills.messages import build_message
+from orchestrator.skills.transports import build_message
 
 
 CONTRACTS = Path(__file__).resolve().parents[1] / 'g1_skills'

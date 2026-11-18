@@ -25,7 +25,7 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped, TransformStamped
 from tf2_ros import TransformBroadcaster
 
-from ..common.topics import COMMAND_QOS, LATCHED_QOS, SPEAK_TOPIC
+from .common.topics import COMMAND_QOS, LATCHED_QOS, SPEAK_TOPIC
 
 
 BUTTON_BOX = (300, 220, 340, 260)       # where the fake camera draws the button, x_min y_min x_max y_max

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.common.site import SiteError, load_site, site_path
+from orchestrator.common.config import SiteError, load_site, site_path
 
 
 PACKAGE = Path(__file__).resolve().parents[1]

@@ -10,11 +10,11 @@ import pytest
 from skill_registry import Registry
 
 from orchestrator.agent import link as agent_push
-from orchestrator.agent.engine import Agent
+from orchestrator.agent.api import Agent
 from orchestrator.agent.link import PushAgentBackend, PushLink, read_message, send_message
 from orchestrator.tree.engine import BehaviorTree, Context, Status
 from orchestrator.recording.recorder import Recorder, RecorderConfig
-from orchestrator.tree.factory import make_leaf_factory
+from orchestrator.tree.leaf import make_leaf_factory
 
 from fakes import press_ctx
 from test_agent import CONTRACTS, JUDGE_TREE, PANEL, FakeRunner

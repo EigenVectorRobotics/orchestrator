@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'orchestrator'))   
 sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'g1_skills'))      # each agent skill's spec.py and prompt.py
 
 from orchestrator.agent import protocol
-from orchestrator.common.site import SiteError, load_site
+from orchestrator.common.config import SiteError, load_site
 
 
 SITES = Path(__file__).resolve().parents[1] / 'orchestrator' / 'config' / 'sites'

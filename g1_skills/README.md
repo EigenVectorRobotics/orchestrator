@@ -16,7 +16,7 @@ it needs, its agent prompts and its notes. To add or change a skill, you edit on
 | `__init__.py` | when the folder has code | Empty |
 
 Code that two or more skills share goes in `lib/`: `press.py` (the press offset in force and the last press),
-`tracking.py` and `boxes.py` (what track_anything publishes), `text.py` (number formatting for prompts).
+`tracking.py` (what track_anything publishes), `text.py` (number formatting for prompts).
 
 ## Four ways to extend
 
@@ -96,7 +96,7 @@ The skill reads its own settings from `config` in its contract (`self.config`), 
 ### 3. A fully custom skill: `transport: python`
 
 When no transport fits, set `transport: python` and implement `start()`, which returns a handle (`orchestrator.skills.api.Handle`
-or one of `orchestrator.skills.handles`). List what must be up for the skill to be live under `interface.requires`
+or one of `orchestrator.skills.transports`). List what must be up for the skill to be live under `interface.requires`
 (`services`, `published`, `subscribed`). A condition may use `python`; its code must only read.
 
 ```yaml
@@ -114,7 +114,7 @@ config:
 ```
 
 See `check_reach/skill.py` (a service call with its own request and verdict) and `button_in_view/skill.py` (seed the
-tracker, then judge what it sees; the pure checks are in `checks.py`).
+tracker, then judge what it sees).
 
 ### 4. A decision by a model or the operator: an agent skill
 
@@ -157,5 +157,5 @@ ROS. `operator_confirm/` is the smallest example; `manipulation_recovery/` the l
 - A change to an agent skill's `spec.py` or `prompt.py` reaches the model only when the laptop's bridge runs the same
   checkout: pull and restart it.
 
-A new transport (rare) is a module in `orchestrator/orchestrator/skills/transports/`, added to `default_transports()`
-there, and its name added to `TRANSPORTS` in `skill_registry/skill_registry/contract.py`.
+A new transport (rare) is a `Transport` subclass in `orchestrator/orchestrator/skills/transports.py`, added to
+`default_transports()` there, and its name added to `TRANSPORTS` in `skill_registry/skill_registry/contract.py`.

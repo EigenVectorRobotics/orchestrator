@@ -6,7 +6,7 @@ from rosidl_runtime_py.utilities import get_service
 
 from orchestrator.common.geometry import rotate
 from orchestrator.skills.api import Handle, Skill
-from orchestrator.skills.handles import ServiceHandle
+from orchestrator.skills.transports import ServiceHandle
 from orchestrator.tree.engine import Status
 
 from ..lib.press import press_state

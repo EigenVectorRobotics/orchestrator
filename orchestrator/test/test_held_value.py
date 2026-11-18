@@ -4,8 +4,8 @@ pytest.importorskip('rclpy')
 
 from skill_registry.contract import HeldValue
 
-from orchestrator.skills.messages import read_field
-from orchestrator.skills.watch import HoldTimer
+from orchestrator.skills.transports import read_field
+from orchestrator.skills.transports import HoldTimer
 
 
 def test_a_value_must_hold_without_a_break():

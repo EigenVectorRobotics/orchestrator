@@ -1,16 +1,25 @@
-"""Parameters and loading shared by the executor and planner nodes"""
+"""What the executor and planner nodes share: their parameters and loading, and the trace"""
 
-import yaml
+import json
+import time
 
 from pathlib import Path
 
+import yaml
+
 from rclpy.node import Node
+from std_msgs.msg import String
+from rcl_interfaces.msg import Log
 from ament_index_python.packages import get_package_share_directory
 
 from skill_registry import DEFAULT_ESSENTIAL_DEVICES, DEFAULT_SKILL_PACKAGES, Registry, contract_directories
 
-from ..common.places import parse_places, place_floors
+from ..common.config import parse_places, place_floors
+from ..common.topics import LOG_TOPIC, TRACE_QOS, TRACE_TOPIC
 from ..skills.loader import SkillLibrary
+
+
+LEVELS = {'debug': Log.DEBUG, 'info': Log.INFO, 'warn': Log.WARN, 'error': Log.ERROR}
 
 
 def load_places(path: str) -> dict:
@@ -48,3 +57,29 @@ def load_skills(node: Node) -> tuple[Registry, dict, set[str], SkillLibrary]:
     essential_devices                        = node.declare_parameter('essential_devices', sorted(DEFAULT_ESSENTIAL_DEVICES)).value
 
     return Registry.from_directories(directories), load_places(places_file), set(essential_devices), SkillLibrary(skill_packages)
+
+
+class Tracer:
+    """Every planner and executor step, as JSON on /orchestrator/trace and as a line for the Foxglove Log panel"""
+
+    def __init__(self, node: Node, source: str):
+        self.node   = node
+        self.source = source
+        self.fields = {}            # added to every event, e.g. the run_id of the tree that runs
+
+        self._json_publisher = node.create_publisher(String, TRACE_TOPIC, TRACE_QOS)
+        self._log_publisher  = node.create_publisher(Log, LOG_TOPIC, TRACE_QOS)
+
+    def emit(self, kind: str, text: str, level: str = 'info', **data):
+        event = {'time': time.time(), 'source': self.source, 'kind': kind, 'text': text, **self.fields, **data}
+
+        self._json_publisher.publish(String(data=json.dumps(event, default=str)))
+
+        log = Log()
+
+        log.stamp = self.node.get_clock().now().to_msg()
+        log.level = LEVELS[level]
+        log.name  = f'{self.source}.{kind}'
+        log.msg   = text
+
+        self._log_publisher.publish(log)

@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from operator import itemgetter
 from dataclasses import dataclass
 
-from ..common.paths import ARTIFACTS_DIR, RUNS_DIR, STATE_DIR
+from ..common.config import ARTIFACTS_DIR, RUNS_DIR, STATE_DIR
 
 
 RUN_END_KINDS    = ('finished', 'halted', 'error')

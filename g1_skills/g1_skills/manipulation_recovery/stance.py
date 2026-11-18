@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from orchestrator.common.geometry import rotate, turn_2d, wrap
-from orchestrator.common.paths import STATE_DIR
+from orchestrator.common.config import STATE_DIR
 
 from .spec import WALK_MIN_M       # navigate_to ends a shorter walk without a step
 

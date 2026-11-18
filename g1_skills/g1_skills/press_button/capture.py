@@ -24,9 +24,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from orchestrator.sensing.frames import FrameBuffer
+from orchestrator.sensing import FrameBuffer
 
-from ..lib.boxes import BoxBuffer
+from ..lib.tracking import BoxBuffer
 
 
 FRAMES = ('baseline', 'press', 'release')

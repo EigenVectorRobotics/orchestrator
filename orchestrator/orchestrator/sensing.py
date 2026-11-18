@@ -3,9 +3,56 @@ import threading
 from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.duration import Duration
+from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped
 
-from ..common.geometry import to_rpy, transform_pose
+from .common.images import ImageError, image_to_jpeg
+from .common.topics import SENSOR_QOS
+from .common.geometry import to_rpy, transform_pose
+
+
+class FrameBuffer:
+    """The last few seconds of camera frames: (ROS time, JPEG or PNG bytes)"""
+
+    def __init__(self, keep_s: float = 8.0):
+        self.keep_s  = keep_s
+        self._frames = []
+        self._lock   = threading.Lock()
+
+    def add(self, t: float, data: bytes):
+        with self._lock:
+            self._frames.append((t, data))
+            self._frames = [frame for frame in self._frames if frame[0] >= t - self.keep_s]
+
+    def first_after(self, t: float):
+        with self._lock:
+            return next((frame for frame in self._frames if frame[0] >= t), None)
+
+
+class Camera:
+    """The head camera: its latest frame as JPEG, its size, and the last seconds of frames by their stamps"""
+
+    def __init__(self, node: Node, topic: str):
+        self.node   = node
+        self.topic  = topic
+        self.jpeg   = None
+        self.size   = None              # (width, height) of the last frame
+        self.frames = FrameBuffer()
+
+        node.create_subscription(Image, topic, self._on_image, SENSOR_QOS)
+
+    def _on_image(self, message: Image):
+        """Raw frames from the RealSense, encoded here: the Orin publishes no compressed transport"""
+        try:
+            jpeg = image_to_jpeg(message)
+        except ImageError as error:
+            self.node.get_logger().warn(f'camera frame dropped: {error}', throttle_duration_sec=10.0)
+            return
+
+        stamp     = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        self.jpeg = jpeg
+        self.size = (message.width, message.height)
+        self.frames.add(stamp or self.node.get_clock().now().nanoseconds * 1e-9, jpeg)
 
 
 class TfError(RuntimeError):

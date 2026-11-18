@@ -27,7 +27,7 @@ setup(
         'console_scripts': [
             'executor_node = orchestrator.execution.node:main',
             'planner_node = orchestrator.planning.node:main',
-            'fake_robot = orchestrator.sim.fake_robot:main',
+            'fake_robot = orchestrator.fake_robot:main',
             'send_tree = orchestrator.execution.send_tree:main',
             'planner_cli = orchestrator.planning.cli:main',
             'cosmos_vlm_server = orchestrator.vlm.cosmos_server:main',

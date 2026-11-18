@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from orchestrator.common.places import PlacesError, parse_places
+from orchestrator.common.config import PlacesError, parse_places
 
 
 TEAM_FILE = {                                   # as ~/maps/two_floor_clean.places.yaml on the NUC
@@ -50,7 +50,7 @@ def test_the_robot_tree_validates_against_the_team_places():
 
 
 def test_place_floors_come_from_the_floors_table_by_z():
-    from orchestrator.common.places import place_floors
+    from orchestrator.common.config import place_floors
 
     raw = {**TEAM_FILE, 'floors': {'floor 1': {'z_min': -10.0, 'z_max': -3.5}, 'floor 2': {'z_min': -3.5, 'z_max': 2.5}}}
     raw['places'] = {**raw['places'], 'target floor 1': {'x': -0.7, 'y': -0.1, 'z': -6.53, 'yaw_deg': 169.8}, 'no z': {'x': 0.0, 'y': 0.0}}

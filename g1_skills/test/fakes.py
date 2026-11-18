@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from orchestrator.skills.watch import TopicWatch
+from orchestrator.skills.transports import TopicWatch
 
 
 NODE = SimpleNamespace(create_subscription=lambda *args: None, create_timer=lambda *args: None)

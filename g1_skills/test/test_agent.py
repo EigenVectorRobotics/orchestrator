@@ -10,10 +10,10 @@ from skill_registry import Registry, TreeValidator, ValidatorConfig, load_tree
 
 from orchestrator.agent import protocol
 from orchestrator.agent.api import AgentCall
-from orchestrator.agent.engine import Agent, AgentSession, task_text
+from orchestrator.agent.api import Agent, AgentSession, task_text
 from orchestrator.agent.link import PushAgentBackend
 from orchestrator.tree.engine import BehaviorTree, Context, Status
-from orchestrator.tree.factory import make_leaf_factory
+from orchestrator.tree.leaf import make_leaf_factory
 
 from g1_skills.manipulation_recovery.agent import ManipulationRecovery
 from g1_skills.manipulation_recovery.rules import decision_outputs, offset_goal, rule_offset, rule_reach, rule_stance

@@ -9,9 +9,9 @@ pytest.importorskip('rclpy')
 from skill_registry.contract import Watch
 
 from orchestrator.tree.engine import Status
-from orchestrator.skills.handles import ServiceHandle
-from orchestrator.skills.transports.watch import check_watch
-from orchestrator.skills.watch import TopicWatch
+from orchestrator.skills.transports import ServiceHandle
+from orchestrator.skills.transports import check_watch
+from orchestrator.skills.transports import TopicWatch
 
 
 NODE = SimpleNamespace(create_subscription=lambda *args: None)

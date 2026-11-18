@@ -7,7 +7,7 @@ from skill_registry import Registry
 
 from orchestrator.agent import protocol
 from orchestrator.agent.api import AgentCall
-from orchestrator.agent.engine import Agent, AgentSession
+from orchestrator.agent.api import Agent, AgentSession
 from orchestrator.agent.link import open_request
 from orchestrator.tree.engine import Context
 

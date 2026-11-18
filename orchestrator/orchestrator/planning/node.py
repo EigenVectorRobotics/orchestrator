@@ -14,12 +14,11 @@ from std_msgs.msg import Int32, String
 from ament_index_python.packages import get_package_share_directory
 from skill_registry import load_tree
 
-from ..execution.trace import Tracer
 from ..common.topics import (COMMAND_QOS as ANSWER_QOS, LATCHED_QOS as FLOOR_QOS, LATCHED_QOS as LIVE_QOS, PLAN_TOPIC,
                      PLANNER_ANSWER_TOPIC as ANSWER_TOPIC, PLANNER_REQUEST_TOPIC as REQUEST_TOPIC, SKILLS_LIVE_TOPIC,
                      SPEAK_TOPIC, TASK_TOPIC, TRACE_QOS, TRACE_TOPIC, TREE_BLIND_TOPIC, TREE_TOPIC)
 from .planner import Planner, load_tree_library, speech_left_s
-from ..execution.node_setup import load_place_floors, load_skills
+from ..execution.node_setup import Tracer, load_place_floors, load_skills
 from .backends import ClaudeBackend, OpenAICompatibleBackend, ScriptedBackend
 from .external import ExternalPlannerBackend
 
