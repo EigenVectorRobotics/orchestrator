@@ -23,7 +23,7 @@ from types import ModuleType
 from ..skills.loader import DEFAULT_PACKAGES, SkillLibrary
 
 
-PROTOCOL   = 1                          # raise it when a call or an answer changes shape; both ends must match
+PROTOCOL   = 2                          # raise it when a call or an answer changes shape; both ends must match
 HEADER     = struct.Struct('!II')       # the JSON length, then the length of the binary after it
 MAX_JSON   = 16_000_000
 MAX_BINARY = 64_000_000

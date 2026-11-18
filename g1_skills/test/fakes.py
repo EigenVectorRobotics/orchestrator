@@ -35,7 +35,7 @@ class FakeCtx:
         self.node          = NODE
         self.server_wait_s = 1.0
         self.artifacts_dir = artifacts_dir
-        self.camera        = SimpleNamespace(jpeg=None, size=(1280, 720), frames=None, topic='/camera')
+        self.camera        = SimpleNamespace(jpeg=None, size=(1280, 720), frames=None, topic='/camera', frame_id=None, k=None)
         self.tf            = FakeTf(in_frame)
         self.logger        = SimpleNamespace(warn=lambda text: None)
         self.publishers    = {}

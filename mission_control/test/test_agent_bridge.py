@@ -170,7 +170,7 @@ RECOVERY = {'id': 'r1', 'protocol': protocol.PROTOCOL, 'skill': 'manipulation_re
 
 def test_the_prompt_takes_the_button_phase_and_limits_from_the_call():
     limits = {**RECOVERY_SPEC.limits(), 'reposition_m': {'forward': 0.10, 'back': 0.40, 'side': 0.20}}
-    text   = recovery_prompts.recovery_prompt({**RECOVERY, 'limits': limits}, camera=False)
+    text   = recovery_prompts.recovery_prompt({**RECOVERY, 'limits': limits}, set())
     system = agent_bridge.system_prompt('manipulation_recovery', limits)
 
     assert text.startswith('Phase: stance_check. Button: floor 1 button (car panel')
@@ -203,14 +203,26 @@ def test_a_model_call_reports_the_system_prompt_and_the_prompts_file(tmp_path):
     async def main():
         bridge, sent, _ = await _bridge(tmp_path, [])
         bridge._take = lambda skill, decisions, system: Model()
-        await bridge._ask_model({**RECOVERY, 'limits': spec.limits()}, {}, {'received': time.time(), 'answers': []})
+        await bridge._ask_model({**RECOVERY, 'limits': RECOVERY_SPEC.limits()}, {}, {'received': time.time(), 'answers': []})
 
         return sent
 
     sent   = asyncio.run(main())
-    system = agent_bridge.system_prompt('manipulation_recovery', spec.limits())
+    system = agent_bridge.system_prompt('manipulation_recovery', RECOVERY_SPEC.limits())
 
     assert [message['type'] for message in sent] == ['started', 'failed']
-    assert sent[0]['prompt'] == agent_prompts.recovery_prompt({**RECOVERY, 'limits': spec.limits()}, camera=False)
+    assert sent[0]['prompt'] == recovery_prompts.recovery_prompt({**RECOVERY, 'limits': RECOVERY_SPEC.limits()}, set())
     assert sent[0]['system'] == system and sent[0]['system_sha256'] == hashlib.sha256(system.encode()).hexdigest()
-    assert sent[0]['prompts_sha256'] == hashlib.sha256(Path(agent_prompts.__file__).read_bytes()).hexdigest()
+    assert sent[0]['prompts_sha256'] == hashlib.sha256(Path(recovery_prompts.__file__).read_bytes()).hexdigest()   # the skill's prompt.py
+
+
+def test_a_diagnosis_shows_the_aim_crops_with_their_scale_and_axes():
+    aim  = {'size_px': [440, 320], 'frames': {'contact_aim': 'c.jpg', 'before_aim': 'b.jpg'},
+            'geometry': {'contact_aim': {'mm_per_px': 0.276, 'right_in_press': [0.0, -1.0, 0.0], 'down_in_press': [0.0, 0.0, -1.0]}}}
+    call = {**RECOVERY, 'phase': 'diagnose', 'press': {'capture': {'residual_m': [0.0, 0.004, 0.0]}, 'aim': aim}}
+    text = recovery_prompts.recovery_prompt(call, {'contact_aim', 'camera'})
+
+    assert '- contact_aim: 1 px = +0.276 mm at the button; image right = [+0.000, -1.000, +0.000]' in text
+    assert 'before_aim:' not in text
+    assert recovery_prompts.recovery_images({'camera', 'before_aim', 'contact_aim', 'press'}) == ['contact_aim', 'before_aim', 'camera']
+    assert 'none: no camera pose' in recovery_prompts.recovery_prompt({**call, 'press': {'capture': {}}}, set())

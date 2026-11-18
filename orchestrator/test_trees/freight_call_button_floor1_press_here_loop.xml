@@ -1,0 +1,40 @@
+<root BTCPP_format="4">
+  <!-- Floor 1: press the freight elevator's call button from where the robot stands, again and again until cancelled.
+       Each cycle looks afresh (arm re-armed, EKF hold, the button in view, reach), presses once at zero offset, records
+       the judge, and releases the arms. No recovery and no walking; a failed step ends only that cycle. -->
+  <BehaviorTree ID="freight_call_button_floor1_press_here_loop">
+    <Sequence>
+      <Fallback>                          <!-- a transition to the current mode fails -->
+        <in_high_level/>
+        <set_mode mode="high_level"/>
+      </Fallback>
+      <clear_stop/>
+      <set_autonomy enabled="false"/>
+      <SetBlackboard output_key="button" value="down button"/>   <!-- "up button" grounds the light above it (E-003) -->
+      <SetBlackboard output_key="press_panel" value="{freight_elevator_call_panel_floor_1}"/>
+      <SetBlackboard output_key="press_left_arm" value="false"/>
+      <SetBlackboard output_key="press_arm_min_y" value="0.0"/>
+      <Repeat num_cycles="-1">
+        <Sequence>
+          <ForceSuccess>
+            <Sequence>
+              <SetBlackboard output_key="stance_reset" value="no"/>   <!-- release_arms blocks the arm until the next mode change -->
+              <SubTree ID="look_here"/>
+              <set_press_offset x="0.0" y="0.0" z="0.0"/>
+              <reset_filters/>
+              <press_button target_description="{button}" left_arm="{press_left_arm}"/>
+              <ForceSuccess>
+                <press_judge target_description="{button}"/>
+              </ForceSuccess>
+            </Sequence>
+          </ForceSuccess>
+          <release_arms/>
+          <Sleep msec="2000"/>
+        </Sequence>
+      </Repeat>
+    </Sequence>
+  </BehaviorTree>
+
+  <include path="../../skill_registry/trees/subtrees/press.xml"/>
+  <include path="../../skill_registry/trees/subtrees/walk.xml"/>
+</root>

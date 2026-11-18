@@ -1,0 +1,20 @@
+<root BTCPP_format="4">
+  <!-- Elevator 1 rides until cancelled: from floor 1 to target_floor_2, then back to target_floor_1, and again. Each ride
+       is ride_to_goal, as freight_elevator_go_to_place runs it once. Start on floor 1; stop with /orchestrator/cancel -->
+  <BehaviorTree ID="freight_elevator_ride_loop">
+    <Repeat num_cycles="-1">
+      <Sequence>
+        <SetBlackboard output_key="goal" value="{target_floor_2}"/>
+        <SetBlackboard output_key="goal_floor" value="2"/>
+        <SubTree ID="ride_to_goal"/>
+        <SetBlackboard output_key="goal" value="{target_floor_1}"/>
+        <SetBlackboard output_key="goal_floor" value="1"/>
+        <SubTree ID="ride_to_goal"/>
+      </Sequence>
+    </Repeat>
+  </BehaviorTree>
+
+  <include path="../../skill_registry/trees/subtrees/elevator.xml"/>
+  <include path="../../skill_registry/trees/subtrees/press.xml"/>
+  <include path="../../skill_registry/trees/subtrees/walk.xml"/>
+</root>

@@ -368,3 +368,19 @@ def test_word_from_the_bridge_gives_the_next_call_its_wait_again(tmp_path, monke
         backend.link.close()
 
     assert spoken.count(agent_push.UNREACHABLE_SPEECH) == 2
+
+
+def test_a_recovery_call_carries_the_aim_crops_and_a_judge_call_does_not(tmp_path):
+    for name in ('press', 'press_aim'):
+        (tmp_path / f'{name}.jpg').write_bytes(name.encode())
+
+    press    = {'frames': {'press': str(tmp_path / 'press.jpg')}, 'aim': {'frames': {'contact_aim': str(tmp_path / 'press_aim.jpg')}}}
+    session  = type('Session', (), {'camera': lambda self: None})()
+    registry = Registry.from_directory(CONTRACTS)
+    agent    = Agent(None)
+
+    recovery = agent.skill(registry.get('manipulation_recovery')).images({'press': press}, session)
+    judge    = agent.skill(registry.get('press_judge')).images({'press': press}, session)
+
+    assert [image.name for image in recovery] == ['press', 'contact_aim'] and recovery[1].data == b'press_aim'
+    assert [image.name for image in judge] == ['press']

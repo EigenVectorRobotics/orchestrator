@@ -2,15 +2,11 @@ import math
 
 from orchestrator.common.geometry import turn_2d, wrap
 
-from ..lib.press import offset_in_force, since_last_pressed
-from .spec import (APPROACH_BACK_M, MAX_PRESS_OFFSET_M, STANCE_CHANGED_M, STANCE_TOLERANCE_M, STANCE_TOLERANCE_RAD,
-                   WALK_MIN_M)
+from ..lib.press import since_last_pressed
+from .spec import APPROACH_BACK_M, STANCE_CHANGED_M, STANCE_TOLERANCE_M, STANCE_TOLERANCE_RAD, WALK_MIN_M
 
 
-# The executor's own rules; the limits the bridge shares are in spec.py
-RULE_MISS_M         = (0.005, 0.050)    # a first miss this far from the goal in the button plane is corrected without the agent
-RULE_SHORT_M        = 0.003             # a press that stopped this far short along the button normal, aimed well, goes deeper
-RULE_DEPTH_MARGIN_M = 0.005             # pushed this much past the shortfall
+# The executor's own rules for a plain stance; a missed press always goes to the model, with its aim crops
 STANCE_RULE_MAX     = 2                 # stances re-sent per press before the agent decides
 REACH_RULE_MAX      = 2                 # reach moves per press before the agent decides
 
@@ -36,47 +32,6 @@ def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
 def _rule_records(history: list[dict], rule_name: str) -> list[dict]:
     return [record for record in since_last_pressed(history) if record.get('skill') == 'manipulation_recovery'
             and record.get('rule') and record.get('rule_name') == rule_name]
-
-
-def rule_offset(last_failure: dict | None, history: list[dict], residual: list | None,
-                press_offset: list | None = None) -> dict | None:
-    """offset_retry without the agent: the first diagnosis after a press that reached its goal and missed the button
-    by RULE_MISS_M in its plane, or hit it in the plane but stopped over RULE_SHORT_M short along its normal. The new
-    offset is the offset in force minus the residual, as the agent would set it, and RULE_DEPTH_MARGIN_M deeper if short.
-    press_offset: the offset the press used, from its capture; without it, the last set_press_offset since the last
-    press judged pressed (0 when there is none), which misses an offset set before that press"""
-    failure = last_failure or {}
-
-    if failure.get('skill') != 'press_judge' or not failure.get('checked_call') or residual is None or len(residual) != 3:
-        return None
-
-    if any(record.get('skill') == 'manipulation_recovery' and record.get('phase') == 'diagnose' for record in since_last_pressed(history)):
-        return None
-
-    miss  = math.hypot(residual[1], residual[2])
-    short = residual[0] < -RULE_SHORT_M
-
-    if not (RULE_MISS_M[0] < miss < RULE_MISS_M[1] or (miss <= RULE_MISS_M[0] and short)):
-        return None
-
-    in_force  = offset_in_force(history, press_offset)
-    corrected = [round(force - miss_axis, 4) for force, miss_axis in zip(in_force, residual)]
-    corrected[0] = round(corrected[0] + (RULE_DEPTH_MARGIN_M if short else 0.0), 4)
-
-    if max(abs(value) for value in corrected) > MAX_PRESS_OFFSET_M:
-        return None
-
-    found = f'missed by {miss * 1000:.1f} mm in the button plane' if miss > RULE_MISS_M[0] else 'hit the button in its plane'
-    depth = f' and stopped {-residual[0] * 1000:.1f} mm short (pushing {RULE_DEPTH_MARGIN_M * 1000:g} mm past it)' if short else ''
-
-    return {
-        'decision':  'offset_retry',
-        'rule_name': 'offset',
-        'reason':   f'rule: the press reached its goal, {found}{depth} '
-                    f'(residual {[round(value * 1000, 1) for value in residual]} mm); offset {[round(v * 1000, 1) for v in in_force]} '
-                    f'-> {[round(v * 1000, 1) for v in corrected]} mm',
-        'ox': corrected[0], 'oy': corrected[1], 'oz': corrected[2],
-    }
 
 
 def rule_stance(evidence: dict | None, history: list[dict]) -> dict | None:

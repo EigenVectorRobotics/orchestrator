@@ -4,6 +4,7 @@ from ..lib.text import fmt, panel_type, vec
 from . import spec
 
 
+AIM_IMAGES        = ('contact_aim', 'before_aim')
 DETECTION_JUMP_M  = 0.10                # a button that moved more than this since its reference is a suspect detection
 BACK_OFF_M        = 0.15                # the Back-off stance: this far behind the robot now
 SIDE_SHIFT_M      = 0.12                # S3: the shift toward a button at the image edge
@@ -54,8 +55,9 @@ be reached from any allowed stance.
 Diagnose: take the first step that fits
 D1 Detection check. "Detection" says suspect (the button moved over {DETECTION_JUMP_M:g} m from the reference press, or sits \
 beyond {reachable:.2f} m ahead): retry if the history has no retry since the last walk, else ask_help. Never reposition toward it.
-D2 Aim miss. press_judge said not_pressed after "Controller reached target" and the suggested offset is within limits: \
-offset_retry with that offset. Out of limits: go on to D3.
+D2 Aim miss. press_judge said not_pressed after "Controller reached target", and the aim crops (or, without them, the \
+residual) show the fingertip a few millimetres off the face or short of it: offset_retry, set as below, when it stays within \
+limits. Crops that show something else (the fingertip far off, on another button, a button that moved) go to the next steps.
 D3 Reach. "target out of reach" (or an aim miss too large for an offset):
   a. Reach check passed and the target moved under {limits['stance_changed_m']:g} m: retry once; if a retry already failed \
 the same way, ask_help.
@@ -64,6 +66,16 @@ inside the limits; else ask_help.
 D4 Repeats. Two repositions already failed in this task, or yours repeats a failed one within 0.05 m: ask_help.
 D5 Tracking. No track or lost track with the button in frame: retry, at most twice per task.
 D6 Nothing fits, or the evidence contradicts itself: ask_help.
+
+Setting an offset_retry (state the whole offset, in the press frame)
+O1 With the aim crops: in contact_aim find the centre of the button's inner face (before_aim shows it unoccluded; the \
+camera may move between the two, so measure in contact_aim only) and the fingertip of the pressing arm where it touches.
+O2 The miss is fingertip minus face centre: its pixels right and down, times the crop's mm per px, along the crop's right \
+and down directions in the press frame. The image cannot show depth, so leave x out of it.
+O3 New oy, oz = offset in force minus the miss on y and z. New ox = the offset in force, deeper by the shortfall plus \
+0.005 m when the residual says the press stopped over 0.003 m short with the fingertip on the face.
+O4 Quote the face centre, the fingertip and the miss in the reason. Without crops, or with no fingertip to find, take the \
+residual-based offset.
 
 Stance check: take the first step that fits
 S1 Reach check failed. "Reach move" fixable and within limits: reposition to it. Within limits false: the detection \
@@ -77,7 +89,12 @@ S4 No track or no box, but the button is in the camera image: continue (the look
 S5 Button not in the camera image and no stance you can justify: abort.'''
 
 
-def recovery_prompt(request: dict, camera: bool) -> str:
+def recovery_images(frames: set) -> list[str]:
+    """The recovery's images in order: the aim crops, then the camera now"""
+    return [name for name in (*AIM_IMAGES, 'camera') if name in frames]
+
+
+def recovery_prompt(request: dict, frames: set) -> str:
     stance  = request.get('stance') or {}
     history = request.get('history') or []
     phase   = request['phase']
@@ -92,14 +109,38 @@ def recovery_prompt(request: dict, camera: bool) -> str:
                      'A reposition is relative to it, not to where the robot stands.')
 
     lines += [''] + failure_lines(request.get('failure') or {}, request.get('press'), request.get('offset_in_force') or [0.0] * 3, limits)
+
+    if request.get('press'):
+        lines += [''] + aim_lines((request['press'].get('aim') or {}), frames)
+
     lines += [''] + stance_lines(stance, phase, limits)
     lines += [''] + reach_lines(stance.get('reach'), stance.get('reach_move'), limits)
     lines += [''] + history_lines(history)
 
-    if camera:
+    if 'camera' in frames:
         lines += ['', 'Camera image now: attached below.']
 
     return '\n'.join(lines)
+
+
+def aim_lines(aim: dict, frames: set) -> list[str]:
+    shown = [name for name in AIM_IMAGES if name in frames]
+
+    if not shown:
+        return ['## Aim crops', '- none: no camera pose or intrinsics for this press; use the residual']
+
+    width, height = aim.get('size_px') or ('?', '?')
+    lines = ['## Aim crops', f'- {", ".join(shown)}: attached below, {width}x{height} px, centred on the tracked button '
+             '(the goal before the offset). contact_aim is the deepest point of the press; before_aim is the pre-grasp, '
+             'nothing in front of the button.']
+
+    for name in shown:
+        geometry = (aim.get('geometry') or {}).get(name) or {}
+        lines.append(f'- {name}: 1 px = {fmt(geometry.get("mm_per_px"))} mm at the button; image right = '
+                     f'{vec(geometry.get("right_in_press") or [])}, image down = {vec(geometry.get("down_in_press") or [])} '
+                     'in the press frame (x in, y left, z up)')
+
+    return lines
 
 
 def call_limits(request: dict) -> dict:
@@ -130,7 +171,7 @@ def failure_lines(failure: dict, press: dict | None, offset: list, limits: dict)
         inside    = all(abs(value) <= limits['press_offset_max_m'] for value in suggested)
         lines += [f'- Press capture: deepest {fmt(capture.get("max_depth_m"))} m along the normal (negative is short), '
                   f'residual fingertip minus goal (x in, y left, z up) {vec(residual)} m',
-                  f'- Suggested offset (offset in force minus residual): {vec(suggested)} m, '
+                  f'- Residual-based offset (offset in force minus residual, from {capture.get("residual_from", "encoders")}): {vec(suggested)} m, '
                   f'{"within" if inside else "OUTSIDE"} the {limits["press_offset_max_m"]:g} m limit']
     else:
         lines.append('- Press capture: none (the press did not run)')
@@ -294,7 +335,5 @@ def system(limits: dict) -> str:
 
 
 def content(request: dict, images: set) -> tuple[str, list[str]]:
-    """The prompt text, and the images it shows in order: the camera image now"""
-    camera = 'camera' in images
-
-    return recovery_prompt(request, camera), ['camera'] if camera else []
+    """The prompt text, and the images it shows in order: the aim crops, then the camera image now"""
+    return recovery_prompt(request, images), recovery_images(images)

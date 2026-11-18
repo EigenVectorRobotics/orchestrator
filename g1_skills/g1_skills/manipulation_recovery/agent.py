@@ -2,13 +2,12 @@ from orchestrator.agent.api import AgentCall, AgentSkill, CallImage
 
 from ..lib.press import offset_in_force, press_images, press_state
 from . import stance
-from .rules import decision_outputs, rule_offset, rule_reach, rule_stance, stance_unchanged
+from .rules import decision_outputs, rule_reach, rule_stance, stance_unchanged
 from .spec import MAX_PRESS_OFFSET_M, REPOSITION_LIMITS_M
 
 
 PRESS_FRAME = 'foot_world'              # press_button's goal frame (move_to_pose planning_frame)
 RULE_SPEECH = {
-    'offset': 'The press just missed the button. Correcting my aim and pressing again.',
     'stance': 'I am not standing where I should. Walking to my spot again.',
     'reach':  'The button is just out of my reach. Stepping closer to it.',
 }
@@ -16,7 +15,8 @@ RULE_SPEECH = {
 
 class ManipulationRecovery(AgentSkill):
     """Why a press failed and what the tree does next (diagnose), or whether the stance before the first press is fine
-    (stance_check). The executor's rules answer plain cases first (rules.py)"""
+    (stance_check). The executor's rules answer a plain stance first (rules.py); a missed press always goes to the model,
+    with crops of the press around the button for its offset_retry"""
 
     phase_speech = {
         'diagnose':     'The press did not work. Checking why.',
@@ -58,14 +58,7 @@ class ManipulationRecovery(AgentSkill):
             evidence['stance'] = {'error': str(error)}
 
     def rule(self, call: AgentCall, evidence: dict) -> tuple[dict, str] | None:
-        press = evidence.get('press') or {}
-        found = None
-
-        if call.phase == 'diagnose' and press:
-            found = rule_offset(evidence['last_failure'], evidence['history'], (press.get('capture') or {}).get('residual_m'),
-                                press.get('press_offset_m'))
-
-        found = found or rule_stance(evidence.get('stance'), evidence['history'])
+        found = rule_stance(evidence.get('stance'), evidence['history'])
 
         if found is None and call.phase == 'stance_check':
             found = rule_reach(evidence.get('stance'), evidence['history'], evidence['last_failure'])
@@ -99,8 +92,8 @@ class ManipulationRecovery(AgentSkill):
         return fields
 
     def images(self, request: dict, session) -> list[CallImage]:
-        """The judged press's frames, and the camera image now"""
-        images = press_images(request.get('press'))
+        """The judged press's frames and aim crops, and the camera image now"""
+        images = press_images(request.get('press'), aim=True)
 
         if (camera := session.camera()) is not None:
             images.append(CallImage('camera', camera[1], camera[0]))

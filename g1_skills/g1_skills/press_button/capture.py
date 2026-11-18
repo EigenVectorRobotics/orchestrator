@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from PIL import Image
+
 from orchestrator.sensing import FrameBuffer
 
 from ..lib.tracking import BoxBuffer
@@ -45,6 +47,8 @@ class CaptureConfig:
     crop_scale:           float = 2.5       # the crop's sides, as a multiple of the button box's
     min_crop_px:          float = 48.0
     box_max_age_s:        float = 1.5       # a box older than this, before its frame, is not used for it
+    tip_shift_max_age_s:  float = 1.0       # a gripper estimate further than this from the deepest point is not used
+    camera_pose_max_age_s: float = 0.1      # a camera pose further than this from its frame is not used for it
 
     @classmethod
     def from_contract(cls, raw: dict) -> 'CaptureConfig':
@@ -55,6 +59,15 @@ def x_axis(quaternion_xyzw) -> np.ndarray:
     x, y, z, w = quaternion_xyzw
 
     return np.array([1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)])
+
+
+def press_axes(axis) -> np.ndarray:
+    """Rows x, y, z of the frame the press offset is set in: x the goal's +X made level (into the panel), z up, y = z cross x"""
+    x = np.array([axis[0], axis[1], 0.0])
+    x = x / (np.linalg.norm(x) or 1.0)
+    z = np.array([0.0, 0.0, 1.0])
+
+    return np.stack([x, np.cross(z, x), z])
 
 
 def rotation(quaternion_xyzw) -> np.ndarray:
@@ -140,7 +153,10 @@ class PressCapture:
         self.boxes    = {}              # name -> the button box of that frame, when there was one
         self.ended_t  = None            # when the action ended, success or not
         self.goal_frame = None          # the goal's frame, where end-effector poses are looked up
+        self.tip_shifts = []            # (ROS time, depth-fitted minus encoder gripper position in the goal's frame)
+        self.camera_poses = []          # (ROS time, rotation, translation): the goal's frame into the camera's optical frame
         self.saved    = {}              # name -> path, once saved
+        self.aimed    = None            # (k, the aim crops): made once per press, for the recovery
         self._lock    = threading.Lock()
 
     def on_goal(self, position, quaternion_xyzw, frame: str | None = None):
@@ -153,6 +169,47 @@ class PressCapture:
             self.tracker.update(t, position)
 
         self.choose()
+
+    def on_tip_shift(self, t: float, shift):
+        with self._lock:
+            self.tip_shifts.append((t, np.asarray(shift, dtype=float)))
+
+    def tip_shift_at_max(self):
+        """The gripper estimate's shift nearest the deepest point, or None when none is close enough"""
+        t = self.tracker._max_t
+
+        if t is None or not self.tip_shifts:
+            return None
+
+        stamp, shift = min(self.tip_shifts, key=lambda item: abs(item[0] - t))
+
+        return shift if abs(stamp - t) <= self.config.tip_shift_max_age_s else None
+
+    def on_camera_pose(self, t: float, rotation_matrix, translation):
+        with self._lock:
+            self.camera_poses.append((t, np.asarray(rotation_matrix, dtype=float), np.asarray(translation, dtype=float)))
+
+    def camera_pose_at(self, name: str):
+        """(rotation, translation) of the camera when frame name was taken, or None when no pose is close enough"""
+        with self._lock:
+            if name not in self.frames or not self.camera_poses:
+                return None
+
+            t = self.frames[name][0]
+            stamp, turn, shift = min(self.camera_poses, key=lambda item: abs(item[0] - t))
+
+        return (turn, shift) if abs(stamp - t) <= self.config.camera_pose_max_age_s else None
+
+    def aim(self, press: dict, k, directory: str) -> dict | None:
+        """The aim crops of this press (aim_view), made once; None without the intrinsics or a camera pose"""
+        if k is None:
+            return None
+
+        if self.aimed is None:
+            poses      = {name: self.camera_pose_at(name) for name in AIM_FRAMES.values()}
+            self.aimed = (k, aim_view(press, poses, k, directory))
+
+        return self.aimed[1]
 
     def on_action_end(self, t: float):
         with self._lock:
@@ -225,18 +282,17 @@ class PressCapture:
 
     def residual(self) -> list | None:
         """End effector minus goal at the deepest point, in the goal's frame as move_to_pose applies the press offset:
-        x along the goal's +X (into the panel), z up, y = z cross x (to the left). The negative is the correction"""
+        x along the goal's +X (into the panel), z up, y = z cross x (to the left). The negative is the correction.
+        The encoder pose is moved by the gripper estimate's shift when one is near, so the residual is the real tip's"""
         tracker = self.tracker
 
         if tracker.offset_at_max is None:
             return None
 
-        x = np.array([tracker.axis[0], tracker.axis[1], 0.0])
-        x = x / (np.linalg.norm(x) or 1.0)
-        z = np.array([0.0, 0.0, 1.0])
-        y = np.cross(z, x)
+        shift  = self.tip_shift_at_max()
+        offset = tracker.offset_at_max + (shift if shift is not None else 0.0)
 
-        return [round(float(tracker.offset_at_max @ axis), 4) for axis in (x, y, z)]
+        return [round(float(value), 4) for value in press_axes(tracker.axis) @ offset]
 
     def events(self) -> dict:
         tracker = self.tracker
@@ -248,9 +304,60 @@ class PressCapture:
             'max_depth_m': None if math.isinf(tracker.max_depth) else round(tracker.max_depth, 4),
             'lateral_at_max_m': None if tracker.lateral_at_max is None else round(tracker.lateral_at_max, 4),
             'residual_m': self.residual(),
+            'residual_from': 'gripper estimate' if self.tip_shift_at_max() is not None else 'encoders',
             'frames':     {name: round(t, 3) for name, (t, _) in self.frames.items()},
             'boxes':      {name: [round(value, 1) for value in box] for name, box in self.boxes.items()},
         }
+
+
+# ========== Aim crops ==========
+
+AIM_HALF_WIDTH_PX  = 110            # the crop around the goal, in camera pixels
+AIM_HALF_HEIGHT_PX = 80
+AIM_SCALE          = 2              # the crop is upscaled this much for the model
+AIM_FRAMES         = {'before_aim': 'baseline', 'contact_aim': 'press'}     # crop name -> the press frame it is cut from
+
+
+def aim_view(press: dict, camera_poses: dict, k, directory: str) -> dict | None:
+    """The press's baseline and press frames cropped around its goal, as files in directory, each with its scale at the
+    button and the image's right and down in the press offset's frame (x in, y left, z up). camera_poses: press frame
+    name -> (rotation, translation) from the goal's frame into the camera's optical frame when that frame was taken;
+    k: the camera's intrinsics, 3x3. None without a goal, a frame or its camera pose"""
+    frames = press.get('frames') or {}
+    k      = np.asarray(k, dtype=float)
+
+    if press.get('goal') is None or press.get('goal_axis') is None:
+        return None
+
+    if any(source not in frames or camera_poses.get(source) is None for source in AIM_FRAMES.values()):
+        return None
+
+    axes = press_axes(press['goal_axis'])
+    view = {'frames': {}, 'geometry': {}, 'size_px': [2 * AIM_SCALE * AIM_HALF_WIDTH_PX, 2 * AIM_SCALE * AIM_HALF_HEIGHT_PX]}
+
+    for name, source in AIM_FRAMES.items():
+        turn, shift = camera_poses[source]
+        goal        = turn @ np.asarray(press['goal'], dtype=float) + shift
+
+        if goal[2] <= 0.0:
+            return None
+
+        path = Path(directory).expanduser() / f'{Path(frames[source]).stem}_aim.jpg'
+        _crop_at(frames[source], (k @ goal)[:2] / goal[2], path)
+        view['frames'][name]   = str(path)
+        view['geometry'][name] = {
+            'mm_per_px':      round(float(goal[2] * 1000.0 / k[0, 0] / AIM_SCALE), 4),
+            'right_in_press': [round(float(value), 3) for value in axes @ turn.T @ np.array([1.0, 0.0, 0.0])],
+            'down_in_press':  [round(float(value), 3) for value in axes @ turn.T @ np.array([0.0, 1.0, 0.0])],
+        }
+
+    return view
+
+
+def _crop_at(source: str, centre, path: Path):
+    left, top = int(centre[0]) - AIM_HALF_WIDTH_PX, int(centre[1]) - AIM_HALF_HEIGHT_PX
+    image     = Image.open(source).convert('RGB').crop((left, top, left + 2 * AIM_HALF_WIDTH_PX, top + 2 * AIM_HALF_HEIGHT_PX))
+    image.resize((2 * AIM_SCALE * AIM_HALF_WIDTH_PX, 2 * AIM_SCALE * AIM_HALF_HEIGHT_PX), Image.BICUBIC).save(path, quality=95)
 
 
 # ========== Images ==========
@@ -267,8 +374,6 @@ def _write_whole(path: Path, data: bytes) -> str:
 def crop_around(data: bytes, box: tuple, scale: float, min_side_px: float = 48.0) -> bytes:
     """A JPEG of the region around box (x_min, y_min, x_max, y_max): the box grown scale times about its centre,
     at least min_side_px on a side, kept inside the image"""
-    from PIL import Image
-
     image                        = Image.open(io.BytesIO(data)).convert('RGB')
     x_min, y_min, x_max, y_max   = box
     centre_x, centre_y           = (x_min + x_max) / 2, (y_min + y_max) / 2

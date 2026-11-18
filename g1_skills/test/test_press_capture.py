@@ -229,3 +229,56 @@ def test_a_service_field_path_can_index_a_sequence():
     assert [parameter.name for parameter in request.parameters] == ['arm_safety_distance_x', 'arm_safety_distance_y', 'arm_safety_distance_z']
     assert [parameter.value.type for parameter in request.parameters] == [3, 3, 3]
     assert [parameter.value.double_value for parameter in request.parameters] == [0.005, -0.0075, 0.0034]
+
+
+def test_each_frame_takes_the_camera_pose_nearest_its_time():
+    buffer  = FrameBuffer()
+    capture = PressCapture(CaptureConfig(), buffer, left_arm=False)
+
+    for step in range(0, 401, 5):
+        capture.on_camera_pose(step / 100, np.eye(3), (step / 100, 0.0, 0.0))
+
+    _play(capture, buffer)
+    turn, shift = capture.camera_pose_at('press')
+
+    assert shift[0] == pytest.approx(capture.frames['press'][0], abs=0.03)
+    assert capture.camera_pose_at('missing') is None
+
+
+def test_a_frame_without_a_camera_pose_near_it_has_none():
+    buffer  = FrameBuffer()
+    capture = PressCapture(CaptureConfig(), buffer, left_arm=False)
+    capture.on_camera_pose(0.0, np.eye(3), (0.0, 0.0, 0.0))
+    _play(capture, buffer)
+
+    assert capture.camera_pose_at('press') is None
+
+
+def press_with_tip_shift(shift_at: float | None, shift=(0.0, 0.004, 0.006)):
+    """The press of the residual test, facing +x, with one gripper estimate fed at shift_at seconds"""
+    capture = PressCapture(CaptureConfig(), FrameBuffer(), left_arm=False)
+    capture.on_goal(GOAL, (0.0, 0.0, 0.0, 1.0))
+
+    if shift_at is not None:
+        capture.on_tip_shift(shift_at, shift)
+
+    for step in range(301):
+        t     = step / 100
+        depth = float(np.interp(t / DURATION, [p[0] for p in PRESS], [p[1] for p in PRESS]))
+        capture.on_pose(t, (GOAL[0] + depth - 0.005, GOAL[1] - 0.008, GOAL[2] - 0.003))
+
+    return capture
+
+
+def test_the_residual_follows_the_gripper_estimate_near_the_deepest_point():
+    """The encoders put the tip 8 mm right and 3 mm low; the depth fit puts the gripper 4 mm left and 6 mm up of them"""
+    capture = press_with_tip_shift(0.7 * DURATION)
+
+    assert capture.residual() == pytest.approx([-0.005, -0.004, 0.003], abs=1e-4)
+    assert capture.events()['residual_from'] == 'gripper estimate'
+
+
+def test_without_a_near_gripper_estimate_the_residual_stays_on_the_encoders():
+    for capture in (press_with_tip_shift(None), press_with_tip_shift(0.7 * DURATION + 5.0)):
+        assert capture.residual() == pytest.approx([-0.005, -0.008, -0.003], abs=1e-4)
+        assert capture.events()['residual_from'] == 'encoders'

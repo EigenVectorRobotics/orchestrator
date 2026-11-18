@@ -1,7 +1,6 @@
 import time
 
 from pathlib import Path
-from typing import Callable
 
 from orchestrator.agent.api import CallImage
 
@@ -9,9 +8,8 @@ from orchestrator.agent.api import CallImage
 class PressState:
     """What the press skills share in one executor: the press offset in force and the last press's capture"""
 
-    def __init__(self, artifacts_dir: str, now: Callable[[], float]):
-        self.artifacts_dir = artifacts_dir
-        self.now           = now
+    def __init__(self, ctx):
+        self.ctx           = ctx
         self.offset        = None       # the last set_press_offset, which moves move_to_pose's pre-grasp; None: not set yet
         self.last_capture  = None       # the frames of the last press, for the agent
 
@@ -25,23 +23,31 @@ class PressState:
 
         deadline = time.monotonic() + wait_s
 
-        while not capture.ready(self.now()) and time.monotonic() < deadline:
+        while not capture.ready(self.ctx.now()) and time.monotonic() < deadline:
             time.sleep(0.1)
 
         tracker = capture.tracker
-
-        return {
+        press   = {
             'left_arm':       capture.left_arm,
             'goal':           None if tracker.goal is None else [round(float(value), 4) for value in tracker.goal],
+            'goal_axis':      None if tracker.goal is None else [round(float(value), 4) for value in tracker.axis],
             'press_offset_m': [round(float(value), 4) for value in capture.press_offset],   # the offset this press used
             'capture':        capture.events(),
-            'frames':         capture.save(self.artifacts_dir),
+            'frames':         capture.save(self.ctx.artifacts_dir),
         }
+
+        try:                                            # the crops around the goal, for the recovery's offset
+            press['aim'] = capture.aim(press, self.ctx.camera.k, self.ctx.artifacts_dir)
+        except (OSError, ValueError) as error:
+            self.ctx.logger.warn(f'no aim crops: {error}')
+            press['aim'] = None
+
+        return press
 
 
 def press_state(ctx) -> PressState:
     """The executor's one PressState"""
-    return ctx.shared('press', lambda: PressState(ctx.artifacts_dir, ctx.now))
+    return ctx.shared('press', lambda: PressState(ctx))
 
 
 def since_last_pressed(history: list[dict]) -> list[dict]:
@@ -63,11 +69,15 @@ def offset_in_force(history: list[dict], press_offset: list | None = None) -> li
     return [float(last.get(axis, 0.0)) for axis in 'xyz']
 
 
-def press_images(press: dict | None) -> list[CallImage]:
-    """The saved frames (and crops) of a press, as a call's images"""
+def press_images(press: dict | None, aim: bool = False) -> list[CallImage]:
+    """The saved frames (and crops) of a press, as a call's images; with aim, its aim crops after them"""
     images = []
+    named  = dict((press or {}).get('frames') or {})
 
-    for name, path in ((press or {}).get('frames') or {}).items():
+    if aim:
+        named.update(((press or {}).get('aim') or {}).get('frames') or {})
+
+    for name, path in named.items():
         try:
             images.append(CallImage(name, 'image/jpeg', Path(path).read_bytes(), path))
         except OSError:

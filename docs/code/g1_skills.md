@@ -3,7 +3,7 @@
 The G1's skills, one folder each, and the code they share. `g1_skills/README.md` explains how a folder is made.
 
 - **`<skill>/contract.yaml`**: Every skill: what it needs, does and how the executor reaches it.
-- **`press_button/`**: The press action, and the three frames kept around it (capture.py).
+- **`press_button/`**: The press action; the three frames, the real fingertip's residual and the aim crops kept around it (capture.py).
 - **`set_press_offset/`**: Sets the arm planner's press offset and keeps it for the press skills.
 - **`button_in_view/`**: Seeds the tracker and judges the button's box and pose; picks the arm.
 - **`check_reach/`**: Asks the IK check whether the arm reaches the tracked button, with the offset in force.

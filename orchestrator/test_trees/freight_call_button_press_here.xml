@@ -1,0 +1,32 @@
+<root BTCPP_format="4">
+  <!-- Floor 2: press the freight elevator's down call button from where the robot stands, with no walk to the panel:
+       look_here (EKF hold, the button in view, reach), then the press with its recovery, then the arms released.
+       Recovery may still choose reposition, which walks back onto the call panel place. -->
+  <BehaviorTree ID="freight_call_button_press_here">
+    <Sequence>
+      <Fallback>                          <!-- a transition to the current mode fails -->
+        <in_high_level/>
+        <set_mode mode="high_level"/>
+      </Fallback>
+      <clear_stop/>
+      <set_autonomy enabled="false"/>
+      <SetBlackboard output_key="button" value="down button"/>
+      <SetBlackboard output_key="press_panel" value="{freight_elevator_call_panel}"/>
+      <SetBlackboard output_key="recovery_goal" value="{freight_elevator_call_panel}"/>
+      <SetBlackboard output_key="recovery_walk_in" value="no"/>
+      <SetBlackboard output_key="press_left_arm" value="false"/>
+      <SetBlackboard output_key="press_arm_min_y" value="0.0"/>
+      <SetBlackboard output_key="press_base_offset_x" value="0.0"/>
+      <SetBlackboard output_key="press_base_offset_y" value="0.0"/>
+      <SetBlackboard output_key="press_base_offset_z" value="0.0"/>
+      <SetBlackboard output_key="stance_reset" value="no"/>
+      <SubTree ID="look_here"/>
+      <SubTree ID="press_and_recover"/>
+      <release_arms/>
+      <say text="Press test done."/>
+    </Sequence>
+  </BehaviorTree>
+
+  <include path="../../skill_registry/trees/subtrees/press.xml"/>
+  <include path="../../skill_registry/trees/subtrees/walk.xml"/>
+</root>

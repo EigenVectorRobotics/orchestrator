@@ -209,6 +209,7 @@ class Recorder:
         self.runs     = 0
         self.task     = None                     # the last task text, for the next run
         self.captures = set()                    # the press frames the open run named
+        self.started  = 0.0                      # when the open run started, by the file clock
         self.calls    = {}                       # agent call id -> its run's folder, for messages after the run ended
         self.failure  = None
 
@@ -319,6 +320,7 @@ class Recorder:
         folder = self.path / 'runs' / f'{self.runs:03d}-{tree}'
         folder.mkdir(parents=True)
         self.run = folder
+        self.started, self.captures = time.time(), set()     # names noted between runs belong to the run before
 
         (self.run / 'tree.xml').write_text(event.get('tree', ''))
         write_json(self.run / 'task.json', {
@@ -352,8 +354,10 @@ class Recorder:
         self.captures |= saved_files(value, str(Path(self.config.capture_dir).expanduser()))
 
     def _copy_captures(self):
-        """The press frames this run named, copied in; each original is removed once its copy is made"""
-        sources, self.captures = sorted(self.captures), set()
+        """The press frames this run named or wrote, copied in; each original is removed once its copy is made"""
+        written = [str(path) for path in Path(self.config.capture_dir).expanduser().glob('press_*.jpg')
+                   if path.stat().st_mtime >= self.started]
+        sources, self.captures = sorted(self.captures | set(written)), set()
 
         if not sources:
             return

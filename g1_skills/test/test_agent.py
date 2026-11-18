@@ -16,7 +16,7 @@ from orchestrator.tree.engine import BehaviorTree, Context, Status
 from orchestrator.tree.leaf import make_leaf_factory
 
 from g1_skills.manipulation_recovery.agent import ManipulationRecovery
-from g1_skills.manipulation_recovery.rules import decision_outputs, offset_goal, rule_offset, rule_reach, rule_stance
+from g1_skills.manipulation_recovery.rules import decision_outputs, offset_goal, rule_reach, rule_stance
 
 from fakes import press_ctx
 
@@ -509,21 +509,6 @@ def test_offset_retry_needs_the_whole_offset_within_50_mm():
     assert outputs['left_arm'] is False
 
 
-def test_rule_offset_starts_from_the_offset_the_press_used():
-    """One set_press_offset, floor 2 judged pressed, then floor 1 missed with no new set_press_offset: the offset in
-    force is still the inside one, though no set_press_offset follows the last pressed"""
-    history  = [{'skill': 'set_press_offset', 'inputs': {'x': 0.005, 'y': 0.0075, 'z': 0.0034}},
-                {'skill': 'press_judge', 'decision': 'pressed'}]
-    failure  = {'skill': 'press_judge', 'checked_call': {'skill': 'press_button'}}
-    residual = [-0.002, 0.008, 0.0]
-
-    rule = rule_offset(failure, history, residual, [0.005, 0.0075, 0.0034])
-    assert (rule['ox'], rule['oy'], rule['oz']) == pytest.approx((0.007, -0.0005, 0.0034))
-
-    guessed = rule_offset(failure, history, residual)                  # from the history alone: taken as 0
-    assert (guessed['ox'], guessed['oy'], guessed['oz']) == pytest.approx((0.002, -0.008, 0.0))
-
-
 OFFSET_TREE = '''<root BTCPP_format="4"><BehaviorTree ID="t"><Fallback>
   <Sequence>
     <press_button target_description="floor 1"/>
@@ -945,42 +930,6 @@ def test_a_door_that_opens_during_the_judge_halts_the_press_and_walks_in():
     assert names.index('release_arms') > names.index('press_judge')
 
 
-# ========== The offset rule before the agent ==========
-
-JUDGED_MISS = {'skill': 'press_judge', 'status': 'failure', 'checked_call': {'skill': 'press_button', 'inputs': {'left_arm': False}}}
-OFFSET_SET  = {'skill': 'set_press_offset', 'inputs': {'x': 0.005, 'y': 0.0075, 'z': 0.0034}}
-
-
-def test_a_first_miss_in_the_band_is_corrected_without_the_agent():
-    rule = rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, -0.0051, 0.0002])
-
-    assert rule['decision'] == 'offset_retry' and rule['rule_name'] == 'offset'
-    assert (rule['ox'], rule['oy'], rule['oz']) == (0.007, 0.0126, 0.0032)          # the offset in force minus the residual
-
-
-def test_the_rule_leaves_small_large_and_later_misses_to_the_agent():
-    assert rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, 0.003, 0.002]) is None     # 3.6 mm: inside 5 mm
-    assert rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.002, 0.040, 0.035]) is None     # 53 mm: outside 50 mm
-    low = {'skill': 'set_press_offset', 'inputs': {'x': 0.0, 'y': 0.0, 'z': -0.02}}
-    assert rule_offset(JUDGED_MISS, [low], [-0.002, 0.0, 0.040]) is None              # in the band, but the offset would pass 50 mm
-    earlier = {'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'offset_retry'}
-    assert rule_offset(JUDGED_MISS, [OFFSET_SET, earlier], [-0.002, 0.01, 0.0]) is None   # not the first diagnosis
-
-
-def test_the_rule_applies_again_after_a_press_at_another_panel():
-    earlier = [{'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'retry'},
-               {'skill': 'press_judge', 'decision': 'pressed'}, OFFSET_SET]
-
-    assert rule_offset(JUDGED_MISS, earlier, [-0.002, 0.01, 0.0]) is not None
-
-
-def test_the_rule_needs_a_judged_press_and_a_residual():
-    failed_press = {'skill': 'press_button', 'status': 'failure', 'message': 'Planning failed: target out of reach'}
-
-    assert rule_offset(failed_press, [], [-0.002, 0.01, 0.0]) is None
-    assert rule_offset(JUDGED_MISS, [], None) is None
-
-
 def test_the_stance_rule_sends_the_base_goal_again_when_the_robot_stands_off_it():
     far    = {'stance_from_base_goal': {'forward_m': -0.286, 'left_m': 0.22, 'yaw_rad': -0.421}}
     turned = {'stance_from_base_goal': {'forward_m': -0.02, 'left_m': 0.01, 'yaw_rad': 0.2}}
@@ -1065,10 +1014,18 @@ def test_after_a_continue_the_stance_rule_targets_the_base_goal_as_the_tree_does
     assert rule_stance(there_2, [backed, kept, backed_2]) is None # a later reposition is the target again
 
 
-def test_a_press_that_hit_the_button_but_stopped_short_goes_deeper_without_the_agent():
-    rule = rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.0087, 0.0002, 0.0012])
+def test_a_judged_miss_by_millimetres_goes_to_the_model_with_its_aim_crops(tmp_path):
+    aim     = {'frames': {'contact_aim': '/tmp/press_1.000_press_aim.jpg'}, 'geometry': {}, 'size_px': [440, 320]}
+    press   = {**PRESS_EVIDENCE, 'capture': {**PRESS_EVIDENCE['capture'], 'residual_m': [-0.002, -0.0051, 0.0002]}, 'aim': aim}
+    backend = _push(tmp_path)
+    link    = backend.link
+    tree    = _tree(JUDGE_TREE, FakeRunner([(True, 'Controller reached target', [])]), Agent(backend, press_ctx(press)))
 
-    assert rule['decision'] == 'offset_retry' and 'stopped 8.7 mm short' in rule['reason']
-    assert (rule['ox'], rule['oy'], rule['oz']) == (0.0187, 0.0073, 0.0022)       # 8.7 mm deeper plus the 5 mm margin
-    assert rule_offset(JUDGED_MISS, [], [-0.002, 0.001, 0.001]) is None           # short by under 3 mm: the agent looks
-    assert rule_offset(JUDGED_MISS, [{'skill': 'set_press_offset', 'inputs': {'x': 0.04}}], [-0.009, 0.0, 0.0]) is None   # past 50 mm
+    _wait_call(tree, link, 1)
+    link.answer({'decision': 'not_pressed', 'reason': 'the fingertip sits on the rim'})
+    recovery = _wait_call(tree, link, 2)
+
+    assert recovery['phase'] == 'diagnose' and recovery['press']['aim'] == aim
+
+    link.answer({'decision': 'ask_help', 'reason': 'r'})
+    assert _run(tree) == Status.FAILURE

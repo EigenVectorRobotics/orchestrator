@@ -85,21 +85,22 @@ class Tf:
 
             return self._buffer
 
-    def lookup(self, target_frame: str, source_frame: str, timeout_s: float = 0.0):
-        """The latest TransformStamped of source_frame in target_frame, waiting up to timeout_s for it (0: the executor's
-        tick, which must not block); raises TfError when TF has none"""
+    def lookup(self, target_frame: str, source_frame: str, timeout_s: float = 0.0, stamp=None):
+        """The TransformStamped of source_frame in target_frame, the latest or at stamp (a builtin_interfaces Time),
+        waiting up to timeout_s for it (0: the executor's tick, which must not block); raises TfError when TF has none"""
         if not target_frame or not source_frame:
             raise TfError('tf needs target_frame and source_frame')
 
         buffer = self.buffer()
+        when   = Time() if stamp is None else Time.from_msg(stamp)
         waited = 0.0
 
-        while waited < timeout_s and not buffer.can_transform(target_frame, source_frame, Time()):
+        while waited < timeout_s and not buffer.can_transform(target_frame, source_frame, when):
             threading.Event().wait(0.05)
             waited += 0.05
 
         try:
-            return buffer.lookup_transform(target_frame, source_frame, Time())
+            return buffer.lookup_transform(target_frame, source_frame, when)
         except Exception as error:                      # tf2 raises several kinds; all mean "not available"
             raise TfError(f'no transform {target_frame} <- {source_frame}: {error}') from error
 
