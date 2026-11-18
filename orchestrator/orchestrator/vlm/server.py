@@ -1,8 +1,8 @@
 """vlm_server: an OpenAI-compatible /v1/chat/completions endpoint in front of any VLM with query(images, prompt, max_tokens).
 
 The executor's VLM conditions (door_open_vlm, ask_vlm) post images and one closed question to vlm_base_url. This
-server answers each request with one query, one at a time, and waits while the model says it is busy. A model that
-takes fewer images than a request has (max_images) refuses it with a 400. A model is an
+server answers each request with one query, one at a time, and waits while the model says it is busy. The model gets
+every image of the request; what it does with several is up to its query. A model is an
 entry of MODELS; edgellm is the Thor's Edge-LLM Cosmos-Reason2 daemon, which the vlm package reaches through its file
 queue (vlm.models.EdgeLlmVlm) and which also serves ground_server.
 
@@ -22,6 +22,7 @@ import base64
 import argparse
 import threading
 
+from types import SimpleNamespace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
@@ -30,27 +31,14 @@ import numpy as np
 DATA_URL = re.compile(r'^data:image/[a-z]+;base64,(.*)$', re.DOTALL)
 
 
-class TooManyImages(ValueError):
-    pass
-
-
-class SingleImage:
-    """A model whose query takes one image, behind the list interface"""
-
-    max_images = 1
-
-    def __init__(self, model):
-        self.model = model
-
-    def query(self, images: list, prompt: str, max_tokens: int) -> str:
-        return self.model.query(images[0], prompt, max_tokens=max_tokens)
-
-
 def edgellm_model():
-    """The Thor's Edge-LLM daemon, one image per query; the vlm package exists only on the Thor, so it is imported here"""
+    """The Thor's Edge-LLM daemon; it takes one image per query, so it answers on the first. The vlm package exists only
+    on the Thor, so it is imported here"""
     from vlm.models import EdgeLlmConfig, EdgeLlmVlm
 
-    return SingleImage(EdgeLlmVlm(EdgeLlmConfig()))
+    model = EdgeLlmVlm(EdgeLlmConfig())
+
+    return SimpleNamespace(query=lambda images, prompt, max_tokens: model.query(images[0], prompt, max_tokens=max_tokens))
 
 
 MODELS = {'edgellm': edgellm_model}            # --model name -> a factory of a model with query(images, prompt, max_tokens)
@@ -67,11 +55,6 @@ class VlmAnswerer:
 
     def answer(self, jpegs: list[bytes], prompt: str, max_tokens: int) -> str:
         from PIL import Image
-
-        limit = getattr(self.model, 'max_images', None)
-
-        if limit is not None and len(jpegs) > limit:
-            raise TooManyImages(f'the model takes at most {limit} image(s), the request has {len(jpegs)}')
 
         images   = [np.asarray(Image.open(io.BytesIO(jpeg)).convert('RGB')) for jpeg in jpegs]
         deadline = time.monotonic() + self.busy_wait_s
@@ -119,8 +102,6 @@ def make_handler(answerer: VlmAnswerer, model_name: str = 'vlm'):
 
             try:
                 answer = answerer.answer(images, text, max_tokens)
-            except TooManyImages as error:
-                return self._reply(400, {'error': f'bad request: {error}'})
             except Exception as error:                  # the model is down, busy too long, or failed
                 return self._reply(503, {'error': f'{model_name}: {error}'})
 

@@ -8,10 +8,8 @@ from http.server import ThreadingHTTPServer
 
 from PIL import Image
 
-import pytest
-
 from orchestrator.vlm import client
-from orchestrator.vlm.server import SingleImage, TooManyImages, VlmAnswerer, make_handler, parse_request
+from orchestrator.vlm.server import VlmAnswerer, make_handler, parse_request
 
 
 def _jpeg(colour, size=(64, 48)) -> bytes:
@@ -56,26 +54,6 @@ def test_several_images_reach_the_model_in_order():
 
     assert VlmAnswerer(model).answer(images, text, max_tokens) == 'lit'
     assert model.prompts[0][0] == [(48, 64, 3), (24, 32, 3)]
-
-
-def test_a_one_image_model_refuses_more_and_gets_its_one_image():
-    class OneImage:
-        def __init__(self):
-            self.shapes = []
-
-        def query(self, image, prompt, max_tokens):
-            self.shapes.append(image.shape)
-            return 'lit'
-
-    inner    = OneImage()
-    answerer = VlmAnswerer(SingleImage(inner))
-    one, _, _ = parse_request(_request('q'))
-    two, _, _ = parse_request(_request('q', sizes=((64, 48), (32, 24))))
-
-    assert answerer.answer(one, 'q', 64) == 'lit' and inner.shapes == [(48, 64, 3)]
-
-    with pytest.raises(TooManyImages, match='at most 1 image'):
-        answerer.answer(two, 'q', 64)
 
 
 def test_the_server_speaks_chat_completions():
