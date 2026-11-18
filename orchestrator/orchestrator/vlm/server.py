@@ -1,7 +1,8 @@
-"""vlm_server: an OpenAI-compatible /v1/chat/completions endpoint in front of any VLM with query(image, prompt, max_tokens).
+"""vlm_server: an OpenAI-compatible /v1/chat/completions endpoint in front of any VLM with query(images, prompt, max_tokens).
 
-The executor's VLM conditions (door_open_vlm, ask_vlm) post one image and one closed question to vlm_base_url. This
-server answers each request with one query, one at a time, and waits while the model says it is busy. A model is an
+The executor's VLM conditions (door_open_vlm, ask_vlm) post images and one closed question to vlm_base_url. This
+server answers each request with one query, one at a time, and waits while the model says it is busy. A model that
+takes fewer images than a request has (max_images) refuses it with a 400. A model is an
 entry of MODELS; edgellm is the Thor's Edge-LLM Cosmos-Reason2 daemon, which the vlm package reaches through its file
 queue (vlm.models.EdgeLlmVlm) and which also serves ground_server.
 
@@ -29,18 +30,34 @@ import numpy as np
 DATA_URL = re.compile(r'^data:image/[a-z]+;base64,(.*)$', re.DOTALL)
 
 
+class TooManyImages(ValueError):
+    pass
+
+
+class SingleImage:
+    """A model whose query takes one image, behind the list interface"""
+
+    max_images = 1
+
+    def __init__(self, model):
+        self.model = model
+
+    def query(self, images: list, prompt: str, max_tokens: int) -> str:
+        return self.model.query(images[0], prompt, max_tokens=max_tokens)
+
+
 def edgellm_model():
-    """The Thor's Edge-LLM daemon; the vlm package exists only on the Thor, so it is imported here"""
+    """The Thor's Edge-LLM daemon, one image per query; the vlm package exists only on the Thor, so it is imported here"""
     from vlm.models import EdgeLlmConfig, EdgeLlmVlm
 
-    return EdgeLlmVlm(EdgeLlmConfig())
+    return SingleImage(EdgeLlmVlm(EdgeLlmConfig()))
 
 
-MODELS = {'edgellm': edgellm_model}            # --model name -> a factory of an object with query(image, prompt, max_tokens)
+MODELS = {'edgellm': edgellm_model}            # --model name -> a factory of a model with query(images, prompt, max_tokens)
 
 
 class VlmAnswerer:
-    """One closed question about one image, through the model; retries while it says it is busy"""
+    """One closed question about one or more images, through the model; retries while it says it is busy"""
 
     def __init__(self, model, busy_wait_s: float = 20.0, max_tokens: int = 64):
         self.model       = model
@@ -48,16 +65,21 @@ class VlmAnswerer:
         self.max_tokens  = max_tokens
         self._lock       = threading.Lock()             # one request at a time from this server
 
-    def answer(self, jpeg: bytes, prompt: str, max_tokens: int) -> str:
+    def answer(self, jpegs: list[bytes], prompt: str, max_tokens: int) -> str:
         from PIL import Image
 
-        image    = np.asarray(Image.open(io.BytesIO(jpeg)).convert('RGB'))
+        limit = getattr(self.model, 'max_images', None)
+
+        if limit is not None and len(jpegs) > limit:
+            raise TooManyImages(f'the model takes at most {limit} image(s), the request has {len(jpegs)}')
+
+        images   = [np.asarray(Image.open(io.BytesIO(jpeg)).convert('RGB')) for jpeg in jpegs]
         deadline = time.monotonic() + self.busy_wait_s
 
         with self._lock:
             while True:
                 try:
-                    return self.model.query(image, prompt, max_tokens=min(max_tokens, self.max_tokens))
+                    return self.model.query(images, prompt, max_tokens=min(max_tokens, self.max_tokens))
                 except Exception as error:              # a busy model is the one error to wait out
                     if 'busy' not in str(error) or time.monotonic() > deadline:
                         raise
@@ -65,8 +87,8 @@ class VlmAnswerer:
                     time.sleep(0.2)
 
 
-def parse_request(body: dict) -> tuple[bytes, str, int]:
-    """The first image and the text of the last user message"""
+def parse_request(body: dict) -> tuple[list[bytes], str, int]:
+    """Every image and the text of the last user message, in order"""
     message = next(message for message in reversed(body['messages']) if message.get('role') == 'user')
     content = message['content'] if isinstance(message['content'], list) else [{'type': 'text', 'text': message['content']}]
     images  = [part['image_url']['url'] for part in content if part.get('type') == 'image_url']
@@ -75,12 +97,12 @@ def parse_request(body: dict) -> tuple[bytes, str, int]:
     if not images:
         raise ValueError('the request has no image')
 
-    match = DATA_URL.match(images[0])
+    matches = [DATA_URL.match(image) for image in images]
 
-    if match is None:
-        raise ValueError('the image must be a base64 data URL')
+    if any(match is None for match in matches):
+        raise ValueError('each image must be a base64 data URL')
 
-    return base64.b64decode(match.group(1)), text, int(body.get('max_tokens') or 64)
+    return [base64.b64decode(match.group(1)) for match in matches], text, int(body.get('max_tokens') or 64)
 
 
 def make_handler(answerer: VlmAnswerer, model_name: str = 'vlm'):
@@ -91,12 +113,14 @@ def make_handler(answerer: VlmAnswerer, model_name: str = 'vlm'):
 
             try:
                 body                    = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
-                image, text, max_tokens = parse_request(body)
+                images, text, max_tokens = parse_request(body)
             except (ValueError, KeyError, TypeError, StopIteration, json.JSONDecodeError) as error:
                 return self._reply(400, {'error': f'bad request: {error}'})
 
             try:
-                answer = answerer.answer(image, text, max_tokens)
+                answer = answerer.answer(images, text, max_tokens)
+            except TooManyImages as error:
+                return self._reply(400, {'error': f'bad request: {error}'})
             except Exception as error:                  # the model is down, busy too long, or failed
                 return self._reply(503, {'error': f'{model_name}: {error}'})
 

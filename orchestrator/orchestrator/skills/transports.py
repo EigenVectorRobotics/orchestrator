@@ -524,7 +524,7 @@ class VlmTransport(Transport):
         if not choices:
             return DoneHandle(False, 'a VLM question needs choices')
 
-        future = ctx.submit('vlm', ctx.vlm_client.ask, ctx.camera.jpeg, question, choices)
+        future = ctx.submit('vlm', ctx.vlm_client.ask, [ctx.camera.jpeg], question, choices)
 
         return VlmHandle(future, question, interface.success_answer)
 

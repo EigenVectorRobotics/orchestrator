@@ -53,14 +53,15 @@ class VlmClientConfig:
 
 
 class VlmClient:
-    """Ask one closed question about one image; the server's JSON schema keeps the answer to the choices"""
+    """Ask one closed question about one or more images; the server's JSON schema keeps the answer to the choices"""
 
     def __init__(self, config: VlmClientConfig | None = None):
         self.config = config or VlmClientConfig()
 
-    def ask(self, jpeg_bytes: bytes, question: str, choices: list[str]) -> str:
-        image_url = 'data:image/jpeg;base64,' + base64.b64encode(jpeg_bytes).decode()
-        schema    = {
+    def ask(self, jpegs: list[bytes], question: str, choices: list[str]) -> str:
+        images = [{'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(jpeg).decode()}}
+                  for jpeg in jpegs]
+        schema = {
             'type':                 'object',
             'properties':           {'answer': {'type': 'string', 'enum': choices}},
             'required':             ['answer'],
@@ -73,7 +74,7 @@ class VlmClient:
             'messages': [{
                 'role':    'user',
                 'content': [
-                    {'type': 'image_url', 'image_url': {'url': image_url}},
+                    *images,
                     {'type': 'text', 'text': f'{question}\nAnswer with one of: {", ".join(choices)}.'},
                 ],
             }],
