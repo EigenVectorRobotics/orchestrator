@@ -180,7 +180,7 @@
                 <decision_is value="{exiting}" equals="yes"/>
               </Fallback>
             </Inverter>
-            <say text="My localization failed. Please relocalize me."/>
+            <say text="My localization failed. Stopping the task."/>   <!-- nothing waits for a relocalization, and after a LIO divergence only a SLAM restart helps (docs/troubleshooting.md) -->
           </Sequence>
         </ForceFailure>
       </Fallback>

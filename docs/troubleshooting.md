@@ -23,6 +23,7 @@ What to check and what to do when something goes wrong on the robot. Each row is
 | `/slam_elevatorlio/status` is not `"localized": true`, the first match was rejected (structure inlier ratio below 0.80), or a match landed near the edge of the yaw search window (about +-30 deg from the map origin) | Does `/registered_scan` lie on `/route_planner/terrain` in Foxglove? A right match has a median about 3 cm and 75 to 80 % of the scan within 10 cm, and the share falls when the scan is turned 5 or 10 deg | Send `/initialpose` from Foxglove (`ws://vector-nuc:8765`) when the check fails |
 | The robot walked off course | `localized` and the inlier ratio | Check localization before the next goal; relocalize first |
 | `slam_healthy` stays false; `/registered_scan` looks wrong; `door_state` says OPEN at a closed door | a LIO divergence in the SLAM log | Restart SLAM (the NUC stack); `/initialpose` does not clear it |
+| The robot says "My localization failed. Stopping the task." during a task (the SLAM guard of `ride_to_goal`, outside the cabin); the task has ended | `localized` and `healthy` on `/slam_elevatorlio/status` | `localized` false: send `/initialpose`. `localized` true and `healthy` false: most likely a LIO divergence, so restart SLAM first, then relocalize. Then send the task again |
 | Localization is lost after walking out of the cabin | was there a relocalization in place about 1 m out of the door? | `relocalize_here` there, standing still (`walk_out` does it: tracking alone rejects the larger correction a ride leaves) |
 
 ## Walking
