@@ -1,15 +1,15 @@
 # Mission control
 
-What runs on the operator's computer: the agent bridge that answers every agent call of the robot. Nothing here is built on the robot.
+What runs on the operator's computer: the agent bridge that answers every agent call of the robot, and the scripts that run the robot from there. Nothing here is built on the robot.
 
 | File | What it does |
 |---|---|
 | `agent_bridge.py` | Answers the executor's `press_judge` and `manipulation_recovery` calls through the Claude Agent SDK, with the frames as images. Asks the operator in its terminal for `operator_confirm`. |
 | `agent_prompts.py` | The model's rules (`JUDGE_SYSTEM`, `recovery_system()`) and how each call's evidence becomes the prompt. |
 | `robot/` | Scripts that start, run, watch, cancel and stop a robot run on the NUC over ssh (`robot/README.md`). |
-| `test/test_agent_bridge.py` | Tests of the `operator_confirm` path (with a pipe as stdin), the protocol check, and the prompt built from a call. |
+| `test/test_agent_bridge.py` | Tests of the `operator_confirm` path (with a pipe as stdin), the protocol check, the warm models, the prompt built from a call, and the system prompt and prompts-file hash a call reports. |
 
-The phases, their decisions, the answer schema, the limits the executor enforces and the link's framing are not written here: both the bridge and the executor import them from `orchestrator/orchestrator/agent_spec.py` (standard library only, so the bridge loads it without ROS).
+The phases, their decisions, the answer schema, the limits the executor enforces and the link's framing are not written here: both the bridge and the executor import them from `orchestrator/orchestrator/agent_spec.py` (standard library only, so the bridge loads it without ROS). The model is told only what `agent_prompts.py` gives it, with no tools and no documents; what each call does and how the tree uses the answer is in [docs/agents.md](../docs/agents.md). How a robot run uses the bridge is in [docs/run.md](../docs/run.md#4-run-a-task).
 
 ## Set up once
 
@@ -26,7 +26,7 @@ python3 -m venv ~/.venvs/agent_bridge
 ~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley
 ```
 
-It listens on the site's `agent_bridge` address (`orchestrator/config/sites/stanley.yaml`, the laptop's Tailscale address and port 8771), with `claude-opus-5-5` at low effort (`--model`, `--effort`). The executor, launched with the same site, connects there. For another laptop, change `agent_bridge.host` in the site file and rebuild on the NUC; `--listen` and `--port` override the site for a test. The record of each call is kept on the NUC by the run recorder (model, prompt, decisions, usage). With `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/`, with timings in `~/agent_calls/bridge_timing.jsonl`, for debugging on the laptop.
+It listens on the site's `agent_bridge` address (`orchestrator/config/sites/stanley.yaml`, the laptop's Tailscale address and port 8771), with `claude-opus-5-5` at low effort (`--model`, `--effort`). The executor, launched with the same site, connects there: the bridge prints `executor connected from ...`, and the executor logs `connected to the agent bridge at ...` (or `the agent bridge link dropped: ...`) to `~/orchestrator.log` on the NUC, where `robot/start.sh` and `robot/status.sh` read it. For another laptop, change `agent_bridge.host` in the site file and rebuild on the NUC; `--listen` and `--port` override the site for a test. When it starts a call, the bridge sends the executor a `started` message with the model, the effort, the prompt, the system prompt and its sha256, and the sha256 of the `agent_prompts.py` it loaded; the run recorder on the NUC keeps these per call, with the decisions and the usage, in the run's `agent/<call id>/` ([docs/recorder.md](../docs/recorder.md)). So a record shows which prompts answered it, even when the laptop's checkout has moved on since. With `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/`, with timings in `~/agent_calls/bridge_timing.jsonl`, for debugging on the laptop.
 
 ## Keep the bridge on the NUC's branch
 
@@ -38,6 +38,6 @@ Run the bridge from a checkout of the branch the NUC runs, and restart it after 
 
 ## Answer operator_confirm
 
-An `operator_confirm` call never goes to the model. The bridge rings the bell and prints the question in its window. Type `y` or `n`, then an optional reason, and Enter: `y gantry removed`. The bridge keeps answering the link while it waits. When the call times out (120 s) or is cancelled, the bridge drops the question.
+An `operator_confirm` call never goes to the model. The bridge rings the bell and prints the question in its window. Type `y` or `n`, then an optional reason, and Enter: `y gantry removed`. The bridge keeps answering the link while it waits. When the call times out (`timeout_s` in `skill_registry/contracts/operator_confirm.yaml`, 120 s) or is cancelled, the bridge drops the question.
 
 `COLCON_IGNORE` keeps colcon from building this folder on the robot.
