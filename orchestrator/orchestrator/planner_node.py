@@ -40,7 +40,7 @@ class PlannerNode(Node):
 
         self.backend_name        = self.declare_parameter('backend', 'claude').value     # claude | openai_compatible | scripted | external
         self.external_timeout_s  = self.declare_parameter('external_timeout_s', 600.0).value   # external: wait for the session
-        self.model               = self.declare_parameter('model', 'claude-opus-5').value
+        self.model               = self.declare_parameter('model', 'claude-opus-5-5').value
         self.effort              = self.declare_parameter('effort', 'high').value
         self.base_url            = self.declare_parameter('base_url', '').value          # openai_compatible only
         self.api_key_env         = self.declare_parameter('api_key_env', 'OPENAI_API_KEY').value

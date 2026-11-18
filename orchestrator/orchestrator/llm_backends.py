@@ -31,7 +31,7 @@ class ClaudeBackend:
 
     name = 'claude'
 
-    def __init__(self, model: str = 'claude-opus-5', effort: str = 'high', max_tokens: int = 16000):
+    def __init__(self, model: str = 'claude-opus-5-5', effort: str = 'high', max_tokens: int = 16000):
         import anthropic                    # here, so the other backends need no SDK
 
         self.anthropic  = anthropic
