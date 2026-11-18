@@ -95,6 +95,7 @@ class MissionControlNode(Node):
         self.server.api    = self.api
         self.server.files  = files
         self.server.token  = token
+        self.server.log    = self.get_logger()
         self._web          = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._web.start()
         link = f'http://{host}:{port}/' + ('' if off else f'?t={token}')
@@ -243,6 +244,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json(code, {'ok': False, 'message': message})
 
     def _json(self, code: int, payload: dict):
+        if self.command == 'POST' and code >= 400:   # log_message is quiet: a refused command must still be seen
+            self.server.log.warning(f'refused POST {urlparse(self.path).path} ({code}): {payload.get("message")}')
+
         self._send(code, json.dumps(payload, default=str).encode(), 'application/json')
 
     def _send(self, code: int, body: bytes, media_type: str):

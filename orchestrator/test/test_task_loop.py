@@ -11,7 +11,7 @@ from orchestrator.planner import describe_catalog
 from orchestrator.task_loop import MAX_SECTION_CHARS, CodexDecider, DeciderError, TaskLoop, build_prompt
 from orchestrator.behavior_tree import Status
 
-from fakes import FakeRunner, _desk, _tick_until
+from fakes import FakeRunner, _context, _desk, _tick_until
 
 SAY = {'name': 'say', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5.0,
        'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String'}}
@@ -71,6 +71,18 @@ def test_a_bad_decision_or_a_model_error_goes_back_and_the_loop_goes_on(tmp_path
     assert not _loop(d, decider).is_alive()
     assert 'not JSON' in decider.prompts[1] and 'unknown op fly' in decider.prompts[2] and d.opened[-1]['end'] == 'gave_up'
     assert 'decider_error' in d.tracer.kinds()
+
+
+def test_a_replaced_task_loop_stops_without_an_error_on_the_new_run(tmp_path):
+    d = _desk(FakeRunner(), tmp_path)
+
+    class Replaced:
+        def decide(self, prompt, image, work):
+            d.desk.open('a new task', _context('r2'))
+            raise DeciderError('late answer')
+
+    assert not _loop(d, Replaced()).is_alive()
+    assert d.desk.task.run_id == 'r2' and 'decider_error' not in d.tracer.kinds()
 
 
 def test_a_model_that_keeps_failing_goes_quiet_and_the_robot_says_so(tmp_path):

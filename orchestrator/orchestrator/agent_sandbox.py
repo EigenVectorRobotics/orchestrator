@@ -14,6 +14,9 @@ from skill_registry import DenyList
 
 GUARD_PATH  = Path(__file__).with_name('agent_guard.py')
 CODE_FOLDER = '.code'
+# Folders the agent's code must not read: the other orchestrator workspace on the NUC, whose hand-written contracts
+# skill discovery must find on its own. fnmatch patterns on the real path; * crosses /
+HIDDEN      = ['*/orchestrator_ws', '*/orchestrator_ws/*']
 
 
 @dataclass
@@ -25,6 +28,7 @@ class SandboxConfig:
     timeout_s:     float = 60.0
     memory_mb:     int = 4096
     max_output:    int = 20000      # characters of stdout and of stderr returned to the model
+    hidden:        list[str] = field(default_factory=lambda: list(HIDDEN))
 
 
 _run_numbers = itertools.count(1)
@@ -56,6 +60,7 @@ def sandbox_env(config: SandboxConfig, scratch: Path) -> dict:
         'AGENT_MEMORY_MB':               str(config.memory_mb),     # agent_guard applies the limits itself
         'AGENT_CPU_S':                   str(int(config.timeout_s) + 5),
         'AGENT_DENIED_MODULES':          _denied_modules(),     # the deny list's: the Unitree SDK, raw DDS
+        'AGENT_HIDDEN':                  ':'.join(config.hidden),
     }
 
 

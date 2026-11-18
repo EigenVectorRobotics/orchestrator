@@ -172,7 +172,10 @@ class TaskLoop:
 
                 history.append((decision, reply))
             except Exception as error:                   # e.g. no network: a quiet loop makes the desk say so
-                self.tracer.emit('decider_error', f'{type(error).__name__}: {error}', level='warn')
+                if not is_open():                        # the trace is stamped with the open task's run: not ours
+                    return
+
+                self.tracer.emit('decider_error', f'{type(error).__name__}: {error}', level='warn', run_id=run_id)
                 time.sleep(self.retry_s)
 
 

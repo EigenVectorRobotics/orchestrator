@@ -11,10 +11,11 @@ SAY = {'name': 'say_it', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5,
        'inputs': [{'name': 'text', 'type': 'string', 'field': 'data'}]}
 
 
-def test_the_grammar_names_every_transport_and_its_example_is_a_contract():
+def test_the_grammar_names_every_transport_and_default_and_its_example_is_a_contract():
     grammar = contract_grammar()
 
     assert all(transport in grammar for transport in TRANSPORTS)
+    assert "field: str = 'data'" in grammar                     # left out, a watch reads data (2026-11-11 refusal)
     assert parse_contract(yaml.safe_load(EXAMPLE)).name == 'example_skill'
 
 

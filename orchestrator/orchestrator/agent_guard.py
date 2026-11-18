@@ -8,6 +8,7 @@ bubblewrap and unshare cannot give a real one.
 import os
 import sys
 import runpy
+import fnmatch
 import resource
 
 SCRATCH         = os.path.realpath(os.environ['AGENT_SCRATCH'])
@@ -23,15 +24,29 @@ PATH_EVENTS     = {
     'os.truncate', 'shutil.rmtree', 'os.utime',
 }
 WRITE_FLAGS     = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
+HIDDEN          = list(filter(None, os.environ.get('AGENT_HIDDEN', '').split(':')))   # not read, not listed
+LIST_EVENTS     = {'os.listdir', 'os.scandir'}                                       # glob and os.walk use scandir
+
+
+def _real(path) -> str | None:
+    """The real path, or None for an open file descriptor (its path was checked when it opened). The whole path,
+    every time: a symlink can be the last part, and a folder can become a symlink after it was checked"""
+    if isinstance(path, int):
+        return None
+
+    return os.path.realpath(os.fsdecode(path))
+
+
+def _hidden(path) -> bool:
+    real = _real(path)
+
+    return real is not None and any(fnmatch.fnmatchcase(real, pattern) for pattern in HIDDEN)
 
 
 def _inside_scratch(path) -> bool:
-    if isinstance(path, int):
-        return True                                 # an open file descriptor: its path was checked when it opened
+    real = _real(path)
 
-    real = os.path.realpath(os.fsdecode(path))
-
-    return real == SCRATCH or real.startswith(SCRATCH + os.sep) or real == os.devnull
+    return real is None or real == SCRATCH or real.startswith(SCRATCH + os.sep) or real == os.devnull
 
 
 def _hook(event: str, args: tuple):
@@ -48,6 +63,13 @@ def _hook(event: str, args: tuple):
 
         if writing and not _inside_scratch(path):
             raise PermissionError(f'the agent sandbox writes only under {SCRATCH}, not {path}')
+
+        if _hidden(path):
+            raise PermissionError(f'{path} is hidden from the agent sandbox')
+
+    elif event in LIST_EVENTS:
+        if args and args[0] is not None and _hidden(args[0]):
+            raise PermissionError(f'{args[0]} is hidden from the agent sandbox')
 
     elif event in PROCESS_EVENTS:
         raise PermissionError(f'{event} is blocked in the agent sandbox')

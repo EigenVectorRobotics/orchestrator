@@ -39,12 +39,18 @@ class ContractError(ValueError):
 
 def field_text(part) -> str:
     """The fields of one contract part as text, for a refusal and for the grammar: the allowed values where there
-    are some, the type otherwise, and * on a field that a contract must give"""
-    return ', '.join(f'{item.name}{"*" if _needed(item) else ""}: {_value_text(item)}' for item in fields(part))
+    are some, the type otherwise, * on a field that a contract must give, and the value a field takes when not given"""
+    return ', '.join(f'{item.name}{"*" if _needed(item) else ""}: {_value_text(item)}{_default_text(item)}'
+                     for item in fields(part))
 
 
 def _needed(item) -> bool:
     return item.default is MISSING and item.default_factory is MISSING
+
+
+def _default_text(item) -> str:
+    """A default the agent can get wrong by leaving the field out (Watch.field is data), not an empty one"""
+    return '' if item.default in (MISSING, None, '') else f' = {item.default!r}'
 
 
 def _value_text(item) -> str:
