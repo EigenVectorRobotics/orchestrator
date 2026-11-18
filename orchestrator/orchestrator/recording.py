@@ -7,9 +7,10 @@ its agent calls, the press frames it saved, its bag, and outcome.json. The recor
 Each agent call gets runs/<n>-<tree>/agent/<id>/:
   request.json    what the model got: task, allowed decisions, failure, history, press, stance, and its images by file
                   (written when the call opens, replaced when it closes, with its outcome)
-  messages.jsonl  everything that happened, in order: opened, started (model, effort, prompt), each decision with the
-                  executor's reply and the model's usage, failed, cancelled, closed
-  summary.json    one record of the call: model, prompt, final decision, state, time, tokens and cost in all
+  messages.jsonl  everything that happened, in order: opened, started (model, effort, prompt, system prompt and its
+                  sha256, the sha256 of agent_prompts.py), each decision with the executor's reply and the model's
+                  usage, failed, cancelled, closed
+  summary.json    one record of the call: model, prompt, the two sha256s, final decision, state, time, tokens and cost in all
 The images it names are copied to the run's captures/ with the press frames.
 
 The press frames are copied from the capture directory when the run ends, and the originals are then removed:
@@ -156,6 +157,8 @@ def summarize_call(call: str, folder: Path) -> dict:
         'model':      started.get('model'),
         'effort':     started.get('effort'),
         'prompt':     started.get('prompt'),
+        'system_sha256':  started.get('system_sha256'),
+        'prompts_sha256': started.get('prompts_sha256'),
         'decision':   (accepted or answers or [{}])[-1].get('decision'),
         'answers':    len(answers),
         'refused':    len(answers) - len(accepted),

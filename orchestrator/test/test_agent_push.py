@@ -109,7 +109,8 @@ def _run(tree: BehaviorTree, max_ticks: int = 2000) -> Status:
 
 def test_a_pushed_call_carries_the_frames_and_a_refused_decision_goes_back(tmp_path):
     def answer(header, blobs, conn):
-        send_message(conn, {'type': 'started', 'id': header['id'], 'model': 'm', 'effort': 'low', 'prompt': 'p'})
+        send_message(conn, {'type': 'started', 'id': header['id'], 'model': 'm', 'effort': 'low', 'prompt': 'p', 'system': 's',
+                            'system_sha256': 'aa', 'prompts_sha256': 'bb'})
         send_message(conn, {'type': 'decision', 'id': header['id'], 'decision': 'continue', 'reason': 'wrong phase'})
         send_message(conn, {'type': 'decision', 'id': header['id'], 'decision': 'pressed', 'reason': 'ring lit',
                             'cost_usd': 0.01, 'tokens_in': 900, 'tokens_out': 40})
@@ -136,7 +137,8 @@ def test_a_pushed_call_carries_the_frames_and_a_refused_decision_goes_back(tmp_p
     assert [request['state'] for request in requests] == ['open', 'closed']
 
     assert [event['kind'] for event in events] == ['started', 'decision', 'decision']
-    assert (events[0]['model'], events[0]['prompt']) == ('m', 'p')
+    assert (events[0]['model'], events[0]['prompt'], events[0]['system']) == ('m', 'p', 's')
+    assert (events[0]['system_sha256'], events[0]['prompts_sha256']) == ('aa', 'bb')
     assert [event['accepted'] for event in events[1:]] == [False, True] and events[2]['tokens_in'] == 900
     assert requests[-1]['outcome'] == 'answered' and [image['name'] for image in requests[0]['images']] == ['baseline', 'press', 'press_crop']
 
@@ -153,6 +155,7 @@ def test_a_pushed_call_carries_the_frames_and_a_refused_decision_goes_back(tmp_p
     summary = json.loads((recorder.path / 'runs' / '001-t' / 'agent' / header['id'] / 'summary.json').read_text())
     assert summary['state'] == 'answered' and summary['decision']['decision'] == 'pressed' and summary['refused'] == 1
     assert (summary['model'], summary['prompt'], summary['tokens_in']) == ('m', 'p', 900)
+    assert (summary['system_sha256'], summary['prompts_sha256']) == ('aa', 'bb')
 
 
 def test_a_halted_call_tells_the_bridge_to_drop_it(tmp_path):

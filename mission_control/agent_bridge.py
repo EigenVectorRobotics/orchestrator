@@ -5,6 +5,7 @@ import json
 import time
 import base64
 import asyncio
+import hashlib
 import argparse
 
 from pathlib import Path
@@ -22,13 +23,15 @@ from orchestrator.site import SiteError, load_site
 
 SITES = Path(__file__).resolve().parents[1] / 'orchestrator' / 'config' / 'sites'
 
+PROMPTS_SHA256 = hashlib.sha256(Path(prompts.__file__).read_bytes()).hexdigest()    # the agent_prompts.py this bridge loaded
+
 
 USAGE = '''Answer every agent call of the executor on the laptop.
 
 The executor keeps one TCP link to this bridge and pushes each call with its evidence and frames. The record of each
-call is kept on the NUC: the executor passes what the bridge reports (model, prompt, decisions, usage, failure) to the
-run recorder. With --keep the bridge also keeps each call here in <local>/<call id>/ (call.json, the frames,
-bridge.json) and the timings in <local>/bridge_timing.jsonl, for debugging on the laptop. For press_judge and manipulation_recovery it asks
+call is kept on the NUC: the executor passes what the bridge reports (model, prompt, system prompt and its sha256, the
+sha256 of agent_prompts.py, decisions, usage, failure) to the run recorder. With --keep the bridge also keeps each call
+here in <local>/<call id>/ (call.json, the frames, bridge.json) and the timings in <local>/bridge_timing.jsonl, for debugging on the laptop. For press_judge and manipulation_recovery it asks
 the model with the evidence as text and the frames as images, no tools. A refused decision goes back to the model, at
 most twice. One warm model process waits per kind of call, so a call starts without process startup. An
 operator_confirm call never goes to the model: the bridge rings the bell, prints the question here, and sends the y or
@@ -325,10 +328,13 @@ class Bridge:
 
     async def _ask_model(self, call: dict, images: dict, log: dict):
         decisions    = tuple(call['decisions'])
-        model        = self._take(call['skill'], decisions, system_prompt(call['skill'], call.get('limits')))
+        system       = system_prompt(call['skill'], call.get('limits'))
+        model        = self._take(call['skill'], decisions, system)
         text, blocks = content(call, images)
-        log.update({'model': self.arguments.model, 'effort': self.arguments.effort, 'prompt': text})
-        await self.send({'type': 'started', 'id': call['id'], 'model': self.arguments.model, 'effort': self.arguments.effort, 'prompt': text,
+        prompt       = {'prompt': text, 'system': system, 'system_sha256': hashlib.sha256(system.encode()).hexdigest(),
+                        'prompts_sha256': PROMPTS_SHA256}
+        log.update({'model': self.arguments.model, 'effort': self.arguments.effort, **prompt})
+        await self.send({'type': 'started', 'id': call['id'], 'model': self.arguments.model, 'effort': self.arguments.effort, **prompt,
                          'received': log['received']})
         log['model_start'] = time.time()
         message = blocks

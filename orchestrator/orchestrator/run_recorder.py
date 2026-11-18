@@ -18,7 +18,6 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
-from ament_index_python.packages import get_package_share_directory
 
 from .topics import (AGENT_EVENT_TOPIC as EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, COMMAND_QOS, LATCHED_QOS,
                      RECORDER_STATUS_TOPIC as STATUS_TOPIC, SPEAK_TOPIC, TASK_TOPIC, TRACE_QOS, TRACE_TOPIC)
@@ -86,14 +85,12 @@ class RunRecorderNode(Node):
         repo_roots  = self.declare_parameter('repo_roots', ['/home/vector/orchestrator_ws/src', '/home/vector/eigen_vector_ws/src']).value
         record_bag  = self.declare_parameter('bag', True).value
         bag_topics  = self.declare_parameter('bag_topics', BAG_TOPICS).value
-        agent_docs  = self.declare_parameter('agent_skills_dir', str(Path(get_package_share_directory('skill_registry')) / 'agent_skills')).value
 
         contracts, places_file = declare_sources(self)
 
         provenance = {
             'git':          [git_state(repo) for repo in find_repos(repo_roots)],
             'contracts':    directory_digests(Path(contracts), '*.yaml'),
-            'agent_skills': directory_digests(Path(agent_docs), '*.md'),
             'places':       {'path': places_file, 'sha256': file_digest(Path(places_file))},
             'press_references': references_state(),     # the stance references the agent calls read from (orch_state)
         }

@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import types
+import hashlib
 import asyncio
 import argparse
 
@@ -176,3 +177,27 @@ def test_a_recovery_call_with_other_limits_gets_its_own_model(tmp_path):
     bridge._take('manipulation_recovery', ('continue',), other)
 
     assert other != usual and made == [usual, usual, other, other]
+
+
+def test_a_model_call_reports_the_system_prompt_and_the_prompts_file(tmp_path):
+    class Model:
+        async def ask(self, message):
+            return None, {'error': 'no answer'}
+
+        def close(self):
+            pass
+
+    async def main():
+        bridge, sent, _ = await _bridge(tmp_path, [])
+        bridge._take = lambda skill, decisions, system: Model()
+        await bridge._ask_model({**RECOVERY, 'limits': spec.limits()}, {}, {'received': time.time(), 'answers': []})
+
+        return sent
+
+    sent   = asyncio.run(main())
+    system = agent_bridge.system_prompt('manipulation_recovery', spec.limits())
+
+    assert [message['type'] for message in sent] == ['started', 'failed']
+    assert sent[0]['prompt'] == agent_prompts.recovery_prompt({**RECOVERY, 'limits': spec.limits()}, camera=False)
+    assert sent[0]['system'] == system and sent[0]['system_sha256'] == hashlib.sha256(system.encode()).hexdigest()
+    assert sent[0]['prompts_sha256'] == hashlib.sha256(Path(agent_prompts.__file__).read_bytes()).hexdigest()

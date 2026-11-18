@@ -88,7 +88,8 @@ def test_agent_calls_are_kept_closed_over_open_with_their_messages(tmp_path):
 
     recorder.on_event(executor('started', tree_id='t'))
     recorder.on_agent_request({'id': 'c1', 'state': 'open', 'skill': 'manipulation_recovery', 'phase': 'diagnose', 'opened': 10.0})
-    recorder.on_agent_message('event', {'id': 'c1', 'kind': 'started', 'time': 11.0, 'model': 'm', 'effort': 'low', 'prompt': 'p'})
+    recorder.on_agent_message('event', {'id': 'c1', 'kind': 'started', 'time': 11.0, 'model': 'm', 'effort': 'low', 'prompt': 'p',
+                                        'system': 's', 'system_sha256': 'aa', 'prompts_sha256': 'bb'})
     recorder.on_agent_message('event', {'id': 'c1', 'kind': 'decision', 'time': 12.0, 'decision': {'decision': 'retry'},
                                         'accepted': True, 'cost_usd': 0.02, 'tokens_in': 500, 'tokens_out': 30})
     recorder.on_agent_message('reply', {'id': 'c1', 'accepted': True, 'message': 'retry'})
@@ -101,6 +102,8 @@ def test_agent_calls_are_kept_closed_over_open_with_their_messages(tmp_path):
 
     assert json.loads((folder / 'request.json').read_text())['state'] == 'closed'
     assert [message['kind'] for message in messages] == ['opened', 'started', 'decision', 'reply', 'closed']
+    assert (messages[1]['system'], messages[1]['system_sha256'], messages[1]['prompts_sha256']) == ('s', 'aa', 'bb')
+    assert (summary['system_sha256'], summary['prompts_sha256']) == ('aa', 'bb')
     assert (summary['model'], summary['prompt'], summary['state'], summary['decision']) == ('m', 'p', 'answered', {'decision': 'retry'})
     assert (summary['seconds'], summary['tokens_in'], summary['cost_usd']) == (3.0, 500, 0.02)
     assert not (recorder.path / 'agent_calls').exists()                                # one record per call, in its run

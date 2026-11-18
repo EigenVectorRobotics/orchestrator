@@ -7,16 +7,16 @@ carries agent_spec.PROTOCOL, its phase, button and base goal as fields, and the 
 
 A message is a header of two big-endian uint32 (the JSON length, then the length of the binary after it), the JSON,
 then the images back to back, as its "images" list gives them ({name, media_type, size}). The executor sends call,
-reply (accepted or why not) and cancel; the bridge sends started (model and prompt), decision and failed. Both send
-ping every PING_S; a link silent for DEAD_S is closed and opened again, and the open call is sent again on it.
+reply (accepted or why not) and cancel; the bridge sends started (model, prompt, system prompt, its sha256 and the
+sha256 of agent_prompts.py), decision and failed. Both send ping every PING_S; a link silent for DEAD_S is closed and opened again, and the open call is sent again on it.
 
 A call waits for the bridge while it is unreachable (nothing heard from it, connected or not): after UNREACHABLE_SAY_S
 the robot says so once, and after UNREACHABLE_FAIL_S the call fails. A later call fails at once while nothing has been
 heard from the bridge since, so the tree is not held up a minute at each agent leaf.
 
 Each call is also published as a request (latched JSON on topics.AGENT_REQUEST_TOPIC: opened, then closed), each reply on
-topics.AGENT_REPLY_TOPIC, and what the bridge reports (started with model and prompt, each decision with its usage,
-failed) and a cancel on topics.AGENT_EVENT_TOPIC. The run recorder writes all of it into the run the call opened in;
+topics.AGENT_REPLY_TOPIC, and what the bridge reports (started with model, prompt and system prompt, each decision with
+its usage, failed) and a cancel on topics.AGENT_EVENT_TOPIC. The run recorder writes all of it into the run the call opened in;
 nothing here writes a file except the camera image a recovery call sends, saved next to the press frames so the
 recorder can keep it.
 """
@@ -42,6 +42,7 @@ MAX_REFUSED = 3                         # decisions refused in one call before i
 UNREACHABLE_SAY_S  = 15.0               # the robot says it lost the bridge after this long without a word from it
 UNREACHABLE_FAIL_S = 60.0               # and the call fails after this long
 UNREACHABLE        = 'the agent bridge is unreachable'      # the start of the error; the agent leaf says why it failed
+STARTED_FIELDS     = ('model', 'effort', 'prompt', 'system', 'system_sha256', 'prompts_sha256', 'received')   # of the bridge's started
 UNREACHABLE_SPEECH = 'I lost the connection to my helper. Waiting for it to come back.'
 USAGE_FIELDS = ('cost_usd', 'tokens_in', 'tokens_out', 'model_s')
 EXTENSIONS  = {'image/jpeg': 'jpg', 'image/png': 'png'}
@@ -336,7 +337,7 @@ class PushAgentBackend:
 
                 # (3) Act on it: a decision goes through decide, and a refusal goes back to the bridge
                 if message['type'] == 'started':
-                    self._event(request, 'started', **{key: message.get(key) for key in ('model', 'effort', 'prompt', 'received')})
+                    self._event(request, 'started', **{key: message.get(key) for key in STARTED_FIELDS})
 
                 if message['type'] == 'failed':
                     outcome = {'outcome': 'failed', 'error': message.get('error')}
