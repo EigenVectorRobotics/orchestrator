@@ -9,6 +9,7 @@ import pytest
 from skill_registry import Registry, TreeValidator, ValidatorConfig, load_tree
 
 from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentSession, decision_outputs, offset_goal, rule_offset, rule_reach, rule_stance
+from orchestrator.agent_spec import GOING_ON
 from orchestrator.agent_push import PushAgentBackend
 from orchestrator.behavior_tree import BehaviorTree, Context, Status
 from orchestrator.skill_leaf import make_leaf_factory
@@ -666,7 +667,7 @@ class LibraryRideRunner(FakeRunner):
 
         if name == 'manipulation_recovery':
             decision = self.decisions.pop(0) if self.decisions else {'decision': 'continue', 'left_arm': False}
-            return FakeHandle(Status.SUCCESS if decision['decision'] != 'abort' else Status.FAILURE, decision['decision'],
+            return FakeHandle(Status.SUCCESS if decision['decision'] in GOING_ON else Status.FAILURE, decision['decision'],
                               {'reason': 'test', **decision})
 
         if name == 'press_judge':
@@ -737,6 +738,34 @@ def test_a_press_judged_not_pressed_goes_to_manipulation_recovery_and_is_judged_
     assert runner.calls[recovery][1]['phase'] == 'diagnose'
     assert runner.calls[recovery][1]['base_goal']['x'] == 1.0                              # the call panel, copied as a pose
     assert names[recovery + 1:].index('press_button') < names[recovery + 1:].index('press_judge')
+
+
+def _call_panel_calls(runner: 'LibraryRideRunner') -> list[str]:
+    """The calls up to the robot asking for the call button to be pressed for it"""
+    names = runner.names()
+    asked = next(index for index, (name, inputs) in enumerate(runner.calls)
+                 if name == 'say' and inputs['text'] == 'Please press the call button for me.')
+    return names[:asked]
+
+
+def test_four_failed_presses_get_three_diagnoses_and_the_fourth_none():
+    retry  = {'decision': 'retry', 'left_arm': False}
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 4, judges=[False] * 4, decisions=[retry] * 4)
+
+    _run(_library_ride(runner), max_ticks=4000)
+    names = _call_panel_calls(runner)
+    assert names.count('press_button') == 4 and names.count('manipulation_recovery') == 3
+    last  = len(names) - 1 - names[::-1].index('press_button')
+    assert 'manipulation_recovery' not in names[last:]                                # none after the fourth press
+
+
+def test_a_diagnosis_that_asks_for_help_stops_the_presses():
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])] * 4, judges=[False] * 4,
+                               decisions=[{'decision': 'ask_help', 'left_arm': False}])
+
+    _run(_library_ride(runner), max_ticks=4000)
+    names = _call_panel_calls(runner)
+    assert names.count('press_button') == 1 and names.count('manipulation_recovery') == 1
 
 
 def test_an_offset_retry_presses_again_with_the_offset_the_agent_gave():

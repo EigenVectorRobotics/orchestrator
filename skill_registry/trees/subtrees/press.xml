@@ -23,43 +23,60 @@
     <BehaviorTree ID="press_and_recover">
         <Sequence>
             <SetBlackboard output_key="pressed" value="no"/>
+            <SetBlackboard output_key="press_tried" value="no"/>
+            <SetBlackboard output_key="recovery_stop" value="no"/>
             <SetBlackboard output_key="press_offset_x" value="{press_base_offset_x}"/>
             <SetBlackboard output_key="press_offset_y" value="{press_base_offset_y}"/>
             <SetBlackboard output_key="press_offset_z" value="{press_base_offset_z}"/>
             <RetryUntilSuccessful num_attempts="4">
                 <Fallback>
                     <Sequence>
+                        <Fallback>          <!-- the first press goes at once; each later one after a diagnosis of the last, so the fourth failure gets none -->
+                            <decision_is value="{press_tried}" equals="no"/>
+                            <SubTree ID="recover_once"/>
+                        </Fallback>
+                        <SetBlackboard output_key="press_tried" value="yes"/>
                         <set_press_offset x="{press_offset_x}" y="{press_offset_y}" z="{press_offset_z}"/>
                         <reset_filters/>        <!-- no mode change or EKF reset: the look's reset holds from check_reach to the press -->
                         <press_button target_description="{button}" left_arm="{press_left_arm}"/>
                         <press_judge target_description="{button}"/>
                         <SetBlackboard output_key="pressed" value="yes"/>
                     </Sequence>
-                    <SubTree ID="recover_once"/>
+                    <decision_is value="{recovery_stop}" equals="yes"/>   <!-- the diagnosis stopped the presses: no more attempts -->
                 </Fallback>
             </RetryUntilSuccessful>
             <decision_is value="{pressed}" equals="yes"/>
         </Sequence>
     </BehaviorTree>
-    <BehaviorTree ID="recover_once">
+    <BehaviorTree ID="recover_once">   <!-- success: press again; failure: stop pressing, with recovery_stop yes -->
         <Fallback>
-            <Inverter>
-                <manipulation_recovery phase="diagnose" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}" approach="{recovery_approach}" walk_in="{recovery_walk_in}" left_arm="{press_left_arm}" offset_x="{press_offset_x}" offset_y="{press_offset_y}" offset_z="{press_offset_z}"/>
-            </Inverter>
             <Sequence>
-                <decision_is value="{decision}" equals="reposition"/>
-                <ForceSuccess>              <!-- the arms may be released already -->
-                    <release_arms/>
-                </ForceSuccess>
-                <Inverter>
-                    <RetryUntilSuccessful num_attempts="3">
-                        <SubTree ID="look"/>
-                    </RetryUntilSuccessful>
-                </Inverter>
-                <say text="I lost the button after moving. Stopping the task."/>   <!-- the tree fails next, with no other say -->
-                <SetBlackboard output_key="stance_lost" value="yes"/>
+                <manipulation_recovery phase="diagnose" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}" approach="{recovery_approach}" walk_in="{recovery_walk_in}" left_arm="{press_left_arm}" offset_x="{press_offset_x}" offset_y="{press_offset_y}" offset_z="{press_offset_z}"/>
+                <Fallback>
+                    <Inverter>
+                        <decision_is value="{decision}" equals="reposition"/>
+                    </Inverter>
+                    <Sequence>
+                        <ForceSuccess>      <!-- the arms may be released already -->
+                            <release_arms/>
+                        </ForceSuccess>
+                        <Fallback>
+                            <RetryUntilSuccessful num_attempts="3">
+                                <SubTree ID="look"/>
+                            </RetryUntilSuccessful>
+                            <Sequence>
+                                <say text="I lost the button after moving. Stopping the task."/>   <!-- the tree fails next, with no other say -->
+                                <SetBlackboard output_key="stance_lost" value="yes"/>
+                                <AlwaysFailure/>
+                            </Sequence>
+                        </Fallback>
+                    </Sequence>
+                </Fallback>
             </Sequence>
-            <AlwaysFailure/>
+            <Sequence>
+                <SetBlackboard output_key="recovery_stop" value="yes"/>
+                <AlwaysFailure/>
+            </Sequence>
         </Fallback>
     </BehaviorTree>
     <BehaviorTree ID="stance_check">
