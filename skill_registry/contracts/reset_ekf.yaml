@@ -17,4 +17,4 @@ source: manipulation_stack/g1_pilot/src/body_ekf.cpp (e63f2b8 or later)
 notes: >-
   After the reset body_ekf publishes no torso pose until it has collected 2 s of stillness and logged "calibrated",
   so the first pose after the response means it is done. Any motion restarts the still period; a robot that never
-  holds still fails at timeout_s. A yaw rate above 0.05 deg/s after the reset means it did not take (E-008).
+  holds still fails at timeout_s. A yaw rate above 0.05 deg/s after the reset means it did not take.

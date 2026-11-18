@@ -1,6 +1,6 @@
 """Before the first press: is the button in the camera's view from where the robot stands, and which arm presses it?
 
-A poor stance comes from the walk before the press (experience E-001, E-015): the robot stopped too close, so
+A poor stance comes from the walk before the press: the robot stopped too close, so
 the button fell below the frame, or too far, so the arm stops short. These checks catch it before press_button
 fails. They run in the executor on what track_anything already publishes (its 2D box, its 3D target pose) and TF,
 with no VLM call of their own; button_in_view seeds the track that feeds them.
@@ -58,7 +58,7 @@ def judge_view(box: tuple | None, box_age_s: float | None, image_size: tuple | N
 
 
 def judge_arm(position: tuple, limits: dict | None = None, inputs: dict | None = None) -> tuple[bool, str]:
-    """True for the left arm: the button sits more than left_arm_min_y_m to the robot's left (E-007); a tree sets it per panel"""
+    """True for the left arm: the button sits more than left_arm_min_y_m to the robot's left; a tree sets it per panel"""
     threshold = _limits(ARM_DEFAULTS, limits, inputs)['left_arm_min_y_m']
     y         = position[1]
 

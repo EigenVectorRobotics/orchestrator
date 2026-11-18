@@ -13,4 +13,4 @@ source: orchestrator/orchestrator/stale_nodes.py (judge, stray_findings, orphan_
 notes: >-
   A node restarted by hand (tmux, nohup) still works, but a stack restart would start a second copy. An orphan is a
   helper whose parent is init, older than its grace (10 min, 3 h for a bag record); it holds a DDS participant
-  (troubleshooting N-001). The message names each one with its host and pid.
+  index, and the indexes can run out. The message names each one with its host and pid.

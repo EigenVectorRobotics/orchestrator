@@ -20,7 +20,7 @@
         <at_floor floor="1"/>
         <SetBlackboard output_key="call_panel_preapproach" value="none"/>   <!-- floor 1 has no preapproach place -->
         <SetBlackboard output_key="call_panel"             value="{freight_elevator_call_panel_floor_1}"/>
-        <SetBlackboard output_key="call_button"            value="down button"/>   <!-- "up button" grounds the light above it (E-003) -->
+        <SetBlackboard output_key="call_button"            value="down button"/>   <!-- "up button" grounds the light above it -->
         <SetBlackboard output_key="inside_panel"           value="{inside_freight_elevator_button_panel_floor_1}"/>
         <SetBlackboard output_key="floor_button"           value="floor 2"/>
         <SetBlackboard output_key="door_out"               value="{freight_elevator_door_out_floor_2}"/>
@@ -47,7 +47,7 @@
       <SetBlackboard output_key="button" value="{call_button}"/>
       <SetBlackboard output_key="press_panel" value="{call_panel}"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>
-      <SetBlackboard output_key="press_arm_min_y" value="0.0"/>   <!-- outside, the arm on the button's side (E-007) -->
+      <SetBlackboard output_key="press_arm_min_y" value="0.0"/>   <!-- outside, the arm on the button's side -->
       <SetBlackboard output_key="press_base_offset_x" value="0.0"/>
       <SetBlackboard output_key="press_base_offset_y" value="0.0"/>
       <SetBlackboard output_key="press_base_offset_z" value="0.0"/>
@@ -84,7 +84,7 @@
     <Sequence>
       <SetBlackboard output_key="button" value="{floor_button}"/>
       <SetBlackboard output_key="press_panel" value="{inside_panel}"/>
-      <SetBlackboard output_key="press_left_arm" value="false"/>   <!-- inside: the right arm (E-007) -->
+      <SetBlackboard output_key="press_left_arm" value="false"/>   <!-- inside: the right arm; the left failed IK for floor buttons -->
       <SetBlackboard output_key="press_arm_min_y" value="0.10"/>
       <!-- the inside panel needs the press 3 mm deeper, left and up (2026-11-14) -->
       <SetBlackboard output_key="press_base_offset_x" value="0.003"/>

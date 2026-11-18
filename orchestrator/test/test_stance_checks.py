@@ -17,7 +17,7 @@ def test_a_fresh_box_away_from_the_edges_is_in_view():
 
 
 def test_a_box_cut_by_the_bottom_edge_is_not_in_view():
-    """E-015: the robot stopped too close and the button fell below the frame"""
+    """The robot stopped too close and the button fell below the frame"""
     success, message, outputs = judge_view((600, 690, 660, 720), 0.2, IMAGE)
 
     assert not success and 'bottom 0 px' in message

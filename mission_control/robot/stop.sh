@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop as in docs/operations.md section 6: cancel the tree, stop the base, release the arms, go to Idle, then stop the
+# Stop as in docs/run.md section 7: cancel the tree, stop the base, release the arms, go to Idle, then stop the
 # orchestrator with Ctrl-C so the raw bag closes its file. The robot stacks stay up (deploy.sh stop nuc, ... for those).
 source "$(dirname "$0")/common.sh"
 

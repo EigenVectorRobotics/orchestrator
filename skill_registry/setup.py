@@ -16,7 +16,6 @@ setup(
         (f'share/{PACKAGE_NAME}/trees/subtrees', glob('trees/subtrees/*.xml')),
         (f'share/{PACKAGE_NAME}/trees/tests', glob('trees/tests/*.xml')),
         (f'share/{PACKAGE_NAME}/preflight', glob('preflight/*.xml')),
-        (f'share/{PACKAGE_NAME}/agent_skills', glob('agent_skills/*.md')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

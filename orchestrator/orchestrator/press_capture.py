@@ -101,7 +101,7 @@ class PhaseTracker:
             self.pregrasp_t = t
 
         # Before the pre-grasp the hand is still swinging up from its rest pose and can pass the goal depth far beside
-        # the button (E-014: -20.6 mm deep, 229 mm sideways), which ended the press there and froze the tracker
+        # the button (once -20.6 mm deep, 229 mm sideways), which ended the press there and froze the tracker
         # before the real push. Until the pre-grasp is seen, only a sample near the button axis can be the push.
         if self.pregrasp_t is None and lateral >= self.config.lateral_tolerance_m:
             return

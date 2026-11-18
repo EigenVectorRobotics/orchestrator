@@ -57,7 +57,7 @@
     </RetryUntilSuccessful>
   </BehaviorTree>
 
-  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here (E-008) -->
+  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to reset my balance estimate."/>
@@ -82,10 +82,10 @@
 
 
 
-  <!-- inside: the right arm (E-007) -->
+  <!-- inside: the right arm; the left failed IK for floor buttons -->
   <BehaviorTree ID="press_floor1">
     <Sequence>
-      <set_press_offset x="0.005" y="0.0075" z="0.0034"/>   <!-- inside panel, right arm (E-012) -->
+      <set_press_offset x="0.005" y="0.0075" z="0.0034"/>   <!-- inside panel, right arm -->
       <SubTree ID="prepare_arm"/>
       <reset_filters/>
       <press_button target_description="floor 1" left_arm="false"/>

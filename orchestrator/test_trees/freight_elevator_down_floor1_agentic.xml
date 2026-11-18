@@ -1,12 +1,12 @@
 <root BTCPP_format="4">
   <!-- Full cycle at the freight elevator: walk to the call panel, press the down button, wait for the door, walk into
-       the cabin, press floor 1 with the right arm (E-007). After each press, press_judge: the executor saves the
+       the cabin, press floor 1 with the right arm. After each press, press_judge: the executor saves the
        frames of the press and the agent bridge's model looks at the frame at the fingertip's closest point to the button and decides
        pressed or not_pressed. A not_pressed goes to manipulation_recovery.
-       Before each press the tree resets the body EKF and holds still until it has recalibrated (ekf_hold, E-008). Before the first press at each panel, a stance
+       Before each press the tree resets the body EKF and holds still until it has recalibrated (ekf_hold). Before the first press at each panel, a stance
        check: button_in_view (it seeds the tracker, in the executor, no cloud); only when it fails
        does manipulation_recovery look (phase stance_check), because a poor stance comes from the walk, not from the
-       press (E-001, E-015).
+       press.
        Places from ~/maps/two_floor_clean_cabin2.places.yaml. -->
   <BehaviorTree ID="freight_elevator_down_floor1_agentic">
     <Sequence>
@@ -58,7 +58,7 @@
       <SubTree ID="walk_in"/>
       <set_autonomy enabled="false"/>
       <SubTree ID="ekf_hold"/>
-      <SetBlackboard value="false" output_key="press_left_arm"/>   <!-- inside: the right arm (E-007) -->
+      <SetBlackboard value="false" output_key="press_left_arm"/>   <!-- inside: the right arm; the left failed IK for floor buttons -->
       <SubTree ID="stance_floor1"/>
       <Fallback>
         <SubTree ID="press_floor1"/>
@@ -122,7 +122,7 @@
     </RetryUntilSuccessful>
   </BehaviorTree>
 
-  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here (E-008) -->
+  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to reset my balance estimate."/>
@@ -242,10 +242,10 @@
     </Fallback>
   </BehaviorTree>
 
-  <!-- inside: the right arm (E-007) -->
+  <!-- inside: the right arm; the left failed IK for floor buttons -->
   <BehaviorTree ID="press_floor1">
     <Sequence>
-      <set_press_offset x="0.005" y="0.0075" z="0.0034"/>   <!-- inside panel, right arm (E-012) -->
+      <set_press_offset x="0.005" y="0.0075" z="0.0034"/>   <!-- inside panel, right arm -->
       <SubTree ID="prepare_arm"/>
       <reset_filters/>
       <press_button target_description="floor 1" left_arm="{press_left_arm}"/>

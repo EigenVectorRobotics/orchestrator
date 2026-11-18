@@ -12,4 +12,4 @@ timeout_s: 3
 maturity: untested
 source: navigation_stack terrain_analysis; docs/troubleshooting.md ("A walk routes but the robot never moves")
 notes: >-
-  Seen: latched points 0.2 m ahead blocked the walk into the cabin, and one clear freed 3154 paths at once (E-017, N-002).
+  Seen: latched points 0.2 m ahead blocked the walk into the cabin, and one clear freed 3154 paths at once.

@@ -3,7 +3,7 @@
        button, press the up button. Each press is judged by the agent (press_judge) and never retried, so every cycle
        gives one press per button. The stance checks are recorded but do not stop a press. Places and map:
        ~/maps/two_floor_clean_cabin2.places.yaml and two_floor_clean_cabin2.pcd. Run with send_tree
-       (docs/operations.md, "Repeatability test at the call panel") -->
+       (docs/run.md, section 5) -->
   <BehaviorTree ID="freight_call_panel_press_repeat">
     <Repeat num_cycles="5">
       <Sequence>
@@ -48,7 +48,7 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here (E-008) -->
+  <!-- reset_ekf ends once body_ekf has recalibrated on 2 s of stillness, so the robot holds still here -->
   <BehaviorTree ID="ekf_hold">
     <Sequence>
       <say text="Holding still to reset my balance estimate."/>
