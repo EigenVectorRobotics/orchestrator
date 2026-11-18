@@ -118,6 +118,11 @@ class ExecutorNode(Node):
         return Agent(self._make_push_backend(speak), RosReader(self, self.runner.latest_image, self.runner._tf),
                      on_event=self._on_agent_event, speak=speak, press_evidence=self.runner.press_evidence)
 
+    def _on_link_state(self, text: str):
+        """The agent bridge link connected or dropped: in the trace, and in the log, where the robot scripts read it"""
+        self.tracer.emit('agent_link', text)
+        self.get_logger().info(text)
+
     def _make_push_backend(self, speak) -> PushAgentBackend:
         """Every agent call goes to the agent bridge on the laptop over one TCP link; the request, reply and event topics carry it for the recorder"""
         host              = self.get_parameter('agent_push_host').value                          # the operator laptop, from the site
@@ -125,7 +130,7 @@ class ExecutorNode(Node):
         request_publisher = self.create_publisher(String, REQUEST_TOPIC, STATUS_QOS)
         reply_publisher   = self.create_publisher(String, REPLY_TOPIC, COMMAND_QOS)
         event_publisher   = self.create_publisher(String, AGENT_EVENT_TOPIC, COMMAND_QOS)
-        link              = PushLink(host, port, on_state=lambda text: self.tracer.emit('agent_link', text))
+        link              = PushLink(host, port, on_state=self._on_link_state)
 
         return PushAgentBackend(
             link,

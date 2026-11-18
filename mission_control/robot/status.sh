@@ -5,7 +5,7 @@ source "$(dirname "$0")/common.sh"
 echo "executor: $(executor_state)"
 nuc <<'REMOTE'
 echo "tmux: $(tmux ls 2>/dev/null | cut -d: -f1 | tr '\n' ' ')"
-grep -E 'agent_link|agent bridge' ~/orchestrator.log 2>/dev/null | tail -1 | sed 's/^/bridge: /'
+grep -E 'connected to the agent bridge|agent bridge link dropped' ~/orchestrator.log 2>/dev/null | tail -1 | sed 's/^/bridge: /'
 echo "--- last lines of ~/orchestrator.log"
 tail -15 ~/orchestrator.log 2>/dev/null
 REMOTE
