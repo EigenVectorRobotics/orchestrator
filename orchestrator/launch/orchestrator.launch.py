@@ -13,10 +13,7 @@ def generate_launch_description():
     fake         = LaunchConfiguration('fake')
     vlm_base_url = LaunchConfiguration('vlm_base_url')
     params_file  = LaunchConfiguration('params_file')
-    backend      = LaunchConfiguration('planner_backend')
-    model        = LaunchConfiguration('planner_model')
     record       = LaunchConfiguration('record')
-    mode         = LaunchConfiguration('mode')
     step_gate    = PythonExpression(["'", LaunchConfiguration('step_gate'), "' == 'true' or ('", LaunchConfiguration('step_gate'),
                                      "' == 'auto' and '", fake, "' != 'true')"])
     vlm_url      = PythonExpression(["'http://127.0.0.1:8090/v1' if '", fake, "' == 'true' else '", vlm_base_url, "'"])
@@ -26,7 +23,8 @@ def generate_launch_description():
         params_file,
         {
             'contracts_directory': LaunchConfiguration('contracts_directory'),
-            'agent_skills_dir':    PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'agent_skills']),
+            'code_dir':            PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'code']),
+            'knowledge_dir':       PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'knowledge']),
             'places_file':         LaunchConfiguration('places_file'),
             'map_info':            LaunchConfiguration('map_info'),
             'vlm_base_url':        vlm_url,
@@ -44,10 +42,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'agent_dir',
             default_value=str(agent_dir()),
-            description="the agent's own folder in the workspace: contracts/ (write_skill), agent_skills/ and docs/ (what it writes about the stack)"
+            description="the agent's own folder in the workspace: contracts/ (write_skill), code/, knowledge/, runbook.md"
         ),
         DeclareLaunchArgument('task_agent', default_value='session',
-                              description='task mode: session (a session outside uses agent_cli) or codex (the executor asks codex exec for each step)'),
+                              description='session (a session outside uses agent_cli) or codex (the executor asks codex exec for each step)'),
         DeclareLaunchArgument('codex_model', default_value='gpt-6-astra', description='task_agent codex: the model, with the codex login'),
         DeclareLaunchArgument('write_skill', default_value='true',
                               description='the agent may save contracts with write_skill; false refuses that command '
@@ -71,37 +69,27 @@ def generate_launch_description():
                         'the places come from map_info; with fake:=true, this package\'s places.yaml'
         ),
         DeclareLaunchArgument('map_info', default_value='/map_info', description='the map_info node the places come from, live, when places_file is empty'),
-        DeclareLaunchArgument('planner_backend', default_value='claude', description='claude | openai_compatible | scripted'),
-        DeclareLaunchArgument('planner_model', default_value='claude-opus-5'),
-        DeclareLaunchArgument('mode', default_value='task', description='task: a session does each task step by step (agent_cli); tree: planner_node writes a tree'),
         DeclareLaunchArgument('step_gate', default_value='auto',
-                              description='task mode: a person approves each step; auto: on unless fake (true | false | auto)'),
+                              description='a person approves each step; auto: on unless fake (true | false | auto)'),
         DeclareLaunchArgument('mission_control', default_value='false',
                               description='serve the Mission Control page: see the run and drive it from a browser'),
         DeclareLaunchArgument('mission_control_port', default_value='8080',
                               description='the page is on 127.0.0.1 only; reach it with ssh -L 8080:localhost:8080'),
         DeclareLaunchArgument('mission_control_token', default_value='',
                               description='a command needs this token; empty: the node makes one and logs the link, off: no token'),
-        DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses trees while it is not ready'),
+        DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses tasks while it is not ready'),
 
         Node(package='skill_registry', executable='registry_node', output='screen', parameters=shared),
         Node(
             package='orchestrator',
             executable='executor_node',
             output='screen',
-            parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]), 'mode': mode,
+            parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]),
                                   'step_gate': step_gate, 'write_skill': LaunchConfiguration('write_skill'),
                                   'task_agent': LaunchConfiguration('task_agent'), 'codex_model': LaunchConfiguration('codex_model'),
                                   'runbook': LaunchConfiguration('runbook')}]
         ),
         Node(package='orchestrator', executable='run_recorder', output='screen', parameters=shared, condition=IfCondition(record)),
-        Node(
-            package='orchestrator',
-            executable='planner_node',
-            output='screen',
-            parameters=[*shared, {'backend': backend, 'model': model}],
-            condition=IfCondition(PythonExpression(["'", mode, "' == 'tree'"]))
-        ),
         Node(
             package='orchestrator',
             executable='mission_control',

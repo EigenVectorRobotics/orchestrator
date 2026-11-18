@@ -3,5 +3,5 @@ from .deny import DenyList, PatternList
 from .gate import GateList
 from .grammar import contract_grammar
 from .registry import (GraphSnapshot, Registry, agent_code_dir, agent_contracts_dir, agent_dir, agent_knowledge_dir,
-                       agent_runbook_file, agent_skills_dir, code_file, is_present, missing_folder)
+                       agent_runbook_file, code_file, is_present, missing_folder)
 from .validator import Issue, TreeValidator, ValidatorConfig

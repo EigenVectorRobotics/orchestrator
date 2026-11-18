@@ -30,8 +30,8 @@ def test_the_grammar_names_every_transport_and_default_and_its_example_is_a_cont
     ({'inputs': ['text']},                                     'a port is a mapping'),
     ({'inputs': [{'type': 'string'}]},                         'a port needs name'),
     ({'device': None},                                         'needs device'),               # YAML null, not 'None'
-    ({'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String', 'capture': 'press'}},
-                                                               'capture is a dict'),          # it reached ROS as an
+    ({'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String', 'fixed': 'data'}},
+                                                               'fixed is a dict'),            # it reached ROS as an
 ])                                                                                            # AttributeError before
 def test_a_refusal_names_the_fields_and_the_values_it_takes(raw, says):
     with pytest.raises(ContractError) as refused:

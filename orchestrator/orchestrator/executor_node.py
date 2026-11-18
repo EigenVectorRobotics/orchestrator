@@ -1,4 +1,4 @@
-"""Validate a behavior tree, then tick it on the NUC; every step goes to the trace"""
+"""Task mode on the NUC: open a task, run each step the agent asks for, and trace every step"""
 
 import json
 import uuid
@@ -14,14 +14,9 @@ from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
 
 from ament_index_python.packages import get_package_share_directory
-from skill_registry import agent_code_dir, agent_knowledge_dir, agent_runbook_file, agent_skills_dir
+from skill_registry import agent_code_dir, agent_knowledge_dir, agent_runbook_file
 
-from .agent import Agent, AgentConfig
-from .agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
-from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC, ExternalAgentBackend
 from .trace import Tracer
-from .agent_ros import RosReader
-from .agent_sandbox import SandboxConfig
 from .knowledge import KnowledgeStore
 from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
@@ -30,7 +25,7 @@ from .code_skill import CodeRunner
 from .agent_sandbox import SandboxConfig
 from .tasks import CANCEL_TOPIC, STATUS_TOPIC, TASK_TOPIC, Tasks, parse_task_request
 from .task_loop import CodexDecider, TaskLoop
-from .planner import describe_catalog
+from .tasks import describe_catalog
 from .recording import DEFAULT_REPO_ROOTS, repo_states
 from .skill_stamps import SkillClock, Stamps
 from .skill_writer import SkillWriter
@@ -39,7 +34,6 @@ from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TO
                          STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC, StepGate, TaskDesk)
 from .behavior_tree import Context, Status
 from .ros_skill_runner import RosSkillRunner
-from .press_capture import DEFAULT_CAPTURE_DIR
 from .run_recorder import STATUS_TOPIC as RECORDER_TOPIC
 
 
@@ -71,9 +65,8 @@ class ExecutorNode(Node):
         self.vlm_base_url = self.declare_parameter('vlm_base_url', 'http://vector-thor:8090/v1').value
         self.vlm_model    = self.declare_parameter('vlm_model', 'local').value
         self.vlm_timeout  = self.declare_parameter('vlm_timeout_s', 40.0).value    # Cosmos on the Thor: one request at a time
-        self.capture_dir  = self.declare_parameter('capture_dir', DEFAULT_CAPTURE_DIR).value
-        self.require_recorder = self.declare_parameter('require_recorder', False).value   # true: no tree runs unrecorded
-        mode                  = self.declare_parameter('mode', 'task').value   # task: a session does the task step by step; tree: planner_node writes a tree
+        self.require_recorder = self.declare_parameter('require_recorder', False).value   # true: no task runs unrecorded
+        self.scratch_dir      = self.declare_parameter('agent_scratch_dir', str(Path.home() / 'orch_knowledge' / 'scratch')).value  # <run_id>/ in it
         self.recorder_status  = {'ready': False, 'reason': 'no status from run_recorder yet'}
 
         self.tracer   = Tracer(self, 'executor')
@@ -82,25 +75,21 @@ class ExecutorNode(Node):
             self,
             self.registry,
             VlmClient(VlmClientConfig(base_url=self.vlm_base_url, model=self.vlm_model, timeout_s=self.vlm_timeout)),
-            self.image_topic,
-            capture_dir=self.capture_dir
+            self.image_topic
         )
 
         knowledge_dir  = self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value     # claims.yaml, log.jsonl
-        self.knowledge = KnowledgeStore(knowledge_dir)        # the agent's note tool and the task desk; its code clock comes with the stamps
-        self.agent     = self._make_agent()
+        self.knowledge = KnowledgeStore(knowledge_dir)        # the task desk's; its code clock comes with the stamps
         self.gate  = self._make_gate() if self.declare_parameter('step_gate', True).value else None
         self.code  = self._make_code()
-        build_leaf = make_leaf_factory(self.registry, self.runner, self.agent, self.code)
+        build_leaf = make_leaf_factory(self.registry, self.runner, self.code)
         self.code.build_leaf = build_leaf              # a call inside a code skill is a leaf of its own
         self.tasks = Tasks(self.registry, build_leaf, self.tracer,
                            self._publish_status, self.essential_devices, make_scratch=self._run_scratch,
                            on_error=self.get_logger().error)
 
         self._status_publisher   = self.create_publisher(String, STATUS_TOPIC, STATUS_QOS)
-        self._tree_subscriptions = [
-            self.create_subscription(String, '/orchestrator/tree', self._on_tree, 10),
-            self.create_subscription(String, '/orchestrator/tree_blind', self._on_blind_tree, 10),
+        self._subscriptions      = [
             self.create_subscription(Empty, CANCEL_TOPIC, self._on_cancel, 10),
             self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, STATUS_QOS),
         ]
@@ -111,8 +100,8 @@ class ExecutorNode(Node):
         self.knowledge.code.save(self.knowledge.folder)                       # and the knowledge CLI uses the same clock
         self.writer              = SkillWriter(self.registry, contracts_dir, check_ros_types, self.runner.prepare,
                                                code_dir=self.code.code_dir, stamps=self.stamps)
-        self.desk                = self._make_desk() if mode == 'task' else None
-        self.loop                = self._make_loop() if mode == 'task' else None
+        self.desk                = self._make_desk()
+        self.loop                = self._make_loop()
         self._tick_timer         = self.create_timer(1.0 / self.tick_hz, self._tick)
         self._refresh_timer      = self.create_timer(5.0, self.writer.refresh)
 
@@ -231,7 +220,7 @@ class ExecutorNode(Node):
 
     def _approve_inside_code(self, contract, inputs: dict, reasons: list[str]) -> tuple[bool, str]:
         """A code skill is approved once; a skill the operator's gate.yaml names asks again, inside the code"""
-        if self.desk is None or self.gate is None:
+        if self.gate is None:
             return True, ''
 
         decision = self.desk.ask_step({'skill': contract.name, 'inputs': inputs, 'in_code': True,
@@ -258,109 +247,30 @@ class ExecutorNode(Node):
 
         return gate
 
-    def _make_agent(self) -> Agent | None:
-        """The runner of agent skills, or None if agent_backend is none or its backend cannot start"""
-        backend_name   = self.declare_parameter('agent_backend', 'external').value        # external | openai_compatible | scripted | none
-        model          = self.declare_parameter('agent_model', 'local').value            # openai_compatible only
-        base_url       = self.declare_parameter('agent_base_url', '').value              # openai_compatible only
-        api_key_env    = self.declare_parameter('agent_api_key_env', 'OPENAI_API_KEY').value
-        script         = self.declare_parameter('agent_script', '[]').value              # scripted: JSON, one call list per agent call
-        skills_dir     = self.declare_parameter('agent_skills_dir', str(agent_skills_dir())).value
-        read_roots     = self.declare_parameter('agent_read_roots', ['/home/vector/eigen_vector_ws', skills_dir]).value
-        python_timeout = self.declare_parameter('agent_python_timeout_s', 60.0).value
-        max_turns      = self.declare_parameter('agent_max_turns', 30).value
-        scratch_dir    = self.declare_parameter('agent_scratch_dir', str(Path.home() / 'orch_knowledge' / 'scratch')).value  # <run_id>/ in it
-
-        if backend_name == 'none':
-            return None
-
-        try:
-            backend = self._make_agent_backend(backend_name, model, base_url, api_key_env, script)
-        except ValueError as error:                                 # a bad script or name: agent skills then fail
-            self.get_logger().warn(f'no agent: {error}')
-            return None
-
-        config = AgentConfig(
-            skills_dir=skills_dir,
-            read_roots=list(read_roots),
-            max_turns=max_turns,
-            sandbox=SandboxConfig(scratch_dir=scratch_dir, timeout_s=python_timeout),
-            knowledge=self.knowledge
-        )
-
-        return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames, self.runner.frames.at),
-                     on_event=self._on_agent_event, speak=self._speak, press_evidence=self.runner.press_evidence)
-
     def _speak(self, text: str):
         self._speaker.publish(String(data=text))
 
-    def _make_agent_backend(self, name: str, model: str, base_url: str, api_key_env: str, script: str):
-        if name == 'external':
-            return self._make_external_backend()
-
-        if name == 'openai_compatible':
-            return OpenAICompatibleAgentBackend(base_url, model, api_key_env)
-
-        if name == 'scripted':
-            return ScriptedAgentBackend(json.loads(script))
-
-        raise ValueError(f'unknown agent_backend {name}')
-
-    def _make_external_backend(self) -> ExternalAgentBackend:
-        """Calls go out on the request topic; a session answers with agent_cli on the decision topic"""
-        request_publisher = self.create_publisher(String, REQUEST_TOPIC, STATUS_QOS)
-        reply_publisher   = self.create_publisher(String, REPLY_TOPIC, COMMAND_QOS)
-        backend           = ExternalAgentBackend(
-            lambda request: request_publisher.publish(String(data=json.dumps(request, default=str))),
-            lambda reply: reply_publisher.publish(String(data=json.dumps(reply)))
-        )
-
-        def on_decision(message: String):
-            try:
-                backend.deliver(json.loads(message.data))
-            except json.JSONDecodeError as error:
-                reply_publisher.publish(String(data=json.dumps({'id': None, 'accepted': False, 'message': f'not JSON: {error}'})))
-
-        self._decision_subscription = self.create_subscription(String, DECISION_TOPIC, on_decision, COMMAND_QOS)
-
-        return backend
-
-    def _on_agent_event(self, kind: str, text: str, level: str = 'info', **data):
-        self.tracer.emit(kind, text, level=level, **data)
-
-    # ========== Trees in ==========
-
-    def _on_tree(self, message: String):
-        self.run(message.data, blind=False)
-
-    def _on_blind_tree(self, message: String):
-        self.run(message.data, blind=True)
+    # ========== Tasks in ==========
 
     def _on_recorder_status(self, message: String):
         self.recorder_status = json.loads(message.data)
-
-    def run(self, xml_text: str, blind: bool) -> bool:
-        if not self._recorder_ready('tree'):
-            return False
-
-        return self.tasks.run_tree(xml_text, self._new_context(), blind)
 
     def _on_task(self, message: String):
         """Task mode: a task request opens a task for the session"""
         task, blind = parse_task_request(message.data)
 
-        if self._recorder_ready('task'):
+        if self._recorder_ready():
             opened = self.desk.open(task, self._new_context(), blind)
 
             if self.loop is not None:
                 self.loop.start(opened)
 
-    def _recorder_ready(self, what: str) -> bool:
+    def _recorder_ready(self) -> bool:
         recorder_up = self.count_publishers(RECORDER_TOPIC) > 0         # a latched ready outlives a recorder that died
 
         if self.require_recorder and not (recorder_up and self.recorder_status.get('ready')):
             reason = self.recorder_status.get('reason') if recorder_up else 'run_recorder is not running'
-            return self.tasks.reject(f'{what} refused: the recorder is not ready ({reason})')
+            return self.tasks.reject(f'task refused: the recorder is not ready ({reason})')
 
         return True
 
@@ -370,14 +280,11 @@ class ExecutorNode(Node):
 
     def _run_scratch(self, run_id: str) -> str | None:
         """The run's scratch folder under the agent's scratch root; the recorder moves it into the run's bundle"""
-        if self.agent is None:
-            return None
-
-        folder = Path(self.agent.config.sandbox.scratch_dir).expanduser() / run_id
+        folder = Path(self.scratch_dir).expanduser() / run_id
 
         try:
             folder.mkdir(parents=True, exist_ok=True)
-        except OSError as error:                                    # the run goes on; its agent calls get no notes folder
+        except OSError as error:                                    # the run goes on, with no notes folder
             self.get_logger().warn(f'no scratch folder for this run: {error}')
             return None
 
@@ -388,9 +295,7 @@ class ExecutorNode(Node):
 
     def _tick(self):
         self.tasks.tick()
-
-        if self.desk:
-            self.desk.check()
+        self.desk.check()
 
     def _on_node_event(self, node, event: dict):
         if event['status'] == Status.IDLE.value:
@@ -413,11 +318,8 @@ class ExecutorNode(Node):
         self.tracer.emit('node', text, level='warn' if failed else 'info', **event)
 
     def _on_record(self, record: dict):
-        """A finished action call or an agent decision; a failure carries its feedback, for review after the run"""
-        if 'decision' in record:
-            text = f'{record["skill"]} decided {record["decision"]}: {record["reason"]}'
-        else:
-            text = f'{record["skill"]} {record["status"]} in {record["elapsed_s"]} s: {record["message"]}'
+        """A finished action call; a failure carries its feedback, for review after the run"""
+        text  = f'{record["skill"]} {record["status"]} in {record["elapsed_s"]} s: {record["message"]}'
 
         level = 'warn' if record.get('status') == Status.FAILURE.value else 'info'
         self.tracer.emit('record', text, level=level, record=record)
@@ -440,9 +342,6 @@ def main():
         node.tasks.cancel()                             # halt a running step
 
         node.runner.shutdown()
-
-        if node.agent is not None:
-            node.agent.shutdown()
         node.destroy_node()
         rclpy.try_shutdown()
 

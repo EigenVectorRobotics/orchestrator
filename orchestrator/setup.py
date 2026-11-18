@@ -20,15 +20,13 @@ setup(
     zip_safe=True,
     maintainer='Karan Khanna',
     maintainer_email='karankha@andrew.cmu.edu',
-    description='Agentic orchestrator for the G1: tree executor, LLM planner and trace',
+    description='Agentic orchestrator for the G1: task mode, skills the agent writes, and trace',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'executor_node = orchestrator.executor_node:main',
-            'planner_node = orchestrator.planner_node:main',
             'fake_robot = orchestrator.fake_robot:main',
-            'send_tree = orchestrator.send_tree:main',
             'agent_cli = orchestrator.agent_cli:main',
             'cosmos_vlm_server = orchestrator.cosmos_vlm_server:main',
             'run_recorder = orchestrator.run_recorder:main',

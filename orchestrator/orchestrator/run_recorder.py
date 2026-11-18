@@ -1,8 +1,8 @@
 """Record every orchestrator run on the NUC (see recording.py); refuse runs when the disk is too full.
 
-Subscribes to the trace, the task and the agent topics; records a bag of the chosen topics for each tree run;
-publishes /orchestrator/recorder/status (latched JSON: ready, reason, free_gb, session). The executor refuses a
-tree while the status is not ready, when its require_recorder is true.
+Subscribes to the trace and the task topic; records a bag of the chosen topics for each task run; publishes
+/orchestrator/recorder/status (latched JSON: ready, reason, free_gb, session). The executor refuses a task while
+the status is not ready, when its require_recorder is true.
 """
 
 import json
@@ -11,7 +11,6 @@ import signal
 import subprocess
 
 from pathlib import Path
-from functools import partial
 
 import rclpy
 
@@ -19,13 +18,13 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
 
-from skill_registry import agent_skills_dir
+from skill_registry import agent_code_dir
 
 from .tasks import TASK_TOPIC
 from .trace import TRACE_QOS, TRACE_TOPIC
 from .node_setup import declare_sources
-from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
-from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS
+from .task_agent import COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC
+from .ros_skill_runner import LATCHED_QOS
 from .recording import (DEFAULT_REPO_ROOTS, Recorder, RecorderConfig, directory_digests, file_digest, find_repos,
                         git_state, largest_runs)
 
@@ -34,7 +33,7 @@ STATUS_TOPIC = '/orchestrator/recorder/status'
 BAG_STOP_S   = 10.0                             # SIGINT, then this long to close the file, then SIGKILL
 
 BAG_TOPICS = [
-    TRACE_TOPIC, REQUEST_TOPIC, DECISION_TOPIC, REPLY_TOPIC,
+    TRACE_TOPIC, OPEN_TOPIC, COMMAND_TOPIC, REPLY_TOPIC, STEP_REQUEST_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
     '/speak', '/route_goal', '/route_planner/status', '/nav_state', '/state_estimation', '/odom_base_link',
     '/right_ee_pose', '/left_ee_pose', '/track_3d/is_tracking', '/track_3d/selected_target_3d', '/slam_elevatorlio/status',
 ]
@@ -83,11 +82,10 @@ class RunRecorderNode(Node):
 
         root        = self.declare_parameter('root', RecorderConfig.root).value
         min_free_gb = self.declare_parameter('min_free_gb', RecorderConfig.min_free_gb).value
-        capture_dir = self.declare_parameter('capture_dir', RecorderConfig.capture_dir).value
         repo_roots  = self.declare_parameter('repo_roots', DEFAULT_REPO_ROOTS).value
         record_bag  = self.declare_parameter('bag', True).value
         bag_topics  = self.declare_parameter('bag_topics', BAG_TOPICS).value
-        agent_docs  = self.declare_parameter('agent_skills_dir', str(agent_skills_dir())).value
+        code_dir    = self.declare_parameter('code_dir', str(agent_code_dir())).value
 
         contracts, places_file, map_info = declare_sources(self)
 
@@ -96,20 +94,17 @@ class RunRecorderNode(Node):
             'places': {'path': places_file, 'sha256': file_digest(Path(places_file))} if places_file else {'map_info': map_info},
         }
         # read at the start of each run, not once: the agent writes contracts while the session runs (write_skill)
-        library = lambda: {'contracts':    directory_digests(Path(contracts), '*.yaml'),
-                           'agent_skills': directory_digests(Path(agent_docs), '*.md')}
+        library = lambda: {'contracts': directory_digests(Path(contracts), '*.yaml'),
+                           'code':      directory_digests(Path(code_dir), '*.py')}
 
         self.bag      = RosBag(self, list(bag_topics)) if record_bag else None
-        self.recorder = Recorder(RecorderConfig(root=root, min_free_gb=min_free_gb, capture_dir=capture_dir), provenance,
+        self.recorder = Recorder(RecorderConfig(root=root, min_free_gb=min_free_gb), provenance,
                                  self.bag, library=library)
 
         self._status_publisher = self.create_publisher(String, STATUS_TOPIC, LATCHED_QOS)
         self._subscriptions    = [       # not self._subscriptions of Node: that name is taken by rclpy
             self.create_subscription(String, TRACE_TOPIC, self._json(self.recorder.on_event), TRACE_QOS),
             self.create_subscription(String, TASK_TOPIC, lambda message: self.recorder.on_task(message.data), 10),
-            self.create_subscription(String, REQUEST_TOPIC, self._json(self.recorder.on_agent_request), LATCHED_QOS),
-            self.create_subscription(String, DECISION_TOPIC, self._json(partial(self.recorder.on_agent_message, 'decision')), COMMAND_QOS),
-            self.create_subscription(String, REPLY_TOPIC, self._json(partial(self.recorder.on_agent_message, 'reply')), COMMAND_QOS),
         ]
         self._was_ready   = None
         self._space_timer = self.create_timer(5.0, self._check_space)

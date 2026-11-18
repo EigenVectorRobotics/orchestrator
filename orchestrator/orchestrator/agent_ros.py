@@ -1,7 +1,6 @@
-"""Read-only ROS access for agent skills, on the executor's node: TF, one message from a topic, the topic list, images.
+"""Read-only ROS access for agent_cli: TF, one message from a topic, the topic list, images.
 
-Called from the agent's thread while the executor spins its node in the main thread. It creates subscriptions
-and a TF listener, and never a publisher.
+It creates subscriptions and a TF listener, and never a publisher.
 """
 
 import math
@@ -19,8 +18,7 @@ from rosidl_runtime_py import message_to_ordereddict
 from rosidl_runtime_py.utilities import get_message
 from visualization_msgs.msg import ImageMarker
 
-from .images import draw_outlines
-from .press_capture import stamp_seconds
+from .images import draw_outlines, stamp_seconds
 
 
 # Topics too big to read whole into the conversation; images go through image()
@@ -69,11 +67,10 @@ def _quaternion_to_rpy(x: float, y: float, z: float, w: float) -> list[float]:
 
 class RosReader:
     def __init__(self, node: Node, latest_camera_image: Callable[[], bytes | None],
-                 capture_frames: Callable[[], dict] = dict, frame_at: Callable[[float], bytes | None] = lambda t: None):
+                 frame_at: Callable[[float], bytes | None] = lambda t: None):
         self.node                = node
         self.frame_at            = frame_at             # the camera frame with this stamp (s), as JPEG, from the last seconds
         self.latest_camera_image = latest_camera_image     # the last camera frame, as JPEG
-        self.capture_frames      = capture_frames       # the last press's kept frames, by name
         self._tf_buffer          = None
         self._tf_listener        = None
         self._lock               = threading.Lock()
@@ -213,13 +210,5 @@ class RosReader:
 
         if source == 'overlay':
             return self._overlay()
-
-        if source.startswith('press_'):
-            frame = self.capture_frames().get(source[len('press_'):])
-
-            if frame is None:
-                raise RosReadError(f'the last press kept no {source[len("press_"):]} frame')
-
-            return frame, 'image/jpeg'
 
         raise RosReadError(f'unknown image source {source}')

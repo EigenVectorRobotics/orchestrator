@@ -16,7 +16,7 @@ class FakeBag:
 
 
 def make_recorder(tmp_path, bag=None, min_free_gb=0.0):
-    config = RecorderConfig(root=str(tmp_path / 'runs'), min_free_gb=min_free_gb, capture_dir=str(tmp_path / 'captures'))
+    config = RecorderConfig(root=str(tmp_path / 'runs'), min_free_gb=min_free_gb)
     return Recorder(config, {'git': []}, bag)
 
 
@@ -25,7 +25,7 @@ def executor(kind, **fields):
 
 
 def start_task(recorder, name='t', **fields):
-    """A tree sent alone, as the executor reports it: a task of one step"""
+    """A task of one step, as the executor reports it"""
     recorder.on_event(executor('task_started', name=name, **fields))
     recorder.on_event(executor('started', tree_id=name, step=1, tree='<root/>'))
 
@@ -38,7 +38,7 @@ def end_task(recorder, kind='finished', end='success', **fields):
 def test_a_session_has_provenance_events_and_finalization(tmp_path):
     recorder = make_recorder(tmp_path)
 
-    recorder.on_event({'source': 'planner', 'kind': 'sent', 'text': 'tree sent'})
+    recorder.on_event({'source': 'mission_control', 'kind': 'sent', 'text': 'task sent'})
     recorder.close()
 
     assert 'schema_version' in json.loads((recorder.path / 'provenance.json').read_text())
@@ -53,7 +53,7 @@ def test_a_task_gets_its_folder_steps_task_records_and_outcome(tmp_path):
     recorder.on_task('Go to the elevator and call it')
     start_task(recorder, 'call_elevator', run_id='r1', blind=True)
     recorder.on_event(executor('record', record={'skill': 'navigate_to', 'status': 'success'}))
-    end_task(recorder, status='success', aborted='')
+    end_task(recorder, status='success')
 
     run  = recorder.path / 'runs' / '001-call_elevator'
     task = json.loads((run / 'task.json').read_text())
@@ -101,36 +101,6 @@ def test_steps_of_one_task_stay_in_one_run(tmp_path):
     assert (outcome['end'], outcome['steps']) == ('gave_up', 2)
 
 
-def test_agent_calls_are_kept_closed_over_open_with_their_messages(tmp_path):
-    recorder = make_recorder(tmp_path)
-
-    start_task(recorder)
-    recorder.on_agent_request({'id': 'c1', 'state': 'open'})
-    recorder.on_agent_message('decision', {'id': 'c1', 'decision': 'retry'})
-    recorder.on_agent_request({'id': 'c1', 'state': 'closed'})
-
-    folder = recorder.run / 'agent'
-
-    assert json.loads((folder / 'c1.json').read_text())['state'] == 'closed'
-    assert json.loads((folder / 'c1.messages.jsonl').read_text())['decision'] == 'retry'
-
-
-def test_agent_messages_after_the_run_ended_stay_with_their_run(tmp_path):
-    recorder = make_recorder(tmp_path)
-
-    start_task(recorder)
-    run = recorder.run
-    recorder.on_agent_request({'id': 'c1', 'state': 'open'})
-    end_task(recorder, 'halted', end='cancelled')
-    recorder.on_agent_request({'id': 'c1', 'state': 'closed'})
-    recorder.on_agent_message('reply', {'id': 'c1', 'accepted': True})
-    recorder.on_agent_request({'id': 'c2', 'state': 'open'})          # outside any run: not kept
-
-    assert json.loads((run / 'agent' / 'c1.json').read_text())['state'] == 'closed'
-    assert (run / 'agent' / 'c1.messages.jsonl').exists()
-    assert not (run / 'agent' / 'c2.json').exists()
-
-
 def test_a_run_folder_that_cannot_be_made_fails_the_session_and_does_not_raise(tmp_path):
     recorder = make_recorder(tmp_path)
 
@@ -139,21 +109,6 @@ def test_a_run_folder_that_cannot_be_made_fails_the_session_and_does_not_raise(t
 
     assert recorder.run is None
     assert not recorder.ready()[0]
-
-
-def test_press_frames_named_in_a_run_are_copied_in(tmp_path):
-    recorder = make_recorder(tmp_path)
-    frame    = tmp_path / 'captures' / 'press_1.000_press.jpg'
-    frame.parent.mkdir()
-    frame.write_bytes(b'jpeg')
-
-    start_task(recorder)
-    run = recorder.run
-    recorder.on_event(executor('record', record={'skill': 'press_button', 'outputs': {'frames': {'press': str(frame)}}}))
-    end_task(recorder, status='failure', end='failure')
-
-    assert (run / 'captures' / frame.name).read_bytes() == b'jpeg'
-    assert frame.exists()
 
 
 def test_the_agent_scratch_folder_of_a_run_is_moved_in(tmp_path):
@@ -193,7 +148,7 @@ def test_a_failed_write_marks_the_session_failed_and_does_not_raise(tmp_path):
     recorder = make_recorder(tmp_path)
 
     recorder._events.close()                              # the next write fails
-    recorder.on_event({'source': 'planner', 'kind': 'sent'})
+    recorder.on_event({'source': 'mission_control', 'kind': 'sent'})
 
     assert not recorder.ready()[0]
     assert json.loads((recorder.path / 'finalization.json').read_text())['status'] == 'failed'

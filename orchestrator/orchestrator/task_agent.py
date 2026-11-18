@@ -45,7 +45,7 @@ from skill_registry import contract_grammar
 from .places import PLACE_INFO
 from .knowledge import OUTCOME, KnowledgeError, KnowledgeStore, Sighting
 from .tasks import Task, Tasks
-from .planner import describe_catalog
+from .tasks import describe_catalog
 from .skill_writer import SkillWriter
 from .behavior_tree import Context
 

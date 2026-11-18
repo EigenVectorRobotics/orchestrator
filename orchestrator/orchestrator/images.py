@@ -8,6 +8,7 @@ import io
 import math
 import zlib
 import struct
+import threading
 
 import numpy as np
 
@@ -98,3 +99,27 @@ def encode_rgb(rgb: np.ndarray, max_side: int | None = None, quality: int = 90) 
 def image_to_jpeg(message) -> bytes:
     """A sensor_msgs/Image as JPEG at full size (PNG only if no encoder is installed)"""
     return encode_rgb(image_to_rgb(message))[0]
+
+
+def stamp_seconds(stamp) -> float:
+    """A header stamp as float seconds, the key of a frame buffer"""
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
+class FrameBuffer:
+    """The last few seconds of camera frames: (ROS time, JPEG or PNG bytes)"""
+
+    def __init__(self, keep_s: float = 8.0):
+        self.keep_s  = keep_s
+        self._frames = []
+        self._lock   = threading.Lock()
+
+    def add(self, t: float, data: bytes):
+        with self._lock:
+            self._frames.append((t, data))
+            self._frames = [frame for frame in self._frames if frame[0] >= t - self.keep_s]
+
+    def at(self, t: float) -> bytes | None:
+        """The frame with exactly this stamp, e.g. the one track_3d outlined"""
+        with self._lock:
+            return next((data for stamp, data in self._frames if stamp == t), None)

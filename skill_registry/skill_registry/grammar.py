@@ -36,10 +36,9 @@ success_when: {field_text(Watch)}
 failure_when: {field_text(HeldValue)}
 Rules: {NAME_RULE}. An action or code skill needs a timeout_s above 0.
 A condition only reads ({one_of(READ_ONLY)}). An {one_of(ROS_TRANSPORTS)} skill needs the ROS name and the
-ros_type it takes. A watch needs success_when. An agent skill names its skill document. A compare skill needs
-the inputs value and equals. A vlm skill needs a question; a {{field}} in a question or a compare_question must be
-an input; success_answer must be one of choices; frames: press_capture judges the frames a press kept. failure_when
-reads action feedback, so it needs an action skill; capture kind is press. An enum port needs choices, and one
+ros_type it takes. A watch needs success_when. A compare skill needs the inputs value and equals. A vlm skill
+needs a question; a {{field}} in a question must be an input; success_answer must be one of choices. failure_when
+reads action feedback, so it needs an action skill. An enum port needs choices, and one
 value per choice if it gives values. A port fills the message field of its own
 name, or the one in field; an output is read from a top-level field of the result, or, on a watch, from any
 field of the message it reads; a pose output comes back as {{x, y, z, yaw, frame}}. Whatever maturity you give, your

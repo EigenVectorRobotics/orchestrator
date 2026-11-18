@@ -1,4 +1,4 @@
-"""Parameters and loading shared by the executor and planner nodes"""
+"""Parameters and loading shared by the executor and recorder nodes"""
 
 import yaml
 

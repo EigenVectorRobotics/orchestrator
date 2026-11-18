@@ -37,15 +37,14 @@ class Context:
         scratch_dir: str | None = None
     ):
         self.run_id       = run_id      # the recorder's id for this run of the tree
-        self.scratch_dir  = scratch_dir # this run's notes folder, shared by its agent calls; None: no run folder
+        self.scratch_dir  = scratch_dir # this run's notes folder; None: no run folder
         self.blackboard   = {} if blackboard is None else blackboard
         self.clock        = clock
         self.on_event     = on_event or (lambda node, event: None)
         self.on_record    = on_record or (lambda record: None)
-        self.history      = []      # finished calls and agent decisions, oldest first, without feedback
+        self.history      = []      # finished calls, oldest first, without feedback
         self.last_call    = None    # the last finished action call, with its feedback
         self.last_failure = None    # the last failed action call or failed check, with its feedback
-        self.abort_reason = ''
 
     def record(self, summary: dict, full: dict | None = None):
         """Keep a finished call: the summary in the history, the full record (feedback included) as the last call,
@@ -62,10 +61,6 @@ class Context:
             self.last_failure = full
 
         self.on_record(full)
-
-    def abort(self, reason: str):
-        """End the whole tree in failure at the end of this tick"""
-        self.abort_reason = reason or 'aborted'
 
 
 class TreeNode:
@@ -536,13 +531,7 @@ class BehaviorTree:
         self.root = self._build_tree(main_tree, main_tree, ())
 
     def tick(self) -> Status:
-        status = self.root.tick()
-
-        if self.context.abort_reason:
-            self.root.halt()
-            return Status.FAILURE
-
-        return status
+        return self.root.tick()
 
     def halt(self):
         self.root.halt()

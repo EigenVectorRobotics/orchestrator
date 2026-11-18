@@ -76,10 +76,10 @@ def wilson_lower_bound(successes: int, total: int, z: float = WILSON_Z) -> float
 @dataclass
 class Sighting:
     """One confirmation or contradiction: who, in which run, from what evidence, and the value seen"""
-    by:       str                       # 'operator', 'agent:press_judge', 'check:button_lit', ...
+    by:       str                       # 'operator', 'agent:task', 'check:door_open', ...
     time:     float
     run:      str | None = None         # the run_id of the recorder's bundle
-    evidence: list[str] = field(default_factory=list)    # e.g. 'record:7', 'frame:press', 'E-019'
+    evidence: list[str] = field(default_factory=list)    # e.g. 'record:7', 'frame:press', 'step:3'
     value:    object = None
     moved:    str | None = None         # the code under the claim moved after it was seen: it no longer counts
 
@@ -243,7 +243,7 @@ class KnowledgeStore:
                            *(f'- {subject}: {", ".join(counts)}' for subject, counts in sorted(rows.items()))])
 
     def prompt_section(self, observations: bool = False) -> str:
-        """Facts and beliefs as a prompt section with its heading, for the planner and the agent; beliefs are marked
+        """Facts and beliefs as a prompt section with its heading, for the task agent; beliefs are marked
         as not certain. observations: also the live observations, so an agent can confirm one by its id. Empty when
         there are none"""
         return _section(self._live(), observations)

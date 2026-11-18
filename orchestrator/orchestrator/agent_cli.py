@@ -1,14 +1,10 @@
-"""agent_cli: answer the executor's agent calls from a session, e.g. Claude Code over ssh on the NUC.
+"""agent_cli: a session (e.g. Claude Code over ssh on the NUC) does a task with it, and looks at the robot.
 
-  agent_cli wait [--timeout S]          block until a call is open; print it
-  agent_cli show [--full]               the current call; --full adds the failure with its feedback, and the history
   agent_cli tf TARGET SOURCE            the pose of SOURCE in TARGET
   agent_cli topic TOPIC                 the next message on TOPIC (not images or point clouds)
   agent_cli topics                      the topic list
   agent_cli image camera|overlay OUT    save the latest image to OUT (overlay: the mask outlines on a frame)
   agent_cli python FILE                 run FILE in the agent sandbox (numpy, scipy, pinocchio, coal)
-  agent_cli decide DECISION --reason R [--dx --dy --dyaw] [--ox --oy --oz] [--left-arm | --right-arm] [--send]
-                                        without --send, only show what would be sent
   agent_cli say TEXT                    speak TEXT through the robot's speaker (/speak)
 
 Task mode (docs/task-mode.md): the session does a task step by step.
@@ -36,8 +32,8 @@ The step gate (on the real robot): a person approves each step, at a terminal; t
   agent_cli step approve|refuse [--reason R]
                                         only at a terminal (a tty)
 
-Run it in the same ROS environment as the executor. It publishes only to the executor (decisions, task commands,
-step decisions) and speech (say); it never calls a skill's own interface.
+Run it in the same ROS environment as the executor. It publishes only to the executor (task commands, step
+decisions) and speech (say); it never calls a skill's own interface.
 """
 
 import sys
@@ -58,11 +54,9 @@ from rclpy.executors import SingleThreadedExecutor
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 
-from .images import ImageError, image_to_jpeg
+from .images import FrameBuffer, ImageError, image_to_jpeg, stamp_seconds
 from .agent_ros import RosReader, RosReadError
-from .press_capture import FrameBuffer, stamp_seconds
 from .agent_sandbox import SandboxConfig, run_python
-from .agent_external import DECISION_TOPIC, REPLY_TOPIC, REQUEST_TOPIC
 from .task_agent import (task_summary, COMMAND_TOPIC, OPEN_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC,
                          REPLY_TOPIC as TASK_REPLY_TOPIC)
 
@@ -116,90 +110,6 @@ def _request_reply(node, topic: str, reply_topic: str, message: dict, timeout_s:
         return None
 
     return matching()
-
-
-def _summary(request: dict, full: bool) -> str:
-    lines = [
-        f'call {request["id"]} ({request["state"]}), skill {request["skill"]}, opened {time.time() - request["opened"]:.0f} s ago',
-        request['task'],
-        f'skill document: {request.get("document") or "(not sent)"}',
-    ]
-    failure = request.get('failure')
-    label   = 'failure'
-
-    if failure and failure.get('checked_call'):
-        lines.append(f'failure: the check {failure["skill"]} failed ({failure["message"]}) after {failure["checks"]} succeeded')
-        failure, label = failure['checked_call'], 'checked call'
-
-    if failure:
-        feedback  = failure.get('feedback', [])
-        distances = [sample.get('distance_to_goal') for sample in feedback if isinstance(sample.get('distance_to_goal'), (int, float))]
-        lines    += [
-            f'{label}: {failure["skill"]} {failure["status"]} after {failure["elapsed_s"]} s: {failure["message"]}',
-            f'  inputs {json.dumps(failure["inputs"])}, outputs {json.dumps(failure["outputs"])}',
-            f'  feedback: {len(feedback)} samples' + (f', distance_to_goal first {distances[0]:.3f} min {min(distances):.3f} last {distances[-1]:.3f} m' if distances else '')
-            + (', tracking_lost seen' if any(sample.get('tracking_lost') for sample in feedback) else ''),
-        ]
-
-        if feedback and feedback[-1].get('current_goal'):
-            goal = feedback[-1]['current_goal']
-            lines.append(f'  last current_goal in {goal["header"]["frame_id"]}: {json.dumps(goal["pose"]["position"])}')
-    else:
-        lines.append('failure: none recorded')
-
-    lines.append(f'history: {len(request.get("history") or [])} records')
-
-    press = request.get('press')
-
-    if press:
-        capture = press.get('capture') or {}
-        lines.append(f'press: {"left" if press.get("left_arm") else "right"} arm, deepest {capture.get("max_depth_m")} m along '
-                     f'the button normal, {capture.get("lateral_at_max_m")} m sideways there, '
-                     f'residual (x in, y left, z up) {capture.get("residual_m")} m')
-        lines += [f'  frame {name}: {path}' for name, path in sorted((press.get('frames') or {}).items())]
-    elif 'press' in request:
-        lines.append('press: no frames were kept')
-
-    if full:
-        lines += ['--- failure', json.dumps(failure, indent=1), '--- history', json.dumps(request.get('history'), indent=1)]
-
-    return '\n'.join(lines)
-
-
-def _decide(node, arguments) -> int:
-    request = _latest(node, REQUEST_TOPIC, 3.0)
-
-    if request is None or request['state'] != 'open':
-        print('no open call', file=sys.stderr)
-        return 1
-
-    if arguments.decision not in request['decisions']:
-        print(f'{arguments.decision} is not allowed now; allowed: {request["decisions"]}', file=sys.stderr)
-        return 1
-
-    decision = {'id': request['id'], 'decision': arguments.decision, 'reason': arguments.reason}
-
-    for key in ('dx', 'dy', 'dyaw', 'ox', 'oy', 'oz'):
-        if getattr(arguments, key) is not None:
-            decision[key] = getattr(arguments, key)
-
-    if arguments.left_arm is not None:
-        decision['use_left_arm'] = arguments.left_arm
-
-    print(json.dumps(decision, indent=1))
-
-    if not arguments.send:
-        print('not sent: add --send once the decision is approved')
-        return 0
-
-    reply = _request_reply(node, DECISION_TOPIC, REPLY_TOPIC, decision, 5.0)
-
-    if reply is None:
-        return 1
-
-    print(('accepted: ' if reply['accepted'] else 'rejected: ') + reply['message'])
-
-    return 0 if reply['accepted'] else 1
 
 
 def _say(node, text: str) -> int:
@@ -318,7 +228,7 @@ def _interface(node, name: str) -> int:
 
 def _skills(directory: Path) -> int:
     from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry
-    from .planner import describe_catalog
+    from .tasks import describe_catalog
 
     print(describe_catalog(Registry.from_directory(directory), set(DEFAULT_ESSENTIAL_DEVICES)))
 
@@ -329,9 +239,6 @@ def main():
     parser   = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
 
-    wait = commands.add_parser('wait')
-    wait.add_argument('--timeout', type=float, default=3600.0)
-    commands.add_parser('show').add_argument('--full', action='store_true')
     tf = commands.add_parser('tf')
     tf.add_argument('target')
     tf.add_argument('source')
@@ -344,18 +251,6 @@ def main():
     python.add_argument('file', type=Path)
     python.add_argument('--scratch', default=SandboxConfig.scratch_dir)
     python.add_argument('--timeout', type=float, default=60.0)
-    decide = commands.add_parser('decide')
-    decide.add_argument('decision')
-    decide.add_argument('--reason', required=True)
-    decide.add_argument('--dx', type=float)
-    decide.add_argument('--dy', type=float)
-    decide.add_argument('--dyaw', type=float)
-    for axis in 'xyz':
-        decide.add_argument(f'--o{axis}', type=float, help=f'offset_retry: the press offset in {axis}, metres')
-    arm = decide.add_mutually_exclusive_group()
-    arm.add_argument('--left-arm', dest='left_arm', action='store_true', default=None)
-    arm.add_argument('--right-arm', dest='left_arm', action='store_false')
-    decide.add_argument('--send', action='store_true', help='publish the decision; without it, only print it')
     commands.add_parser('say').add_argument('text')
     task = commands.add_parser('task')
     task.add_argument('action', choices=['wait', 'show'])
@@ -409,23 +304,18 @@ def main():
 
 
 def _run(node, arguments) -> int:
-    if arguments.command == 'decide':
-        return _decide(node, arguments)
-
     if arguments.command == 'say':
         return _say(node, arguments.text)
 
-    if arguments.command in ('task', 'wait', 'show'):         # task wait|show, or wait|show for a call
-        is_task = arguments.command == 'task'
-        wait    = (arguments.action if is_task else arguments.command) == 'wait'
-        latest  = _latest(node, OPEN_TOPIC if is_task else REQUEST_TOPIC, arguments.timeout if wait else 3.0,
-                          _is_open if wait else None)
+    if arguments.command == 'task':
+        wait   = arguments.action == 'wait'
+        latest = _latest(node, OPEN_TOPIC, arguments.timeout if wait else 3.0, _is_open if wait else None)
 
         if latest is None:
-            print(f'no {"task" if is_task else "call"} opened', file=sys.stderr)
+            print('no task opened', file=sys.stderr)
             return 1
 
-        print(task_summary(latest) if is_task else _summary(latest, getattr(arguments, 'full', False)))
+        print(task_summary(latest))
         return 0
 
     if arguments.command == 'step':

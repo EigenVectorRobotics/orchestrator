@@ -1,8 +1,7 @@
 """Tasks and their steps, for the executor: one task is one run, and each step is one tree on the task's Context.
 
-A tree sent alone is a task of one step: it ends when its tree ends. In task mode (docs/task-mode.md), a task stays
-open between steps, and run_skill runs one skill as a step from another thread (the task agent's) while the
-executor's timer ticks it. Steps share the task's blackboard and history, so an output of one step can be an input
+A task stays open between steps (docs/task-mode.md), and run_skill runs one skill as a step from another thread
+(the task agent's) while the executor's timer ticks it. Steps share the task's blackboard and history, so an output of one step can be an input
 of the next.
 
 The trace events: task_started and task_finished(end, steps, reason) around the steps; started (with the step number) and
@@ -16,7 +15,7 @@ from typing import Callable
 from xml.sax.saxutils import quoteattr
 from dataclasses import dataclass, field
 
-from skill_registry import Issue, Registry, TreeValidator, ValidatorConfig
+from skill_registry import Contract, Issue, Registry, TreeValidator, ValidatorConfig
 
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
 
@@ -43,7 +42,6 @@ class Task:
     context: Context
     blind:   bool
     steps:   int = 0
-    single:  bool = True                         # a tree sent alone: the task ends with its step
 
 
 @dataclass
@@ -71,7 +69,7 @@ class Tasks:
                  on_error: Callable[[str], None] = lambda text: None):
         self.registry          = registry
         self.make_scratch      = make_scratch            # the run's scratch folder, made when its task starts
-        self.leaf_factory      = leaf_factory            # make_leaf_factory(registry, runner, agent)
+        self.leaf_factory      = leaf_factory            # make_leaf_factory(registry, runner, code)
         self.tracer            = tracer                  # emit(kind, text, level, **data) and fields
         self.publish_status    = publish_status
         self.essential_devices = essential_devices
@@ -82,27 +80,9 @@ class Tasks:
 
     # ========== In ==========
 
-    def run_tree(self, xml_text: str, context: Context, blind: bool) -> bool:
-        """A tree sent alone: halts the open task, then runs the tree as a task of one step"""
-        if self._validate(xml_text, ValidatorConfig(essential_devices=self.essential_devices, blind=blind,
-                                                   known_keys=set(context.blackboard)), 'tree'):
-            return False
-
-        try:
-            tree = BehaviorTree(xml_text, self.leaf_factory, context)
-        except (TreeError, ValueError) as error:
-            return self.reject(f'tree does not build: {error}')
-
-        with self._lock:
-            self._stop('halted', 'halted for a new tree')
-            self._start_task(Task(context.run_id, tree.id, context, blind))
-            self._start_step(_Step(tree, xml_text))
-
-        return True
-
     def start_task(self, name: str, context: Context, blind: bool = False) -> Task:
-        """Task mode: a task that stays open between steps until end_task"""
-        task = Task(context.run_id, name, context, blind, single=False)
+        """A task that stays open between steps until end_task"""
+        task = Task(context.run_id, name, context, blind)
 
         with self._lock:
             self._stop('halted', 'halted for a new task')
@@ -117,8 +97,8 @@ class Tasks:
         with self._lock:
             task = self.task
 
-            if task is None or task.single:
-                return StepResult('error', 'no task is open in task mode')
+            if task is None:
+                return StepResult('error', 'no task is open')
 
             if self.step is not None:
                 return StepResult('error', 'a step is still running')
@@ -171,7 +151,7 @@ class Tasks:
 
     def end_task(self, task: Task, end: str, reason: str = ''):
         """Task mode: done or gave_up, from the task agent; a running step is halted first. Nothing if this task
-        is no longer open (a tree sent alone replaced it)"""
+        is no longer open (a new task replaced it)"""
         with self._lock:
             if self.task is task:
                 self._stop(end, f'the task ended ({end}) during the step', reason)
@@ -203,7 +183,6 @@ class Tasks:
                 self.on_error(f'tick failed: {error!r}')
                 self._end_step('error', f'{tree.id} stopped by an internal error: {error!r}', 'error',
                                StepResult('error', repr(error)))
-                self._end_single_task('error', 'error')
                 return
 
             if status == Status.RUNNING:
@@ -211,14 +190,12 @@ class Tasks:
 
             context = self.task.context
             level   = 'info' if status == Status.SUCCESS else 'error'
-            reason  = context.abort_reason
-            text    = f'{tree.id}: {status.value}' + (f' (aborted by {reason})' if reason else '')
+            text    = f'{tree.id}: {status.value}'
             outputs = {port: context.blackboard[port] for port in self.step.outputs if port in context.blackboard}
             failure = context.last_failure if context.last_failure is not self.step.failure else None
 
             self._end_step('finished', text, level, StepResult(status.value, text, outputs, failure),
-                           status=status.value, aborted=reason)
-            self._end_single_task(status.value, level)
+                           status=status.value)
 
     # ========== Inside, under the lock ==========
 
@@ -230,7 +207,6 @@ class Tasks:
                          scratch=task.context.scratch_dir, places=dict(task.context.blackboard))
 
     def _start_step(self, step: _Step):
-        self.task.context.abort_reason = ''             # an abort ends one step; the task agent decides what is next
         self.task.steps += 1
         self.step        = step
         self.tracer.fields.update(tree_id=step.tree.id, step=self.task.steps)
@@ -246,13 +222,7 @@ class Tasks:
         step.result        = result
         step.done.set()
 
-        if not self.task.single:
-            self.publish_status('waiting', self.task.name)         # the task is open: the agent decides the next step
-
-    def _end_single_task(self, end: str, level: str):
-        """A tree sent alone: its task ends with its step"""
-        if self.task.single:
-            self._end_task(end, level)
+        self.publish_status('waiting', self.task.name)             # the task is open: the agent decides the next step
 
     def _end_task(self, end: str, level: str, reason: str = ''):
         """How the task ended: success, failure, halted, cancelled, error, done or gave_up"""
@@ -294,3 +264,62 @@ class Tasks:
         self.tracer.emit('rejected', text, level='error')
         self.publish_status('rejected', None)
         return False
+
+
+# ========== The catalog, as the agent reads it ==========
+
+def describe_contract(contract: Contract, essential_devices: set[str], stale: str = '') -> str:
+    def describe_port(port) -> str:
+        text = f'{port.name}: {port.type}'
+
+        if port.choices:
+            text += f' one of {port.choices}'
+
+        if not port.required:
+            text += f' (optional, default {port.default})'
+
+        if port.description:
+            text += f' - {port.description}'
+
+        return text
+
+    lines = [f'## {contract.name} ({contract.kind})', contract.description]
+
+    if contract.inputs:
+        lines.append('inputs: ' + '; '.join(describe_port(port) for port in contract.inputs))
+
+    if contract.outputs:
+        lines.append('outputs: ' + '; '.join(describe_port(port) for port in contract.outputs))
+
+    if contract.pre:
+        lines.append(f'needs before: {", ".join(contract.pre)}')
+
+    if contract.check:
+        lines.append(f'check after: {contract.check}')
+
+    if contract.resources:
+        lines.append(f'resources: {", ".join(contract.resources)}')
+
+    if contract.timeout_s:
+        lines.append(f'timeout: {contract.timeout_s:g} s')
+
+    if contract.device not in essential_devices:
+        lines.append(f'runs on {contract.device}: can drop out')
+
+    if contract.needs_cloud:
+        lines.append('needs the cloud')
+
+    lines.append(f'maturity: {contract.maturity}')
+
+    if stale:                     # its own line, as 'needs the cloud' is: maturity is the agent's word, not ours
+        lines.append(f'stale, test it before you trust it: {stale}')
+
+    return '\n'.join(line for line in lines if line)
+
+
+def describe_catalog(registry: Registry, essential_devices: set[str], stale: dict[str, str] | None = None) -> str:
+    """stale: skill -> why its code no longer proves it (skill_stamps.Stamps.reasons), read once for the catalog"""
+    return '\n\n'.join(
+        describe_contract(contract, essential_devices, (stale or {}).get(contract.name, ''))
+        for contract in sorted(registry, key=lambda contract: contract.name)
+    )

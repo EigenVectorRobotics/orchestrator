@@ -63,7 +63,7 @@ def test_the_overlay_draws_on_the_frame_with_the_outlines_stamp():
     from visualization_msgs.msg import ImageMarker
 
     from orchestrator.agent_ros import RosReader
-    from orchestrator.press_capture import FrameBuffer
+    from orchestrator.images import FrameBuffer
 
     def jpeg(grey):
         buffer = io.BytesIO()

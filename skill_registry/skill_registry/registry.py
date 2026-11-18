@@ -13,17 +13,13 @@ from .contract import Contract, ContractError, load_contract, parse_contract
 
 
 def agent_dir() -> Path:
-    """The agent's own folder: contracts/ (write_skill), code/, knowledge/, agent_skills/ and docs/; the package has
+    """The agent's own folder: contracts/ (write_skill), code/, knowledge/, runbook.md and docs/; the package has
     no skills"""
     return Path(os.environ.get('EIGEN_VECTOR_WS', Path.home())) / 'agent'
 
 
 def agent_contracts_dir() -> Path:
     return agent_dir() / 'contracts'
-
-
-def agent_skills_dir() -> Path:
-    return agent_dir() / 'agent_skills'
 
 
 def agent_code_dir() -> Path:
@@ -275,7 +271,7 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport == 'vlm':
         return vlm_up
 
-    if interface.transport in ('agent', 'compare', 'graph', 'press_tip'):
+    if interface.transport in ('compare', 'graph'):
         return True                 # they run inside the executor
 
     return False                    # trees are live only when announced

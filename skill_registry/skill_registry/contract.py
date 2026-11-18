@@ -8,13 +8,12 @@ import yaml
 
 
 KINDS         = ('action', 'condition', 'composite')
-TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'graph', 'press_tip', 'code')
-READ_ONLY     = ('watch', 'vlm', 'compare', 'graph', 'press_tip')         # the transports a condition may use
+TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'compare', 'graph', 'code')
+READ_ONLY     = ('watch', 'vlm', 'compare', 'graph')                      # the transports a condition may use
 ROS_TRANSPORTS = ('action', 'service', 'topic')                           # the transports that reach a ROS name
 # watch: read a topic, never publish; its outputs are fields of the message it reads.
-# agent: an LLM with read-only tools, guided by an agent skill document.
 # compare: the input value equals the input equals; nothing leaves the executor.
-# graph: each listed topic has at most its allowed publishers. press_tip: where the end effector got to in the last press.
+# graph: each listed topic has at most its allowed publishers.
 # code: Python that calls other skills through the executor; it runs in the sandbox and reaches no ROS of its own.
 MATURITIES    = ('tested', 'wip', 'untested')
 PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
@@ -141,28 +140,21 @@ class HeldValue:
 class Interface:
     transport:       str                    # how the executor reaches the capability
     name:            str = ''               # ROS name, or tree ID
-    ros_type:        str = ''               # e.g. humanoid_manipulation_interfaces/action/VisualServoingArm
+    ros_type:        str = ''               # e.g. std_srvs/srv/Trigger
     success_when:    Watch | None = None    # topic skills: the end signal (none: done once sent); watch conditions
     failure_when:    HeldValue | None = None    # action skills: a feedback value that fails the action before its timeout
     fixed:           dict = field(default_factory=dict)        # message fields always sent, e.g. {data: true}
     question:        str = ''               # vlm: may hold {input} fields
     choices:         list[str] = field(default_factory=list)   # vlm: the only answers; empty means the 'choices' input
     success_answer:  str = ''               # vlm: the answer that means success; empty means any answer
-    skill:           str = ''               # agent: the agent skill document, agent_skills/<skill>.md
-    capture:         dict = field(default_factory=dict)       # action: frames to keep around the call, e.g. {kind: press}
-    frames:          str = ''               # vlm: judge the frames a capture kept (press_capture) instead of the latest one
-    compare_question: str = ''              # vlm with frames: asked of [baseline | later frame] side by side
     topics:          dict = field(default_factory=dict)       # graph: topic -> the most publishers it may have
-    limits:          dict = field(default_factory=dict)       # press_tip: max_lateral_m, min_depth_m
 
     def ros_names(self) -> set[str]:
-        """Every ROS name the skill sends to or reads: the interface, the watched topic, capture and graph topics"""
+        """Every ROS name the skill sends to or reads: the interface, the watched topic and graph topics"""
         names = {self.name} if self.transport in ROS_TRANSPORTS else set()
 
         if self.success_when:
             names.add(self.success_when.topic)
-
-        names |= {value for key, value in self.capture.items() if key.endswith('_topic')}
 
         return {name for name in names | set(self.topics) if name}
 
@@ -289,19 +281,10 @@ def parse_contract(raw: dict) -> Contract:
     if interface.failure_when is not None and interface.transport != 'action':
         raise ContractError(f'{name}: failure_when reads action feedback, so it needs an action skill')
 
-    if interface.capture and interface.capture.get('kind') != 'press':
-        raise ContractError(f'{name}: capture kind must be press')
-
-    if interface.frames and (interface.frames != 'press_capture' or interface.transport != 'vlm'):
-        raise ContractError(f'{name}: frames must be press_capture, on a vlm skill')
-
-    if interface.transport == 'agent' and not interface.skill:
-        raise ContractError(f'{name}: an agent skill needs the skill document it follows')
-
     if interface.transport == 'compare' and {'value', 'equals'} - {port.name for port in contract.inputs}:
         raise ContractError(f'{name}: a compare skill needs the inputs value and equals')
 
-    for field_name in _format_fields(interface.question) | _format_fields(interface.compare_question):
+    for field_name in _format_fields(interface.question):
         if contract.input(field_name) is None:
             raise ContractError(f'{name}: the question uses {{{field_name}}}, which is not an input')
 

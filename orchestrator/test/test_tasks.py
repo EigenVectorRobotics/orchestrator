@@ -5,32 +5,16 @@ from orchestrator.behavior_tree import Status
 from fakes import FakeRunner, _context, _tasks, _tick_until
 
 
-TREE  = '<root BTCPP_format="4"><BehaviorTree ID="walk"><navigate_to goal="{call_panel}"/></BehaviorTree></root>'
+def test_a_new_task_halts_the_open_one_and_a_cancel_ends_it():
+    tasks, tracer, _ = _tasks(FakeRunner())
 
-
-def test_a_tree_sent_alone_is_a_task_of_one_step():
-    tasks, tracer, statuses = _tasks(FakeRunner({'navigate_to': [Status.RUNNING, Status.SUCCESS]}))
-
-    assert tasks.run_tree(TREE, _context(), blind=False)
-
-    tasks.tick()
-    tasks.tick()
-
-    assert tracer.events[-1]['end'] == 'success' and tracer.events[-1]['steps'] == 1
-    assert statuses == ['running', 'success'] and tasks.task is None
-
-
-def test_a_new_tree_halts_the_task_and_a_cancel_ends_it():
-    tasks, tracer, statuses = _tasks(FakeRunner({'navigate_to': [Status.RUNNING]}))
-
-    tasks.run_tree(TREE, _context('r1'), blind=False)
-    tasks.run_tree(TREE, _context('r2'), blind=False)
+    tasks.start_task('walk', _context('r1'))
+    tasks.start_task('walk', _context('r2'))
     tasks.cancel()
 
     ends = [(event['run_id'], event['end']) for event in tracer.events if event['kind'] == 'task_finished']
 
-    assert ends == [('r1', 'halted'), ('r2', 'cancelled')]
-    assert tracer.kinds().count('halted') == 2 and tasks.task is None
+    assert ends == [('r1', 'halted'), ('r2', 'cancelled')] and tasks.task is None
 
 
 def test_steps_of_a_task_share_its_blackboard_and_return_their_results():
@@ -97,20 +81,11 @@ def test_a_stopped_agent_halts_its_step():
     assert results[0].status == 'halted' and 'halted' in tracer.kinds()
 
 
-def test_an_abort_ends_one_step_and_a_replaced_task_is_not_ended_by_its_agent():
+def test_a_replaced_task_is_not_ended_by_its_old_agent():
     tasks, tracer, _ = _tasks(FakeRunner())
-    results          = []
     task             = tasks.start_task('walk', _context('r1'))
-    task.context.abort('the agent aborted the last step')
 
-    thread = threading.Thread(target=lambda: results.append(tasks.run_skill('say', {'text': 'hi'})))
-    thread.start()
-    _tick_until(tasks, thread)
-    thread.join()
-
-    assert results[0].status == 'success'                                    # the old abort does not fail it
-
-    tasks.run_tree(TREE, _context('r2'), blind=False)                       # a tree sent alone replaces the task
+    tasks.start_task('walk', _context('r2'))                                # a new task replaces it
     tasks.end_task(task, 'done')
 
     assert tasks.task.run_id == 'r2'

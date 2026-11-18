@@ -16,7 +16,7 @@ LEVELS    = {'debug': Log.DEBUG, 'info': Log.INFO, 'warn': Log.WARN, 'error': Lo
 
 
 class Tracer:
-    """Every planner and executor step, as JSON on /orchestrator/trace and as a line for the Foxglove Log panel"""
+    """Every executor step, as JSON on /orchestrator/trace and as a line for the Foxglove Log panel"""
 
     def __init__(self, node: Node, source: str):
         self.node      = node

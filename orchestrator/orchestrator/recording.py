@@ -2,8 +2,7 @@
 
 A session folder holds provenance.json, every trace event in events.jsonl and finalization.json. Each task (the
 executor's `task_started` to `task_finished`) is one run and gets runs/<n>-<name>/ with its steps (each step's tree
-in steps/ and one line per step in steps.jsonl), its records, its agent calls, the press frames it saved, the
-agent's scratch folder, its bag, and outcome.json. Nothing is deleted here: the operator clears old runs by hand
+in steps/ and one line per step in steps.jsonl), its records, its plans, the agent's scratch folder, its bag, and outcome.json. Nothing is deleted here: the operator clears old runs by hand
 (see `largest_runs`).
 
 This module needs no ROS: run_recorder feeds it messages and starts and stops the bag.
@@ -20,8 +19,6 @@ from pathlib import Path
 from datetime import UTC, datetime
 from operator import itemgetter
 from dataclasses import dataclass
-
-from .press_capture import DEFAULT_CAPTURE_DIR
 
 
 STEP_END_KINDS   = ('finished', 'halted', 'error')
@@ -40,7 +37,7 @@ def file_digest(path: Path) -> str | None:
 
 
 def directory_digests(directory: Path, pattern: str) -> dict:
-    """File name -> hash of its bytes, for the contracts and agent skill documents that were loaded"""
+    """File name -> hash of its bytes, for the contracts and code skills that were loaded"""
     return {path.name: file_digest(path) for path in sorted(Path(directory).glob(pattern))}
 
 
@@ -130,24 +127,10 @@ def largest_runs(root: Path, count: int = 10) -> list[tuple[str, float]]:
     return sorted(sizes, key=itemgetter(1), reverse=True)[:count]
 
 
-def saved_files(value, prefix: str) -> set[str]:
-    """Paths under prefix anywhere in a JSON value: the press frames a record or an agent call names"""
-    if isinstance(value, str):
-        return {value} if value.startswith(prefix) else set()
-
-    if isinstance(value, dict):
-        value = list(value.values())
-    elif not isinstance(value, list):
-        return set()
-
-    return set().union(*(saved_files(item, prefix) for item in value))
-
-
 @dataclass
 class RecorderConfig:
     root:        str   = str(Path.home() / 'orch_runs')
     min_free_gb: float = 20.0
-    capture_dir: str   = DEFAULT_CAPTURE_DIR
 
 
 class NoBag:
@@ -169,10 +152,8 @@ class Recorder:
         self.run      = None                     # the open run's folder
         self.runs     = 0
         self.task     = None                     # the last task text, for the next run
-        self.captures = set()                    # the press frames the open run named
         self.scratch  = None                     # the agent's scratch folder of the open run
         self.step     = None                     # the open step of the open run: its number, tree and start
-        self.calls    = {}                       # agent call id -> its run's folder, for messages after the run ended
         self.failure  = None
 
         stamp     = datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')
@@ -240,23 +221,6 @@ class Recorder:
                                                     'time': event.get('time')})
         elif kind == 'record':
             self._append(self.run / 'records.jsonl', event.get('record', {}))
-            self._note_captures(event.get('record'))
-
-    def on_agent_request(self, request: dict):
-        """An agent call, as the executor opens and closes it; the closed one replaces the open one, also when
-        it comes after its run ended"""
-        folder = self._agent_folder(request.get('id'))
-
-        if folder is not None:
-            self._safely(write_json, folder / f'{request["id"]}.json', request)
-            self._note_captures(request)
-
-    def on_agent_message(self, kind: str, message: dict):
-        """A decision from the session, or the executor's reply to it"""
-        folder = self._agent_folder(message.get('id'))
-
-        if folder is not None:
-            self._append(folder / f'{message["id"]}.messages.jsonl', {'kind': kind, 'time': self.clock(), **message})
 
     def close(self):
         self._safely(self._end_run, {'end': 'closed', 'text': 'the recorder stopped during the run'})
@@ -281,7 +245,7 @@ class Recorder:
             'name':    name,
             'blind':   bool(event.get('blind')),
             'started': event.get('time'),
-            'task':    self.task,                 # the planner's last task; none for send_tree
+            'task':    self.task,                 # the task sentence
             'places':  event.get('places'),       # the blackboard at the start: the places and their poses
         })
         self.task    = None
@@ -294,7 +258,6 @@ class Recorder:
 
         self._end_step({'kind': 'halted', 'text': 'the task ended during the step'})
         self._safely(self.bag.stop)
-        self._copy_captures()
         self._move_scratch()
         self._safely(write_json, self.run / 'outcome.json', {**self._ending(event, event.get('end')), 'steps': event.get('steps')})
         self.run = None
@@ -314,30 +277,11 @@ class Recorder:
 
         step, self.step = self.step, None
         self._append(self.run / 'steps.jsonl', {**step, **self._ending(event, event.get('kind')),
-                                                'status': event.get('status'), 'aborted': event.get('aborted')})
+                                                'status': event.get('status')})
 
     def _ending(self, event: dict, end: str | None) -> dict:
         """The fields that a step's line and a task's outcome share"""
         return {'end': end, 'text': event.get('text'), 'finished': event.get('time', self.clock())}
-
-    def _note_captures(self, value):
-        self.captures |= saved_files(value, str(Path(self.config.capture_dir).expanduser()))
-
-    def _copy_captures(self):
-        """The press frames this run named, copied in; the originals stay"""
-        sources, self.captures = sorted(self.captures), set()
-
-        if not sources:
-            return
-
-        folder = self.run / 'captures'
-
-        if not self._safely(folder.mkdir, exist_ok=True):
-            return
-
-        for source in map(Path, sources):
-            if source.is_file():
-                self._safely(shutil.copy2, source, folder / source.name)
 
     def _move_scratch(self):
         """The agent's notes and checks of this run, moved in: a rename on one file system, so no bytes are copied in
@@ -346,21 +290,6 @@ class Recorder:
 
         if source and Path(source).is_dir():
             self._safely(shutil.move, source, self.run / 'scratch')
-
-    def _agent_folder(self, call: str | None) -> Path | None:
-        """The agent folder of the run the call opened in; None for a call outside any run"""
-        if not call:
-            return None
-
-        if call not in self.calls:
-            if self.run is None:
-                return None
-
-            self.calls[call] = self.run / 'agent'
-
-        folder = self.calls[call]
-
-        return folder if self._safely(folder.mkdir, exist_ok=True) else None
 
     # ========== Writes ==========
 

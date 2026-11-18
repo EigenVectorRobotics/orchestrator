@@ -1,4 +1,4 @@
-"""One POST to an OpenAI-compatible /chat/completions endpoint, used by the VLM client and the planner backend"""
+"""One POST to an OpenAI-compatible /chat/completions endpoint, used by the VLM client"""
 
 import json
 import http.client

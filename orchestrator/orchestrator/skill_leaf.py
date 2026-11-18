@@ -174,8 +174,8 @@ class SkillLeaf(TreeNode):
     def _finish_call(self, status: Status):
         """Record a finished action call, with its feedback over time; and the failure of a check.
 
-        A condition is recorded only when it fails as the check of the action just before it (press_button's
-        button_lit): its record carries that call as checked_call. Other conditions are polled, so their misses
+        A condition is recorded only when it fails as the check of the action just before it (the action's contract
+        names it in check): its record carries that call as checked_call. Other conditions are polled, so their misses
         are not events.
         """
         record = {
@@ -240,67 +240,6 @@ class SkillLeaf(TreeNode):
                 self.context.blackboard[key] = outputs[port.name]
 
 
-class AgentRunner(Protocol):
-    def start(self, contract: Contract, inputs: dict, context: Context) -> SkillHandle: ...
-
-
-class AgentLeaf(SkillLeaf):
-    """A leaf that runs an agent skill; it sees the tree's record, and its decision can end the whole tree.
-
-    The handle's outputs carry decision and reason. ask_help ends the agent's part of the task: later calls fail
-    at once. abort fails the tree. max_rounds bounds the diagnoses in one task.
-    """
-
-    def _start_call(self) -> SkillHandle:
-        decisions = [record for record in self.context.history if record.get('skill') == self.contract.name]
-        gave_up   = next((record for record in decisions if record.get('decision') == 'ask_help'), None)
-        rounds    = sum(1 for record in decisions if record.get('phase') == 'diagnose')
-
-        if self.runner is None:
-            return DoneHandle(False, 'no agent is configured (agent_backend)')
-
-        if gave_up is not None:
-            return DoneHandle(False, f'the agent already asked for help: {gave_up.get("reason", "")}')
-
-        if self.inputs.get('phase', 'diagnose') == 'diagnose' and rounds >= int(self.inputs.get('max_rounds', 3)):
-            return DoneHandle(False, f'recovery budget spent: {rounds} diagnoses in this task')
-
-        return self.runner.start(self.contract, self.inputs, self.context)
-
-    def _finish_call(self, status: Status):
-        outputs  = self.handle.outputs
-        decision = outputs.get('decision')
-
-        if not decision:
-            return                                      # the agent did not decide: nothing to keep
-
-        self.context.record({
-            'time':     self.context.clock(),
-            'skill':    self.contract.name,
-            'path':     self.path,
-            'phase':    self.inputs.get('phase', 'diagnose'),
-            'decision': decision,
-            'reason':   outputs.get('reason', ''),
-            'offset':   outputs.get('offset'),
-            'goal':     outputs.get('goal'),
-            'left_arm': outputs.get('left_arm'),
-        })
-
-        checked = self.context.last_call
-
-        if (self.inputs.get('phase') == 'judge' and status == Status.FAILURE and checked is not None
-                and checked.get('status') == Status.SUCCESS.value):
-            # as a failed button_lit: manipulation_recovery then sees the press as checked_call
-            record = {'time': self.context.clock(), 'kind': 'condition', 'skill': self.contract.name,
-                      'path': self.path, 'status': status.value, 'inputs': self.inputs, 'message': self.message,
-                      'outputs': dict(outputs), 'elapsed_s': round(self.context.clock() - self.start_time, 2),
-                      'checks': checked['skill']}
-            self.context.record(record, {**record, 'checked_call': checked})
-
-        if decision == 'abort':
-            self.context.abort(f'{self.contract.name}: {outputs.get("reason", "")}')
-
-
 class CodeLeaf(SkillLeaf):
     """A leaf whose skill is Python (code_skill.py); its timeout, records and outputs are a plain skill's"""
 
@@ -313,15 +252,12 @@ class CodeLeaf(SkillLeaf):
         return self.code.start(self.contract, self.inputs, self.context, chain=self.path)
 
 
-def make_leaf_factory(registry: Registry, runner: SkillRunner, agent: AgentRunner | None = None, code=None):
+def make_leaf_factory(registry: Registry, runner: SkillRunner, code=None):
     def build_leaf(skill_name: str, path: str, attributes: dict, context: Context) -> TreeNode:
         contract = registry.get(skill_name)
 
         if contract is None:
             raise TreeError(f'{path}: unknown skill {skill_name}')
-
-        if contract.interface.transport == 'agent':
-            return AgentLeaf(contract, agent, path, attributes, context)
 
         if contract.interface.transport == 'code':
             if code is None:

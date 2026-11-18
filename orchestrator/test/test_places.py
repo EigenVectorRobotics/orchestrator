@@ -24,14 +24,6 @@ def test_the_team_format_becomes_snake_case_keys_with_yaw_in_radians():
                                                      'frame': 'map', 'note': 'by hand'}
 
 
-def test_a_reposition_keeps_the_storey_of_its_base_goal():
-    from orchestrator.agent import offset_goal
-
-    panel = parse_places(TEAM_FILE)['freight_elevator_call_panel']
-
-    assert offset_goal(panel, dx=-0.2, dy=0.0, dyaw=0.0)['z'] == pytest.approx(-0.458)
-
-
 def test_this_packages_format_is_unchanged():
     places = parse_places({'call_panel': {'x': 1.0, 'y': 2.0, 'yaw': 0.5}})
 

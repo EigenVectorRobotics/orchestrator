@@ -11,21 +11,13 @@ orchestrator_executor:
     image_topic: /camera/camera/color/image_raw    # raw: the Orin has no compressed transport
     vlm_model: local
     vlm_timeout_s: 40.0                 # Cosmos on the Thor serves one request at a time
-    agent_backend: external             # a Claude Code session answers with agent_cli; or openai_compatible, scripted, none
-    # require_recorder is set by the launch argument record (default true): no tree runs unrecorded
+    # require_recorder is set by the launch argument record (default true): no task runs unrecorded
 
 orchestrator_recorder:
   ros__parameters:
     # root: ~/orch_runs (default), one folder per bring-up; the operator clears old runs by hand
-    min_free_gb: 20.0                   # below this, no tree runs (checked at start and every 5 s)
-    bag: true                           # a bag of bag_topics for each tree run
-
-orchestrator_planner:
-  ros__parameters:
-    effort: high
-    max_attempts: 3
-    use_live_skills: true
-    auto_run: true
+    min_free_gb: 20.0                   # below this, no task runs (checked at start and every 5 s)
+    bag: true                           # a bag of bag_topics for each task run
 
 skill_registry:
   ros__parameters:

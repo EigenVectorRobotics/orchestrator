@@ -155,19 +155,6 @@ def test_vlm_question_fields_must_be_inputs():
 
     assert parse_contract({**raw, 'inputs': [{'name': 'target', 'type': 'string'}]})
 
-    compare = {
-        'name':      'lit',
-        'kind':      'condition',
-        'device':    'thor',
-        'interface': {'transport': 'vlm', 'question': 'Is the {target_description} lit?', 'frames': 'press_capture',
-                      'compare_question': 'Is the {button} lit in the right photo?', 'choices': ['lit', 'not_lit'],
-                      'success_answer': 'lit'},
-        'inputs':    [{'name': 'target_description', 'type': 'string'}],
-    }
-
-    with pytest.raises(ContractError, match='button'):                                 # a compare question too
-        parse_contract(compare)
-
 
 def test_blackboard_keys_must_be_places_or_written():
     places = {'call_panel'}
