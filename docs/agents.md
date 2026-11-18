@@ -94,7 +94,7 @@ Answers go in the history with `rule: true`, `rule_name`, and a reason starting 
 | Rule | Phase | When | Decision |
 |---|---|---|---|
 | `rule_offset` | `diagnose` | The first diagnosis since the last press judged pressed, after a `not_pressed` whose press missed by `RULE_MISS_M` (5 to 50 mm) in the button plane, or hit it in the plane but stopped more than `RULE_SHORT_M` (3 mm) short | `offset_retry`: offset in force minus `residual_m`, plus `RULE_DEPTH_MARGIN_M` (5 mm) deeper when short; not taken when an axis would pass `MAX_PRESS_OFFSET_M` |
-| `rule_stance` | both | The robot stands more than `STANCE_TOLERANCE_M` or `STANCE_TOLERANCE_RAD` off its target stance (the last reposition since the last press judged pressed, else the base goal); at most `STANCE_RULE_MAX` (2) times since then | `reposition` to that stance |
+| `rule_stance` | both | The robot stands more than `STANCE_TOLERANCE_M` or `STANCE_TOLERANCE_RAD` off its target stance (the last reposition since the last press judged pressed, else the base goal; the base goal again after a `continue` that came after that reposition, as the tree walks there); at most `STANCE_RULE_MAX` (2) times since then | `reposition` to that stance |
 | `rule_reach` | `stance_check` | `check_reach` failed and its `reach_move` is `fixable` and `within_limits`; at most `REACH_RULE_MAX` (2) times since the last press judged pressed | `reposition` to `reach_move` |
 
 The aim error repeats per panel and arm, so a miss is corrected by the offset in force minus the residual; floor buttons also lose a few mm to the waist giving on contact, hence deeper when short. `reach_move` is not fixable when the horizontal miss is at most `REACH_TOLERANCE_M` (an orientation miss) or the vertical miss passes `REACH_MAX_Z_M` (`stance.py`).
@@ -120,7 +120,7 @@ The aim error repeats per panel and arm, so a miss is corrected by the offset in
 
 | Decision | Phase | The tree |
 |---|---|---|
-| `continue` | `stance_check` | Runs `look_here` from where the robot stands (the EKF reset only if this stance has none); presses only if both checks pass, else the round counts as failed. `goal` is the base goal again, so the next round walks there |
+| `continue` | `stance_check` | Runs `look_here` from where the robot stands (the EKF reset only if this stance has none); presses only if both checks pass, else the round counts as failed. `goal` is the base goal again, so the next round walks there, and `rule_stance` takes the base goal as the target stance |
 | `reposition` | `stance_check` | Ends the round; the next round walks to the new goal and looks again |
 | `reposition` | `diagnose` | Releases the arms and runs up to 3 looks at the new goal, then presses again. When all 3 fail the robot says "I lost the button after moving. Stopping the task." and the slot fails without asking for help |
 | `offset_retry` | `diagnose` | Presses again with the new offset |

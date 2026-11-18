@@ -160,21 +160,23 @@ def rule_offset(last_failure: dict | None, history: list[dict], residual: list |
 
 def rule_stance(evidence: dict | None, history: list[dict]) -> dict | None:
     """reposition onto the target stance without the agent, when the robot stands off it by more than the stance tolerance.
-    The target is the offset of the last reposition since the last press judged pressed, else the base goal. At most
+    The target is the offset of the last reposition since the last press judged pressed, else the base goal. A continue
+    after that reposition sets the tree's goal to the base goal again, so the target is then the base goal too. At most
     STANCE_RULE_MAX times; then the agent decides"""
     off     = (evidence or {}).get('stance_from_base_goal')
     pressed = [index for index, record in enumerate(history) if record.get('skill') == 'press_judge' and record.get('decision') == 'pressed']
     since   = history[pressed[-1] + 1:] if pressed else history
     sent    = [record for record in since if record.get('skill') == 'manipulation_recovery' and record.get('rule')
                and record.get('rule_name') == 'stance']
-    moved   = [record.get('offset') for record in since if record.get('skill') == 'manipulation_recovery'
-               and record.get('decision') == 'reposition' and isinstance(record.get('offset'), dict)]
+    moved   = [record.get('offset') if record.get('decision') == 'reposition' else None for record in since
+               if record.get('skill') == 'manipulation_recovery' and (record.get('decision') == 'continue'
+               or (record.get('decision') == 'reposition' and isinstance(record.get('offset'), dict)))]
 
     if off is None or len(sent) >= STANCE_RULE_MAX:
         return None
 
     # The agent may have asked to stand off the base goal on purpose (a back-off for the camera): that stance is the target
-    target   = {key: float((moved[-1] if moved else {}).get(key, 0.0)) for key in ('dx', 'dy', 'dyaw')}
+    target   = {key: float((moved[-1] if moved and moved[-1] else {}).get(key, 0.0)) for key in ('dx', 'dy', 'dyaw')}
     forward  = off['forward_m'] - target['dx']
     left     = off['left_m'] - target['dy']
     yaw      = math.atan2(math.sin(off['yaw_rad'] - target['dyaw']), math.cos(off['yaw_rad'] - target['dyaw']))

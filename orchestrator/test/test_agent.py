@@ -977,6 +977,18 @@ def test_the_stance_rule_keeps_the_stance_a_reposition_asked_for():
     assert rule['decision'] == 'reposition' and (rule['dx'], rule['dy'], rule['dyaw']) == (-0.17, 0.0, 0.0)
 
 
+def test_after_a_continue_the_stance_rule_targets_the_base_goal_as_the_tree_does():
+    backed   = {'skill': 'manipulation_recovery', 'decision': 'reposition', 'offset': {'dx': -0.17, 'dy': 0.0, 'dyaw': 0.0}}
+    kept     = {'skill': 'manipulation_recovery', 'decision': 'continue', 'offset': None}
+    at_base  = {'stance_from_base_goal': {'forward_m': 0.02, 'left_m': -0.01, 'yaw_rad': 0.01}}
+    backed_2 = {'skill': 'manipulation_recovery', 'decision': 'reposition', 'offset': {'dx': -0.12, 'dy': 0.05, 'dyaw': 0.0}}
+    there_2  = {'stance_from_base_goal': {'forward_m': -0.12, 'left_m': 0.05, 'yaw_rad': 0.0}}
+
+    assert rule_stance(at_base, [backed]) is not None            # before the continue: the reposition is the target
+    assert rule_stance(at_base, [backed, kept]) is None           # after it: the base goal, where the tree walked
+    assert rule_stance(there_2, [backed, kept, backed_2]) is None # a later reposition is the target again
+
+
 def test_a_press_that_hit_the_button_but_stopped_short_goes_deeper_without_the_agent():
     rule = rule_offset(JUDGED_MISS, [OFFSET_SET], [-0.0087, 0.0002, 0.0012])
 
