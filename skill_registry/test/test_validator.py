@@ -122,22 +122,6 @@ def test_enum_choices_come_from_values():
     assert contract.input('mode').choices == ['slow', 'fast']
 
 
-def test_announce_adds_new_skill_and_expires():
-    registry = Registry.from_directory(CONTRACTS)
-    raw      = {
-        'name':      'open_door',
-        'kind':      'composite',
-        'device':    'nuc',
-        'interface': {'transport': 'tree', 'name': 'open_door'},
-    }
-
-    registry.announce(raw, now=100.0)
-
-    assert 'open_door' in registry
-    assert [contract.name for contract in registry.live(max_age_s=5, now=103.0)] == ['open_door']
-    assert registry.live(max_age_s=5, now=110.0) == []
-
-
 def test_number_attributes_must_be_integers():
     assert _errors('<Timeout msec="5000.0"><say text="hi"/></Timeout>') == ['Timeout msec must be an integer, not 5000.0']
     assert not _errors('<RetryUntilSuccessful num_attempts="-1"><say text="hi"/></RetryUntilSuccessful>')

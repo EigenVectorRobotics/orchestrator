@@ -27,7 +27,3 @@ orchestrator_planner:
     max_attempts: 3
     use_live_skills: true
     auto_run: true
-
-skill_registry:
-  ros__parameters:
-    max_age_s: 5.0

@@ -1,17 +1,14 @@
-import time
-
 from pathlib import Path
 from dataclasses import dataclass
 
-from .contract import Contract, ContractError, load_contract, parse_contract
+from .contract import Contract, ContractError, load_contract
 
 
 class Registry:
-    """All known skill contracts, and which of them are live now"""
+    """All known skill contracts"""
 
     def __init__(self, contracts: list[Contract] | None = None):
         self._contracts: dict[str, Contract] = {}
-        self._last_seen: dict[str, float]    = {}   # skill name -> monotonic time of last announce
 
         for contract in contracts or []:
             self.add(contract)
@@ -62,33 +59,6 @@ class Registry:
                 if fallback not in self:
                     raise ContractError(f'{contract.name}: unknown fallback {fallback}')
 
-    # ========== Online discovery ==========
-
-    def announce(self, raw: dict, now: float | None = None) -> Contract:
-        """A skill server says it is up. New skills join the registry"""
-        contract = parse_contract(raw)
-
-        if contract.name not in self:
-            self.add(contract)
-
-        self._last_seen[contract.name] = time.monotonic() if now is None else now
-
-        return self._contracts[contract.name]
-
-    def is_live(self, name: str, max_age_s: float, now: float | None = None) -> bool:
-        now = time.monotonic() if now is None else now
-
-        return name in self._last_seen and now - self._last_seen[name] <= max_age_s
-
-    def live(self, max_age_s: float, now: float | None = None) -> list[Contract]:
-        now = time.monotonic() if now is None else now
-
-        return [
-            self._contracts[name]
-            for name, seen in self._last_seen.items()
-            if now - seen <= max_age_s
-        ]
-
 
 @dataclass
 class GraphSnapshot:
@@ -131,4 +101,4 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport == 'in_view':
         return interface.target['box_topic'] in graph.published
 
-    return False                    # trees are live only when announced
+    return False                    # a tree is not a name in the graph
