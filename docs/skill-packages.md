@@ -5,7 +5,7 @@ Status: draft for review, 2026-11-05. Nothing in this note is built yet. Changed
 ## Goal
 
 - All skills are in one package on the NUC: `skill_registry`. The agent writes new skills into it.
-- The planner, the validator and the executor do not change: they still read `/skills/live` and the contracts in the registry.
+- The validator and the executor do not change: they still read `/skills/live` and the contracts in the registry.
 
 ## The package
 
@@ -55,23 +55,23 @@ A skill goes up in maturity as it is used more and is reliable.
 - **Reliability** is the Wilson lower bound of the success rate, so a skill does not go up after a small number of lucky successes. The numbers in the table are a first guess for review.
 - **A tested skill goes down** to `wip` when its reliability over the last 10 uses is less than the limit.
 - **Sim and robot counts are separate.** Success in the sim does not make a skill `tested`.
-- **Success is not the skill's own report.** A use counts as a success only if the contract's `check` condition (another skill, for example `button_lit`) confirms it, or a human marks it. Example: `PressController` reports success when the finger did not touch the button.
+- **Success is not the skill's own report.** A use counts as a success only if the contract's `check` condition (another skill, for example a VLM question that the button is lit) confirms it, or a human marks it. Example: `PressController` reports success when the finger did not touch the button.
 - **Where the counts live:** one stats file in the package (`stats.yaml`: name, version, sim and robot counts), written by the executor. `/skills/live` carries the maturity.
 - The current maturity values (`tested`, `wip`, `untested`) map to this table, with `untested` renamed `experimental`, and a new `deprecated`.
 
 ### Compositions: behavior trees that graduate
 
-A behavior tree is not the planner's normal output. It is a composition that the agent makes from steps that worked, and it graduates like any other skill.
+A behavior tree is a composition that the agent makes from steps that worked, and it graduates like any other skill. A code skill is a composition too, and is built now.
 
 - **One task is one run.** For a new task, the agent works step by step: it calls a skill, looks at the result, and selects the next one. It can call many skills in one task. The executor runs each call, so the contracts, the validator, the recorder and the `rt/*` ban still apply. The recorder makes one bundle (one bag) per task, not per tree.
 - **The agent makes the tree.** When the same steps work in more than one run for one kind of task, the agent writes them as a BT (with the checks and fallbacks it saw were necessary) and a contract for it, from the run bundles. The tree is then a compound skill, at `experimental`.
 - **It graduates with the same rules** as the table above: the same counts, the same `check`, the same human gate before the first robot use.
-- **The planner calls a graduated tree as one skill**, for example `call_elevator`.
+- **The task agent calls a graduated tree as one skill**, for example `call_elevator`.
 - **Blind segments need a tree.** In the cabin there is no cloud, so the agent cannot work step by step there. Only a tree at `wip` or `tested` can run a blind segment.
 
-Experiment: can the agent find the compositions alone? For the test, the agent must not see the trees that people wrote (on `main` and `ltx-dev`; this branch has none). Hide them from the planner's catalog and from `agent_read_roots`, and check what else gives the steps away (for example the procedure and the experience log in `manipulation_recovery.md`). Keep them outside the agent's view, to compare with what the agent makes.
+Experiment: can the agent find the compositions alone? For the test, the agent must not see trees or procedures that people wrote. Keep them outside the agent's view (the session's permissions, the code sandbox), to compare with what the agent makes.
 
-Not built yet: the step-by-step mode of the planner, the run boundary per task (now `started` per tree), a contract for a tree, and the agent's tool to write a tree from run bundles.
+Built: task mode and one run per task (`docs/task-mode.md`), code skills. Not built yet: a contract for a tree (`transport: tree`), and the agent's tool to write a tree from run bundles.
 
 ### Similar work
 

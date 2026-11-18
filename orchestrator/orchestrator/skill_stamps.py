@@ -1,8 +1,8 @@
 """What a skill was proved against: the repos it uses, and the version of each skill it calls.
 
 A skill is only as good as the code under it. When the stack moves, a skill that worked can become wrong with
-nothing to announce it: the team's hand-written recovery document stated the OLD navigation behaviour as a rule,
-the follower changed, and the robot kept acting on it. So write_skill stamps a skill with the state of its repos
+nothing to announce it. The agent also rewrites its own skills (nearest_named_place, then nearest_named_place_v2),
+so the skills under a composition move too. So write_skill stamps a skill with the state of its repos
 and the digest of every skill it runs, and the catalog says a stale skill is stale, with the reason.
 
 The stamp is OUR record about the agent's file, not a part of the contract. A field on Contract would appear in the
@@ -14,8 +14,8 @@ makes its callers stale with no re-stamping, and the reason names the link that 
 
 Only write_skill proves a skill. A step that succeeds adds its run to the stamp as evidence and clears nothing: in
 task mode a step is one leaf, so the contract's check is a separate decision the agent may never take, and a
-success can mean no more than "the message was published". Letting that erase the warning would reproduce the
-incident, with the robot acting on stale code as the proof that the code is fine.
+success can mean no more than "the message was published". Letting that erase the warning would make the
+robot's use of stale code the proof that the code is fine.
 
 A claim of the knowledge store about a skill is about the same code. SkillClock gives the store a snapshot of it and
 says what moved since. It does not use the stamps: a claim must not go stale because a skill under it was never

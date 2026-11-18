@@ -1,50 +1,36 @@
-# Task mode: the agent works step by step (design, not built)
+# Task mode: the agent works step by step
 
-Status: draft for review, 2026-11-05. Related: `docs/skill-packages.md` ("Compositions"), `docs/recorder.md`, `docs/knowledge.md`.
+Status: built, 2026-11-05 to 2026-11-18. Related: `docs/skill-packages.md` ("Compositions"), `docs/recorder.md`, `docs/knowledge.md`.
 
 ## Goal
 
 - For a new task, the agent works step by step: it calls a skill, looks at the result, and selects the next step, until the task is done or it cannot be done.
 - One task is one run: one bundle, one bag, one scratch folder, one blackboard.
-- A behavior tree is not the normal output. Trees come later, from steps that worked (`docs/skill-packages.md`, "Compositions"), and the agent calls a graduated tree as one skill.
-- A step is always one skill. A small tree comes only from graduation (decided 2026-11-05).
+- A step is always one skill (decided 2026-11-05). A composition of skills is a skill too: a code skill now, a graduated tree later (`docs/skill-packages.md`, "Compositions").
 
-## Now
+## How it works
 
-- `planner_node` gets a task, the LLM writes a full tree, the validator checks it, and the tree goes to the executor on `/orchestrator/tree`.
-- The executor runs one tree at a time. Each tree gets a new `Context` (blackboard, history, `run_id`, scratch folder).
-- The recorder opens a run on `started` and closes it on `finished`, `halted` or `error`: one run per tree.
-- The planner's LLM backends (`llm_backends.py`) have no tools. The agent's backends (`agent_backends.py`: external, openai_compatible, scripted) run a tool loop.
+### The task desk
 
-## Proposal
-
-### The task agent runs in the executor
-
-- A new agent skill, `task`, runs on the agent's tool loop and backends. It is the planner in task mode.
-- It runs in the executor, so one task has one `Context`: the blackboard and the history go from one step to the next (for example, a pose from one skill is an input of the next).
-- Its tools:
-  - `run_skill(name, inputs)`: the executor builds a one-leaf tree, validates it (the same validator: contracts, live skills, the `rt/*` ban, maturity on the robot; no fallback is needed, because the agent recovers), ticks it, and returns the result: status, outputs, the failure and its feedback. A graduated tree is a skill, so it runs the same way. Inputs and outputs that go by the blackboard get the key `step<n>_<port>`, so a later step can use `{step1_detections}`. An abort ends only that step. Built in `orchestrator/tasks.py` (2026-11-05); `/orchestrator/status` is `waiting` between steps.
-  - the read tools of the agent now: `read_file`, `ros_read`, `get_image`, `run_python`, `note`, `say`;
-  - `done(summary)` and `give_up(reason)`: they end the task.
-- The facts and beliefs and the run's scratch folder go into its prompt, as for the agent now.
-- **The backend is a choice, per run**: Claude, Astra, Kimi, a local model, and others. The task agent uses only the neutral tool loop, so a new provider is one backend class. Now there are `external` (a Claude Code session), `openai_compatible` (Kimi and most local servers) and `scripted`; a Claude API backend is still to be built.
-- **Two modes** (launch argument `mode`, decided 2026-11-05):
-  - `task` (the default): the executor takes the task sentence on `/orchestrator/task` and starts the task agent; `planner_node` does not start.
-  - `tree`: as before. `planner_node` writes one full tree for the sentence, and the executor runs it. `send_tree` works in both modes.
-- **Plan first.** The agent first writes a task plan: a short list of subgoals (for example: walk to the call panel, call the elevator, walk in, press floor 1, ride, walk out). A tool `plan(subgoals)` saves it; it goes in the trace, the run bundle and `plan.md` in the scratch folder. Each `run_skill` names its subgoal. When a step fails or the situation changes, the agent calls `plan` again; the recorder keeps each version. The plan is text, not a tree: the subgoals with the steps that worked for them are the material for compositions later.
+- The executor takes the task sentence on `/orchestrator/task` and opens a task (`TaskDesk` in `task_agent.py`). The open message carries the sentence, the places, the runbook, the contract grammar and the knowledge store's guide.
+- One task has one `Context`, so the blackboard and the history go from one step to the next. For example, a pose from one skill is an input of the next.
+- The agent's commands:
+  - `run(skill, inputs, subgoal)`: the executor builds a one-leaf tree and validates it (contracts, live skills, the deny list, maturity on the robot). No fallback is needed, because the agent recovers. The executor ticks the tree and returns the result: status, outputs, the failure and its feedback. Inputs and outputs that go by the blackboard get the key `step<n>_<port>`, so a later step can use `{step1_detections}`. `/orchestrator/status` is `waiting` between steps.
+  - `plan(subgoals)`, `write_skill(contract, code)`, `done(reason)` and `give_up(reason)`.
+- **Two task agents** (launch argument `task_agent`): `session` (the default), a Claude Code or Codex session outside the executor that uses `agent_cli`; `codex`, a loop in the executor (`task_loop.py`) that asks `codex exec` for each decision.
+- **Plan first.** The agent first writes a task plan: a short list of subgoals. `plan` saves it; it goes in the trace and the run bundle. Each `run` names its subgoal. When a step fails or the situation changes, the agent plans again; the recorder keeps each version.
 
 ### One task is one run
 
-- The executor emits `task_started` (with `run_id` and the task text) and `task_finished` (`done`, `gave_up`, `cancelled`, `error`).
-- Each `run_skill` emits `started` and `finished` as now, with a step number.
-- The recorder opens the run on `task_started` and closes it on `task_finished`. A tree sent alone (`send_tree`) is a task of one step, so the recorder handles both modes the same way.
-- `runs/<n>-<task>/` gets `steps.jsonl` (one line per step: skill, inputs, result) in place of one `tree.xml`.
+- The executor emits `task_started` (with `run_id` and the task text) and `task_finished` (`done`, `gave_up`, `cancelled`, `halted`, `error`).
+- Each step emits `started` and `finished`, with a step number.
+- The recorder opens the run on `task_started` and closes it on `task_finished`. `runs/<n>-<task>/` gets `steps.jsonl`, one line per step.
 
 ### Limits
 
 - `max_steps` (for example 40) and `max_task_s` (for example 600 s) per task; at the limit, the task ends as `gave_up`.
 - `/orchestrator/cancel` halts the running step and ends the task.
-- A skill that the robot may not use (`experimental`) is refused by the validator in `run_skill`, as in a tree.
+- A skill that the robot may not use is refused by the validator in `run`.
 
 ### Step gate on the robot
 
@@ -68,12 +54,10 @@ A segment is not blind by design. The cloud can drop at any time, and the robot 
   1. a **fallback skill**: what to do when the cloud drops in a step (for example stop safely and wait for the doors);
   2. a **whole routine as a BT**: a tree that covers the part without the cloud and runs to its end without the agent.
 - Until such a routine graduates, a drop is handled as in "Handle, for now".
-- The executor's blind mode (`/orchestrator/tree_blind`) stays for a tree that the agent sends when it expects no cloud.
 
 ## Recovery agents
 
-- `manipulation_recovery` and `press_judge` stay as skills. The task agent can call them, or do the recovery itself, because it sees each failure.
-- The experiment (`docs/skill-packages.md`) will show which one works better.
+- The task agent recovers by itself, because it sees each failure. Whether a separate recovery skill does better is an experiment (`docs/skill-packages.md`).
 
 ## Similar work: HomeBody
 

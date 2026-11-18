@@ -4,8 +4,8 @@ Status: draft for review, 2026-11-05. Related: `docs/skill-packages.md` (the pac
 
 ## Problem
 
-- There is no structure for a new skill yet. The agent skill `manipulation_recovery.md` is 5,773 words: procedure, tool docs, file locations, and facts about the arm, perception and navigation in one prompt. Its experience log is 4,055 words more.
-- The 32 contracts use few of their fields: `pre`, `effects` and `fallback` once each, `check` twice. No contract declares failure codes.
+- There is no structure for a new skill yet. A skill's documents could put procedure, tool docs, file locations, and facts about the arm, perception and navigation in one long prompt.
+- Hand-written contracts use few of their fields: `pre`, `effects` and `fallback` once each, `check` twice. No contract declares failure codes.
 - Each skill is to be a node, and these nodes need a shared structure that is not known yet.
 
 ## What other work found
@@ -37,7 +37,7 @@ skill_registry/skills/<skill>/
 | `evidence` | what the result carries for the recorder and the agent (feedback over time, frames, residuals) |
 | `version`, `maturity` | as in `docs/skill-packages.md` |
 
-Facts are not written in the skill documents. They come from the knowledge store (`docs/knowledge.md`) and go into the prompt with their tier. The sections "Arm model facts", "Perception facts" and "Navigation facts" of `manipulation_recovery.md` become claims with evidence.
+Facts are not written in the skill documents. They come from the knowledge store (`docs/knowledge.md`) and go into the prompt with their tier. Facts about the arm, perception and navigation become claims with evidence.
 
 ## A shared skill node
 
@@ -56,10 +56,10 @@ How to find the rest: survey the nodes that the stack has now (`VisualServoingAr
 
 The recorder (`docs/recorder.md`) gives the test set.
 
-1. **Cases:** the recorded failures of the 2026-11-04 trial (E-001 to E-020), each with the decision the operator found correct. New runs add cases.
-2. **Variants of an agent skill:**
+1. **Cases:** recorded failures from the run bundles, each with the decision the operator found correct. New runs add cases.
+2. **Variants of a skill's documents:**
    - A: one document, as now;
-   - B: split (contract, procedure ≤ 600 words, reference files the agent opens with `read_file`);
+   - B: split (contract, procedure ≤ 600 words, reference files the agent opens when it needs them);
    - C: B, with facts from the knowledge store instead of fact sections.
 3. **Measure:** correct decisions, tokens, time to decide, and the files opened. Run each case several times per variant (the model is not deterministic).
 4. **Confirm** the best variant in the sim with fault injection, then on the robot.

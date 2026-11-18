@@ -1,27 +1,51 @@
 # Orchestrator
 
-Agentic planning for the G1. An LLM writes a behavior tree, a validator checks it, and the NUC runs it. Every step goes to a trace topic.
+Agentic task planning for the G1. A task is one sentence. An agent does it step by step: it runs one skill, reads the result, and decides the next step. The robot starts with no skills: the agent writes them. Every step goes to a trace topic and to a run bundle.
 
 | Package | Holds |
 |---|---|
-| `skill_registry` | The contract schema and deny list, the tree validator, live-skill discovery. No skills: the agent writes or seeds them in `<agent_dir>/contracts` |
-| `orchestrator` | Tree executor, ROS skill runner, planner, trace, fake robot |
+| `skill_registry` | The contract schema and grammar, the deny list, the validator, the step gate's quiet list. No skills: the agent writes them in `<agent_dir>/contracts` |
+| `orchestrator` | Executor, task desk, ROS skill runner, code skills and their sandbox, knowledge store, skill stamps, recorder, Mission Control, fake robot |
 
-## How it works
+`<agent_dir>` is `$EIGEN_VECTOR_WS/agent` (launch argument `agent_dir`). It holds what the agent writes and learns: `contracts/`, `code/`, `knowledge/`, `runbook.md`, `stamps.yaml`.
 
-1. A task comes in on `/orchestrator/task`: a plain sentence, or `{"task": "...", "blind": true}`.
-2. The planner sends the task, the skill catalog, the places and the live skills to the LLM. The LLM gives a BehaviorTree.CPP v4 XML tree.
-3. The validator checks the tree. If there are errors, the planner sends them back to the LLM (3 attempts at most).
-4. The executor validates the tree again, then ticks it at 10 Hz. It calls each skill from its contract: action, service, topic, or a closed question to the VLM on Thor.
-5. The trace goes to `/orchestrator/trace` (JSON) and `/orchestrator/log` (`rcl_interfaces/Log`, for the Foxglove Log panel).
+## How it works (task mode, the default)
 
-Blind mode (`/orchestrator/tree_blind`, or `"blind": true`): the tree cannot use skills that need the cloud. Plan it before the robot goes into the elevator.
+1. A task comes in on `/orchestrator/task` (or `POST /api/task` from Mission Control): a plain sentence, or `{"task": "...", "blind": true}`.
+2. The executor opens it: one task is one run, one bundle, one scratch folder, one blackboard. The open message gives the sentence and the places from `map_info`. It also gives the runbook (what the robot is), the contract grammar (how to write a skill) and the knowledge store's guide.
+3. The agent plans (a list of subgoals), then runs ONE skill per step. It sees each result and plans again when something fails. It ends with `done` or `give_up`.
+4. On the robot, a person approves each step that can move it (the step gate, `step_gate:=auto`: on unless `fake:=true`). `skill_registry/gate.yaml` lists the few acting skills that do not ask (`quiet:`).
+5. The trace goes to `/orchestrator/trace` (JSON) and `/orchestrator/log` (`rcl_interfaces/Log`, for Foxglove). The recorder keeps each run in a bundle (`docs/recorder.md`).
 
-## Add a skill
+Limits: `task_max_steps` 40, `task_max_s` 900, `task_idle_s` 120. Design: `docs/task-mode.md`.
 
-This branch has no skills. The agent writes them (`write_skill`, `docs/skill-discovery.md`) in `<agent_dir>/contracts` (launch argument `agent_dir`, default `$EIGEN_VECTOR_WS/agent`). The hand-written contracts and trees are on `main` and `ltx-dev`. One YAML file is one skill. No code is necessary if the skill is an action, service, topic or VLM question. An input's `field` can index a sequence: it can set `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters; a service reply with per-item `successful` flags fails if any is false. A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`; give z on the two-storey map, or the route planner takes the lowest storey. Two read-only transports run inside the executor: `graph` checks that each listed topic has at most its allowed publishers, not counting the executor's own, and `press_tip` judges where the end effector got to in the last press.
+### Two task agents (`task_agent`)
 
-## Code skills
+- **`session` (the default):** a Claude Code or Codex session outside the executor, with a shell. It drives the task with `agent_cli` and reads and writes knowledge with the `knowledge` CLI. Give it permission for `agent_cli` (not `step approve|refuse`) and for `knowledge list|show|note|confirm|contradict` only (`docs/skill-discovery.md`).
+- **`codex`:** a loop inside the executor (`task_loop.py`), one tool-free `codex exec` per decision (`codex_model`, default `gpt-6-astra`). The prompt is its only channel: it gets the knowledge pushed in and cannot write knowledge.
+
+```bash
+agent_cli task wait                     # the open task
+agent_cli skills                        # what run can run now
+agent_cli interface /odom_base_link     # the type and fields of a topic, service or action
+agent_cli plan "walk to the call panel" "call the elevator"
+agent_cli run say text="Walking to the call panel." --subgoal "walk to the call panel"
+agent_cli write-skill greet.yaml --code greet.py
+agent_cli done --reason "arrived"
+```
+
+`agent_cli run ... --applies <claim id>` says that the step follows a claim of the knowledge store; the step's end is recorded on the claim as weak evidence.
+
+## Skills
+
+The library starts empty. The agent writes each skill with `write_skill` (`docs/skill-discovery.md`), which checks it and loads it at once. One YAML file is one skill. The grammar the agent follows is rendered from the parser (`skill_registry/grammar.py`), so what the agent is told and what `write_skill` takes cannot drift apart. No code is necessary if the skill is an action, service, topic, watch or VLM question.
+
+- An input's `field` can index a sequence: it can set `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters.
+- A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`; give z on the two-storey map, or the route planner takes the lowest storey. A pose output comes back as `{x, y, z, yaw, frame}`.
+- Two read-only transports run inside the executor: `graph` checks that each listed topic has at most its allowed publishers, and `compare` checks that an input equals a value.
+- **Skill stamps** (`<agent_dir>/stamps.yaml`): `write_skill` stamps a skill with the state of its repos and the digest of every skill it runs. When that code moves, the catalog says the skill is stale, with the reason. A step that succeeds is kept as evidence and clears nothing.
+
+### Code skills
 
 A code skill is a skill whose body is Python: a policy over the skills that already exist (Code as Policies). Its contract is `transport: code`, and the Python sits in `<agent_dir>/code/<name>.py`:
 
@@ -36,119 +60,61 @@ def run(skills, inputs):
     return {'places': len(inputs['places'].split(';'))}
 ```
 
-- **It reaches no ROS.** The code runs in the same sandbox as `run_python` (no ROS, no network, no new processes, writes only in its scratch folder). `skills.run` sends the call back to the executor, which runs it like any leaf of a tree, so the deny list, the contract, the places and the recorder all still see it. Each inner call is recorded under `<code skill>/<skill>`.
-- **The gate.** A code skill is approved once. After that, every call it makes that can act on the robot asks again; a call that only reads never does. `skill_registry/gate.yaml` lists the few acting skills that are quiet (`say` and the map resets). So a skill the agent wrote for an interface nobody listed still stops. That file is the operator's: the agent never writes it.
-- **Writing one.** `write_skill` takes the contract and the code together, checks both (the code must parse and define `run`), and saves both; if either is refused, neither is kept. `agent_cli write-skill greet.yaml --code greet.py`.
-- **Building on a policy.** A code skill may call another: `approach_panel` can correct the goal, walk, and then hand over to `servo_press`, which is itself a policy with a loop. What it may not do is call a skill that is already running in that chain, so a policy cannot call itself for ever. Three code skills deep is the limit (`MAX_DEPTH`), because each one is a process.
+- **It reaches no ROS.** The code runs in a sandbox under an audit hook: no ROS, no network, no new processes, writes only in its scratch folder, and no reads of `~/orchestrator_ws`. This is a guard against mistakes, not a security boundary: the NUC allows no user namespaces. `skills.run` sends each call back to the executor, which runs it like any step. So the deny list, the contract, the places and the recorder all still see it.
+- **The gate.** Every call it makes that can act on the robot asks again; a call that only reads never does.
+- **Writing one.** `write_skill` takes the contract and the code together and checks both (the code must parse and define `run`); if either is refused, neither is kept.
+- **Building on a policy.** A code skill may call another, but not one that is already running in that chain. Three code skills deep is the limit (`MAX_DEPTH`), because each one is a process.
 - **Limits.** The contract's `timeout_s` ends the whole policy, the inner calls with it.
-
-## Agent skills
-
-An agent skill is an LLM with read-only tools that decides how a tree recovers. Its contract has `transport: agent` and names a document in `<agent_dir>/agent_skills/`, which is the agent's system prompt. `manipulation_recovery` is the first one: after `press_button` fails it finds out why (mainly: was the button out of reach?) and decides reposition, switch_arm, offset_retry, retry, ask_help or abort; after a reposition walk it checks that the button is in view. `press_judge` is the second: after every press it looks at the camera frame at the fingertip's closest point to the button and decides pressed or not_pressed ("Checking a press"). Both documents are on `main` and `ltx-dev`.
-
-- **Evidence.** Every finished action call is recorded in the tree's history; a failure keeps the action's feedback over time. Both go to the trace as `record` events, and to the agent through `get_failure` and `get_history`.
-- **Tools.** `read_file`, `ros_read` (TF, one message, the topic list), `get_image`, `run_python` (numpy, scipy, pinocchio, coal), `decide`. Nothing publishes. `run_python` runs under an audit hook (no ROS, network, processes, or writes outside its scratch directory): a guard against mistakes, not a security boundary, since the NUC allows no user namespaces.
-- **Branching.** `decision_is` compares a blackboard value (`value="{decision}" equals="reposition"`). `abort` fails the whole tree at once with the agent's reason. After `ask_help`, or after `max_rounds` diagnoses, the agent skill fails without a call.
-- **Who answers.** By default (`agent_backend:=external`) a session outside the executor, e.g. Claude Code over ssh: the executor publishes each call on `/orchestrator/agent/request` and waits up to the contract timeout (600 s); the session gathers evidence and answers with `agent_cli`, which publishes only the decision, and only with `--send`. Other backends run inside the executor: `openai_compatible` with `agent_base_url` and `agent_model` (e.g. the Thor's local model), `scripted` with `agent_script` (tests), `none`.
-- **agent_cli.** `wait`, `show [--full]`, `tf TARGET SOURCE`, `topic TOPIC`, `topics`, `image camera|overlay OUT`, `python FILE` (the sandbox), `say TEXT`, `decide DECISION --reason R [--dx --dy --dyaw] [--ox --oy --oz] [--left-arm|--right-arm] [--send]`. Run it in the executor's ROS environment. For a `press_judge` call, `show` adds a `press:` line (arm, deepest point along the button normal, sideways distance, signed `residual_m`) and the paths of the saved frames on the NUC; copy them with `scp` to look at them.
-- **The request is whole.** The external backend takes the failure, the history and the press from the tools with `whole`, so a 60 s press (120 feedback samples, over 40 kB) reaches the session. A model inside the executor still gets tool text cut at 40 kB.
-- **Executor parameters.** `agent_backend`, `agent_read_roots`, `agent_scratch_dir`, `agent_python_timeout_s`, `agent_max_turns`, and the backend ones above.
-
-### Standard recoveries
-
-Seen in the agent trial of 2026-11-04 (`manipulation_recovery.experience.md`, E-014 to E-020); the trees and the skill document carry them out:
-
-| Case | Signs | Recovery |
-|---|---|---|
-| A walk routes but never moves | `/free_paths` empty, one-pose `/path`, latched points in `/terrain_map` close ahead | Every walk in the trees is `navigate_to`; on failure `say`, `clear_terrain_map`, 2 s, and walk again, three times at most (subtrees `walk_*`) |
-| The press reached its goal but the finger missed by millimetres (rim, beside, on the face but unlit) | `press_judge` `not_pressed`; `residual_m` a few mm to about 20 mm | `manipulation_recovery` `offset_retry`: the new offset is the offset in force minus the residual (on floor buttons push the depth further); the tree runs `set_press_offset` and presses again |
-| The robot stopped too close; the button is below the frame | `press_button` times out with `distance_to_goal` inf throughout; `ground_server` logs `0 box(es)` | `reposition` back, to a stance at least 0.25 m from where the robot stands |
-| The robot is too far; the arm stops short | the closest point tens of mm short though the action succeeded | `reposition` closer, again at least 0.25 m away; when that is not possible, walk out and in again |
-
-**A reposition must be at least about 0.25 m from where the robot stands** (`/odom_base_link`, counting the sideways part): goals 0.148 and 0.18 m away ended at once without a step (E-016). When the stance needed is closer than that, the robot has to walk away and come back: `freight_elevator_floor1_walk_in_again_agentic.xml` walks to a pose 0.35 m behind the inside place, then to the place.
-
-### Press offsets per panel
-
-`set_press_offset x y z` sets move_to_pose's `arm_safety_distance_{x,y,z}` through `/move_to_pose_server/set_parameters` (x along the button normal, positive deeper; y left; z up; metres). They live only in the running node. The trees set them before every first press, so an offset never carries over from one panel to the other: 0 at the call panel; (+0.005, +0.0075, +0.0034) inside, right arm, floor buttons. On 2026-11-05 floor 1 lit with that offset once and stayed unlit once; (+0.012, +0.0126, +0.0032) lit it (E-011, E-012). The offset in force is the last `set_press_offset` in the tree's history.
-
-### The agent says what it is doing, all the time
-
-Whatever is the agent (a Claude Code session or a model in the executor), it speaks its process out loud the whole time it works: what it is checking, what it found, what problem it hit, what it is trying next. Each message is one short English sentence, like thinking aloud, not the full reasoning.
-
-- **Where:** a `std_msgs/String` on `/speak`. unitree_interface subscribes `~/tts`, and its launch file remaps `/unitree_interface/tts` to `/speak`; it hands each message to the Unitree TTS (`TtsMaker`) at once, with no queue.
-- **How:** in a session, `agent_cli say "Checking whether the arm can reach the button."`; inside the executor, the agent's `say` tool. Both refuse empty text and more than 200 characters; the tool also waits 3 s between messages, since a new message does not wait for the last one to finish.
-- **When:** at the start of each call; at each step of the diagnosis (reading the failure, checking reach, looking at the frame); whenever something fails or surprises it; before each decision it proposes or sends, and while it waits for the operator's go.
-- **Examples:** "The press stopped 13 centimetres short; checking reach." "The right arm cannot reach; trying the left." "The button is out of view; I will step back." "I propose to step back 20 centimetres; waiting for your go."
-
-## Checking a press
-
-**`press_judge` (agent in the loop) is the check the trees use now.** After `press_button` succeeds, the executor waits until the press's three frames are chosen (below), saves them, and opens an agent call with their paths, the phase times, the deepest point along the button normal, the sideways distance and the signed residual (fingertip minus goal at the closest point, in the goal frame: x into the panel, y left, z up). The agent (a session, through `agent_cli`) looks at the `press` frame, the first after the fingertip's closest point, and the `release` frame, and decides `pressed` (success) or `not_pressed`. A `not_pressed` is recorded as the failed check of that press, so `manipulation_recovery` sees the press as `checked_call` with its feedback. The skill document is `<agent_dir>/agent_skills/press_judge.md`. What decided the presses in the trial: on floor buttons the blue ring, lit at once and still lit in the release frame; on the call panel, which does not light, where the finger sits, often clearest in the release frame as the finger backs off (E-019). `press_button` succeeding does not prove a press: once the fingertip stopped 67 mm short and the action still reported `Controller reached target` (E-018).
-
-**The closest point is found after the pre-grasp.** Until the end effector reaches the pre-grasp, the phase tracker counts only samples within `lateral_tolerance` (30 mm) of the button axis. Before 2026-11-05 it counted the arm's swing up from its rest pose, which passes the goal's depth about 20 cm below the button, ended the press there, and made `press_reached` report misses of 19 to 23 cm sideways after good presses (E-014).
-
-The rest of this section is how the frames are chosen, and the two older checks, `button_lit` and `press_reached`, which the trees no longer use.
-
-`press_button` keeps three camera frames (`interface.capture` in its contract; `orchestrator/press_capture.py`): a baseline when the end effector reaches the pre-grasp, the first frame at least 5 ms after the deepest point of the push, and the first frame at least 0.5 s after the retreat began. The phases come from `/right_ee_pose` or `/left_ee_pose` (100 Hz, `foot_world`) against the action feedback's `current_goal`. `button_lit` then asks the VLM about the press frame and the release frame, each beside the baseline in one image; lit in either is success. Each frame is cropped to the area around the button: track_anything's box for that frame (`/track_3d/detections_2d`, the target id from `/track_3d/selected_target_3d`; the box with the frame's stamp, or the latest before it within 1.5 s), grown 2.5 times about its centre (`crop_scale`). A frame without a box of its own, as when the hand covers the button, uses the baseline's box; with no box at all, whole frames are asked. The frames and their crops (`*_crop.jpg`) are saved under `capture_dir` (executor parameter, default `~/.ros/orchestrator_captures`).
-
-- The camera runs at 6 fps (1280x720x6, raw RGB8 on the Orin), so a chosen frame can be up to about 0.17 s after its moment.
-- **Where the button does not light** (the freight elevator call panel), use `press_reached` instead of `button_lit`. It reads the same capture: the deepest point of the push along the goal's +X, and the sideways distance from the goal there. It succeeds when the depth is at least `min_depth_m` (-0.012) and the sideways distance at most `max_lateral_m` (0.008), from the contract's `limits`. The trace gives both numbers. The poses are forward kinematics in `foot_world`, so a drifting body EKF moves the goal, not the measure: a correct press check can still follow a press that went to the wrong place.
-- Frame times are the camera's header stamps and pose times the NUC's: the Orin's and the NUC's clocks must agree.
-- **The VLM on the Thor.** The executor's VLM conditions post to `vlm_base_url` (default `http://vector-thor:8090/v1`), but the Thor now runs only the Cosmos daemon and `ground_server`. Start `ros2 run orchestrator cosmos_vlm_server --port 8090` on the Thor, in the environment that runs `ground_server`: it answers with the Cosmos daemon, one request at a time, and waits while `ground_server` uses it. `vlm_timeout_s` (executor, default 40 s) covers that wait.
 
 ## Knowledge store
 
-What the robot learns is kept as claims in `knowledge_dir` (executor parameter, default `~/orch_knowledge`): `claims.yaml`, and `log.jsonl` with every change. A claim is an observation, a belief or a fact (`docs/knowledge.md`). An agent skill adds observations with its `note` tool and sees the facts and beliefs in its prompt. A session that answers agent calls from outside uses the CLI, with `--by agent:<skill>`. Only the operator makes a fact, at a terminal:
+What the robot learns is kept as claims in `<agent_dir>/knowledge/` (`docs/knowledge.md`). A claim is an observation, a belief or a fact.
+
+- **A claim about a skill is about its code.** It keeps a snapshot of the code under the skill and the skills it runs. When that code moves, its old sightings stop counting and it goes back to an observation.
+- **A contradiction moves a claim down one tier.** The end of an `--applies` step is weak evidence: it counts in the claim's reliability but moves no tier.
+- **Only the operator makes a fact,** at a terminal: `approve`, `refuse`, `retire`, and `--by operator`.
 
 ```bash
 ros2 run orchestrator knowledge list --ready                  # beliefs that can become facts
 ros2 run orchestrator knowledge show C-0007
-ros2 run orchestrator knowledge note "The call panel does not light." --by agent:press_judge --evidence frame:press --run <run_id> --about place=freight_elevator_call_panel --key lights_when_pressed --value false
+ros2 run orchestrator knowledge note "The call panel does not light." --by agent:task --evidence step:3 --run <run_id> --about place=freight_elevator_call_panel --key lights_when_pressed --value false
 ros2 run orchestrator knowledge approve C-0007 [--text "the exact text"]
 ```
+
+## Mission Control
+
+`mission_control:=true` serves a page on `127.0.0.1:8080` (`mission_control_port`): the task, the trace, the camera, and the step gate's approve and refuse. It listens on localhost only; reach it over `ssh -L 8080:localhost:8080`. The node log gives the link with its token. A command without the token is refused, and each refusal is logged.
 
 ## Run on a laptop, with no robot
 
 ```bash
-ros2 launch orchestrator orchestrator.launch.py fake:=true task_agent:=codex
-ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the elevator and call it'}"
+ros2 launch orchestrator orchestrator.launch.py fake:=true
+ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Tell me where you are'}"
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-The library starts empty, so the agent gives up until it writes its own skills (`write_skill`) or a person puts contracts in `<agent_dir>/contracts`. To exercise the engine alone, run the tests.
+The library starts empty, so the agent must write its skills first. To exercise the engine alone, run the tests: they use a small made-up robot (`skill_registry/test/contracts`).
 
-All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, e.g. `~/maps/two_floor_clean.places.yaml`), whose names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}`. `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments, passed to every node.
+All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). `fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `press_fail_count:=1`, `nav_blocked:=true`, `vlm_answers:=door=closed`, `nav_time_s:=5.0`, `vlm_port`.
 
-`fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback), `nav_blocked:=true` (every route turns blocked until cancelled; navigate_to fails after 10 s), `vlm_answers:=door=closed`, `nav_time_s:=5.0`, `vlm_port`.
+## Run on the robot
 
-Run one tree with no planner:
+The NUC builds this repo in `~/eigen_vector_orch_ws`, from the deploy repo `eigen_vector_orch` (`repos/nuc.repos`). In that repo:
 
 ```bash
-ros2 run orchestrator send_tree my_tree.xml --blind
-ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
+./scripts/deploy.sh update nuc        # pull and build (about 2 min); it starts and stops nothing
+./scripts/deploy.sh launch nuc map:=/home/vector/maps/two_floor_clean_cabin2.pcd localization:=true orchestrator:=true mission_control:=true
 ```
 
-## Planner backends
-
-| `planner_backend` | Needs |
-|---|---|
-| `claude` (default, model `claude-opus-5`) | `pip install anthropic`, and `ANTHROPIC_API_KEY` or an `ant auth login` profile |
-| `openai_compatible` | `base_url`, `model`, and the key in the env var that `api_key_env` names. For GPT, Gemini's OpenAI endpoint, vLLM |
-| `scripted` | `scripted_tree`, a tree file. It replies with that tree |
+- **The NUC is shared.** Before a launch, check `tmux ls` and `ps -eo pid,etime,args | grep -E '[r]os2 launch|[l]ocal_planner'`. When someone else is up, use another `ROS_DOMAIN_ID` (for example 71).
+- **Mission Control:** `ssh -L 8080:localhost:8080 vector@vector-nuc`, then open the link with its token from the node log (`mission control on ...`).
+- **The step gate is on.** Approve or refuse each step in Mission Control, or at a terminal with `agent_cli step approve|refuse`.
+- **VLM skills** (for example `ask_vlm`) post to `vlm_base_url`, default `http://vector-thor:8090/v1`. On the Thor, start `ros2 run orchestrator cosmos_vlm_server --port 8090` in the environment that runs `ground_server`. It answers with the Cosmos daemon, one request at a time.
+- **First checks of a launch:** the log says `skill stamps: N repos under ...`, and `$EIGEN_VECTOR_WS/agent/knowledge/code_clock.yaml` exists.
 
 ## Not done yet
 
-- Arrivals are poor: on 2026-11-04 the robot stopped up to 17 cm past the call-panel place and 24 cm past the inside place, and each arrival 8 cm or more past put the button out of view (E-001, E-015). Set `path_follower` `slow_down_distance_threshold` 0.7 again (a relaunch resets it to 0.4) and compare, or move the places back by the mean overshoot.
-- A reposition 0.18 m away ended at once without a step; why is not known (E-016).
-- The inside press starts at the offset (+5.0, +7.5, +3.4) mm; one press lit only at (+12, +12.6, +3.2) mm. Start there once a second press confirms it.
-- The EKF reset before each press is a watcher outside the tree: `~/orch_runs/start_cycle.sh` (see `docs/RUNBOOK.md`) runs `~/ekf_reset.sh` when the trace shows the `ekf_hold` subtree's `say`. A `reset_ekf` skill needs a reset service in `body_ekf`.
-- `press_judge` needs a person or a session to look at frames; the VLM could judge the floor buttons' ring alone (`button_lit`), not the call panel.
-
-- `places.yaml` has zeros. Measure the poses on the prior map.
-- Timeouts in the contracts are guesses. All skills are `wip` or `untested`.
-- The service names under `/unitree_interface/` and `/slam_elevatorlio/` come from the `~/` names in the code. Check them on the robot.
-- `ground`, `set_profile`, `set_hand`, `save_map` and `load_map` need their interface packages on the NUC.
-- `reset_tracker` ends only when `/track_3d/is_tracking` changes. If it is already false, it times out.
-- `body_ekf` has no reset service, so no tree can reset it at the panel; the team runs `~/ekf_reset.sh` on the NUC by hand right before a press. A `~/reset` service in `body_ekf` and a `reset_ekf` skill would close this (docs/RUNBOOK.md, "foot_world drifts after a walk").
-- A failed `press_reached` does not reach `manipulation_recovery`: `get_failure` records only failed actions, failed `button_lit` checks and `press_judge` `not_pressed`, so the agent sees `failure: none recorded`. The trees use `press_judge` instead.
-- The executor reads the raw camera topic (`image_topic`, default `/camera/camera/color/image_raw`), because the Orin has no compressed image transport installed, and encodes the frames it keeps to JPEG. That brings the raw stream to the NUC: about 2.8 MB a frame, about 17 MB/s at 6 fps.
-- On hold: in blind mode, every action skill must have a fallback.
+- Nothing committed after 2026-11-11 has run on the robot.
+- The `codex` loop cannot read a type's fields before it writes a skill (a session can, with `agent_cli interface`).
+- The knowledge store follows a claim's `skill` tag only: a value measured through a skill but tagged only with a place is not reset when the skill's code moves. A code skill's `skills.run(variable)` calls are not followed.
+- The executor reads the raw camera topic (`image_topic`), because the Orin has no compressed image transport installed: about 17 MB/s at 6 fps.

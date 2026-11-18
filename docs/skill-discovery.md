@@ -6,15 +6,15 @@ Status: draft for review, 2026-11-05. Branch `feat/skill-discovery`. Related: `d
 
 - The agent finds its base skills itself: it reads the stack's code and the live ROS graph, and writes a contract for each interface that it can use. This seeds the skill library.
 - The skills then get better with use: graduation counts, new versions after failures, compositions (BTs) from subgoals that work again and again.
-- The test: compare what the agent finds and builds with the skills that people wrote (the 32 contracts, the trees, `manipulation_recovery.md`, on `main` and `ltx-dev`).
+- The test: compare what the agent finds and builds with skills that people wrote by hand.
 
 ## What the agent can use
 
 **Everything that the stack exposes, except the deny list below.** That includes, for example:
 - every ROS topic, service and action of the stack on the NUC, the Orin and Thor: navigation (`route_planner`, `local_planner`, the SLAM node), manipulation (`move_to_pose`, visual servoing), `map_info` (places, regions, floors, `NavigateToPlace`), track anything on the Orin, the camera stream on the Orin, the VLM interfaces on Thor (the HTTP server and `ground_server`), and the parts of `unitree_interface` that are not denied;
 - the stack's code in the workspace's `src/` (read-only), to find out what the interfaces do;
-- the orchestrator's own tools: `plan`, `run_skill`, `note` (the knowledge store), `say` (`/speak`), `read_file`, `ros_read`, `get_image`, `run_python`, `done`, `give_up`, and new: `write_skill`, `interface_show` (the type of a topic, service or action);
-- the transports that the executor knows (action, service, topic, watch, graph, compare, vlm, press_tip, agent), and `ask_vlm`, the orchestrator's one closed question to the VLM.
+- the orchestrator's own tools, through `agent_cli`: `plan`, `run`, `write-skill`, `interface` (the type of a topic, service or action), `say` (`/speak`), `done`, `give-up`, and the `knowledge` CLI;
+- the transports that the executor knows (action, service, topic, watch, graph, compare, vlm, code), and `ask_vlm`, the orchestrator's one closed question to the VLM.
 
 People write only a short agent runbook (`orchestrator/agent/runbook.md`, installed with the package; the agent never writes it, it holds only facts that hold by construction, and what the robot or the team observed goes to the knowledge store instead): what the robot is, the devices, how to see that the stack is up, the safety rules and the deny list, the places file. It describes the robot and the rules, not the skills or the steps of a task. The agent writes the codebase docs itself during discovery (`<workspace>/agent/docs/<package>.md`).
 
@@ -27,17 +27,17 @@ People write only a short agent runbook (`orchestrator/agent/runbook.md`, instal
 
 **The session too.** In this experiment the agent is a Claude Code session with a shell on the NUC. The checks above cover what goes through the executor and the sandbox; a shell can still call `ros2 service call` directly. So the session runs with its own permissions: shell commands only through `agent_cli` (without `step approve|refuse`) and `knowledge list|show|note|confirm|contradict` (not `approve|refuse|retire`, which are the operator's; `--by operator` works only at a terminal), and read-only tools, set in the session's config (step 3).
 
-**Not on this branch** (2026-11-09, branch `agentic`): the hand-written skills, that is all 32 contracts (`ask_vlm` too), the trees, the agent skills `manipulation_recovery.md` and `press_judge.md`, and the experience log. They stay on `main` and `ltx-dev` for the comparison. The agent starts with zero skills; it can write `ask_vlm` itself, because the `vlm` transport is part of the executor and the `vlm` package is in `src/`. If it does not find it, we seed it.
+**No hand-written skills** (2026-11-09). The agent starts with zero skills; it can write `ask_vlm` itself, because the `vlm` transport is part of the executor and the `vlm` package is in `src/`. If it does not find it, we seed it.
 
 **Hidden for the test** (out of the agent's view):
-- the orchestrator's source and `skill_registry/`: the tests keep copies of some contracts and trees in `skill_registry/test/data/`;
-- `docs/RUNBOOK.md` (Tingxuan's), because it gives the steps of the elevator task.
-- How: the launch argument `contracts_directory` defaults to the agent's folder (`<agent_dir>/contracts`, e.g. `~/eigen_vector_orch_ws/agent/contracts`, empty at the start), and `agent_read_roots` leave out the hidden paths.
+- the orchestrator's source and `skill_registry/`;
+- for code skills, `~/orchestrator_ws`: the sandbox refuses to read or list it (`HIDDEN` in `agent_sandbox.py`).
+- How: the launch argument `contracts_directory` defaults to the agent's folder (`<agent_dir>/contracts`, e.g. `~/eigen_vector_orch_ws/agent/contracts`, empty at the start). The session's permissions keep its shell out of the hidden paths.
 
 ## Discovery
 
 1. **A discovery task** ("learn the stack"), on the NUC with the robot up and standing still. The step gate is on, but the discovery itself reads only: it calls no skill that moves the robot.
-2. The agent reads the stack repos in the workspace's `src/` (read-only) and the live graph (`ros_read` topics, `interface_show`), and writes:
+2. The agent reads the stack repos in the workspace's `src/` (read-only) and the live graph (`agent_cli topics`, `agent_cli interface`), and writes:
    - a contract for each interface it can use, at `experimental`, with a description, inputs, outputs, preconditions, a timeout and the device;
    - a page per package: what it does, its interfaces, the frames and units.
 3. `write_skill` (built: `agent_cli write-skill FILE`, `skill_writer.py`) checks each contract (the schema, the deny list, its references, its ROS types and fields, as `contract_check.py`), and saves it in the agent's folder with a mark on the first line (`AGENT_MARK`). It then loads through `Registry.refresh`, the one way in while the nodes run: the executor (at once after a write, and every 5 s) and `registry_node` (every 5 s) load new and changed files, each checked by the deny list and its references (and its ROS types, in the executor). A file with the mark always loads at maturity `untested`, so the agent does not grade its own skills even when it writes the file directly; a file's name must be its skill's name. A new version moves the old file to `old/`. The agent cannot replace a contract that a person wrote (no mark). It is on by default, because the library starts empty. `write_skill:=false` refuses the command; a contract that a person puts in the folder still loads, because both nodes refresh every 5 s. The contracts are always `<agent_dir>/contracts` (`agent_dir` defaults to `$EIGEN_VECTOR_WS/agent`).
