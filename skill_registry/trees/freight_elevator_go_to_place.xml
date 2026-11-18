@@ -16,7 +16,7 @@
           relocalization there, then {goal}.
        Both presses use the press slot press_panel_button (stance_check, press_button, press_judge, recover_once).
        Each press slot starts from its panel's base offset (elevator.xml); an offset_retry sets the next one.
-       Needs the Thor's grounding. Places: ~/maps/orchestrator/two_floor_clean_cabin2.places.yaml (map
+       Needs the Thor's grounding. Places: ~/maps/two_floor_clean_cabin2.places.yaml, the stanley site's places_file (map
        two_floor_clean_cabin2.pcd). Needs navigation_stack jean/elevator-side and elevator_states jean/door-state-in-out. -->
   <BehaviorTree ID="freight_elevator_go_to_place">
     <Sequence>

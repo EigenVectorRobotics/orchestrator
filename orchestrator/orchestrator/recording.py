@@ -340,7 +340,7 @@ class Recorder:
         self.captures |= saved_files(value, str(Path(self.config.capture_dir).expanduser()))
 
     def _copy_captures(self):
-        """The press frames this run named, copied in; the originals stay"""
+        """The press frames this run named, copied in; each original is removed once its copy is made"""
         sources, self.captures = sorted(self.captures), set()
 
         if not sources:

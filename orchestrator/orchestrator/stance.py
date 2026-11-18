@@ -122,7 +122,7 @@ def save_reference(reference: dict, path: str = DEFAULT_REFERENCES):
     file = Path(path).expanduser()
     file.parent.mkdir(parents=True, exist_ok=True)
 
-    if not file.exists() and _references_file(path) != file:   # the first save moves the old references over
+    if not file.exists() and _references_file(path) != file:   # the first save copies the old references over
         file.write_bytes(OLD_REFERENCES.read_bytes())
 
     with file.open('a') as out:

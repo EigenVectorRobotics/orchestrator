@@ -80,7 +80,7 @@ class Interface:
     question:        str = ''               # vlm: may hold {input} fields
     choices:         list[str] = field(default_factory=list)   # vlm: the only answers; empty means the 'choices' input
     success_answer:  str = ''               # vlm: the answer that means success; empty means any answer
-    skill:           str = ''               # agent: the skill the bridge answers as, documented in agent_skills/<skill>.md
+    skill:           str = ''               # agent: the skill the bridge answers as (prompts in mission_control/agent_prompts.py)
     capture:         dict = field(default_factory=dict)       # action: frames to keep around the call, e.g. {kind: press}
     limits:          dict = field(default_factory=dict)       # in_view, reach: the thresholds
     target:          dict = field(default_factory=dict)       # in_view: box_topic, target_topic, pose_topic

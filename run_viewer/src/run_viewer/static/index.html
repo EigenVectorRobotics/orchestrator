@@ -185,7 +185,7 @@ a.node { font: 500 12.5px var(--mono); color: var(--in); cursor: pointer; text-d
 
   <section class="pane" id="p-agent">
     <h2>Agent <span class="sp" id="a-sum"></span></h2>
-    <ul class="calls" id="calls"><li class="empty">Each agent call: its input, what it checked, the BT node that failed, and its decision.</li></ul>
+    <ul class="calls" id="calls"><li class="empty">Each agent call: its input, the BT node that failed, and its decision.</li></ul>
   </section>
 
   <section class="pane" id="p-side">
@@ -692,7 +692,7 @@ function agentEvent(ev) {
   if (k === 'agent_start') {
     if (curCall && isOpen(curCall)) { curCall.gone = 'no decision: the next call started'; curCall.end = ev.time }
     const m = ev.title.match(/^(\S+)(?:\s+\(([^)]*)\))?/) || [];
-    curCall = {id: null, skill: m[1] || ev.title, phase: ev.phase || m[2] || '', start: ev.time, tools: [], button: lastButton};
+    curCall = {id: null, skill: m[1] || ev.title, phase: ev.phase || m[2] || '', start: ev.time, button: lastButton};
     const judge = curCall.phase === 'judge';
     curCall.failure = judge ? lastPress : (lastFailure && ev.time - lastFailure.time < FAIL_BEFORE_S ? lastFailure : null);
     calls.push(curCall);
@@ -706,11 +706,10 @@ function agentEvent(ev) {
   } else if (k === 'call') {
     recById[ev.call] = ev;
     let c = calls.find(x => x.id === ev.call);
-    if (!c) { c = {id: ev.call, skill: ev.skill, phase: ev.phase || '', start: ev.time, tools: [], fromRecord: true}; calls.push(c) }
+    if (!c) { c = {id: ev.call, skill: ev.skill, phase: ev.phase || '', start: ev.time, fromRecord: true}; calls.push(c) }
     c.record = ev; c.phase = c.phase || ev.phase || '';
   } else if (curCall) {
-    if (k === 'agent_tool') curCall.tools.push({tool: ev.tool || ev.title, args: ev.arguments});
-    else if (k === 'agent_wait') { curCall.id = curCall.id || ev.call; attach(curCall) }
+    if (k === 'agent_wait') { curCall.id = curCall.id || ev.call; attach(curCall) }
     else if (k === 'agent_rule') curCall.rule = ev.title;
     else if (k === 'agent_decision') { curCall.decision = {name: ev.decision, text: ev.title, answer: ev.answer}; curCall.end = ev.time }
   }
@@ -733,20 +732,6 @@ function scheduleAgent() { if (agentPending) return; agentPending = true; setTim
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const num = v => typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')) : v;
-
-const EVIDENCE = {get_failure: 'failure record', get_history: 'action history', get_stance: 'stance (TF vs base goal)', get_press: 'press (frames, fingertip TF)',
-  get_image: 'camera image', read_file: 'file', run_python: 'python'};
-
-/* What the agent looked at: the evidence tools the executor ran for it, and any topic it read */
-function checkedOf(c) {
-  const out = [];
-  c.tools.filter(t => t.tool !== 'decide').forEach(t => {
-    const a = t.args || {};
-    const label = t.tool === 'ros_read' ? (a.topic || a.target || 'ros_read') : t.tool === 'get_image' ? `camera ${a.camera || ''}`.trim() : (EVIDENCE[t.tool] || t.tool);
-    if (!out.includes(label)) out.push(label);
-  });
-  return out;
-}
 
 function inputOf(c) {
   const text = (c.request && c.request.task) || (c.record && c.record.prompt) || '';
@@ -800,7 +785,6 @@ function renderAgent() {
       <span class="st">${c.gone ? 'no answer' : done ? fmtDur(Math.max(0, took)) : ''}</span></div>
       <dl class="rows">
         <dt>input</dt><dd>${esc(inputOf(c))}</dd>
-        <dt>checked</dt><dd>${checkedOf(c).map(x => `<span class="pill">${esc(x)}</span>`).join('') || '<span class="small">—</span>'}</dd>
         <dt>${c.phase === 'judge' ? 'judges' : 'failed at'}</dt><dd>${failedAt(c)}</dd>
         <dt>decision</dt><dd>${answerOf(c, now)}</dd>
         ${c.record ? `<dt>cost</dt><dd>${esc(costOf(c.record))}</dd>` : ''}
@@ -1001,7 +985,6 @@ function chatEvent(ev) {
     else if (k === 'plan') m = {side: 'r', who: 'planner session', text: ev.title};
     else m = {side: 'sys', who: k, text: ev.title};
   } else if (k === 'agent_start') m = {side: 'l', who: `orchestrator → agent${ev.phase ? ' · ' + ev.phase : ''}`, text: ev.title, start: true};
-  else if (k === 'agent_tool') m = {side: 'r', who: `agent · ${ev.tool || 'tool'}`, text: ev.title};
   else if (k === 'agent_wait') m = {side: 'sys', who: 'waiting', text: ev.title, waitFrom: true};
   else if (k === 'agent_decision') m = {side: 'r', who: `agent decides · ${ev.decision || ''}`, text: ev.title, decision: true};
   else m = {side: 'sys', who: k.replace(/^agent_/, 'agent '), text: ev.title};
