@@ -32,7 +32,6 @@ setup(
             'planner_cli = orchestrator.planner_cli:main',
             'cosmos_vlm_server = orchestrator.cosmos_vlm_server:main',
             'run_recorder = orchestrator.run_recorder:main',
-            'knowledge = orchestrator.knowledge_cli:main',
         ],
     },
 )
