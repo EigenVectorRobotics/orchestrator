@@ -155,7 +155,7 @@ The system prompt is `recovery_system(limits)`, built with the limits of the cal
 | D6 | Nothing fits: `ask_help` | No |
 | S1 | Reach check failed: `reposition` to `Reach move` when fixable and within limits, else `continue` | `rule_reach` usually answers first |
 | S2 | Too close (box at the bottom edge, or no 3D pose): `reposition` to `Back-off stance` | Limits only |
-| S3 | Box at a side edge: `Match` or `Reference stance`, else shift `dy` by `SIDE_SHIFT_M` | Limits only |
+| S3 | Box at a side edge: `Reference stance` (`Match` needs a press target, which a `stance_check` call never has), else shift `dy` by `SIDE_SHIFT_M` | Limits only |
 | S4 | No track or box but the button in the camera image: `continue` | No |
 | S5 | Button not in the camera image: `abort` | No |
 

@@ -105,7 +105,7 @@ is suspect; continue. Fixable false: continue. (continue looks again from here: 
 pass before any press.)
 S2 Too close. The box touches the bottom edge (centre y >= 0.90 of the image, or under 36 px to the bottom), or there \
 is no 3D pose because it is too close for depth: reposition to "Back-off stance" ({BACK_OFF_M:g} m behind the robot now).
-S3 Off to the side. The box touches the left or right edge: reposition to "Match" or "Reference stance" when it is \
+S3 Off to the side. The box touches the left or right edge: reposition to "Reference stance" when it is listed and \
 {limits['walk_min_m']:g} m or more from the robot, else shift dy {SIDE_SHIFT_M:g} m toward the button.
 S4 No track or no box, but the button is in the camera image: continue (the look runs button_in_view again from here).
 S5 Button not in the camera image and no stance you can justify: abort.'''
