@@ -3,7 +3,7 @@ from orchestrator.tree.engine import Status
 
 from ..lib.press import offset_in_force, press_images, press_state
 from ..manipulation_recovery import stance
-from ..manipulation_recovery.agent import PRESS_FRAME
+from ..manipulation_recovery.agent import PRESS_FRAME, frame_pose
 
 
 class PressJudge(AgentSkill):
@@ -53,7 +53,7 @@ class PressJudge(AgentSkill):
         if self.ctx is None or self.ctx.tf is None or not press.get('goal'):
             return
 
-        tf = self.ctx.tf.tf
+        tf = lambda target, source, timeout_s: frame_pose(self.ctx, target, source, timeout_s)
 
         try:
             stance.save_reference({

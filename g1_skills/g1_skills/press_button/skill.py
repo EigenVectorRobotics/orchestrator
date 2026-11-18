@@ -1,5 +1,4 @@
-from rclpy.time import Time
-
+from orchestrator.sensing import TfError
 from orchestrator.skills.api import DoneHandle, Handle, Skill
 
 from ..lib.press import press_state
@@ -66,8 +65,8 @@ class PressButton(Skill):
         frame = self.ee_frames.get('left' if capture.left_arm else 'right')
 
         try:
-            transform = self.ctx.tf.buffer().lookup_transform(capture.goal_frame, frame, Time())
-        except Exception:
+            transform = self.ctx.tf.lookup(capture.goal_frame, frame)
+        except TfError:
             return                                      # TF not there yet; the capture times out on its own
 
         stamp = transform.header.stamp.sec + transform.header.stamp.nanosec * 1e-9

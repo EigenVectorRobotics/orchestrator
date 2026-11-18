@@ -77,9 +77,23 @@ class Tf:
 
             return self._buffer
 
-    def lookup(self, target_frame: str, source_frame: str):
-        """The latest TransformStamped; raises when TF has none"""
-        return self.buffer().lookup_transform(target_frame, source_frame, Time())
+    def lookup(self, target_frame: str, source_frame: str, timeout_s: float = 0.0):
+        """The latest TransformStamped of source_frame in target_frame, waiting up to timeout_s for it (0: the executor's
+        tick, which must not block); raises TfError when TF has none"""
+        if not target_frame or not source_frame:
+            raise TfError('tf needs target_frame and source_frame')
+
+        buffer = self.buffer()
+        waited = 0.0
+
+        while waited < timeout_s and not buffer.can_transform(target_frame, source_frame, Time()):
+            threading.Event().wait(0.05)
+            waited += 0.05
+
+        try:
+            return buffer.lookup_transform(target_frame, source_frame, Time())
+        except Exception as error:                      # tf2 raises several kinds; all mean "not available"
+            raise TfError(f'no transform {target_frame} <- {source_frame}: {error}') from error
 
     def pose_in(self, message: PoseStamped, frame: str) -> tuple[tuple, tuple]:
         """The stamped pose's position and rotation in frame, through the latest TF; raises when TF has no transform"""
@@ -93,32 +107,17 @@ class Tf:
             (shift.x, shift.y, shift.z), (turn.x, turn.y, turn.z, turn.w)
         )
 
-    def tf(self, target_frame: str, source_frame: str, timeout_s: float = 2.0) -> dict:
-        """The pose of source_frame in target_frame as plain numbers, waiting up to timeout_s; from any thread"""
-        if not target_frame or not source_frame:
-            raise TfError('tf needs target_frame and source_frame')
-
-        buffer = self.buffer()
-        waited = 0.0
-
-        while not buffer.can_transform(target_frame, source_frame, Time()) and waited < timeout_s:
-            threading.Event().wait(0.05)
-            waited += 0.05
-
-        try:
-            transform = buffer.lookup_transform(target_frame, source_frame, Time())
-        except Exception as error:                      # tf2 raises several kinds; all mean "not available"
-            raise TfError(f'no transform {target_frame} <- {source_frame}: {error}') from error
-
+    def numbers(self, transform) -> dict:
+        """A TransformStamped as plain rounded numbers, for evidence that goes out as JSON"""
         translation, rotation = transform.transform.translation, transform.transform.rotation
         age_s                 = (self.node.get_clock().now() - Time.from_msg(transform.header.stamp)).nanoseconds * 1e-9
 
         return {
-            'target_frame':  target_frame,
-            'source_frame':  source_frame,
+            'target_frame':  transform.header.frame_id,
+            'source_frame':  transform.child_frame_id,
             'translation_m': [round(translation.x, 6), round(translation.y, 6), round(translation.z, 6)],
             'rotation_xyzw': [round(rotation.x, 6), round(rotation.y, 6), round(rotation.z, 6), round(rotation.w, 6)],
             'rpy_rad':       [round(angle, 6) for angle in to_rpy((rotation.x, rotation.y, rotation.z, rotation.w))],
             'age_s':         round(age_s, 3),
-            'meaning':       f'the pose of {source_frame} in {target_frame}',
+            'meaning':       f'the pose of {transform.child_frame_id} in {transform.header.frame_id}',
         }

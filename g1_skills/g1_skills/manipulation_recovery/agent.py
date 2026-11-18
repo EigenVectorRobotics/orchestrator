@@ -158,7 +158,7 @@ class ManipulationRecovery(AgentSkill):
         if self.ctx is None or self.ctx.tf is None:
             return None
 
-        tf      = self.ctx.tf.tf
+        tf      = lambda target, source, timeout_s: frame_pose(self.ctx, target, source, timeout_s)
         failure = evidence.get('last_failure') or {}
         goal    = stance.last_goal(failure)
         call    = failure.get('checked_call') or failure
@@ -176,9 +176,14 @@ class ManipulationRecovery(AgentSkill):
             return None
 
         try:
-            return stance.pose_2d(self.ctx.tf.tf('map', 'pelvis', 1.0))
+            return stance.pose_2d(frame_pose(self.ctx, 'map', 'pelvis', 1.0))
         except Exception:                               # no transform: the tree walks straight to the goal
             return None
+
+
+def frame_pose(ctx, target_frame: str, source_frame: str, timeout_s: float) -> dict:
+    """The pose of source_frame in target_frame as plain numbers, as the stance evidence reads it"""
+    return ctx.tf.numbers(ctx.tf.lookup(target_frame, source_frame, timeout_s))
 
 
 def button_lines(inputs: dict) -> list[str]:
