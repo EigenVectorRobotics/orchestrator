@@ -2,13 +2,17 @@
 
 import subprocess
 
+import pytest
+
 from pathlib import Path
 
 import yaml
 
 from skill_registry import Registry, parse_contract
 
-from orchestrator.skill_stamps import Stamps, uses_of
+from orchestrator.knowledge import KnowledgeStore
+from orchestrator.knowledge_cli import main as cli
+from orchestrator.skill_stamps import SkillClock, Stamps, uses_of
 
 
 SAY = {'name': 'say', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5.0,
@@ -92,3 +96,35 @@ def test_a_skill_goes_stale_when_the_repo_it_declares_moves(tmp_path):
     (tmp_path / 'src' / 'navigation_stack' / 'file.txt').write_text('two\n')                # an uncommitted edit counts
 
     assert 'navigation_stack' in stamps.reasons()['report']
+
+
+def test_a_claim_clock_sees_what_moved_under_a_skill_at_any_depth_and_nothing_else(tmp_path):
+    """A claim keeps a snapshot, not a stamp: a skill under it that was never stamped does not make it moved"""
+    stamps   = _stamps(tmp_path)
+    clock    = SkillClock(stamps, Registry([parse_contract(SAY), parse_contract(REPORT)]))
+    then     = clock.snapshot('report')
+
+    assert clock.since('report', then) == ''                                 # no stamp anywhere, and nothing moved
+
+    (stamps.contracts / 'say.yaml').write_text(yaml.safe_dump(SAY | {'timeout_s': 9.0}))    # a skill it runs
+    stamps._world = None                                                      # the next sweep, at once
+
+    assert 'say' in clock.since('report', then)
+
+
+def test_the_knowledge_cli_uses_the_executors_code_clock(tmp_path, monkeypatch):
+    """A second process with other roots would see every claim as moved, so the CLI loads what the executor saved"""
+    stamps    = _stamps(tmp_path)
+    clock     = SkillClock(stamps, Registry([parse_contract(SAY), parse_contract(REPORT)]))
+    knowledge = tmp_path / 'knowledge'
+    knowledge.mkdir()
+    clock.save(knowledge)
+    monkeypatch.setattr('sys.stdin.isatty', lambda: False)
+
+    cli(['--dir', str(knowledge), 'note', 'It says here.', '--by', 'agent:task', '--evidence', 'step:1', '--about', 'skill=report'])
+
+    assert KnowledgeStore(knowledge).get('C-0001').under == clock.snapshot('report')
+
+    for operator in (['confirm', 'C-0001', '--by', 'operator', '--evidence', 'e'], ['retire', 'C-0001', '--reason', 'x']):
+        with pytest.raises(SystemExit):                                       # a session cannot act as the operator
+            cli(['--dir', str(knowledge), *operator])

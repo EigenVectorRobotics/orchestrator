@@ -24,7 +24,7 @@ The graduation rules are in one place, the orchestrator. `map_info` does not jud
 
 ## Reasoning areas
 
-On the NUC, under `~/orch_knowledge/` (a parameter):
+On the NUC, the store is in `$EIGEN_VECTOR_WS/agent/knowledge/` (`knowledge_dir`), beside the agent's contracts and code; the scratch folders are under `~/orch_knowledge/scratch/` (`agent_scratch_dir`):
 
 | Area | Lifetime | Who writes | Holds |
 |---|---|---|---|
@@ -68,6 +68,10 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 - The agent: a new tool `note(text, about, key, value, evidence)` adds an observation. It cannot set the tier.
 - The retrospection operator (`retrospect`): from a run, for example the arrival error at each place, or the offset that made a press light.
 - A person: by hand, for example from the experience log (`manipulation_recovery.experience.md`).
+- The task agent, as a session (built 2026-11-17): it writes with `knowledge note|confirm|contradict --by agent:task`, for example after a failure what to do instead ("When <what failed>, <what to do instead>"). The CLI uses the executor's code clock: the executor saves where it reads the code in `<knowledge_dir>/code_clock.yaml`, so a claim about a skill keeps the code under it. `--by operator` works only at a terminal.
+- How the task agent learns the store (built 2026-11-17): the open task carries `TaskDesk.known()`: `KnowledgeStore.guide()` (the rules, made from the store's constants, and an index of subjects) and how to write (`writing_text`). A session reads the claims it needs with `knowledge list|show`; the codex loop has no tools, so its prompt carries the claims (`known(claims=True)`), and it cannot write.
+- A known limit: the code clock follows the `skill` tag only. A value measured through a skill but tagged only with a place (an arrival offset) depends on that skill's code too, and is not reset. Give such a claim the skill tag as well.
+- A step that follows a claim (`applies: <id>` on a run): the step's end confirms it (success) or contradicts it (failure), by `outcome:<skill>`. This is weak evidence, because a success can mean only that the message was published: it counts in reliability, not as a source for graduation.
 
 ### Graduation
 
@@ -75,7 +79,8 @@ On the NUC, under `~/orch_knowledge/` (a parameter):
 |---|---|
 | observation → belief | seen in 2 runs or more, from 2 sources or more (a skill check, a frame judged by `press_judge`, a person) |
 | belief → fact | Wilson lower bound of confirmations / (confirmations + contradictions) ≥ 0.8, and the operator approves the text |
-| fact → belief | one contradiction from a check or a person; it is logged and shown in the next prompt |
+| fact → belief → observation | one contradiction moves a claim down one tier; it is logged and shown in the next prompt |
+| any → observation | a claim with a `skill` tag: the code under the skill moved (`skill_stamps.SkillClock`, the same rules as a skill stamp). Its sightings are kept but do not count, and it earns its tier again on the new code (built 2026-11-17) |
 | any → retired | `valid_for_s` passed, or a person retires it |
 
 - A confirmation must come from evidence (a check skill, a judged frame, a measured value, a person), not from the planner's or agent's own text.
@@ -140,8 +145,8 @@ Examples of place claims from the 2026-11-04 trial (to be checked against the ex
 
 The UI reads files, so it needs no ROS and works on the laptop after an rsync:
 
-- `~/orch_knowledge/claims.yaml`: every claim with its tier, subject, value and sightings (each with its run).
-- `~/orch_knowledge/log.jsonl`: every change, who made it, and the operator's approvals and refusals.
+- `agent/knowledge/claims.yaml`: every claim with its tier, subject, value and sightings (each with its run).
+- `agent/knowledge/log.jsonl`: every change, who made it, and the operator's approvals and refusals.
 - `~/orch_runs/<session>/runs/<n>-<tree>/`: the missions (task, tree, records, agent calls, frames, outcome), linked from the claims by `run_id`.
 
 ## Open questions

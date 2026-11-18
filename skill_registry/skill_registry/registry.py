@@ -13,7 +13,8 @@ from .contract import Contract, ContractError, load_contract, parse_contract
 
 
 def agent_dir() -> Path:
-    """The agent's own folder: contracts/ (write_skill), agent_skills/ and docs/; the package has no skills"""
+    """The agent's own folder: contracts/ (write_skill), code/, knowledge/, agent_skills/ and docs/; the package has
+    no skills"""
     return Path(os.environ.get('EIGEN_VECTOR_WS', Path.home())) / 'agent'
 
 
@@ -27,6 +28,11 @@ def agent_skills_dir() -> Path:
 
 def agent_code_dir() -> Path:
     return agent_dir() / 'code'
+
+
+def agent_knowledge_dir() -> Path:
+    """The knowledge store (claims.yaml, log.jsonl), beside the library it is about"""
+    return agent_dir() / 'knowledge'
 
 
 def agent_runbook_file() -> Path:

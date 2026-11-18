@@ -27,6 +27,8 @@ Task mode (docs/task-mode.md): the session does a task step by step.
                                         type (std_srvs/srv/Trigger): its types and their fields
   agent_cli done --reason R             the task is done
   agent_cli give-up --reason R          the task cannot be done
+  agent_cli run ... --applies ID        the step follows that claim of the knowledge store; its end confirms
+                                        (success) or contradicts (failure) it
 
 The step gate (on the real robot): a person approves each step, at a terminal; the session cannot.
   agent_cli step wait [--timeout S]     block until a step waits for approval; print it
@@ -373,6 +375,7 @@ def main():
     run.add_argument('skill')
     run.add_argument('inputs', nargs='*', help='KEY=VALUE')
     run.add_argument('--subgoal', required=True)
+    run.add_argument('--applies', default='', help='the id of a known claim this step follows; its end confirms or contradicts it')
     run.add_argument('--timeout', type=float, default=3600.0,
                      help='the wait includes the step gate; the task ends by max_task_s first, and that refuses the step')
     for name in ('done', 'give-up'):
@@ -447,7 +450,8 @@ def _run(node, arguments) -> int:
             return 1
 
         inputs = {key: _value(value) for key, value in (pair.split('=', 1) for pair in arguments.inputs)}
-        return _task_command(node, {'op': 'run', 'skill': arguments.skill, 'inputs': inputs, 'subgoal': arguments.subgoal}, arguments.timeout)
+        return _task_command(node, {'op': 'run', 'skill': arguments.skill, 'inputs': inputs, 'subgoal': arguments.subgoal,
+                                    'applies': arguments.applies}, arguments.timeout)
 
     if arguments.command in ('done', 'give-up'):
         return _task_command(node, {'op': arguments.command.replace('-', '_'), 'reason': arguments.reason}, 10.0)

@@ -16,6 +16,10 @@ Only write_skill proves a skill. A step that succeeds adds its run to the stamp 
 task mode a step is one leaf, so the contract's check is a separate decision the agent may never take, and a
 success can mean no more than "the message was published". Letting that erase the warning would reproduce the
 incident, with the robot acting on stale code as the proof that the code is fine.
+
+A claim of the knowledge store about a skill is about the same code. SkillClock gives the store a snapshot of it and
+says what moved since. It does not use the stamps: a claim must not go stale because a skill under it was never
+proved, only because the code changed.
 """
 
 import os
@@ -106,12 +110,12 @@ class Stamps:
                 stamp['runs'] = [*(stamp.get('runs') or []), run_id][-MAX_RUNS:]
                 self._save(stamps)
 
-    def repos_of(self, contract: Contract) -> dict[str, str]:
+    def repos_of(self, contract: Contract, states: dict[str, str] | None = None) -> dict[str, str]:
         """The repos this skill names in source, as they are now. A skill that names none depends on the whole
         stack: coarse on purpose, because a wrong 'nothing changed' is worse than a loud one.
 
         source is free text, so a name is matched whole: 'vector' must not match a repo called vector_nav"""
-        states = repo_states(self.repo_roots)
+        states = repo_states(self.repo_roots) if states is None else states
         words  = set(re.split(r'[^0-9A-Za-z_]+', contract.source))
         named  = {path: state for path, state in states.items() if Path(path).name in words}
 
@@ -211,4 +215,87 @@ class Stamps:
         return ''
 
 
-MAX_RUNS = 10          # the last runs that used a skill, as evidence; the bundles hold the whole history
+class SkillClock:
+    """The knowledge store's code clock: the code under a skill, by name, as the executor has it loaded.
+
+    The executor saves where it reads the code (save) beside the knowledge store, and the knowledge CLI loads the
+    same (load). A clock with other repo roots or another contracts folder would see every claim as moved"""
+
+    def __init__(self, stamps: Stamps, registry: Registry):
+        self.stamps   = stamps
+        self.registry = registry
+        self._cache   = (None, {})          # (the sweep, {skill: snapshot}): the store asks per claim, per read
+
+    def snapshot(self, skill: str) -> dict:
+        """The code under a skill: the contract and the repos of the skill and of every skill it runs, to any depth.
+        A skill that is not loaded: its name only, on the whole stack (coarse on purpose, as in repos_of). Taken from
+        one git sweep (Stamps.world), so a snapshot taken now never reads as moved"""
+        _, states = self.stamps.world()
+
+        if self._cache[0] is not states:
+            self._cache = (states, {})
+
+        if skill not in self._cache[1]:
+            found, todo = {}, [skill]
+
+            while todo:
+                name = todo.pop()
+
+                if name in found:           # a cycle, or a skill two others use
+                    continue
+
+                contract    = self.registry.get(name)
+                found[name] = {'self': self.stamps.digest(name),
+                               'repos': self.stamps.repos_of(contract, states) if contract else states}
+                todo       += uses_of(contract, self.stamps.code_of(contract))[0] if contract else []
+
+            self._cache[1][skill] = found
+
+        return self._cache[1][skill]
+
+    def since(self, skill: str, snapshot: dict) -> str:
+        """What moved under the skill since the snapshot, or ''"""
+        now = self.snapshot(skill)
+
+        for name, then in sorted(snapshot.items()):
+            if name not in now:
+                return f'{skill} no longer runs {name}'
+
+            if then.get('self') != now[name]['self']:
+                return f'the contract of {name} changed'
+
+            moved = sorted(Path(path).name for path, state in (then.get('repos') or {}).items()
+                           if now[name]['repos'].get(path) != state)
+
+            if moved:
+                return f'the code moved under {name}: {", ".join(moved)}'
+
+        added = sorted(set(now) - set(snapshot))
+
+        return f'{skill} now runs {", ".join(added)}' if added else ''
+
+    def save(self, folder: Path | str) -> None:
+        where     = {'contracts': str(self.stamps.contracts), 'code': str(self.stamps.code_dir),
+                     'repo_roots': list(self.stamps.repo_roots)}
+        path      = Path(folder).expanduser() / CLOCK_FILE
+        temporary = path.with_suffix(f'.{os.getpid()}.tmp')
+        temporary.write_text(yaml.safe_dump(where))
+        temporary.replace(path)             # a reader never sees half a file
+
+    @classmethod
+    def load(cls, folder: Path | str) -> 'SkillClock | None':
+        """The executor's clock, or None when no executor has saved one here, or it cannot be read"""
+        try:
+            where    = yaml.safe_load((Path(folder).expanduser() / CLOCK_FILE).read_text())
+            stamps   = Stamps(where['contracts'], list(where['repo_roots']), code_dir=where['code'])
+        except (OSError, yaml.YAMLError, TypeError, KeyError):
+            return None
+
+        registry = Registry()
+        registry.refresh(stamps.contracts)  # as the executor loads: a bad file is left out
+
+        return cls(stamps, registry)
+
+
+CLOCK_FILE = 'code_clock.yaml'
+MAX_RUNS   = 10          # the last runs that used a skill, as evidence; the bundles hold the whole history

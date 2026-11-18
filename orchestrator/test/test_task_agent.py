@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from skill_registry import contract_grammar
 
+from orchestrator.knowledge import KnowledgeStore, Sighting
 from orchestrator.task_agent import LOST_SPEECH, StepGate, task_summary
 from orchestrator.behavior_tree import Status
 
@@ -186,3 +187,16 @@ def test_a_step_says_its_skill_is_stale_and_keeps_that_it_ran(tmp_path):
 
     assert d.replies[-1]['status'] == 'success' and kept == [('navigate_to', 'r1')]
     assert any('stale_skill' in line for line in d.replies[-1]['trace'])     # in the trace, not only in the prompt
+
+
+
+def test_a_step_that_follows_a_claim_contradicts_it_when_it_fails(tmp_path):
+    store    = KnowledgeStore(tmp_path / 'knowledge')
+    claim, _ = store.note('When it stops short, walk again.', Sighting(by='agent:task', time=1.0, run='r0'), {'skill': 'navigate_to'})
+    d        = _desk(FakeRunner({'navigate_to': [Status.FAILURE]}), tmp_path, knowledge=store)
+
+    _command(d, op='run', skill='navigate_to', inputs={'goal': '{call_panel}'}, subgoal='walk', applies=claim.id)
+
+    assert d.replies[0]['applies'] == f'{claim.id} contradicted'
+    assert store.get(claim.id).contradictions[0].by == 'outcome:navigate_to'
+    assert 'knowledge note' in d.opened[0]['known']                         # a session is told how to write

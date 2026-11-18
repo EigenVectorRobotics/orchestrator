@@ -10,8 +10,11 @@
     knowledge retire C-0007 --reason "..."
     knowledge prompt                                          what the planner and the agent see
 
---dir (default ~/orch_knowledge) is the executor's knowledge_dir. A value is read as JSON when it can be
-(0.012, [0.005, 0.0075, 0.0034], true), else as a word.
+--dir (default $EIGEN_VECTOR_WS/agent/knowledge) is the executor's knowledge_dir. A value is read as JSON when it can be
+(0.012, [0.005, 0.0075, 0.0034], true), else as a word. --by operator works only at a terminal.
+
+The code clock is the executor's: it saves where it reads the code in --dir (skill_stamps.SkillClock), so a claim
+about a skill written here keeps the code under it, and list and show see the claims on the code that is here now.
 """
 
 import sys
@@ -21,7 +24,10 @@ import argparse
 
 from dataclasses import asdict
 
+from skill_registry import agent_knowledge_dir
+
 from .knowledge import OPERATOR, TIERS, KnowledgeError, KnowledgeStore, Sighting, about_of
+from .skill_stamps import SkillClock
 
 
 def _value(text: str | None):
@@ -50,15 +56,28 @@ def _about(tags: list[tuple[str, str]]) -> dict:
     return dict(tags)
 
 
+def _at_terminal(what: str):
+    """What the operator does is the operator's: an agent session (no terminal) cannot do it in their name"""
+    if not sys.stdin.isatty():
+        raise KnowledgeError(f'{what} needs the operator at a terminal; an agent session writes as agent:<name>')
+
+
 def _sighting(arguments) -> Sighting:
+    if arguments.by == OPERATOR:
+        _at_terminal('--by operator')
+
     return Sighting(by=arguments.by, time=time.time(), run=arguments.run, evidence=arguments.evidence, value=_value(arguments.value))
 
 
 def _row(claim) -> str:
     ready = '  READY' if claim.ready_for_fact() else ''
     value = f' = {claim.value}' if claim.key else ''
+    good  = len(claim.counted.confirmations)
+    bad   = len(claim.counted.contradictions)
+    older = len(claim.sightings) - good - bad
+    older = f' ({older} on older code)' if older else ''
 
-    return (f'{claim.id}  {claim.tier:<11} +{len(claim.confirmations)}/-{len(claim.contradictions)} '
+    return (f'{claim.id}  {claim.tier:<11} +{good}/-{bad}{older} '
             f'r={claim.reliability():.2f}{ready}  ({claim.subject()}) {claim.text}{value}')
 
 
@@ -73,7 +92,7 @@ def _confirm_at_terminal(claim_id: str):
 
 def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(prog='knowledge', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--dir', default='~/orch_knowledge')
+    parser.add_argument('--dir', default=str(agent_knowledge_dir()))
     commands = parser.add_subparsers(dest='command', required=True)
 
     listing = commands.add_parser('list')
@@ -112,9 +131,16 @@ def main(argv: list[str] | None = None):
         command.add_argument('--reason', required=True)
 
     arguments = parser.parse_args(argv)
-    store     = KnowledgeStore(arguments.dir)
+    clock     = SkillClock.load(arguments.dir)
+    store     = KnowledgeStore(arguments.dir, code=clock)
+
+    if clock is None and arguments.command in ('note', 'confirm', 'contradict'):
+        print('knowledge: no code clock here (start the executor once): a claim about a skill is written without '
+              'the code under it', file=sys.stderr)
 
     try:
+        store.expire()                              # retire what expired, and apply the code clock, before any read
+
         if arguments.command == 'list':
             claims = store.claims(tuple(arguments.tier or TIERS))
             tags   = about_of(_about(arguments.about)).items()
@@ -143,9 +169,11 @@ def main(argv: list[str] | None = None):
             _confirm_at_terminal(claim.id)
             print(_row(store.approve(claim.id, OPERATOR, arguments.text)))
         elif arguments.command == 'refuse':
+            _at_terminal('refuse')
             store.refuse(arguments.id, OPERATOR, arguments.reason)
             print(f'{arguments.id}: refused, stays a belief')
         elif arguments.command == 'retire':
+            _at_terminal('retire')
             store.retire(arguments.id, OPERATOR, arguments.reason)
             print(f'{arguments.id}: retired')
     except KnowledgeError as error:

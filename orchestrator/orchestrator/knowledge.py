@@ -4,11 +4,21 @@ A claim is one thing seen or measured, about open tags (a place by its map_info 
 nothing. Every later sighting is a confirmation or a contradiction, with its evidence (a run, a record, who saw it).
 The rules (docs/knowledge.md):
 
-- observation -> belief: confirmed in 2 runs or more, by 2 sources or more (a check, an agent skill, the operator)
+- observation -> belief: confirmed in 2 runs or more, by 2 sources or more (a check, an agent skill, the operator).
+  The end of a step that followed a claim (OUTCOME) is weak evidence: it counts in reliability, but it moves no
+  tier, up or down, because a success can mean no more than "the message was published" and a failure can have
+  another cause
 - belief -> fact: the Wilson lower bound of confirmations / (confirmations + contradictions) is at least
   FACT_RELIABILITY, and the operator approves it. Nobody else makes a fact.
-- fact -> belief: one contradiction
+- fact -> belief -> observation: one contradiction moves a claim down one tier
 - any -> retired: valid_for_s has passed since the claim was last seen, or the operator retires it
+
+A claim about a skill is true of one version of the code under it: the agent rewrites its skills, and the stack
+under them changes. So with a code clock (skill_stamps.SkillClock), a claim with a skill tag keeps the code its
+evidence was seen on (under). When that code moves, its sightings stop counting (moved says why), it goes back to
+an observation, and it must earn its tier again on the new code. Claims about places, devices and objects have no
+clock. A limit: a value measured through a skill but tagged only with a place (an arrival offset) depends on that
+skill's code too, and is not reset; give it the skill tag as well.
 
 claims.yaml holds the claims; log.jsonl holds every change and who made it, so the operator's approvals can later
 teach the agent to approve. Both live in one folder on the NUC (no cloud). Writers take a file lock, so the
@@ -25,22 +35,31 @@ import time
 import fcntl
 import yaml
 
+from typing import NamedTuple, Protocol
+from collections import Counter
 from pathlib import Path
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 
 
 TIERS            = ('observation', 'belief', 'fact', 'retired')
+LIVE             = TIERS[:3]        # in order: a contradiction moves a claim one step back in this list
 FACT_RELIABILITY = 0.8
 WILSON_Z         = 1.645            # one-sided 95 %: with no contradiction, 11 confirmations make a belief ready
 MIN_RUNS         = 2
 MIN_SOURCES      = 2
 OPERATOR         = 'operator'
+OUTCOME          = 'outcome'        # by 'outcome:<skill>': a step that followed a claim, as weak evidence
 TAG_KIND         = re.compile(r'[a-z][a-z0-9_]*')
 
 
 class KnowledgeError(ValueError):
     pass
+
+
+class CodeClock(Protocol):
+    def snapshot(self, skill: str) -> dict: ...
+    def since(self, skill: str, snapshot: dict) -> str: ...       # why the code moved since snapshot, or ''
 
 
 def wilson_lower_bound(successes: int, total: int, z: float = WILSON_Z) -> float:
@@ -62,6 +81,13 @@ class Sighting:
     run:      str | None = None         # the run_id of the recorder's bundle
     evidence: list[str] = field(default_factory=list)    # e.g. 'record:7', 'frame:press', 'E-019'
     value:    object = None
+    moved:    str | None = None         # the code under the claim moved after it was seen: it no longer counts
+
+
+class Counted(NamedTuple):
+    """The sightings seen on the code that is here now"""
+    confirmations:  list[Sighting]
+    contradictions: list[Sighting]
 
 
 @dataclass
@@ -75,23 +101,32 @@ class Claim:
     confirmations:  list[Sighting] = field(default_factory=list)
     contradictions: list[Sighting] = field(default_factory=list)
     approved_by:    str | None = None
+    under:          dict | None = None                   # the code the counted sightings were seen on (a skill tag)
 
     def __post_init__(self):
         self.about = _clean(self.about)              # a claim written by hand in claims.yaml too; a bad kind still loads
 
     @property
+    def sightings(self) -> list[Sighting]:
+        return [*self.confirmations, *self.contradictions]
+
+    @property
     def last_seen(self) -> float:
-        return max(s.time for s in [*self.confirmations, *self.contradictions])
+        return max(s.time for s in self.sightings)
+
+    @property
+    def counted(self) -> Counted:
+        return Counted([s for s in self.confirmations if not s.moved], [s for s in self.contradictions if not s.moved])
 
     @property
     def value(self):
         """The latest value confirmed"""
-        values = [s.value for s in self.confirmations if s.value is not None]
+        values = [s.value for s in self.counted.confirmations if s.value is not None]
         return values[-1] if values else None
 
     def reliability(self) -> float:
         """Over independent sightings: one per run and source, so ten notes in one call count once"""
-        good, bad = _independent(self.confirmations), _independent(self.contradictions)
+        good, bad = map(_independent, self.counted)
         return wilson_lower_bound(good, good + bad)
 
     def ready_for_fact(self) -> bool:
@@ -104,7 +139,7 @@ class Claim:
 
     def value_stats(self) -> dict | None:
         """Mean and spread of numeric values, per axis for lists (e.g. a press offset)"""
-        values = [s.value for s in self.confirmations if _numeric(s.value) or isinstance(s.value, list) and s.value and all(map(_numeric, s.value))]
+        values = [s.value for s in self.counted.confirmations if _numeric(s.value) or isinstance(s.value, list) and s.value and all(map(_numeric, s.value))]
 
         if not values:
             return None
@@ -152,9 +187,10 @@ def _claim_from(raw: dict) -> Claim:
 
 
 class KnowledgeStore:
-    def __init__(self, folder: str, clock=time.time):
+    def __init__(self, folder: str, clock=time.time, code: CodeClock | None = None):
         self.folder = Path(folder).expanduser()
         self.clock  = clock
+        self.code   = code                  # None: no claim depends on code (the CLI, a test)
         self.folder.mkdir(parents=True, exist_ok=True)
 
         self.claims_path = self.folder / 'claims.yaml'
@@ -172,27 +208,50 @@ class KnowledgeStore:
         """The live value claim with this subject and key"""
         return _match(self._load(), about_of(about), key)
 
+    def guide(self, claims: bool = False) -> str:
+        """For the task agent: what the store is and its rules, made from the constants here. Then, for a session
+        that reads the claims it needs, an index of what the store holds; with claims, the claims themselves, for a
+        model with no tools to read them"""
+        live    = self._live()
+        to_fact = next(n for n in range(1, 1000) if wilson_lower_bound(n, n) >= FACT_RELIABILITY)
+        rules   = [
+            f'- Tiers: {" -> ".join(LIVE)}. A claim becomes a belief when it is seen in {MIN_RUNS} runs by '
+            f'{MIN_SOURCES} sources; the end of a step that followed it ({OUTCOME}:<skill>) counts as evidence, but it '
+            f'moves no tier. A belief becomes a fact after {to_fact} confirmations with no contradiction, and '
+            f'only when the operator approves it.',
+            '- What makes a claim lose trust: a contradiction moves it down one tier (not an outcome); a claim with valid_for_s is '
+            'retired that long after it was last seen; the operator can retire it.',
+            '- A claim about a skill holds only for the code under that skill: its contract, the skills it runs, and '
+            'the repos it uses. When that code changes, its evidence stops counting and it is an observation again, '
+            'untried on this code. ' + ('Its line says why.' if claims else
+                                        '`knowledge show` gives the reason (moved) on each old sighting.'),
+        ]
+        head    = ['## The knowledge store', '', 'What the robot has learned, as claims with evidence. Read the claims '
+                   'about a skill before you use it, and again after a step fails.']
+
+        if claims:
+            return '\n'.join([*head, *rules, '', _section(live, observations=True) or 'It holds nothing yet.'])
+
+        held = Counter((claim.subject(), claim.tier) for claim in live)
+        rows = {subject: [f'{held[subject, tier]} {tier}' for tier in LIVE if held[subject, tier]]
+                for subject, _ in held}
+
+        return '\n'.join([*head, f'- Read: `knowledge --dir {self.folder} list --about skill=<name>` (or place=, device=, '
+                           f'object=; add --tier belief), and `knowledge --dir {self.folder} show <id>` for the evidence '
+                           f'and its runs.', *rules, '',
+                           'What it holds now:' if rows else 'It holds nothing yet.',
+                           *(f'- {subject}: {", ".join(counts)}' for subject, counts in sorted(rows.items()))])
+
     def prompt_section(self, observations: bool = False) -> str:
         """Facts and beliefs as a prompt section with its heading, for the planner and the agent; beliefs are marked
         as not certain. observations: also the live observations, so an agent can confirm one by its id. Empty when
         there are none"""
-        self.expire()
+        return _section(self._live(), observations)
 
-        claims = self.claims(('fact', 'belief', 'observation'))
-        lines  = []
-        tiers  = [('fact', 'Facts (confirmed and approved)'), ('belief', 'Beliefs (seen more than once, not certain)')]
-
-        if observations:
-            tiers.append(('observation', 'Observations (seen, not confirmed; note with claim=<id> to confirm or contradict one)'))
-
-        for tier, heading in tiers:
-            rows = [c for c in claims if c.tier == tier]
-
-            if rows:
-                lines.append(f'{heading}:')
-                lines += [f'- [{c.id}] ({c.subject()}) {c.text}' + (f' Value: {c.value}.' if c.key else '') for c in rows]
-
-        return '## What is known (knowledge store)\n\n' + '\n'.join(lines) if lines else ''
+    def _live(self) -> list[Claim]:
+        """The live claims, after expiry and the code clock: one lock and one load"""
+        with self._locked(save=False) as claims:
+            return [claim for claim in claims.values() if claim.tier in LIVE]
 
     # ========== Writing ==========
 
@@ -212,18 +271,21 @@ class KnowledgeStore:
 
             claim = Claim(id=_next_id(claims), text=text.strip(), about=about, key=key, valid_for_s=valid_for_s,
                           confirmations=[sighting])
+            claim.under = self._snapshot(claim)
             claims[claim.id] = claim
             self._log('note', claim, sighting.by, text=claim.text)
 
             return claim, 'new observation'
 
-    def confirm(self, claim_id: str, sighting: Sighting) -> str:
+    def sight(self, claim_id: str, sighting: Sighting, confirms: bool) -> str:
         with self._locked() as claims:
-            return self._sight(_lookup(claims, claim_id, live=True), sighting, confirms=True)
+            return self._sight(_lookup(claims, claim_id, live=True), sighting, confirms)
+
+    def confirm(self, claim_id: str, sighting: Sighting) -> str:
+        return self.sight(claim_id, sighting, confirms=True)
 
     def contradict(self, claim_id: str, sighting: Sighting) -> str:
-        with self._locked() as claims:
-            return self._sight(_lookup(claims, claim_id, live=True), sighting, confirms=False)
+        return self.sight(claim_id, sighting, confirms=False)
 
     def approve(self, claim_id: str, by: str, text: str | None = None) -> Claim:
         """The operator makes a ready belief a fact, with the exact text (edited or not)"""
@@ -254,9 +316,49 @@ class KnowledgeStore:
             self._log('retire', claim, by, reason=reason)
 
     def expire(self) -> list[str]:
-        """Retire the claims whose valid_for_s has passed since they were last seen (every write does this too)"""
-        with self._locked():
+        """Retire the claims whose valid_for_s has passed since they were last seen, and stop counting the evidence
+        of the claims whose code moved (every write does this too). Returns the retired ids"""
+        with self._locked(save=False):             # it saves when something expired or moved
             return list(self._expired)
+
+    def _rebase(self, claims: dict) -> bool:
+        """A claim whose code moved goes back to an observation, with its sightings kept but not counted. So does
+        a claim about a skill with no record of its code (written before the clock, or with no clock): what it was
+        seen on cannot be known. Its next sighting starts a record"""
+        if self.code is None:
+            return False
+
+        moved = False
+
+        for claim in claims.values():
+            skill = claim.about.get('skill')
+
+            if not skill or claim.tier == 'retired':
+                continue
+
+            if claim.under is not None:
+                reason = self.code.since(skill, claim.under)
+            elif claim.tier != 'observation' or any(not s.moved for s in claim.sightings):
+                reason = 'there is no record of the code it was seen on'
+            else:
+                continue                    # already moved, and not seen since
+
+            if not reason:
+                continue
+
+            for sighting in claim.sightings:
+                sighting.moved = sighting.moved or reason
+
+            before                                   = claim.tier
+            claim.tier, claim.under, claim.approved_by = 'observation', None, None
+            moved                                    = True
+            self._log('code_moved', claim, 'store', reason=reason, tier_before=before)
+
+        return moved
+
+    def _snapshot(self, claim: Claim) -> dict | None:
+        skill = claim.about.get('skill')
+        return self.code.snapshot(skill) if self.code is not None and skill else None
 
     def _expire(self, claims: dict) -> list[str]:
         retired = []
@@ -273,10 +375,11 @@ class KnowledgeStore:
 
     def _sight(self, claim: Claim, sighting: Sighting, confirms: bool) -> str:
         (claim.confirmations if confirms else claim.contradictions).append(sighting)
-        before = claim.tier
+        claim.under = claim.under or self._snapshot(claim)      # the first sighting on code that moved
+        before      = claim.tier
 
-        if not confirms and claim.tier == 'fact':
-            claim.tier = 'belief'
+        if not confirms and claim.tier in LIVE[1:] and not _weak(sighting):
+            claim.tier = LIVE[LIVE.index(claim.tier) - 1]
         elif confirms and claim.tier == 'observation' and _runs(claim) >= MIN_RUNS and _sources(claim) >= MIN_SOURCES:
             claim.tier = 'belief'
 
@@ -310,10 +413,11 @@ class KnowledgeStore:
             fcntl.flock(lock, fcntl.LOCK_EX)
             claims        = self._load()
             self._expired = self._expire(claims)    # read by expire(), under this lock
+            rebased       = self._rebase(claims)
 
             yield claims
 
-            save = save or bool(self._expired)
+            save = save or bool(self._expired) or rebased
 
             if not save:
                 return
@@ -361,11 +465,49 @@ def _independent(sightings: list[Sighting]) -> int:
 
 
 def _runs(claim: Claim) -> int:
-    return len({s.run for s in claim.confirmations if s.run})
+    return len({s.run for s in claim.counted.confirmations if s.run})
 
 
 def _sources(claim: Claim) -> int:
-    return len({s.by for s in claim.confirmations})
+    return len({s.by for s in claim.counted.confirmations if not _weak(s)})
+
+
+def _weak(sighting: Sighting) -> bool:
+    """The end of a step that followed the claim: it counts in reliability, but it does not move a tier"""
+    return sighting.by.startswith(f'{OUTCOME}:')
+
+
+def _section(claims: list[Claim], observations: bool) -> str:
+    """The live claims as a prompt section, by tier from the most trusted"""
+    lines = []
+    tiers = [('fact', 'Facts (confirmed and approved)'), ('belief', 'Beliefs (seen more than once, not certain)')]
+
+    if observations:
+        tiers.append(('observation', 'Observations (seen, not confirmed)'))
+
+    for tier, heading in tiers:
+        rows = [c for c in claims if c.tier == tier]
+
+        if rows:
+            lines.append(f'{heading}:')
+            lines += [f'- [{c.id}] ({c.subject()}) {c.text}' + _trust(c) for c in rows]
+
+    return '## What is known (knowledge store)\n\n' + '\n'.join(lines) if lines else ''
+
+
+def _trust(claim: Claim) -> str:
+    """What a prompt line says of a claim's evidence: its value, how it has done, and why older evidence is gone"""
+    good, bad = map(_independent, claim.counted)
+    text      = f' Value: {claim.value}.' if claim.key and claim.value is not None else ''
+
+    if claim.tier != 'fact':
+        text += f' Seen {good}, contradicted {bad}.'
+
+    if not good + bad:
+        reason = next((s.moved for s in reversed(claim.sightings) if s.moved), '')
+        text  += f' Its evidence was on older code ({reason}): untried on this code.'
+
+    return text
 
 
 def _agrees(known, seen) -> bool:

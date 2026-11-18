@@ -28,7 +28,7 @@ OPS = ('plan', 'run', 'write_skill', 'done', 'give_up')          # the desk's op
 DECISION_SCHEMA = {
     'type':                 'object',
     'additionalProperties': False,
-    'required':             ['reason', 'op', 'subgoals', 'skill', 'inputs_json', 'subgoal', 'yaml', 'code'],
+    'required':             ['reason', 'op', 'subgoals', 'skill', 'inputs_json', 'subgoal', 'applies', 'yaml', 'code'],
     'properties': {
         'reason':      {'type': 'string', 'description': 'why this is the next step, in one or two sentences'},
         'op':          {'type': 'string', 'enum': list(OPS)},
@@ -36,6 +36,7 @@ DECISION_SCHEMA = {
         'skill':       {'type': 'string', 'description': 'run: the skill name'},
         'inputs_json': {'type': 'string', 'description': 'run: the inputs as a JSON object, e.g. {"goal": "{call_panel}"}'},
         'subgoal':     {'type': 'string', 'description': 'run: the subgoal of the plan this step is for'},
+        'applies':     {'type': 'string', 'description': 'run: the id of a known claim this step follows (C-0012), or empty'},
         'yaml':        {'type': 'string', 'description': 'write_skill: the contract, as YAML text'},
         'code':        {'type': 'string', 'description': 'write_skill: for a code skill, the Python with def run(skills, inputs)'},
     },
@@ -104,10 +105,11 @@ def result_lines(reply: dict, detailed: bool = True) -> list[str]:
     return lines or [f'  ok: {reply.get("ok")}']
 
 
-def build_prompt(opened: dict, catalog: str, history: list[tuple[dict, dict]]) -> str:
-    """SYSTEM says how to decide; task_summary carries what the robot is (the runbook), what it knows, and how to
-    write a skill (the contract grammar)"""
-    lines = [SYSTEM, task_summary(opened), '', 'Skills:', catalog, '']
+def build_prompt(opened: dict, catalog: str, history: list[tuple[dict, dict]], known: str = '') -> str:
+    """SYSTEM says how to decide; task_summary carries what the robot is (the runbook), what is known, and how to
+    write a skill (the contract grammar). known: the knowledge store's guide with its claims, in place of the open
+    task's guide for a session, because this model has no tools to read them"""
+    lines = [SYSTEM, task_summary(opened | ({'known': known} if known else {})), '', 'Skills:', catalog, '']
     older = len(history) - HISTORY_TURNS
 
     if older > 0:
@@ -157,7 +159,8 @@ class TaskLoop:
                 folder.mkdir(parents=True, exist_ok=True)
 
                 with self.desk.thinking():               # the desk's idle check: the model is at work
-                    decision = self.decider.decide(build_prompt(opened, self.catalog(), history), self.image(), folder)
+                    decision = self.decider.decide(build_prompt(opened, self.catalog(), history, self.desk.known(claims=True)),
+                                                   self.image(), folder)
 
                 if not is_open():                        # cancelled while the model thought: its answer is late
                     return

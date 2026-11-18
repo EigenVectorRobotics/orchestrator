@@ -221,3 +221,67 @@ def test_hand_written_claims_get_clean_tags_on_load_and_a_bad_kind_still_loads(t
 
     assert change.startswith('confirmed') and len(store.claims()) == 2
     assert store.get('C-0002').about == {'Device': 'thor'}
+
+
+class FakeCode:
+    """The code clock: one version number for every skill"""
+    def __init__(self):
+        self.version = 1
+
+    def snapshot(self, skill):
+        return {'version': self.version}
+
+    def since(self, skill, snapshot):
+        return '' if snapshot['version'] == self.version else f'nav moved to v{self.version}'
+
+
+def test_a_claim_about_a_skill_earns_its_tier_again_when_its_code_moves(tmp_path):
+    code      = FakeCode()
+    store     = KnowledgeStore(tmp_path, code=code)
+    lesson, _ = store.note('When navigate_to stops short, send the goal again.', seen(by='agent:task'), {'skill': 'navigate_to'})
+    place, _  = store.note('The cabin door closes after 8 s.', seen(), {'place': 'cabin'})
+
+    store.confirm(lesson.id, seen(by='outcome:navigate_to', run='r2'))      # a step that followed it: evidence, not a source
+    assert store.get(lesson.id).tier == 'observation' and store.get(lesson.id).reliability() > 0
+
+    for claim in (lesson, place):
+        store.confirm(claim.id, seen(by='check:arrived', run='r3'))
+
+    assert store.get(lesson.id).tier == store.get(place.id).tier == 'belief'
+
+    code.version = 2                                                        # the follower changed
+
+    assert 'untried on this code' in store.prompt_section(observations=True)
+    assert store.get(lesson.id).tier == 'observation' and store.get(place.id).tier == 'belief'   # no skill, no clock
+
+    store.confirm(lesson.id, seen(by='check:arrived', run='r4'))            # one run on the new code is not enough
+    store.confirm(lesson.id, seen(by='operator', run='r4'))
+    assert store.get(lesson.id).tier == 'observation'
+
+    store.confirm(lesson.id, seen(by='operator', run='r5'))
+    store.contradict(lesson.id, seen(by='outcome:navigate_to', run='r6'))   # a failed step moves no tier
+    assert store.get(lesson.id).tier == 'belief'
+
+    store.contradict(lesson.id, seen(by='check:arrived', run='r7'))         # a contradiction moves a belief down
+    assert store.get(lesson.id).tier == 'observation'
+
+
+def test_a_session_gets_the_rules_and_an_index_and_a_model_with_no_tools_gets_the_claims(tmp_path):
+    store = KnowledgeStore(tmp_path)
+    store.note('When navigate_to stops short, send the goal again.', seen(by='agent:task'), {'skill': 'navigate_to'})
+
+    session, model = store.guide(), store.guide(claims=True)
+
+    assert 'skill navigate_to: 1 observation' in session and 'send the goal again' not in session
+    assert 'send the goal again' in model and 'knowledge list' not in model
+
+
+def test_a_skill_claim_with_no_record_of_its_code_counts_nothing_until_it_is_seen_again(tmp_path):
+    claim, _ = KnowledgeStore(tmp_path).note('It stops short.', seen(), {'skill': 'navigate_to'})   # no clock here
+    store    = KnowledgeStore(tmp_path, code=FakeCode())
+
+    assert 'untried on this code' in store.prompt_section(observations=True)
+
+    store.confirm(claim.id, seen(by='operator', run='r2'))
+
+    assert store.get(claim.id).under == {'version': 1} and len(store.get(claim.id).counted.confirmations) == 1

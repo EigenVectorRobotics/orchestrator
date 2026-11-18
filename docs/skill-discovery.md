@@ -25,7 +25,7 @@ People write only a short agent runbook (`orchestrator/agent/runbook.md`, instal
 - `/unitree_interface/change_mode` to `LOW_LEVEL` (4), `EMERGENCY` (3) or `MONOSTATE` (0): a contract for it may map only `idle` (1) and `high_level` (2);
 - `/unitree_interface/ready_locomotion` (it damps the robot and stands it up again).
 
-**The session too.** In this experiment the agent is a Claude Code session with a shell on the NUC. The checks above cover what goes through the executor and the sandbox; a shell can still call `ros2 service call` directly. So the session runs with its own permissions: shell commands only through `agent_cli` (without `step approve|refuse`) and read-only tools, set in the session's config (step 3).
+**The session too.** In this experiment the agent is a Claude Code session with a shell on the NUC. The checks above cover what goes through the executor and the sandbox; a shell can still call `ros2 service call` directly. So the session runs with its own permissions: shell commands only through `agent_cli` (without `step approve|refuse`) and `knowledge list|show|note|confirm|contradict` (not `approve|refuse|retire`, which are the operator's; `--by operator` works only at a terminal), and read-only tools, set in the session's config (step 3).
 
 **Not on this branch** (2026-11-09, branch `agentic`): the hand-written skills, that is all 32 contracts (`ask_vlm` too), the trees, the agent skills `manipulation_recovery.md` and `press_judge.md`, and the experience log. They stay on `main` and `ltx-dev` for the comparison. The agent starts with zero skills; it can write `ask_vlm` itself, because the `vlm` transport is part of the executor and the `vlm` package is in `src/`. If it does not find it, we seed it.
 

@@ -14,7 +14,7 @@ from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
 
 from ament_index_python.packages import get_package_share_directory
-from skill_registry import agent_code_dir, agent_runbook_file, agent_skills_dir
+from skill_registry import agent_code_dir, agent_knowledge_dir, agent_runbook_file, agent_skills_dir
 
 from .agent import Agent, AgentConfig
 from .agent_backends import OpenAICompatibleAgentBackend, ScriptedAgentBackend
@@ -32,7 +32,7 @@ from .tasks import CANCEL_TOPIC, STATUS_TOPIC, TASK_TOPIC, Tasks, parse_task_req
 from .task_loop import CodexDecider, TaskLoop
 from .planner import describe_catalog
 from .recording import DEFAULT_REPO_ROOTS, repo_states
-from .skill_stamps import Stamps
+from .skill_stamps import SkillClock, Stamps
 from .skill_writer import SkillWriter
 from .contract_check import check_ros_types
 from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC, STEP_DECISION_TOPIC,
@@ -86,7 +86,9 @@ class ExecutorNode(Node):
             capture_dir=self.capture_dir
         )
 
-        self.agent = self._make_agent()
+        knowledge_dir  = self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value     # claims.yaml, log.jsonl
+        self.knowledge = KnowledgeStore(knowledge_dir)        # the agent's note tool and the task desk; its code clock comes with the stamps
+        self.agent     = self._make_agent()
         self.gate  = self._make_gate() if self.declare_parameter('step_gate', True).value else None
         self.code  = self._make_code()
         build_leaf = make_leaf_factory(self.registry, self.runner, self.agent, self.code)
@@ -105,6 +107,8 @@ class ExecutorNode(Node):
         # contracts that change on disk load while it runs, checked as write_skill checks them (skill_writer.py)
         contracts_dir            = Path(self.get_parameter('contracts_directory').value)
         self.stamps              = self._make_stamps(contracts_dir)
+        self.knowledge.code      = SkillClock(self.stamps, self.registry)     # a claim about a skill counts evidence on its code now
+        self.knowledge.code.save(self.knowledge.folder)                       # and the knowledge CLI uses the same clock
         self.writer              = SkillWriter(self.registry, contracts_dir, check_ros_types, self.runner.prepare,
                                                code_dir=self.code.code_dir, stamps=self.stamps)
         self.desk                = self._make_desk() if mode == 'task' else None
@@ -139,7 +143,6 @@ class ExecutorNode(Node):
         open_publisher  = self.create_publisher(String, OPEN_TOPIC, STATUS_QOS)
         reply_publisher = self.create_publisher(String, TASK_REPLY_TOPIC, COMMAND_QOS)
         publish_reply   = lambda message: reply_publisher.publish(String(data=json.dumps(message, default=str)))
-        knowledge       = self.agent.config.knowledge if self.agent else None
         self._runbook_given = self.declare_parameter('runbook', '').value
         self._say_which_runbook()
         writes          = self.declare_parameter('write_skill', True).value
@@ -153,7 +156,7 @@ class ExecutorNode(Node):
             lambda message: open_publisher.publish(String(data=json.dumps(message, default=str))),
             publish_reply,
             self._speak,
-            known=lambda: knowledge.prompt_section(observations=True) if knowledge else '',
+            knowledge=self.knowledge,
             runbook=lambda: read_text(self._runbook_file()),
             max_steps=self.declare_parameter('task_max_steps', 40).value,
             max_task_s=self.declare_parameter('task_max_s', 900.0).value,
@@ -266,8 +269,7 @@ class ExecutorNode(Node):
         read_roots     = self.declare_parameter('agent_read_roots', ['/home/vector/eigen_vector_ws', skills_dir]).value
         python_timeout = self.declare_parameter('agent_python_timeout_s', 60.0).value
         max_turns      = self.declare_parameter('agent_max_turns', 30).value
-        knowledge_dir  = self.declare_parameter('knowledge_dir', str(Path.home() / 'orch_knowledge')).value     # claims.yaml, log.jsonl
-        scratch_dir    = self.declare_parameter('agent_scratch_dir', str(Path(knowledge_dir) / 'scratch')).value  # <run_id>/ in it
+        scratch_dir    = self.declare_parameter('agent_scratch_dir', str(Path.home() / 'orch_knowledge' / 'scratch')).value  # <run_id>/ in it
 
         if backend_name == 'none':
             return None
@@ -283,7 +285,7 @@ class ExecutorNode(Node):
             read_roots=list(read_roots),
             max_turns=max_turns,
             sandbox=SandboxConfig(scratch_dir=scratch_dir, timeout_s=python_timeout),
-            knowledge=KnowledgeStore(knowledge_dir)
+            knowledge=self.knowledge
         )
 
         return Agent(backend, config, RosReader(self, self.runner.latest_image, self.runner.capture_frames, self.runner.frames.at),

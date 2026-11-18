@@ -421,7 +421,7 @@ class AgentSession:
         sighting = Sighting(by=f'agent:{self.skill}', time=time.time(), run=self.run_id, evidence=list(evidence), value=value)
 
         if claim:
-            change = (store.contradict if contradicts else store.confirm)(claim, sighting)
+            change = store.sight(claim, sighting, confirms=not contradicts)
             found  = store.get(claim)
         else:
             found, change = store.note(text, sighting, about, key or None, valid_for_s)

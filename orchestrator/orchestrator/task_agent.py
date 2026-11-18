@@ -12,6 +12,10 @@ commands on COMMAND_TOPIC:
 - skills: the skills that run can run now, as the executor has them
 - done, give_up: end the task
 
+A run that follows a claim of the knowledge store says so (applies): the step's end confirms it (success) or
+contradicts it (failure). A success can mean no more than "the message was published", so the store counts it as
+weak evidence (knowledge.OUTCOME). The agent writes claims itself, with the knowledge CLI (a session).
+
 Each command gets one reply on REPLY_TOPIC with its id. Limits: max_steps and max_task_s end the task as gave_up.
 When no command comes for idle_s between steps (the session or its cloud link is gone), the robot says so once on
 /speak and waits.
@@ -39,6 +43,7 @@ from dataclasses import asdict
 from skill_registry import contract_grammar
 
 from .places import PLACE_INFO
+from .knowledge import OUTCOME, KnowledgeError, KnowledgeStore, Sighting
 from .tasks import Task, Tasks
 from .planner import describe_catalog
 from .skill_writer import SkillWriter
@@ -66,6 +71,22 @@ def trace_listener(lines: deque, run_id: str) -> Callable[[dict], None]:
             lines.append((event['kind'], event['text']))
 
     return listen
+
+
+def writing_text(folder: Path, claims: bool = False) -> str:
+    """How the task agent adds evidence to the knowledge store in folder; claims: for a model with no tools, which
+    cannot write"""
+    applies = ('- On a run that follows a claim, give its id in applies: the end of the step confirms it (success) or '
+               'contradicts it (failure).')
+
+    if claims:
+        return applies
+
+    return applies + (f'\n- Write what you learned, for later runs: `knowledge --dir {folder} note "TEXT" --by agent:task '
+                      f'--run <run_id> --evidence step:<n> --about skill=<name>`. After a failure, write what to do '
+                      f'instead: "When <what failed and how it showed>, <what to do instead>." Confirm or contradict a '
+                      f'claim you checked: `knowledge --dir {folder} confirm|contradict <id> --by agent:task --run '
+                      f'<run_id> --evidence ...`.')
 
 
 def place_text(info: dict) -> str:
@@ -154,7 +175,7 @@ class StepGate:
 
 class TaskDesk:
     def __init__(self, tasks: Tasks, publish_open: Callable[[dict], None], publish_reply: Callable[[dict], None],
-                 speak: Callable[[str], None], known: Callable[[], str] = lambda: '',
+                 speak: Callable[[str], None], knowledge: KnowledgeStore | None = None,
                  runbook: Callable[[], str] = lambda: '', max_steps: int = 40,
                  max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
                  gate: StepGate | None = None, writer: SkillWriter | None = None,
@@ -165,7 +186,7 @@ class TaskDesk:
         self.publish_open  = publish_open
         self.publish_reply = publish_reply
         self.speak         = speak
-        self.known         = known                   # the knowledge store's prompt section, for the open task
+        self.knowledge     = knowledge               # what is known, for the open task; the outcome of applies goes in
         self.stale         = stale                   # every stale skill and why, in one read (skill_stamps.reasons)
         self.ran           = ran                     # a step that succeeded: kept with the skill's stamp as evidence
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
@@ -200,7 +221,7 @@ class TaskDesk:
             'task':    sentence,
             'blind':   blind,
             'places':  {key: {field: place[field] for field in PLACE_INFO if field in place} for key, place in sorted(context.blackboard.items())},
-            'known':   self.known(),
+            'known':   self.known(),                    # a session reads the claims it needs itself
             'runbook': self.runbook(),
             'grammar': contract_grammar() if self.writer else '',   # how to write a skill, if it may write one
             'scratch': context.scratch_dir,
@@ -209,6 +230,10 @@ class TaskDesk:
         self.publish_open(opened)
 
         return opened
+
+    def known(self, claims: bool = False) -> str:
+        """The knowledge store's guide, and how the task writes to it; with claims, for a model with no tools"""
+        return f'{self.knowledge.guide(claims)}\n{writing_text(self.knowledge.folder, claims)}' if self.knowledge else ''
 
     @contextlib.contextmanager
     def thinking(self):
@@ -282,7 +307,8 @@ class TaskDesk:
             return self._plan(task, [str(subgoal) for subgoal in message['subgoals']])
 
         if op == 'run':
-            return self._run(task, message['skill'], dict(message.get('inputs') or {}), str(message.get('subgoal', '')))
+            return self._run(task, message['skill'], dict(message.get('inputs') or {}), str(message.get('subgoal', '')),
+                             str(message.get('applies') or ''))
 
         if op == 'write_skill':
             return self._write_skill(str(message['yaml']), str(message.get('code', '')))
@@ -319,7 +345,7 @@ class TaskDesk:
 
         return {'ok': True, 'message': f'plan v{self.plans} saved', 'version': self.plans}
 
-    def _run(self, task: Task, skill: str, inputs: dict, subgoal: str) -> dict:
+    def _run(self, task: Task, skill: str, inputs: dict, subgoal: str, applies: str = '') -> dict:
         if task.steps >= self.max_steps:
             return {'ok': False, 'message': f'max_steps {self.max_steps} reached: end the task with done or give_up'}
 
@@ -336,7 +362,15 @@ class TaskDesk:
         if result.status == 'success':
             self._keep(skill, task.run_id)
 
-        return {'ok': result.status != 'error', **asdict(result)}
+        reply = {'ok': result.status != 'error', **asdict(result)}
+
+        if applies and result.status in ('success', 'failure'):    # an error never ran: it says nothing of the claim
+            sighting         = Sighting(by=f'{OUTCOME}:{skill}', time=time.time(), run=task.run_id,
+                                        evidence=[f'step:{task.steps}'])
+            confirms         = result.status == 'success'
+            reply['applies'] = self._know(lambda: f'{applies} {self.knowledge.sight(applies, sighting, confirms)}')
+
+        return reply
 
     def _note_stale(self, skill: str) -> None:
         """Say in the trace and the bundle that a step used a stale skill, not only in the agent's prompt"""
@@ -353,6 +387,21 @@ class TaskDesk:
             self.ran(skill, run_id)
         except OSError as error:
             self.tasks.tracer.emit('stamp_error', f'{skill}: the run was not kept: {error!r}', level='warn')
+
+    def _know(self, write: Callable[[], str]) -> str:
+        """A write to the knowledge store after a step: bookkeeping, so as _keep it never fails the step. Returns
+        what the store did, or why not"""
+        if self.knowledge is None:
+            return 'not kept: there is no knowledge store here'
+
+        try:
+            said = write()
+        except (OSError, KnowledgeError) as error:
+            said = f'not kept: {error!r}'
+
+        self.tasks.tracer.emit('knowledge', said, level='warn' if said.startswith('not kept') else 'info')
+
+        return said
 
     def ask_step(self, request: dict, still_open=None, step=None) -> dict:
         """Ask a person about one step and trace the answer; also used for a call inside a code skill"""
