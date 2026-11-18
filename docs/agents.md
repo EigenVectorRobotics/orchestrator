@@ -10,7 +10,7 @@ The agent bridge on the operator laptop (`mission_control/agent_bridge.py`) answ
 |---|---|---|---|---|---|
 | `press_judge` | `judge` | Right after every `press_button` that succeeded | the model, `JUDGE_SYSTEM` | `pressed`, `not_pressed` | 600 s |
 | `manipulation_recovery` | `stance_check` | A look before the first press failed (`button_in_view`, `check_reach`, or any other step of the look) | the model, `recovery_system(limits)` | `continue`, `reposition`, `abort` | 600 s |
-| `manipulation_recovery` | `diagnose` | `press_button` failed, `press_judge` said `not_pressed`, or another step of a press failed | the model, `recovery_system(limits)` | `reposition`, `switch_arm`, `offset_retry`, `retry`, `ask_help`, `abort` | 600 s |
+| `manipulation_recovery` | `diagnose` | `press_button` failed, `press_judge` said `not_pressed`, or another step of a press failed | the model, `recovery_system(limits)` | `reposition`, `switch_arm`, `offset_retry`, `retry`, `ask_help` | 600 s |
 | `operator_confirm` | `confirm` | No tree on this branch calls it; the tests do (`orchestrator/test/test_agent_push.py`, `mission_control/test/test_agent_bridge.py`) | the operator, in the bridge's terminal | `confirmed`, `not_confirmed` | 120 s |
 
 `PHASE_DECISIONS` in `agent_spec.py` is the source for the decisions per phase. A decision in `GOING_ON` makes the leaf succeed; `not_pressed`, `not_confirmed`, `ask_help` and `abort` make it fail, and `abort` also fails the whole tree at once with the reason (`context.abort`).
@@ -29,7 +29,7 @@ On the floor 1 call panel `up button` grounded the light above the button, so th
 1. **Base offset.** `set_press_offset` with the panel's base offset, so `check_reach` checks the goal the first press aims at. An offset never carries over from one panel to the other.
 2. **Stance check** (`stance_check` subtree), up to 4 rounds. Each round runs `look`: walk to `recovery_goal` (the panel place at first; first to `recovery_approach` when `recovery_walk_in` is `yes`), wait 2.5 s for the robot to settle, then `look_here`. `look_here` runs, once per stance, `prepare_arm` (idle first when already in HighLevel, then HighLevel and the `visual_servo` profile) and `ekf_hold` (`reset_ekf`), then `reset_filters`, `button_in_view` and `check_reach`. After a walk the body EKF's yaw drifts up to 0.35 deg/s and drags the target in `foot_world`, so each stance resets it before the checks. `button_in_view` seeds the tracker, checks the box and the 3D pose, and picks the arm: the left arm only when the button is more than `press_arm_min_y` to the robot's left in `pelvis`. `check_reach` asks ik_server whether that arm reaches the press goal plus the offset in force, without moving the arm. A failed look calls `manipulation_recovery` (`stance_check`). After 4 failed rounds the slot releases the arms and says `press_ask`.
 3. **Presses** (`press_and_recover`), up to 4. Each runs `set_press_offset`, `reset_filters`, `press_button` and `press_judge`. Nothing between the check and the first press walks, changes the mode or resets the EKF, so the press uses the `foot_world` the check used.
-4. **Before each press after a failed one** `recover_once` calls `manipulation_recovery` (`diagnose`) on that failure, unless an executor rule answers first (below), so a slot makes at most 3 diagnoses and none after its fourth failed press. A decision that goes on presses again (a `reposition` first walks and looks, up to 3 times); `ask_help`, `abort`, a call without a decision, or a `reposition` whose looks all fail stop the presses (`recovery_stop`).
+4. **Before each press after a failed one** `recover_once` calls `manipulation_recovery` (`diagnose`) on that failure, unless an executor rule answers first (below), so a slot makes at most 3 diagnoses and none after its fourth failed press. A decision that goes on presses again (a `reposition` first walks and looks, up to 3 times); `ask_help`, a call without a decision, or a `reposition` whose looks all fail stop the presses (`recovery_stop`).
 
 Pressing needs the bridge: every press is judged by `press_judge`, so with no agent, or with the bridge unreachable, each press counts as failed and the slot ends asking a person.
 
@@ -127,7 +127,7 @@ The aim error repeats per panel and arm, so a miss is corrected by the offset in
 | `retry` | `diagnose` | Presses again with the same offset and arm |
 | `switch_arm` | `diagnose` | Presses again with the other arm; a later look chooses the arm again |
 | `ask_help` | `diagnose` | Stops pressing; releases the arms and says `press_ask`. Later `manipulation_recovery` calls at this panel fail at once |
-| `abort` | both | Ends the whole task with the reason |
+| `abort` | `stance_check` | Ends the whole task with the reason. Not in `diagnose`: no step of D1 to D6 ends the task, and `ask_help` there stops the presses and asks a person |
 
 A call that fails without a decision (a gate, the bridge unreachable or failed, three refusals, the contract timeout) goes on like `ask_help` in `diagnose` and like a failed look in `stance_check`.
 

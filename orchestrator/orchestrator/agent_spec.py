@@ -31,7 +31,7 @@ PHASE_SKILL = {                         # the agent skill each phase belongs to
     'confirm':      'operator_confirm',
 }
 PHASE_DECISIONS = {                     # the decisions each phase may end with
-    'diagnose':     ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help', 'abort'),
+    'diagnose':     ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help'),    # no D step ends the task: ask_help
     'stance_check': ('continue', 'reposition', 'abort'),       # button_in_view chooses the arm
     'judge':        ('pressed', 'not_pressed'),
     'confirm':      ('confirmed', 'not_confirmed'),

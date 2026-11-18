@@ -257,10 +257,28 @@ def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(t
     assert names.index('navigate_to', 1) < names.index('button_in_view') < names.index('press_button', names.index('navigate_to', 1))
 
 
+LOOK_THEN_CHECK = '''<root BTCPP_format="4">
+  <BehaviorTree ID="look_then_check">
+    <Sequence>
+      <navigate_to goal="{call_panel}"/>
+      <Fallback>
+        <RetryUntilSuccessful num_attempts="3">
+          <Fallback>
+            <button_in_view query="up button"/>
+            <manipulation_recovery phase="stance_check" target_description="up button" base_goal="{call_panel}" decision="{decision}"/>
+          </Fallback>
+        </RetryUntilSuccessful>
+        <say text="Please press the up button for me."/>
+      </Fallback>
+    </Sequence>
+  </BehaviorTree>
+</root>'''
+
+
 def test_abort_ends_the_tree_at_once(tmp_path):
-    backend = _push(tmp_path, [{'decision': 'abort', 'reason': 'button not in view'}])
-    runner  = FakeRunner([MISS])
-    tree    = _tree(AGENTIC, runner, Agent(backend))
+    backend = _push(tmp_path, [{'decision': 'abort', 'reason': 'button not in view'}])   # a stance_check: diagnose has no abort
+    runner  = FakeRunner([], failing=('button_in_view',))
+    tree    = _tree(LOOK_THEN_CHECK, runner, Agent(backend))
 
     assert _run(tree) == Status.FAILURE
     assert 'button not in view' in tree.context.abort_reason
@@ -570,6 +588,13 @@ def test_stance_check_decisions():
     assert session.decide({'decision': 'ask_help', 'reason': 'x'}).is_error
     assert session.decide({'decision': 'switch_arm', 'reason': 'x', 'use_left_arm': True}).is_error   # the arm is chosen by rule
     assert session.decide({'decision': 'reposition', 'reason': 'too close', 'dx': -0.25, 'dy': 0.0}).final
+
+
+def test_a_diagnosis_cannot_abort_the_task():
+    session = AgentSession('diagnose', {'base_goal': PANEL}, {}, None, lambda *a, **k: None)
+
+    assert session.decide({'decision': 'abort', 'reason': 'x'}).is_error
+    assert session.decide({'decision': 'ask_help', 'reason': 'x'}).final
 
 
 def test_a_failed_stance_check_is_recorded_for_the_agent():
