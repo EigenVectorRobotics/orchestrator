@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Contract, Registry, TreeValidator, ValidatorConfig, load_tree
 
-from .llm_backends import Backend, BackendError
+from .backends import Backend, BackendError
 
 
 TREE_PATTERN     = re.compile(r'<tree>(.*?)</tree>', re.DOTALL)

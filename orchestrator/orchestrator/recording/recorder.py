@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from operator import itemgetter
 from dataclasses import dataclass
 
-from .press_capture import DEFAULT_CAPTURE_DIR
+from ..press_capture import DEFAULT_CAPTURE_DIR
 
 
 RUN_END_KINDS    = ('finished', 'halted', 'error')

@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip('rclpy')
 
-from orchestrator.planner_node import PlannerNode
+from orchestrator.planning.node import PlannerNode
 
 
 def _waiting():

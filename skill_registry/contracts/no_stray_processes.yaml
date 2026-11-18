@@ -6,7 +6,7 @@ description: >-
   (ros2 topic echo, ros2 bag record) is left over. Read only; preflight only warns.
 interface:
   transport: command
-  command: python3 -m orchestrator.stale_nodes strays
+  command: python3 -m orchestrator.health.stale_nodes strays
 timeout_s: 45
 maturity: untested
 source: orchestrator/orchestrator/stale_nodes.py (judge, stray_findings, orphan_findings)

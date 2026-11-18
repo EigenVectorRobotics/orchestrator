@@ -8,7 +8,7 @@ pytest.importorskip('rclpy')
 
 from skill_registry.contract import Watch
 
-from orchestrator.behavior_tree import Status
+from orchestrator.tree.engine import Status
 from orchestrator.ros_skill_runner import RosSkillRunner, TopicWatch, _ServiceHandle
 
 

@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from orchestrator.geometry import multiply, rotate, to_rpy, transform_pose, turn_2d, wrap, yaw_quaternion
+from orchestrator.common.geometry import multiply, rotate, to_rpy, transform_pose, turn_2d, wrap, yaw_quaternion
 
 
 QUARTER = (0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4))           # 90 deg about z

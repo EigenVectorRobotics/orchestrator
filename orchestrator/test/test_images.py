@@ -7,7 +7,7 @@ import pytest
 
 from PIL import Image
 
-from orchestrator.images import ImageError, image_to_jpeg, image_to_rgb
+from orchestrator.common.images import ImageError, image_to_jpeg, image_to_rgb
 
 
 def _message(pixels: np.ndarray, encoding: str, padding: int = 0) -> SimpleNamespace:

@@ -10,7 +10,7 @@ pytest.importorskip('rclpy')
 
 from skill_registry import parse_contract
 
-from orchestrator.behavior_tree import Status
+from orchestrator.tree.engine import Status
 from orchestrator.ros_skill_runner import TopicWatch, _InViewHandle
 
 

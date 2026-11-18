@@ -9,7 +9,7 @@ pytest.importorskip('rclpy')
 
 from skill_registry import Registry
 
-from orchestrator.behavior_tree import Status
+from orchestrator.tree.engine import Status
 from orchestrator.ros_skill_runner import RosSkillRunner
 
 

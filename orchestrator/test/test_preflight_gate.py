@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip('rclpy')
 
-from orchestrator.executor_node import PREFLIGHT_TREE, preflight_gate, tree_message
+from orchestrator.execution.node import PREFLIGHT_TREE, preflight_gate, tree_message
 
 
 def test_a_task_tree_waits_for_a_passed_preflight():

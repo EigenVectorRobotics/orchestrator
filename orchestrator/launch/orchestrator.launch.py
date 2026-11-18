@@ -17,7 +17,7 @@ from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, Opaqu
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
-from orchestrator.site import load_site
+from orchestrator.common.site import load_site
 
 
 DEFAULTS = {

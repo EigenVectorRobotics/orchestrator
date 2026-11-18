@@ -2,8 +2,8 @@ from pathlib import Path
 
 from skill_registry import Registry, load_tree
 
-from orchestrator.planner import Planner, build_system_prompt, extract_tree, load_tree_library, summarize_tree, tree_parameters
-from orchestrator.llm_backends import BackendError, Reply, ScriptedBackend
+from orchestrator.planning.planner import Planner, build_system_prompt, extract_tree, load_tree_library, summarize_tree, tree_parameters
+from orchestrator.planning.backends import BackendError, Reply, ScriptedBackend
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'
@@ -171,7 +171,7 @@ def test_existing_tree_that_fails_validation_asks_for_a_new_tree(tmp_path):
 
 
 def test_speech_left_waits_for_the_last_sentence():
-    from orchestrator.planner import SPEECH_CHARS_PER_S, SPEECH_GAP_S, speech_left_s
+    from orchestrator.planning.planner import SPEECH_CHARS_PER_S, SPEECH_GAP_S, speech_left_s
 
     text = 'x' * 26
 
@@ -253,7 +253,7 @@ GO_TO = ('<root BTCPP_format="4">\n  <!-- Walk to a goal place -->\n  <BehaviorT
 
 
 def test_task_message_gives_the_floor_of_each_place_and_of_the_robot():
-    from orchestrator.planner import build_task_message
+    from orchestrator.planning.planner import build_task_message
 
     message = build_task_message('go to the lobby', TWO_FLOORS, None, False, FLOORS, '2')
 
@@ -294,7 +294,7 @@ def test_planner_cli_answer_passes_parameters_to_use_tree():
 
     import pytest
 
-    from orchestrator.planner_cli import answer_text, parse_parameters
+    from orchestrator.planning.cli import answer_text, parse_parameters
 
     arguments = argparse.Namespace(use_tree='go_to', tree=None, note='To the lobby.', param=['goal={lobby}', 'goal_floor=1'])
 
@@ -310,7 +310,7 @@ def test_planner_cli_answer_passes_parameters_to_use_tree():
 def test_planner_cli_run_builds_the_task_and_the_note_from_the_tree():
     import argparse
 
-    from orchestrator.planner_cli import answer_text, run_text
+    from orchestrator.planning.cli import answer_text, run_text
 
     arguments = argparse.Namespace(use_tree='freight_elevator_go_to_place', tree=None, param=['goal={target_floor_1}'],
                                    task=None, note=None)

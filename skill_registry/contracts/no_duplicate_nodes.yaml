@@ -6,7 +6,7 @@ description: >-
   slam_elevatorlio, lio_node) runs twice, in the ROS graph or as processes on the NUC and the Orin. Read only.
 interface:
   transport: command
-  command: python3 -m orchestrator.stale_nodes duplicates
+  command: python3 -m orchestrator.health.stale_nodes duplicates
 timeout_s: 45
 maturity: untested
 source: orchestrator/orchestrator/stale_nodes.py (judge, duplicate_findings)

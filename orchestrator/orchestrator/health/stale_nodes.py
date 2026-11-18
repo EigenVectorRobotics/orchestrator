@@ -184,11 +184,11 @@ def read_ps(ssh=None):
 
 
 def main():
-    """python3 -m orchestrator.stale_nodes duplicates | strays | report: exit 1 on a fail (duplicates) or warn (strays)"""
+    """python3 -m orchestrator.health.stale_nodes duplicates | strays | report: exit 1 on a fail (duplicates) or warn (strays)"""
     modes = {'duplicates': {'fail'}, 'strays': {'warn'}, 'report': {'fail', 'warn'}}
 
     if len(sys.argv) != 2 or sys.argv[1] not in modes:
-        sys.exit(f'usage: python3 -m orchestrator.stale_nodes {" | ".join(modes)}')
+        sys.exit(f'usage: python3 -m orchestrator.health.stale_nodes {" | ".join(modes)}')
 
     node_names = read_node_names()
     tables     = {host: table for host, spec in HOSTS.items() if (table := read_ps(spec['ssh'])) is not None}

@@ -26,7 +26,7 @@ import rclpy
 from std_msgs.msg import String
 from skill_registry import load_tree
 
-from .topics import COMMAND_QOS as COMMAND, LATCHED_QOS as LATCHED, PLANNER_ANSWER_TOPIC as ANSWER_TOPIC, PLANNER_REQUEST_TOPIC as REQUEST_TOPIC, TASK_TOPIC
+from ..common.topics import COMMAND_QOS as COMMAND, LATCHED_QOS as LATCHED, PLANNER_ANSWER_TOPIC as ANSWER_TOPIC, PLANNER_REQUEST_TOPIC as REQUEST_TOPIC, TASK_TOPIC
 
 
 SYSTEM_OUT     = Path.home() / '.ros' / 'planner_system.md'

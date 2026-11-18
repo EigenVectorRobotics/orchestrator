@@ -1,4 +1,4 @@
-from orchestrator.preflight_checks import judge_alive, run_command
+from orchestrator.health.checks import judge_alive, run_command
 
 
 SPEC = {'topics': ['/feedback', '/camera'], 'services': ['/ready'], 'http': ['http://thor:8090/v1/models']}

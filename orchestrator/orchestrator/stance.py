@@ -14,7 +14,7 @@ import time
 
 from pathlib import Path
 
-from .geometry import rotate, turn_2d, wrap
+from .common.geometry import rotate, turn_2d, wrap
 from .agent_spec import WALK_MIN_M       # navigate_to ends a shorter walk without a step
 
 

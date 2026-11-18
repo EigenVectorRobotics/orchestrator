@@ -4,7 +4,7 @@ import base64
 
 from dataclasses import dataclass
 
-from .chat_completions import ChatCompletionsError, post_chat_completions
+from .common.chat_completions import ChatCompletionsError, post_chat_completions
 
 
 FENCE_PATTERN = re.compile(r'^```(?:json)?|```$', re.MULTILINE)

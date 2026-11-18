@@ -11,8 +11,8 @@ from skill_registry import Registry, TreeValidator, ValidatorConfig, load_tree
 from orchestrator.agent import DECISION_SPEECH, PHASE_SPEECH, Agent, AgentSession, decision_outputs, offset_goal, rule_offset, rule_reach, rule_stance
 from orchestrator.agent_spec import GOING_ON
 from orchestrator.agent_push import PushAgentBackend
-from orchestrator.behavior_tree import BehaviorTree, Context, Status
-from orchestrator.skill_leaf import make_leaf_factory
+from orchestrator.tree.engine import BehaviorTree, Context, Status
+from orchestrator.tree.leaf import make_leaf_factory
 
 
 ROOT       = Path(__file__).resolve().parents[2]
@@ -560,7 +560,7 @@ def test_the_bridge_gets_a_long_failure_whole(tmp_path):
 
 
 def test_a_literal_pose_can_carry_the_storey():
-    from orchestrator.skill_leaf import parse_pose
+    from orchestrator.tree.leaf import parse_pose
 
     assert parse_pose('3.74 -0.422 2.67') == {'x': 3.74, 'y': -0.422, 'yaw': 2.67, 'frame': 'map'}
     assert parse_pose('3.74, -0.422, -0.435, 2.67')['z'] == -0.435

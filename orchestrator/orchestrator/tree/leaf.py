@@ -4,7 +4,7 @@ from typing import Protocol
 
 from skill_registry import Contract, Registry
 
-from .behavior_tree import DONE, Context, Status, TreeError, TreeNode
+from .engine import DONE, Context, Status, TreeError, TreeNode
 
 
 class SkillHandle(Protocol):

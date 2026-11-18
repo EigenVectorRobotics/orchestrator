@@ -5,7 +5,7 @@ import os
 from typing import Protocol
 from dataclasses import dataclass, field
 
-from .chat_completions import ChatCompletionsError, post_chat_completions
+from ..common.chat_completions import ChatCompletionsError, post_chat_completions
 
 
 class BackendError(RuntimeError):

@@ -6,9 +6,9 @@ import pytest
 
 from skill_registry import Registry
 
-from orchestrator.planner import Planner, load_tree_library
-from orchestrator.llm_backends import BackendError
-from orchestrator.planner_external import ExternalPlannerBackend
+from orchestrator.planning.planner import Planner, load_tree_library
+from orchestrator.planning.backends import BackendError
+from orchestrator.planning.external import ExternalPlannerBackend
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'

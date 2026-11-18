@@ -9,11 +9,11 @@ pytest.importorskip('rclpy')
 
 from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
 
-from orchestrator import topics
+from orchestrator.common import topics
 
 
 def test_the_recorder_loads_no_executor_module_for_its_topics():
-    code   = 'import sys, orchestrator.run_recorder; print(" ".join(sorted(m for m in sys.modules if m.startswith("orchestrator."))))'
+    code   = 'import sys, orchestrator.recording.node; print(" ".join(sorted(m for m in sys.modules if m.startswith("orchestrator."))))'
     loaded = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=True).stdout.split()
 
     assert 'orchestrator.ros_skill_runner' not in loaded and 'orchestrator.agent_push' not in loaded

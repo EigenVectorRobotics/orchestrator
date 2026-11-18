@@ -9,7 +9,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry
 
-from .places import parse_places, place_floors
+from ..common.places import parse_places, place_floors
 
 
 def load_places(path: str) -> dict:

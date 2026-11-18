@@ -13,12 +13,12 @@ from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ResultMessage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'orchestrator'))   # orchestrator.site and agent_spec: no ROS
+sys.path.insert(1, str(Path(__file__).resolve().parents[1] / 'orchestrator'))   # orchestrator.common.site and agent_spec: no ROS
 
 import agent_prompts as prompts
 
 from orchestrator import agent_spec as spec
-from orchestrator.site import SiteError, load_site
+from orchestrator.common.site import SiteError, load_site
 
 
 SITES = Path(__file__).resolve().parents[1] / 'orchestrator' / 'config' / 'sites'

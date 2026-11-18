@@ -12,9 +12,9 @@ from skill_registry import Registry
 from orchestrator import agent_push
 from orchestrator.agent import Agent
 from orchestrator.agent_push import PushAgentBackend, PushLink, read_message, send_message
-from orchestrator.behavior_tree import BehaviorTree, Context, Status
-from orchestrator.recording import Recorder, RecorderConfig
-from orchestrator.skill_leaf import make_leaf_factory
+from orchestrator.tree.engine import BehaviorTree, Context, Status
+from orchestrator.recording.recorder import Recorder, RecorderConfig
+from orchestrator.tree.leaf import make_leaf_factory
 
 from test_agent import CONTRACTS, JUDGE_TREE, PANEL, FakeRunner
 

@@ -4,8 +4,8 @@ import pytest
 
 from skill_registry import Registry
 
-from orchestrator.behavior_tree import BehaviorTree, Context, Status, TreeError
-from orchestrator.skill_leaf import make_leaf_factory
+from orchestrator.tree.engine import BehaviorTree, Context, Status, TreeError
+from orchestrator.tree.leaf import make_leaf_factory
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'

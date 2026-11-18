@@ -9,7 +9,7 @@ from pathlib import Path
 from std_msgs.msg import String
 from skill_registry import load_tree
 
-from .topics import TREE_BLIND_TOPIC, TREE_TOPIC
+from ..common.topics import TREE_BLIND_TOPIC, TREE_TOPIC
 
 
 def main():

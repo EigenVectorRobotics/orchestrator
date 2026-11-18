@@ -19,11 +19,11 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
 
-from .topics import (AGENT_EVENT_TOPIC as EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, COMMAND_QOS, LATCHED_QOS,
+from ..common.topics import (AGENT_EVENT_TOPIC as EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, COMMAND_QOS, LATCHED_QOS,
                      RECORDER_STATUS_TOPIC as STATUS_TOPIC, SPEAK_TOPIC, TASK_TOPIC, TRACE_QOS, TRACE_TOPIC)
-from .node_setup import declare_sources
-from .stance import references_state
-from .recording import Recorder, RecorderConfig, directory_digests, file_digest, find_repos, git_state, largest_runs
+from ..execution.node_setup import declare_sources
+from ..stance import references_state
+from .recorder import Recorder, RecorderConfig, directory_digests, file_digest, find_repos, git_state, largest_runs
 
 
 BAG_STOP_S   = 10.0                             # SIGINT, then this long to close the file, then SIGKILL

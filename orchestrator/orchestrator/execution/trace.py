@@ -6,7 +6,7 @@ from std_msgs.msg import String
 from rcl_interfaces.msg import Log
 
 
-from .topics import LOG_TOPIC, TRACE_QOS, TRACE_TOPIC
+from ..common.topics import LOG_TOPIC, TRACE_QOS, TRACE_TOPIC
 LEVELS    = {'debug': Log.DEBUG, 'info': Log.INFO, 'warn': Log.WARN, 'error': Log.ERROR}
 
 

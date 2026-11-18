@@ -15,9 +15,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from skill_registry import Contract
 
-from .behavior_tree import Context, Status
+from .tree.engine import Context, Status
 from . import stance
-from .geometry import turn_2d, wrap
+from .common.geometry import turn_2d, wrap
 from .agent_spec import (APPROACH_BACK_M, GOING_ON, MAX_PRESS_OFFSET_M, PHASE_DECISIONS, REPOSITION_LIMITS_M,
                          STANCE_CHANGED_M, STANCE_PHASES, STANCE_TOLERANCE_M, STANCE_TOLERANCE_RAD, WALK_MIN_M)
 

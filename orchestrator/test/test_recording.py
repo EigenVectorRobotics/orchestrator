@@ -1,7 +1,7 @@
 import json
 import subprocess
 
-from orchestrator.recording import Recorder, RecorderConfig, find_repos, git_state, saved_files
+from orchestrator.recording.recorder import Recorder, RecorderConfig, find_repos, git_state, saved_files
 
 
 class FakeBag:

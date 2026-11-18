@@ -15,7 +15,7 @@ from skill_registry import Registry
 from pathlib import Path
 
 from orchestrator.press_capture import BoxBuffer, CaptureConfig, FrameBuffer, PhaseTracker, PressCapture, crop_around
-from orchestrator.cosmos_vlm_server import CosmosAnswerer, make_handler, parse_request
+from orchestrator.sim.cosmos_vlm_server import CosmosAnswerer, make_handler, parse_request
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / 'skill_registry' / 'contracts'

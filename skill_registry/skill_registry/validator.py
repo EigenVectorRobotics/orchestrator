@@ -6,7 +6,7 @@ from .contract import DEFAULT_ESSENTIAL_DEVICES
 from .registry import Registry
 
 
-# The BehaviorTree.CPP v4 built-in nodes that orchestrator.behavior_tree runs
+# The BehaviorTree.CPP v4 built-in nodes that orchestrator.tree.engine runs
 CONTROL_NODES = {
     'Sequence', 'SequenceWithMemory', 'ReactiveSequence',
     'Fallback', 'ReactiveFallback',

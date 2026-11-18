@@ -1,5 +1,5 @@
 from glob import glob
-from setuptools import setup
+from setuptools import find_packages, setup
 
 
 PACKAGE_NAME = 'orchestrator'
@@ -7,7 +7,7 @@ PACKAGE_NAME = 'orchestrator'
 setup(
     name=PACKAGE_NAME,
     version='0.0.0',
-    packages=[PACKAGE_NAME],
+    packages=find_packages(exclude=["test"]),
     data_files=[
         ('share/ament_index/resource_index/packages', [f'resource/{PACKAGE_NAME}']),
         (f'share/{PACKAGE_NAME}', ['package.xml']),
@@ -25,13 +25,13 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'executor_node = orchestrator.executor_node:main',
-            'planner_node = orchestrator.planner_node:main',
-            'fake_robot = orchestrator.fake_robot:main',
-            'send_tree = orchestrator.send_tree:main',
-            'planner_cli = orchestrator.planner_cli:main',
-            'cosmos_vlm_server = orchestrator.cosmos_vlm_server:main',
-            'run_recorder = orchestrator.run_recorder:main',
+            'executor_node = orchestrator.execution.node:main',
+            'planner_node = orchestrator.planning.node:main',
+            'fake_robot = orchestrator.sim.fake_robot:main',
+            'send_tree = orchestrator.execution.send_tree:main',
+            'planner_cli = orchestrator.planning.cli:main',
+            'cosmos_vlm_server = orchestrator.sim.cosmos_vlm_server:main',
+            'run_recorder = orchestrator.recording.node:main',
         ],
     },
 )
