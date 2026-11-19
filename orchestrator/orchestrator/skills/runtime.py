@@ -23,17 +23,19 @@ T = TypeVar('T')
 
 
 class SkillContext:
-    """What every transport and skill of one executor shares: the node, ROS clients made once, the camera, TF, thread
-    pools, and shared state that skills hand to each other"""
+    """Everything that talks to the outside, shared by every skill of one executor: the node, ROS clients made once,
+    the camera, TF, thread pools, and each transport's driver, through which a contract's calls go out. It also keeps
+    the state that skills hand to each other"""
 
     def __init__(self, node: Node, camera: Camera, vlm_client: VlmClient | None = None, server_wait_s: float = 3.0,
-                 artifacts_dir: str = ARTIFACTS_DIR):
+                 artifacts_dir: str = ARTIFACTS_DIR, drivers: dict[str, Driver] | None = None):
         self.node          = node
         self.camera        = camera
         self.tf            = Tf(node)
         self.vlm_client    = vlm_client or VlmClient()
         self.server_wait_s = server_wait_s
         self.artifacts_dir = artifacts_dir
+        self.drivers       = drivers or default_drivers()
 
         self._shared:          dict[str, object]       = {}
         self._action_clients:  dict[str, ActionClient] = {}
@@ -49,6 +51,23 @@ class SkillContext:
     def now(self) -> float:
         """ROS time in seconds: the clock of message stamps"""
         return self.node.get_clock().now().nanoseconds * 1e-9
+
+    def prepare(self, contract: Contract):
+        """The contract's clients and watches, made early so its first call finds them ready"""
+        if contract.interface.success_when is not None:
+            self.watch(contract.interface.success_when)
+
+        if (driver := self.drivers.get(contract.interface.transport)) is not None:
+            driver.prepare(contract, self)
+
+    def start(self, contract: Contract, inputs: dict) -> Handle:
+        """One call over the contract's transport"""
+        driver = self.drivers.get(contract.interface.transport)
+
+        if driver is None:
+            return DoneHandle(False, f'transport {contract.interface.transport} has no driver')
+
+        return driver.start(contract, inputs, self)
 
     def shared(self, key: str, factory: Callable[[], T]) -> T:
         """One object per key for the whole executor, made by factory on first use"""
@@ -123,9 +142,9 @@ class SkillRunnerConfig:
 
 
 class SkillRunner:
-    """Owns what skills share (the context, each transport's driver, each Skill and the Agent) and starts every call of
-    a non-agent skill: the skill's own before, start and wrap around its transport's driver. Agent skills run through
-    agent, which is None without a backend"""
+    """Owns the skills of one executor (the context, each Skill and the Agent) and starts every call of a non-agent
+    skill: the skill's own before, start and wrap around the context's call over its transport. Agent skills run
+    through agent, which is None without a backend"""
 
     def __init__(self, node: Node, registry: Registry, config: SkillRunnerConfig | None = None,
                  library: SkillLibrary | None = None, agent_backend: AgentBackend | None = None,
@@ -133,9 +152,8 @@ class SkillRunner:
                  drivers: dict[str, Driver] | None = None):
         config       = config or SkillRunnerConfig()
         camera       = Camera(node, config.image_topic, config.camera_info_topic)
-        self.ctx     = SkillContext(node, camera, VlmClient(config.vlm), artifacts_dir=config.artifacts_dir)
+        self.ctx     = SkillContext(node, camera, VlmClient(config.vlm), artifacts_dir=config.artifacts_dir, drivers=drivers)
         self.library = library or SkillLibrary()
-        self.drivers = drivers or default_drivers()
         self.skills: dict[str, Skill] = {}
         self.agent   = None if agent_backend is None else Agent(agent_backend, self.ctx, self.library, on_agent_event, speak)
 
@@ -143,16 +161,9 @@ class SkillRunner:
             self.prepare(contract)
 
     def prepare(self, contract: Contract):
-        """Make clients, subscriptions and the skill's own state early, so a tree's first call finds them ready"""
-        interface = contract.interface
-        driver    = self.drivers.get(interface.transport)
-
+        """The contract's clients and the skill's own state, made early so a tree's first call finds them ready"""
         try:
-            if interface.success_when is not None:
-                self.ctx.watch(interface.success_when)
-
-            if driver is not None:
-                driver.prepare(contract, self.ctx)
+            self.ctx.prepare(contract)
 
             skill_class = self.library.find(contract.name, 'skill', Skill)
 
@@ -163,19 +174,14 @@ class SkillRunner:
             self.ctx.logger.warn(f'{contract.name}: {error}; it fails if a tree uses it')
 
     def start(self, contract: Contract, inputs: dict) -> Handle:
-        skill     = self.skills.get(contract.name)
-        driver    = self.drivers.get(contract.interface.transport)
+        skill = self.skills.get(contract.name)
 
         try:
             if skill is not None and (refused := skill.before(inputs)) is not None:
                 return refused
 
             handle = skill.start(inputs) if skill is not None else None
-
-            if handle is None and driver is None:
-                return DoneHandle(False, f'transport {contract.interface.transport} has no driver in this runner')
-
-            handle = handle if handle is not None else driver.start(contract, inputs, self.ctx)
+            handle = handle if handle is not None else self.ctx.start(contract, inputs)
 
             return skill.wrap(handle, inputs) if skill is not None else handle
         except CALL_ERRORS as error:
