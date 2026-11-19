@@ -103,7 +103,7 @@ The recorder bag has the trace, the agent request, reply and event topics and `/
 Make them again when the prior map changes:
 
 ```bash
-python3 scripts/make_floor_maps.py --pcd two_floor_clean_cabin2.pcd --places two_floor_clean_cabin2.places.yaml --floors 1:-7.1,2:-0.93
+python3 scripts/make_floor_maps.py --pcd <map>.pcd --places <map>.places.yaml --floors 1:<ground z>,2:<ground z>
 ```
 
 It needs numpy, Pillow and PyYAML. `--floors` gives the ground z of each floor, numbered as `/slam_elevatorlio/floor` numbers them. Each floor is a plan: white floor area, dark walls (1.3 m to 2.2 m above the ground), grey low objects (0.25 m to 1.3 m). If `/slam_elevatorlio/floor` is silent, the page uses the floor whose ground is nearest the robot's z.

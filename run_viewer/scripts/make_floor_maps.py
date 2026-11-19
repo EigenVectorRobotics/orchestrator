@@ -26,8 +26,8 @@ LOW_RGBA   = (190, 197, 191, 255)
 def parse_args() -> argparse.Namespace:
     """Read the command line."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--pcd', required=True, help='prior map, binary x y z intensity, e.g. two_floor_clean_cabin2.pcd')
-    parser.add_argument('--places', required=True, help='the places file of that map, e.g. two_floor_clean_cabin2.places.yaml')
+    parser.add_argument('--pcd', required=True, help='prior map, binary x y z intensity: <map>.pcd')
+    parser.add_argument('--places', required=True, help='the places file of that map: <map>.places.yaml')
     parser.add_argument('--floors', default='1:-7.1,2:-0.93', help='floor:ground z, as /slam_elevatorlio/floor numbers them')
     parser.add_argument('--res', type=float, default=0.05, help='metres per pixel')
     parser.add_argument('--out', default=str(OUT))

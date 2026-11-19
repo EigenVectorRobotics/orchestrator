@@ -6,8 +6,7 @@
        Before each press the tree resets the body EKF and holds still until it has recalibrated (ekf_hold). Before the first press at each panel, a stance
        check: button_in_view (it seeds the tracker, in the executor, no cloud); only when it fails
        does manipulation_recovery look (phase stance_check), because a poor stance comes from the walk, not from the
-       press.
-       Places from ~/maps/two_floor_clean_cabin2.places.yaml. -->
+       press. -->
   <BehaviorTree ID="freight_elevator_down_floor1_agentic">
     <Sequence>
       <!-- outside: walking state, preapproach, call panel -->
