@@ -212,7 +212,7 @@ def test_grades_are_staged_and_go_into_the_store_only_at_the_commit_after_the_ta
     _command(d, op='commit')
 
     assert [reply['ok'] for reply in d.replies] == [False, True, True, True, False, False, True, True]
-    assert 'no step of this task followed' in d.replies[0]['message'] and 'no step' in d.replies[4]['message']
+    assert 'nothing staged' in d.replies[0]['message'] and 'no step of this run followed' in d.replies[4]['message']
     assert 'still open' in d.replies[5]['message'] and d.replies[6]['message'].endswith(f'not graded: {place}')
     wrong = store.get(lesson).contradictions[0]
     assert (wrong.by, wrong.grade, wrong.evidence) == ('outcome:navigate_to', 'wrong', ['step:1'])
@@ -244,3 +244,25 @@ def test_a_step_that_follows_an_unknown_claim_does_not_run(tmp_path):
 
     assert not d.replies[0]['ok'] and 'no claim C-9999' in d.replies[0]['message']
     assert not d.replies[1]['ok'] and 'a list of claim ids' in d.replies[1]['message'] and d.tasks.task.steps == 0
+
+
+def test_a_grade_needs_a_reason_and_the_open_or_last_run(tmp_path):
+    store, (lesson,) = _claims(tmp_path, 'When it stops short, walk again.')
+    d = _desk(FakeRunner({'navigate_to': [Status.SUCCESS]}), tmp_path, knowledge=store)
+
+    _command(d, op='run', skill='navigate_to', inputs={'goal': '{call_panel}'}, subgoal='walk', applies=[lesson])
+    _command(d, op='grade', claim=lesson, grade='useful', reason=' ')
+    d.desk.command({'id': 'x', 'run_id': '../../x', 'op': 'commit'})
+
+    assert 'needs a reason' in d.replies[1]['message'] and 'not the open task' in d.replies[2]['message']
+
+
+def test_a_staged_file_that_cannot_be_committed_is_set_aside_and_the_next_task_opens(tmp_path):
+    store, (lesson,) = _claims(tmp_path, 'When it stops short, walk again.')
+    d = _desk(FakeRunner({'navigate_to': [Status.SUCCESS]}), tmp_path, knowledge=store)
+    store.staged_dir.mkdir()
+    (store.staged_dir / 'r0.json').write_text('{"C-0001": {"no": "such field"}}')
+
+    d.desk.open('Go back', _context('r2'))
+
+    assert d.opened[-1]['state'] == 'open' and (store.staged_dir / 'r0.bad').exists() and store.staged_runs() == []

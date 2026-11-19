@@ -45,6 +45,8 @@ from pathlib import Path
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 
+from .recording import write_json
+
 
 TIERS            = ('observation', 'belief', 'fact', 'retired')
 LIVE             = TIERS[:3]        # in order: a contradiction moves a claim one step back in this list
@@ -56,6 +58,7 @@ OPERATOR         = 'operator'
 OUTCOME          = 'outcome'        # by 'outcome:<skill>': the grade of a step that followed a claim, as weak evidence
 GRADES           = {'useful': True, 'wrong': False, 'misleading': None, 'not-applicable': None}   # True confirms, False contradicts
 TAG_KIND         = re.compile(r'[a-z][a-z0-9_]*')
+RUN_ID           = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:-]*')   # a staged file name: no path
 
 
 class KnowledgeError(ValueError):
@@ -89,6 +92,7 @@ class Sighting:
     moved:    str | None = None         # the code under the claim moved after it was seen: it no longer counts
     grade:    str | None = None         # the agent's grade of a claim that a step followed (GRADES)
     reason:   str | None = None         # why, in the agent's words
+    under:    dict | None = None        # a staged grade: the code under the claim at its step, checked at the commit
 
 
 class Counted(NamedTuple):
@@ -296,65 +300,100 @@ class KnowledgeStore:
     def grade(self, claim_id: str, sighting: Sighting) -> str:
         """The agent's grade of a claim that a step followed: useful or wrong is weak evidence; misleading or
         not-applicable is kept apart and changes no reliability"""
-        if sighting.grade not in GRADES:
-            raise KnowledgeError(f'no grade {sighting.grade}; use {", ".join(GRADES)}')
-
-        if (confirms := GRADES[sighting.grade]) is not None:
-            return f'{sighting.grade}: ' + self.sight(claim_id, sighting, confirms)
-
         with self._locked() as claims:
-            claim = _lookup(claims, claim_id, live=True)
-            claim.grades.append(sighting)
-            self._log('grade', claim, sighting.by, grade=sighting.grade, reason=sighting.reason, run=sighting.run)
+            return self._grade(_lookup(claims, claim_id, live=True), sighting)
 
-            return f'{sighting.grade}: kept apart, no evidence; make the text or tags narrower'
+    # ========== Staged grades: one file per run, committed after the run ==========
 
-    def code_under(self, claim_id: str) -> dict | None:
-        """The code under the claim now (its skill tag), to keep with a grade at its step; None: no skill tag"""
-        return self._snapshot(self.get(claim_id))
+    def stage_applied(self, run_id: str, claim_ids: list[str], skill: str, step: int) -> None:
+        """A step followed these claims: each gets an entry with no grade, with the code under it now. A later
+        step that follows a claim again replaces its entry, and its grade must be given again"""
+        claims = self._load()
+        staged = self.staged(run_id)
 
-    def stage(self, run_id: str, claim_id: str, grade: str, reason: str, skill: str, step: int,
-              under: dict | None) -> None:
-        """A grade, kept apart until the run is committed; the last grade of a claim in a run wins"""
-        if grade not in GRADES:
-            raise KnowledgeError(f'no grade {grade}; use {", ".join(GRADES)}')
+        for claim_id in claim_ids:
+            under            = self._snapshot(_lookup(claims, claim_id))
+            staged[claim_id] = asdict(Sighting(by=f'{OUTCOME}:{skill}', time=self.clock(), run=run_id,
+                                               evidence=[f'step:{step}'], under=under))
+        self._write_staged(run_id, staged)
 
-        grades           = self.staged(run_id)
-        grades[claim_id] = {'grade': grade, 'reason': reason, 'skill': skill, 'step': step, 'under': under,
-                            'time': self.clock()}
-        path             = self.staged_dir / f'{run_id}.json'
-        temporary        = path.with_suffix('.json.tmp')
-        self.staged_dir.mkdir(exist_ok=True)
-        temporary.write_text(json.dumps(grades, indent=1, default=str))
-        temporary.replace(path)
+    def stage(self, run_id: str, claim_id: str, grade: str, reason: str) -> None:
+        """A grade of a claim that a step of the run followed; the last grade wins"""
+        _check_grade(grade)
+        staged = self.staged(run_id)
+
+        if not reason.strip():
+            raise KnowledgeError('a grade needs a reason')
+
+        if not staged:
+            raise KnowledgeError(f'run {run_id} has nothing staged: it is committed, or no step of it followed a claim')
+
+        if claim_id not in staged:
+            raise KnowledgeError(f'no step of this run followed {claim_id}: grade only a claim that a run gave in applies')
+
+        staged[claim_id] |= {'grade': grade, 'reason': reason, 'time': self.clock()}
+        self._write_staged(run_id, staged)
 
     def staged(self, run_id: str) -> dict:
-        path = self.staged_dir / f'{run_id}.json'
+        path = self._staged_path(run_id)
         return json.loads(path.read_text()) if path.exists() else {}
 
     def staged_runs(self) -> list[str]:
         return sorted(path.stem for path in self.staged_dir.glob('*.json')) if self.staged_dir.exists() else []
 
-    def commit(self, run_id: str) -> list[str]:
-        """The staged grades of a run go into the claims. A grade of code that changed after its step is kept, as
-        moved, and not counted. Returns what happened to each"""
-        said = []
+    def commit(self, run_id: str) -> tuple[list[str], list[str]]:
+        """The graded entries of a run go into the claims together, in one write. Returns what happened to each,
+        and the claims with no grade"""
+        staged   = self.staged(run_id)
+        ungraded = [claim_id for claim_id, entry in staged.items() if not entry['grade']]
+        said     = []
 
-        for claim_id, staged in self.staged(run_id).items():
-            sighting = Sighting(by=f'{OUTCOME}:{staged["skill"]}', time=staged['time'], run=run_id,
-                                evidence=[f'step:{staged["step"]}'], grade=staged['grade'], reason=staged['reason'])
+        with self._locked() as claims:
+            for claim_id, entry in staged.items():
+                if entry['grade']:
+                    try:
+                        claim = _lookup(claims, claim_id, live=True)
 
-            try:
-                skill          = self.get(claim_id).about.get('skill')
-                changed        = self.code.since(skill, staged['under']) if self.code and skill and staged['under'] else ''
-                sighting.moved = f'graded on older code: {changed}' if changed else None
-                said.append(f'{claim_id} {self.grade(claim_id, sighting)}' + (f' (not counted: {sighting.moved})' if changed else ''))
-            except KnowledgeError as error:
-                said.append(f'{claim_id} not kept: {error}')
+                        if any(s.run == run_id and s.grade for s in [*claim.sightings, *claim.grades]):
+                            said.append(f'{claim_id} committed already')     # a crash after the save, before the unlink
+                        else:
+                            said.append(f'{claim_id} {self._grade(claim, Sighting(**entry))}')
+                    except KnowledgeError as error:
+                        said.append(f'{claim_id} not kept: {error}')
 
-        (self.staged_dir / f'{run_id}.json').unlink(missing_ok=True)
+        self._staged_path(run_id).unlink(missing_ok=True)
 
-        return said
+        return said, ungraded
+
+    def _grade(self, claim: Claim, sighting: Sighting) -> str:
+        _check_grade(sighting.grade)
+        changed        = self._since(claim, sighting.under)
+        sighting.moved = f'graded on older code: {changed}' if changed else sighting.moved
+        sighting.under = None                                 # checked: the claim keeps its own under
+        counted        = f' (not counted: {sighting.moved})' if changed else ''
+
+        if (confirms := GRADES[sighting.grade]) is not None:
+            return f'{sighting.grade}: {self._sight(claim, sighting, confirms)}{counted}'
+
+        claim.grades.append(sighting)
+        self._log('grade', claim, sighting.by, grade=sighting.grade, reason=sighting.reason, run=sighting.run)
+
+        return f'{sighting.grade}: kept apart, no evidence; make the text or tags narrower{counted}'
+
+    def _staged_path(self, run_id: str) -> Path:
+        if not RUN_ID.fullmatch(run_id):
+            raise KnowledgeError(f'not a run id: {run_id!r}')
+
+        return self.staged_dir / f'{run_id}.json'
+
+    def set_aside(self, run_id: str) -> Path:
+        """A staged file that cannot be committed: renamed .bad, for a person to look at"""
+        path = self._staged_path(run_id)
+        return path.replace(path.with_suffix('.bad'))
+
+    def _write_staged(self, run_id: str, staged: dict) -> None:
+        self.staged_dir.mkdir(exist_ok=True)
+        write_json(self._staged_path(run_id), staged)
 
     def approve(self, claim_id: str, by: str, text: str | None = None) -> Claim:
         """The operator makes a ready belief a fact, with the exact text (edited or not)"""
@@ -428,6 +467,10 @@ class KnowledgeStore:
     def _snapshot(self, claim: Claim) -> dict | None:
         skill = claim.about.get('skill')
         return self.code.snapshot(skill) if self.code is not None and skill else None
+
+    def _since(self, claim: Claim, under: dict | None) -> str:
+        """Why the code under the claim moved since the snapshot under, or ''"""
+        return self.code.since(claim.about['skill'], under) if under and self.code is not None else ''
 
     def _expire(self, claims: dict) -> list[str]:
         retired = []
@@ -529,12 +572,18 @@ def _numeric(value) -> bool:
 
 
 def _independent(sightings: list[Sighting]) -> int:
-    """One per run and source; a sighting with no run counts on its own. A grade (weak) adds nothing in a run that
-    has another sighting already: an agent that notes a claim and grades it in one run has seen it once"""
+    """One per run and source; a sighting with no run counts on its own. Grades (weak) count once per run, and
+    not at all in a run that has another sighting already: an agent that notes a claim and grades it in one run has
+    seen it once"""
     strong = {(s.run, s.by) if s.run else (s.time, s.by) for s in sightings if not _weak(s)}
-    runs   = {s.run for s in sightings if s.run and not _weak(s)}
-    weak   = {s.run if s.run else (s.time, s.by) for s in sightings if _weak(s) and s.run not in runs}
+    runs   = {run for run, _ in strong}
+    weak   = {s.run or (s.time, s.by) for s in sightings if _weak(s) and s.run not in runs}
     return len(strong) + len(weak)
+
+
+def _check_grade(grade: str | None) -> None:
+    if grade not in GRADES:
+        raise KnowledgeError(f'no grade {grade}; use {", ".join(GRADES)}')
 
 
 def _runs(claim: Claim) -> int:

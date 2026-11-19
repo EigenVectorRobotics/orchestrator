@@ -150,7 +150,7 @@ def _task_command(node, command: dict, timeout_s: float,
     task = _latest(node, OPEN_TOPIC, 3.0)
 
     if task is None or task['state'] != 'open' and not ended:
-        print('no open task; run agent_cli task wait', file=sys.stderr)
+        print('no task that ended or is open' if ended else 'no open task; run agent_cli task wait', file=sys.stderr)
         return 1
 
     command = {'id': uuid.uuid4().hex[:8], 'run_id': task['run_id'], **command}

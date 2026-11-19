@@ -278,10 +278,12 @@ def test_a_grade_of_code_that_changed_after_its_step_is_kept_but_not_counted(tmp
     store    = KnowledgeStore(tmp_path, code=code)
     claim, _ = store.note('When it stops short, walk again.', seen(), {'skill': 'navigate_to'})
 
-    store.stage('r2', claim.id, 'useful', 'it helped', 'navigate_to', 1, store.code_under(claim.id))
+    store.stage_applied('r2', [claim.id], 'navigate_to', 1)
+    store.stage('r2', claim.id, 'useful', 'it helped')
     code.version = 2                                                        # the agent rewrote the skill after step 1
-    said = store.commit('r2')
-    store.stage('r3', claim.id, 'useful', 'it helped', 'navigate_to', 1, store.code_under(claim.id))
+    said, _ = store.commit('r2')
+    store.stage_applied('r3', [claim.id], 'navigate_to', 1)
+    store.stage('r3', claim.id, 'useful', 'it helped')
     store.commit('r3')
 
     graded = [s for s in store.get(claim.id).confirmations if s.grade]
@@ -299,3 +301,17 @@ def test_a_grade_in_the_run_that_noted_the_claim_adds_nothing(tmp_path):
 
     store.grade(claim.id, seen(by='outcome:navigate_to', run='r2', grade='useful'))
     assert store.get(claim.id).reliability() > once
+
+
+def test_a_commit_that_runs_again_adds_nothing(tmp_path):
+    store    = KnowledgeStore(tmp_path)
+    claim, _ = store.note('When it stops short, walk again.', seen(run='r1'), {'skill': 'navigate_to'})
+    store.stage_applied('r2', [claim.id], 'navigate_to', 1)
+    store.stage('r2', claim.id, 'useful', 'it helped')
+    left = store.staged('r2')
+
+    store.commit('r2')
+    store._write_staged('r2', left)                                         # a crash after the save, before the unlink
+    said, _ = store.commit('r2')
+
+    assert len(store.get(claim.id).confirmations) == 2 and 'committed already' in said[0]

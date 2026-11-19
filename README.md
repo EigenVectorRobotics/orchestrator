@@ -35,7 +35,7 @@ agent_cli write-skill greet.yaml --code greet.py
 agent_cli done --reason "arrived"
 ```
 
-`agent_cli run ... --applies <claim id>` says that the step follows a claim of the knowledge store (give it again for each claim). The step's end changes no claim. After the step, the session stages a grade for each claim: `agent_cli grade <id> useful|misleading|wrong|not-applicable --reason R` (the last grade wins; it also works after the task ends). After the task ends, `agent_cli commit` puts the staged grades in the store, like a database commit. If the session does not commit, the next task open does it. Each grade is attributed to the code of its step: a grade of a skill that the agent rewrote later is kept but not counted. `done` and `give-up` name the claims with no grade, but they do not stop the end.
+`agent_cli run ... --applies <claim id>` says that the step follows a claim of the knowledge store (give it again for each claim). The step's end changes no claim. After the step, the session stages a grade for each claim: `agent_cli grade <id> useful|misleading|wrong|not-applicable --reason R` (the last grade wins; it also works after the task ends). After the task ends, `agent_cli commit` puts the staged grades in the store, like a database commit. If the session does not commit, the next task open does it. The store keeps the code of the step with each grade. If the agent rewrites the skill later, the grade is kept but it does not count. `done` and `give-up` name the claims with no grade, but they do not stop the end.
 
 ## Skills
 

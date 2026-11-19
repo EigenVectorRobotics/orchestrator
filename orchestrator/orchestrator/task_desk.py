@@ -130,14 +130,14 @@ class TaskDesk:
         self.idle_s        = idle_s
         self.clock         = clock
         self.task          = None                    # the open task, and when it opened and last heard from the agent
-        self.last          = None                    # the task that ended last: graded and committed until the next opens
+        self.ended         = None                    # the run_id of the task that ended last: graded until the next opens
         self.opened        = 0.0
         self.heard         = 0.0
         self.spoke_lost    = False
         self.plans         = 0
         self.busy          = 0                       # commands in progress: a session waiting for a step is not quiet
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
-        self._grading      = threading.Lock()        # a claim's grade state: each command runs on its own thread
+        self._grading      = threading.Lock()        # the staged file of a run: each command runs on its own thread
 
     def open(self, sentence: str, context: Context, blind: bool = False) -> None:
         """Open a task and publish the open message"""
@@ -148,7 +148,7 @@ class TaskDesk:
         task = self.tasks.start_task('task', context, blind)
 
         with self._lock:
-            self.task, self.last = task, None
+            self.task, self.ended = task, None
 
         self.opened     = self.heard = self.clock()
         self.spoke_lost = False
@@ -231,16 +231,16 @@ class TaskDesk:
 
     def _command(self, message: dict) -> dict:
         task = self.task
+        op   = message['op']
 
-        if message['op'] in ('grade', 'commit'):         # also after the task ends
-            return self._grading_op(message)
+        if task is not None and message.get('run_id') == task.run_id:
+            self.heard, self.spoke_lost = self.clock(), False
+
+        if op in ('grade', 'commit'):                    # also after the task ends, until the next task opens
+            return self._grading_op(op, message)
 
         if task is None or message.get('run_id') != task.run_id:
             return {'ok': False, 'message': 'no open task with this run_id; run agent_cli task wait'}
-
-        self.heard      = self.clock()
-        self.spoke_lost = False
-        op              = message['op']
 
         if op == 'plan':
             return self._plan(task, [str(subgoal) for subgoal in message['subgoals']])
@@ -312,11 +312,16 @@ class TaskDesk:
         reply = {'ok': result.status != 'error', **asdict(result)}
 
         if applies and result.status in ('success', 'failure'):    # an error never ran: there is nothing to grade
-            with self._grading:                                    # the code under each claim now: the version graded
-                task.applied |= {claim_id: {'skill': skill, 'step': task.steps, 'under': self._under(claim_id)}
-                                 for claim_id in applies}
+            if self.task is not task:                              # it ended while the step ran: its grades are committed
+                reply['applies'] = 'not kept: the task ended while the step ran'
+            else:
+                try:
+                    with self._grading:                            # with the code under each claim now: the version graded
+                        self.knowledge.stage_applied(task.run_id, applies, skill, task.steps)
 
-            reply['applies'] = f'grade each (agent_cli grade): {", ".join(applies)}'
+                    reply['applies'] = f'grade each (agent_cli grade): {", ".join(applies)}'
+                except Exception as error:                         # the step HAS run: never fail it for bookkeeping
+                    reply['applies'] = f'not kept, so these cannot be graded: {error!r}'
 
         return reply
 
@@ -332,61 +337,38 @@ class TaskDesk:
 
         return ''
 
-    def _under(self, claim_id: str) -> dict | None:
-        """The code under the claim at this step; None when it cannot be read (then no version is checked)"""
-        try:
-            return self.knowledge.code_under(claim_id)
-        except (OSError, KnowledgeError):
-            return None
-
-    def _grading_op(self, message: dict) -> dict:
-        """grade and commit: for the open task, or for the task that ended last"""
-        task = next((t for t in (self.task, self.last) if t is not None and t.run_id == message.get('run_id')), None)
+    def _grading_op(self, op: str, message: dict) -> dict:
+        """grade and commit: for a run with staged entries, during the task or after it ends"""
+        run_id = str(message.get('run_id'))
 
         if self.knowledge is None:
             return {'ok': False, 'message': 'there is no knowledge store here'}
 
-        if task is None:
-            return {'ok': False, 'message': 'no open or last task with this run_id: the next task committed its grades'}
+        if run_id not in (self.task and self.task.run_id, self.ended):
+            return {'ok': False, 'message': f'{run_id} is not the open task or the task that ended last'}
 
-        if task is self.task:
-            self.heard, self.spoke_lost = self.clock(), False
+        if op == 'commit' and self.task is not None and self.task.run_id == run_id:
+            return {'ok': False, 'message': 'the task is still open: commit after done or give_up'}
 
-        with self._grading:                              # each command on its own thread; one staged file per run
-            if message['op'] == 'commit':
-                return self._commit(task)
+        with self._grading:
+            if op == 'commit':
+                return self._commit(run_id, '')
 
-            return self._grade(task, str(message['claim']), str(message['grade']), str(message.get('reason', '')))
+            try:
+                self.knowledge.stage(run_id, str(message['claim']), str(message['grade']), str(message.get('reason', '')).strip())
+            except KnowledgeError as error:
+                return {'ok': False, 'message': str(error)}
 
-    def _grade(self, task: Task, claim_id: str, grade: str, reason: str) -> dict:
-        applied = task.applied.get(claim_id)
-
-        if applied is None:
-            return {'ok': False, 'message': f'no step of this task followed {claim_id}: grade only a claim that a run gave in applies'}
-
-        if not reason.strip():
-            return {'ok': False, 'message': 'a grade needs a reason'}
-
-        try:
-            self.knowledge.stage(task.run_id, claim_id, grade, reason.strip(), applied['skill'], applied['step'],
-                                 applied['under'])
-        except KnowledgeError as error:
-            return {'ok': False, 'message': str(error)}
-
-        said = f'{claim_id} staged: {grade} (step {applied["step"]}); agent_cli commit after the task ends'
-        self.tasks.tracer.emit('knowledge', said, claim=claim_id, grade=grade, run_id=task.run_id)
+        said = f'{message["claim"]} staged: {message["grade"]}; agent_cli commit after the task ends'
+        self.tasks.tracer.emit('knowledge', said, claim=message['claim'], grade=message['grade'], run_id=run_id)
 
         return {'ok': True, 'message': said}
 
-    def _commit(self, task: Task) -> dict:
-        if task is self.task:
-            return {'ok': False, 'message': 'the task is still open: commit after done or give_up'}
-
-        ungraded = [claim_id for claim_id in task.applied if claim_id not in self.knowledge.staged(task.run_id)]
-        said     = self.knowledge.commit(task.run_id)
-        self.last = None                                 # committed: no more grades for it
-        self.tasks.tracer.emit('knowledge', f'committed {task.run_id}: ' + ('; '.join(said) or 'no grades'),
-                               run_id=task.run_id, claims=said)
+    def _commit(self, run_id: str, when: str) -> dict:
+        """The staged grades of a run go into the store; the caller holds _grading"""
+        said, ungraded = self.knowledge.commit(run_id)
+        self.tasks.tracer.emit('knowledge', f'committed {run_id}{when}: ' + ('; '.join(said) or 'no grades'),
+                               run_id=run_id, claims=said)
 
         return {'ok': True, 'message': '\n'.join(said) or 'no grades to commit',
                 **({'not_graded': ungraded} if ungraded else {})}
@@ -396,13 +378,25 @@ class TaskDesk:
         if self.knowledge is None:
             return
 
+        with self._grading:
+            for run_id in self._staged_runs():
+                try:
+                    self._commit(run_id, ' at the next open')
+                except Exception as error:                # bookkeeping must never stop a task from opening
+                    self.tasks.tracer.emit('knowledge', f'could not commit {run_id}, set aside: {error!r}', level='warn')
+                    self._set_aside(run_id)
+
+    def _staged_runs(self) -> list[str]:
         try:
-            for run_id in self.knowledge.staged_runs():
-                said = self.knowledge.commit(run_id)
-                self.tasks.tracer.emit('knowledge', f'committed {run_id} at the next open: ' + '; '.join(said),
-                                       run_id=run_id, claims=said)
-        except OSError as error:                          # bookkeeping must never stop a task from opening
-            self.tasks.tracer.emit('knowledge', f'could not commit the staged grades: {error!r}', level='warn')
+            return self.knowledge.staged_runs()
+        except OSError:
+            return []
+
+    def _set_aside(self, run_id: str) -> None:
+        try:
+            self.knowledge.set_aside(run_id)
+        except (OSError, KnowledgeError) as error:
+            self.tasks.tracer.emit('knowledge', f'could not set {run_id} aside: {error!r}', level='warn')
 
     def _note_stale(self, skill: str) -> None:
         """Say in the trace and the bundle that a step used a stale skill, not only in the catalog that the session reads"""
@@ -438,17 +432,18 @@ class TaskDesk:
         self.tasks.end_task(task, end, reason)
         message  = f'the task ended: {end}'
 
-        if task.applied:                                 # said, not enforced: a grade is the agent's judgement
-            staged   = self._staged(task.run_id)
-            ungraded = [claim_id for claim_id in task.applied if claim_id not in staged]
+        staged   = self._staged(task.run_id)
+
+        if staged:                                       # said, not enforced: a grade is the agent's judgement
+            ungraded = [claim_id for claim_id, entry in staged.items() if not entry['grade']]
             message += '; grade what is left, then agent_cli commit' + (f'; not graded: {", ".join(ungraded)}' if ungraded else '')
 
         return {'ok': True, 'message': message}
 
     def _staged(self, run_id: str) -> dict:
         try:
-            return self.knowledge.staged(run_id)
-        except (OSError, ValueError):
+            return self.knowledge.staged(run_id) if self.knowledge else {}
+        except (OSError, ValueError, KnowledgeError):
             return {}
 
     def _close(self, task: Task, end: str):
@@ -456,7 +451,7 @@ class TaskDesk:
             if self.task is not task:
                 return
 
-            self.task, self.last = None, task
+            self.task, self.ended = None, task.run_id
 
         if self.gate is not None:
             self.gate.cancel('the task ended')
