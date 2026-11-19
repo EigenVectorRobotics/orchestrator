@@ -227,7 +227,7 @@ def build(out: Path):
     for rel, text in sources.items():
         headings = HEADING.findall(text)
         fields   = matter.get(rel) or {'title': headings[0].strip() if headings else Path(rel).stem, 'nav_exclude': True}
-        fields   = {**fields, 'permalink': _url(rel), 'render_with_liquid': False}
+        fields   = {'layout': 'default', **fields, 'permalink': _url(rel), 'render_with_liquid': False}
         target   = out / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(_front(fields) + _rewrite(text, rel, set(sources), repo, branch))
@@ -235,7 +235,7 @@ def build(out: Path):
     for rel, fields in sections.items():
         target = out / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(_front({**fields, 'permalink': '/' + rel[:-3] + '/'}) + f'# {fields["title"]}\n')
+        target.write_text(_front({'layout': 'default', **fields, 'permalink': '/' + rel[:-3] + '/'}) + f'# {fields["title"]}\n')
 
     # (4) The Jekyll configuration
     site = {
