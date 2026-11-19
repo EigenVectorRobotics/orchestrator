@@ -11,14 +11,12 @@ from std_msgs.msg import Empty, String
 
 from skill_registry import TreeValidator, ValidatorConfig
 
-from ..agent.api import Agent
 from ..agent.link import PushAgentBackend, PushLink
-from ..sensing import Camera
 from ..common.config import ARTIFACTS_DIR
-from ..skills.runtime import SkillContext, SkillRunner
+from ..skills.runtime import SkillRunner
 from ..tree.leaf import SkillLeaf, make_leaf_factory
 from ..tree.engine import BehaviorTree, Context, Status, TreeError
-from ..vlm.client import VlmClient, VlmClientConfig
+from ..vlm.client import VlmClientConfig
 from .node_setup import Tracer, load_skills
 from ..common.topics import (AGENT_EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, CANCEL_TOPIC, COMMAND_QOS,
                      LATCHED_QOS as STATUS_QOS, RECORDER_STATUS_TOPIC as RECORDER_TOPIC, SPEAK_TOPIC, STATUS_TOPIC,
@@ -71,17 +69,21 @@ class ExecutorNode(Node):
         self.preflight_passed  = False      # the last preflight run since the launch succeeded
         self.recorder_status  = {'ready': False, 'reason': 'no status from run_recorder yet'}
 
-        self.tracer   = Tracer(self, 'executor')
-        self.ctx      = SkillContext(
+        self.tracer = Tracer(self, 'executor')
+        speaker     = self.create_publisher(String, SPEAK_TOPIC, 10)                  # unitree_interface's TTS (remapped ~/tts)
+        speak       = lambda text: speaker.publish(String(data=text))
+        self.runner = SkillRunner(
             self,
-            Camera(self, self.image_topic, self.camera_info_topic),
-            VlmClient(VlmClientConfig(base_url=self.vlm_base_url, model=self.vlm_model, timeout_s=self.vlm_timeout)),
-            artifacts_dir=self.capture_dir
+            self.registry,
+            (self.image_topic, self.camera_info_topic),
+            self.library,
+            vlm=VlmClientConfig(base_url=self.vlm_base_url, model=self.vlm_model, timeout_s=self.vlm_timeout),
+            artifacts_dir=self.capture_dir,
+            agent_backend=self._make_agent_backend(speak),
+            on_agent_event=self._on_agent_event,
+            speak=speak
         )
-        self.runner   = SkillRunner(self.ctx, self.registry, self.library)
-
-        self.agent = self._make_agent()
-        self.tree  = None
+        self.tree   = None
 
         self._status_publisher   = self.create_publisher(String, STATUS_TOPIC, STATUS_QOS)
         self._tree_subscriptions = [
@@ -95,8 +97,8 @@ class ExecutorNode(Node):
         self._publish_status('idle')
         self.get_logger().info(f'{len(self.registry)} skills, {len(self.places)} places')
 
-    def _make_agent(self) -> Agent | None:
-        """The runner of agent skills, or None if agent_backend is none or unknown"""
+    def _make_agent_backend(self, speak) -> PushAgentBackend | None:
+        """The backend of agent skills, or None if agent_backend is none or unknown"""
         backend_name = self.declare_parameter('agent_backend', 'push').value            # push | none
 
         if backend_name == 'none':
@@ -106,14 +108,11 @@ class ExecutorNode(Node):
             self.get_logger().warn(f'no agent: unknown agent_backend {backend_name}')
             return None
 
-        speaker = self.create_publisher(String, SPEAK_TOPIC, 10)                  # unitree_interface's TTS (remapped ~/tts)
-        speak   = lambda text: speaker.publish(String(data=text))
-
         if not self.declare_parameter('agent_push_host', '').value:   # the site's agent_bridge, or agent_push_host:=
             self.get_logger().warn('no agent: agent_push_host is not set (launch with site:=<name>); agent skills fail')
             return None
 
-        return Agent(self._make_push_backend(speak), self.ctx, self.library, on_event=self._on_agent_event, speak=speak)
+        return self._make_push_backend(speak)
 
     def _on_link_state(self, text: str):
         """The agent bridge link connected or dropped: in the trace, and in the log, where the robot scripts read it"""
@@ -184,7 +183,7 @@ class ExecutorNode(Node):
         context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record, run_id=run_id)
 
         try:
-            tree = BehaviorTree(xml_text, make_leaf_factory(self.registry, self.runner, self.agent), context)
+            tree = BehaviorTree(xml_text, make_leaf_factory(self.registry, self.runner), context)
         except (TreeError, ValueError) as error:
             self.tracer.emit('rejected', f'tree does not build: {error}', level='error')
             self._publish_status('rejected')
@@ -308,9 +307,6 @@ def main():
             node.tree.halt()
 
         node.runner.shutdown()
-
-        if node.agent is not None:
-            node.agent.shutdown()
         node.destroy_node()
         rclpy.try_shutdown()
 

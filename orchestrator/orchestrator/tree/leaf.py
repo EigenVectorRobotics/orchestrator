@@ -19,7 +19,13 @@ class SkillHandle(Protocol):
     def cancel(self): ...
 
 
+class AgentRunner(Protocol):
+    def start(self, contract: Contract, inputs: dict, context: Context, path: str = '') -> SkillHandle: ...
+
+
 class SkillRunner(Protocol):
+    agent: AgentRunner | None
+
     def start(self, contract: Contract, inputs: dict) -> SkillHandle: ...
 
 
@@ -205,10 +211,6 @@ class SkillLeaf(TreeNode):
                 self.context.blackboard[target[1:-1]] = outputs[port.name]
 
 
-class AgentRunner(Protocol):
-    def start(self, contract: Contract, inputs: dict, context: Context, path: str = '') -> SkillHandle: ...
-
-
 class AgentLeaf(SkillLeaf):
     """A leaf that runs an agent skill; it sees the tree's record, and its decision can end the whole tree.
 
@@ -291,8 +293,11 @@ class AgentLeaf(SkillLeaf):
             self.runner.say(said)
 
 
-def make_leaf_factory(registry: Registry, runner: SkillRunner, agent: AgentRunner | None = None):
-    """Build each skill leaf of a tree: agent skills run through the agent, every other skill through the runner"""
+def make_leaf_factory(registry: Registry, runner: SkillRunner):
+    """Build each skill leaf of a tree: agent skills run through the runner's agent, every other skill through the
+    runner"""
+    agent = runner.agent
+
     def build_leaf(skill_name: str, path: str, attributes: dict, context: Context) -> TreeNode:
         contract = registry.get(skill_name)
 

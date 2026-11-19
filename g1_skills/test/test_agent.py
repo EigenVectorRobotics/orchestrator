@@ -85,10 +85,11 @@ class FakeHandle:
 class FakeRunner:
     """press_button plays the given results in order; everything else succeeds"""
 
-    def __init__(self, presses: list[tuple], failing: tuple = ()):
+    def __init__(self, presses: list[tuple], failing: tuple = (), agent=None):
         self.presses = list(presses)
         self.failing = set(failing)             # skills that fail every time, e.g. door_open
         self.calls   = []
+        self.agent   = agent
 
     def start(self, contract, inputs):
         self.calls.append((contract.name, inputs))
@@ -170,8 +171,9 @@ def _session(phase: str, inputs: dict, evidence: dict | None = None, skill: str 
 
 def _tree(xml_text: str, runner: FakeRunner, agent) -> BehaviorTree:
     context = Context(blackboard={'call_panel': dict(PANEL)})
+    runner.agent = agent
 
-    return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
+    return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner), context)
 
 
 # ========== Pieces ==========
@@ -324,7 +326,7 @@ def test_an_ask_help_ends_the_calls_for_its_own_panel_only(tmp_path):
                '<manipulation_recovery base_goal="{inside_panel}"/>'                                 # another panel: called
                '<ForceSuccess><manipulation_recovery base_goal="{call_panel}"/></ForceSuccess>'      # the same panel: not called
                '</Sequence></BehaviorTree></root>')
-    tree    = BehaviorTree(body, make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner([]), Agent(backend)),
+    tree    = BehaviorTree(body, make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner([], agent=Agent(backend))),
                            Context(blackboard={'call_panel': dict(PANEL), 'inside_panel': {**PANEL, 'x': 3.0}}))
     tree.context.last_failure = {'inputs': {}}
 
@@ -582,8 +584,9 @@ def _full_tree(runner: FakeRunner, agent) -> BehaviorTree:
     now     = [0.0]
     clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]          # the tree's Sleeps pass in a few ticks
     context = Context(blackboard={name: dict(pose) for name, pose in PLACES.items()}, clock=clock)
+    runner.agent = agent
 
-    return BehaviorTree(FULL_TREE.read_text(), make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
+    return BehaviorTree(FULL_TREE.read_text(), make_leaf_factory(Registry.from_directory(CONTRACTS), runner), context)
 
 
 def test_stance_check_decisions():
@@ -734,9 +737,9 @@ def _library_ride(runner: FakeRunner) -> BehaviorTree:
     places['inside_freight_elevator_button_panel_floor_1']['x'] = 3.0
     context = Context(blackboard=places, clock=clock)
 
-    agent   = type('FakeAgent', (), {'start': lambda self, contract, inputs, context, path='': runner.start(contract, inputs)})()
+    runner.agent = type('FakeAgent', (), {'start': lambda self, contract, inputs, context, path='': runner.start(contract, inputs)})()
 
-    return BehaviorTree(load_tree(LIBRARY_RIDE), make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), context)
+    return BehaviorTree(load_tree(LIBRARY_RIDE), make_leaf_factory(Registry.from_directory(CONTRACTS), runner), context)
 
 
 def _press_steps(names: list[str]) -> list[str]:

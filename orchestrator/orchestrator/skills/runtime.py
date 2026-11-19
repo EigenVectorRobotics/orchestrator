@@ -8,10 +8,11 @@ from rosidl_runtime_py.utilities import get_message
 from skill_registry import Contract, Registry
 from skill_registry.contract import Watch
 
+from ..agent.api import Agent, AgentBackend
 from ..common.config import ARTIFACTS_DIR
 from ..common.topics import COMMAND_QOS
 from ..sensing import Camera, Tf
-from ..vlm.client import VlmClient
+from ..vlm.client import VlmClient, VlmClientConfig
 from .api import DoneHandle, Handle, Skill
 from .loader import SkillLibrary
 from .transports import Driver, TopicWatch, default_drivers
@@ -94,14 +95,19 @@ CALL_ERRORS = (AttributeError, ValueError, TypeError, KeyError, ModuleNotFoundEr
 
 
 class SkillRunner:
-    """Starts every call of a non-agent skill: the skill's own before, start and wrap around its transport's driver"""
+    """Owns what skills share (the context, each transport's driver, each Skill and the Agent) and starts every call of
+    a non-agent skill: the skill's own before, start and wrap around its transport's driver. Agent skills run through
+    agent, which is None without a backend"""
 
-    def __init__(self, ctx: SkillContext, registry: Registry, library: SkillLibrary | None = None,
-                 drivers: dict[str, Driver] | None = None):
-        self.ctx     = ctx
+    def __init__(self, node: Node, registry: Registry, camera_topics: tuple[str, str], library: SkillLibrary | None = None,
+                 vlm: VlmClientConfig | None = None, artifacts_dir: str = ARTIFACTS_DIR,
+                 agent_backend: AgentBackend | None = None, on_agent_event: Callable[..., None] | None = None,
+                 speak: Callable[[str], None] | None = None, drivers: dict[str, Driver] | None = None):
+        self.ctx     = SkillContext(node, Camera(node, *camera_topics), VlmClient(vlm), artifacts_dir=artifacts_dir)
         self.library = library or SkillLibrary()
         self.drivers = drivers or default_drivers()
         self.skills: dict[str, Skill] = {}
+        self.agent   = None if agent_backend is None else Agent(agent_backend, self.ctx, self.library, on_agent_event, speak)
 
         for contract in registry:
             self.prepare(contract)
@@ -148,5 +154,8 @@ class SkillRunner:
     def shutdown(self):
         for skill in self.skills.values():
             skill.shutdown()
+
+        if self.agent is not None:
+            self.agent.shutdown()
 
         self.ctx.shutdown()

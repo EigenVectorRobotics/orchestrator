@@ -71,6 +71,7 @@ class FakeRunner:
         self.outputs = outputs or {}
         self.calls   = []
         self.handles = []
+        self.agent   = None
 
     def start(self, contract, inputs):
         self.calls.append((contract.name, inputs))

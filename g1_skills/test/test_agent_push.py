@@ -79,7 +79,9 @@ class FakeBridge:
 
 
 def _tree(xml_text: str, runner, agent) -> BehaviorTree:
-    return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner, agent), Context(blackboard={'call_panel': dict(PANEL)}))
+    runner.agent = agent
+
+    return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner), Context(blackboard={'call_panel': dict(PANEL)}))
 
 
 def _agent(backend, press: dict) -> Agent:
@@ -294,8 +296,8 @@ def test_a_confirm_past_its_timeout_tells_the_bridge_to_drop_it(tmp_path):
     now     = [0.0]
     bridge  = FakeBridge(lambda header, blobs, conn: None)
     backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port))
-    tree    = BehaviorTree(_body(SKILLS['confirm'][1]), make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner([]),
-                           _agent(backend, None)), Context(clock=lambda: now[0]))
+    tree    = BehaviorTree(_body(SKILLS['confirm'][1]), make_leaf_factory(Registry.from_directory(CONTRACTS),
+                           FakeRunner([], agent=_agent(backend, None))), Context(clock=lambda: now[0]))
 
     try:
         for _ in range(1000):
