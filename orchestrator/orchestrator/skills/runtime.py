@@ -1,4 +1,5 @@
 from typing import Callable, TypeVar
+from dataclasses import dataclass, field
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from rclpy.node import Node
@@ -94,16 +95,45 @@ class SkillContext:
 CALL_ERRORS = (AttributeError, ValueError, TypeError, KeyError, ModuleNotFoundError)
 
 
+@dataclass
+class SkillRunnerConfig:
+    """The skills' settings: the camera, the VLM, and where skills save files for the agent and the recorder"""
+
+    image_topic:       str = '/camera/camera/color/image_raw'
+    camera_info_topic: str = '/camera/camera/color/camera_info'
+    vlm:               VlmClientConfig = field(default_factory=lambda: VlmClientConfig(timeout_s=40.0))   # Cosmos: one request at a time
+    artifacts_dir:     str = ARTIFACTS_DIR
+
+    @classmethod
+    def from_node(cls, node: Node) -> 'SkillRunnerConfig':
+        """Declare the skills' parameters on node and read them"""
+        default = cls()
+        value   = lambda name, fallback: node.declare_parameter(name, fallback).value
+
+        return cls(
+            image_topic=value('image_topic', default.image_topic),
+            camera_info_topic=value('camera_info_topic', default.camera_info_topic),
+            vlm=VlmClientConfig(
+                base_url=value('vlm_base_url', default.vlm.base_url),
+                model=value('vlm_model', default.vlm.model),
+                timeout_s=value('vlm_timeout_s', default.vlm.timeout_s)
+            ),
+            artifacts_dir=value('capture_dir', default.artifacts_dir)
+        )
+
+
 class SkillRunner:
     """Owns what skills share (the context, each transport's driver, each Skill and the Agent) and starts every call of
     a non-agent skill: the skill's own before, start and wrap around its transport's driver. Agent skills run through
     agent, which is None without a backend"""
 
-    def __init__(self, node: Node, registry: Registry, camera_topics: tuple[str, str], library: SkillLibrary | None = None,
-                 vlm: VlmClientConfig | None = None, artifacts_dir: str = ARTIFACTS_DIR,
-                 agent_backend: AgentBackend | None = None, on_agent_event: Callable[..., None] | None = None,
-                 speak: Callable[[str], None] | None = None, drivers: dict[str, Driver] | None = None):
-        self.ctx     = SkillContext(node, Camera(node, *camera_topics), VlmClient(vlm), artifacts_dir=artifacts_dir)
+    def __init__(self, node: Node, registry: Registry, config: SkillRunnerConfig | None = None,
+                 library: SkillLibrary | None = None, agent_backend: AgentBackend | None = None,
+                 on_agent_event: Callable[..., None] | None = None, speak: Callable[[str], None] | None = None,
+                 drivers: dict[str, Driver] | None = None):
+        config       = config or SkillRunnerConfig()
+        camera       = Camera(node, config.image_topic, config.camera_info_topic)
+        self.ctx     = SkillContext(node, camera, VlmClient(config.vlm), artifacts_dir=config.artifacts_dir)
         self.library = library or SkillLibrary()
         self.drivers = drivers or default_drivers()
         self.skills: dict[str, Skill] = {}
