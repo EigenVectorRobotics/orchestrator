@@ -10,7 +10,7 @@ What runs where: how to reach each machine, the workspace in use, the branch of 
 
 Three kinds of statement, marked as such:
 
-- **Checked (2026-11-19, afternoon):** seen on the machine then, during the first robot run of `integration`. This is the only machine state in this part. Everything not marked otherwise is of this kind.
+- **Checked (2026-11-19, evening):** seen on the machine then, after the team updated the repositories on all three machines and the workspaces were rebuilt from clean (17:35 to 17:51). This is the only machine state in this part. Everything not marked otherwise is of this kind.
 - **Checked (2026-11-08):** seen then and not looked at since; marked where it appears.
 - **GitHub (2026-11-17):** read from the repositories on GitHub, not from a machine.
 
@@ -27,24 +27,33 @@ What to check on the robot is in "Re-check on the robot", as questions.
 - `env.sh` in each workspace is written by `eigen_vector/scripts/deploy.sh`; source it before any ROS command on that machine. On the NUC, `~/orchestrator_ws/env.sh` sources the stack's environment too.
 - Passwords are not kept in the repository: ask the team. From the laptop, the Orin and the Thor are reached most reliably through the NUC (`ssh vector@vector-nuc "ssh unitree@192.168.123.164 '...'"`); `ssh -J` to them has timed out.
 - `deploy.sh launch orin` reaches the Orin at `192.168.123.164` through the NUC, so the laptop needs that address's current host key in `known_hosts`.
-- A build by hand uses the arguments `deploy.sh` uses: `COLCON_ARGS` in `eigen_vector` `config/nuc.env` and `config/orin.env` (`--symlink-install` and `CycloneDDS_DIR`). On the NUC, one worker and never with the robot standing ([run.md](run.md#2-deploy-on-the-nuc)).
+- A build by hand uses the arguments `deploy.sh` uses: `COLCON_ARGS` in `eigen_vector` `config/nuc.env` and `config/orin.env` (`--symlink-install` and `CycloneDDS_DIR`), `config/thor.env` (`--symlink-install`). On the NUC, never with the robot standing ([run.md](run.md#2-deploy-on-the-nuc)): one worker under a standing robot is still forbidden; with the robot in the gantry, all cores is fine (the clean NUC build then takes under 15 minutes). The rebuild of 2026-11-19, from each workspace (NUC and Orin `~/eigen_vector_ws`, Thor `~/eigen_vector_ws`), after `rm -rf build install log` and `source env.sh`:
+
+  ```bash
+  colcon build --base-paths src --symlink-install --cmake-args -DCycloneDDS_DIR=$HOME/eigen_vector_ws/src/unitree_interface/cmake/unitree_cyclonedds   # NUC
+  colcon build --base-paths src --symlink-install --packages-skip g1_pilot --cmake-args -DCycloneDDS_DIR=$HOME/eigen_vector_ws/src/unitree_interface/cmake/unitree_cyclonedds   # Orin
+  colcon build --base-paths src --symlink-install   # Thor
+  ```
+
+  Then the orchestrator overlay on the NUC, also from clean ([run.md](run.md#2-deploy-on-the-nuc)).
+- **Do not run `deploy.sh build` or `install` on these workspaces as they are:** its `bringup_copy` (`eigen_vector` `scripts/provision.sh`) still copies `bringup` to `src/bringup`, which would be a second package `bringup` next to `src/eigen_vector/bringup`.
 - `git fetch` on the NUC and the Orin needs your SSH agent: `ssh -A` to the NUC, and `ssh -A` again from there to the Orin.
 
 ### Repositories on each machine
 
 Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a row holds the local changes the machine had before the branch in the row was checked out; `git stash list` in that checkout shows it.
 
-**bringup comes from `eigen_vector` `main`**, directory `bringup/`. Since 2026-10-26 (`eigen_vector` `8e498d7`, "bringup lives here") the package lives in `eigen_vector`; `deploy.sh` sends it and `provision.sh` copies it to `src/bringup` on each machine, so it is never a git checkout there. The separate repository `EigenVectorRobotics/bringup` stopped at 2026-10-27 (`4c70a72`): its `nuc.launch.py` starts only the arm visual servoing (no robot interface, navigation, SLAM or `door_state_node`), so `nuc_up` cannot pass with it. Do not deploy from it.
+**bringup comes from the `eigen_vector` checkout in `src/`.** Since 2026-11-19 the NUC and the Orin have the repository `eigen_vector` cloned as `src/eigen_vector`, and colcon builds the package `bringup` from its `bringup/` directory; there is no copied `src/bringup` any more. The Thor's running workspace `~/eigen_vector_ws_bringup` still has a copied `bringup` (below). The separate repository `EigenVectorRobotics/bringup` stopped at 2026-10-27 (`4c70a72`): its `nuc.launch.py` starts only the arm visual servoing, so `nuc_up` cannot pass with it. Do not deploy from it.
 
 #### NUC, `~/eigen_vector_ws/src`
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `bringup` | not a git checkout | `nuc.launch.py` includes `door_state_node.launch.py`; `cyclonedds.xml` has `MaxAutoParticipantIndex` 120; `floor_map_selector` is still in `nuc.launch.py` and `CMakeLists.txt` (item 5), so this is not a plain copy of `eigen_vector` `main` |
+| `eigen_vector` | `main` @ `9306407` | clean. `bringup/launch/nuc.launch.py` includes `door_state_node.launch.py` and has no `floor_map_selector`; `bringup/config/cyclonedds.xml` has `MaxAutoParticipantIndex` 120 |
 | `manipulation_stack` | `fix/button-press-aim` @ `826c8d7` (since 2026-11-19; the team's choice for the press) | clean. Stash "nuc: fix/final-leg-foot-world worktree ... before fix/button-press-aim 2026-11-19": the earlier `fix/final-leg-foot-world` @ `f8d28b3` worktree, of which only a `planning.cpp` change and a D435 mount in the URDF (x 0.068963) were not on the branch. The D435 mount now is the branch's (0.081099, 0.023467, 0.414921) |
-| `navigation_stack` | `main` @ `91eef10` | 33 files changed, not committed (not looked at) |
+| `navigation_stack` | `main` @ `4cf9d87` | no tracked file changed; 32 untracked backup copies (`*.pre_*` and the like) |
 | `elevator_states` | `main` @ `d71ad3d` | 1 file changed, not committed: `config/elevator_door_state.yaml` `places_file` is `/home/vector/maps/fvd_map.places.yaml` (see "Only on a machine") |
-| `unitree_interface` | `main` @ `421e70f` | clean |
+| `unitree_interface` | `main` @ `599e2ff` | clean |
 | `livox_ros_driver2` | `master` @ `7e4114a` | clean |
 | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
 
@@ -52,28 +61,29 @@ Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `orchestrator` | `integration` @ `00a6297` | clean; built 2026-11-19 |
+| `orchestrator` | `integration` @ `a095f04` | clean; built from clean on 2026-11-19 on the rebuilt stack |
 
 #### Orin, `~/eigen_vector_ws/src`
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `bringup` | not a git checkout; `orin.launch.py` starts `gripper_pose_estimator` | |
-| `manipulation_stack` | `fix/button-press-aim` @ `826c8d7` (since 2026-11-19) | clean. Stash "orin: main worktree ... before fix/button-press-aim 2026-11-19": `main` @ `4f12ae1` with 3 files changed (`gripper_fit.py`, `gripper_pose_estimator.py`, `utils.py`). Built: `g1_description`, `humanoid_manipulation_interfaces`, `humanoid_arm_skills`. Not built: `g1_pilot`, which needs `casadi`, not installed on the Orin; the Orin runs no `g1_pilot` node. `eigen_vector` `repos/orin.repos` does not list `manipulation_stack` |
-| `track_anything` | `perf/track3d-latest-frame` @ `191b222` | 7 files changed, not committed |
-| `vlm` | `main` @ `3ca4861` | clean |
-| `unitree_interface` | `main` @ `5e3257a` | clean |
+| `eigen_vector` | `fix/orin-depth-848x480` @ `eb0b6b5` | clean. Two commits not on `main` (`4ec68c5` depth at 848x480, `eb0b6b5` the estimator's wrist pitch); behind `main` by its merges #6 (Dex1 service) and #7. `bringup/launch/orin.launch.py` starts `gripper_pose_estimator` |
+| `manipulation_stack` | `fix/button-press-aim` @ `826c8d7` (since 2026-11-19) | clean. Stash "orin: main worktree ... before fix/button-press-aim 2026-11-19": `main` @ `4f12ae1` with 3 files changed (`gripper_fit.py`, `gripper_pose_estimator.py`, `utils.py`). `g1_pilot` is not built: it needs `casadi`, not installed on the Orin, and the Orin runs no `g1_pilot` node. `eigen_vector` `repos/orin.repos` does not list `manipulation_stack` |
+| `track_anything` | `main` @ `4d1c755` | 1 file changed, not committed: `track_anything/track_3d_params.py`, one line added |
+| `vlm` | `main` @ `196d071` | clean |
+| `unitree_interface` | `main` @ `599e2ff` | clean |
 | `rmw_cyclonedds` | `humble` @ `e370e09` | clean |
 
 #### Thor
 
 | Workspace | Repository | Branch @ commit | Local state |
 |---|---|---|---|
-| `~/eigen_vector_ws_bringup` | `bringup` | not a git checkout | |
-| | `vlm` | `main` @ `3ca4861` | clean; `ground_server` runs from here |
+| `~/eigen_vector_ws_bringup` | `bringup` | not a git checkout (copied) | the workspace that runs: `launch_thor_stack` and the bringup start from it. Not updated or rebuilt on 2026-11-19 |
+| | `vlm` | `main` @ `3ca4861` (2026-10-29) | clean; `ground_server` runs from here |
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
+| `~/eigen_vector_ws` | `track_anything` | `main` @ `4d1c755` | clean; updated and rebuilt from clean on 2026-11-19 |
+| | `vlm` | `main` @ `196d071` | clean; updated and rebuilt from clean on 2026-11-19. Nothing runs from this workspace (re-check question 5) |
 | `~/orchestrator_ws` | `orchestrator` | `ltx-dev` @ `8d8fe7d` | has no `orchestrator/orchestrator/vlm/server.py`, so `launch_thor_stack` cannot start `vlm_server` from it (item 12) |
-| `~/eigen_vector_ws` | `track_anything` `trt` @ `f5a1f47`, `vlm` `thor` @ `3ca4861` (checked 2026-11-08) | | not in use |
 
 Running when checked (2026-11-19): the Thor had booted at 15:34 and ran no stack: no `eigen_vector_bringup` session, no `vlm_server` or `cosmos_vlm` session; the container `edgellm` came up with the bringup started by hand at 16:28. The VLM endpoint `http://vector-thor:8090/v1` was not started. The Thor also came back with no stack after it rebooted on its own on 2026-11-08 ([troubleshooting.md](troubleshooting.md), "Machines and processes").
 
@@ -81,8 +91,6 @@ Running when checked (2026-11-19): the Thor had booted at 15:34 and ran no stack
 
 | Machine | Path | What | Status |
 |---|---|---|---|
-| NUC | `~/eigen_vector_ws/src/bringup/config/cyclonedds.xml` | `MaxAutoParticipantIndex` 120, because CycloneDDS's automatic participant index range (32 by default) filled up and new processes failed with `Failed to find a free participant index` | present (2026-11-19). **GitHub:** also on `eigen_vector` `main` (PR #3 and `dfabc71`, 2026-11-14), so a redeploy from `main` keeps it |
-| NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py`, and still the hand-made `floor_map_selector` | `door_state_node` starts with the stack (2026-11-19). **GitHub:** the include is on `eigen_vector` `main` since 2026-11-10 (PR #2, `77382fb`); `floor_map_selector` is not (item 5) |
 | NUC | `~/eigen_vector_ws/src/elevator_states/config/elevator_door_state.yaml` | `places_file: /home/vector/maps/fvd_map.places.yaml`, the door areas (`freight elevator cabin`, `freight elevator hall`) of the map in use. Committed on `elevator_states` `main` @ `d71ad3d`: `two_floor_clean_cabin2.places.yaml`; the refactored `elevator_states` has no such file, so the value cannot be committed there | set and built 2026-11-19. Change it with the map ([The map](run.md#the-map)), then build `elevator_states` |
 | NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two (what ran on 2026-11-08) | not used on 2026-11-19: the stack ran from one `nuc.launch.py` |
 | NUC | `~/maps/<map>.pcd`, `~/maps/<map>.places.yaml` (backups `*.bak_*`) | the maps and their places files; the one in use: [The map](run.md#the-map). The freight elevator is `fvd_map` (its places come from `two_floor_clean_cabin2`); `fvd_map_clean_elevator1` and `fvd_map_clean_elevator2` are two other elevators | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
@@ -109,9 +117,10 @@ Questions the next check must answer. Each is open until someone looks on the ma
 
 1. Orin: with the gripper in the camera's view, does `gripper_pose_estimator` publish `right_dex1_base_link_estimate` and `left_dex1_base_link_estimate`, and does a press record `residual_from` other than `encoders`? On 2026-11-19 neither frame was seen (the arm was out of view), and every press used the encoders.
 2. Orin: where do the CycloneDDS errors `invalid data size` and `string data is not null-terminated` (`rmw_cyclonedds_cpp/src/serdata.cpp:384`) come from? `realsense2_camera_node` and `gripper_pose_estimator` print them, 41 to 135 times per launch; a message type that differs between Humble (Orin) and Jazzy (NUC) is suspected.
-3. NUC: what are the 33 uncommitted files in `navigation_stack`, and is `main` with them what is meant to run?
-4. NUC: should `bringup` be redeployed from `eigen_vector` `main`, which removes `floor_map_selector` (item 5)?
-5. Thor: should `eigen_vector_bringup` start on boot, and which `orchestrator` checkout should the Thor have for `vlm_server` (item 12)?
+3. Orin: is `eigen_vector` `fix/orin-depth-848x480` meant to run there, rather than `main` (which has #6 and #7 and not these two commits)?
+4. NUC and Orin: when `deploy.sh` stops copying `bringup` to `src/bringup` (the note under "Machines"), can `deploy.sh build` be used again?
+5. Thor: should the stack move from `~/eigen_vector_ws_bringup` (copied `bringup`, `vlm` of 2026-10-29) to `~/eigen_vector_ws` with an `eigen_vector` checkout, as on the NUC and the Orin? Should it start on boot, and which `orchestrator` checkout should the Thor have for `vlm_server` (item 12)?
+6. The stacks have not run since the rebuild: the next bring-up checks `nuc_up`, `orin_up`, `thor_up` and preflight on the rebuilt workspaces.
 
 ### Not in use
 
@@ -169,11 +178,10 @@ Repository side checked against `ltx-reorg` and GitHub on 2026-11-17. Robot side
 - **Why:** the stale-node check in preflight (`no_stray_processes`) expects every stack node to come from `nuc.launch.py` (`HOSTS` in `orchestrator/orchestrator/health/stale_nodes.py`).
 - **On the NUC:** the stack ran from one `bringup nuc.launch.py`, and preflight passed with no stale-node warning.
 
-#### 5. Remove `floor_map_selector`. Status: open
+#### 5. Remove `floor_map_selector`. Status: done (2026-11-19)
 
 - **Why:** `nuc_up` no longer waits for `/prior_map` (`8cbc9be`). Foxglove shows the current floor from `/route_planner/terrain`.
-- **Repository side:** done. `eigen_vector` `main` has no `floor_map_selector`, so a bringup deploy from `main` replaces the hand-edited copy.
-- **Change on the NUC:** remove the hand-made `~/eigen_vector_ws/src/bringup/scripts/floor_map_selector.py`, its line in bringup's `CMakeLists.txt` and its node in `launch/nuc.launch.py`, at the next bringup deploy. Still there on 2026-11-19.
+- **On the NUC:** `bringup` now builds from `src/eigen_vector` (`main` @ `9306407`), which has no `floor_map_selector`; the hand-edited copy in `src/bringup` is gone.
 
 #### 6. Stop the old EKF-reset watcher. Status: open
 
@@ -210,7 +218,7 @@ The NUC runs `fix/button-press-aim` @ `826c8d7` since 2026-11-19, built as `depl
 
 #### 10b. Build the `g1_skills` package. Status: done (2026-11-19)
 
-- **On the NUC:** the three packages are built from `integration` @ `00a6297`; the executor logs `45 skills, 13 places` at start.
+- **On the NUC:** the three packages are built from `integration` (`a095f04`, from clean on the rebuilt stack); on `00a6297` the executor logged `45 skills, 13 places` at start.
 
 ### Orin
 
