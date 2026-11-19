@@ -17,6 +17,7 @@ CODE_FILE     = 'code.py'                # and, for a code skill, <skills_dir>/<
 # The agent folder's names; the launch file and scripts/link_agent_dir.sh use the same
 SKILLS     = 'skills'
 KNOWLEDGE  = 'knowledge'
+REMOVED    = 'removed_skills'                # skill folders a person removed (skill_review.remove); not in git
 STAMPS     = 'stamps.yaml'
 RUNBOOK    = 'runbook.md'
 
@@ -86,6 +87,7 @@ class Registry:
         self.deny                            = deny if deny is not None else DenyList.load()
         self.denied:     dict[str, list[str]] = {}  # skill name -> why it was left out
         self._file_times: dict[str, float]    = {}  # refresh: skill folder -> the mtime of its contract when last read
+        self._gone_once:  set[str]            = set()  # folders missing at the last refresh: gone if missing again
         self._refreshing                      = threading.Lock()
 
         for contract in contracts or []:
@@ -140,11 +142,13 @@ class Registry:
     def refresh(self, directory: Path, check=lambda contract: []) -> tuple[list[str], dict[str, str]]:
         """The one way in while it runs: load the files that are new or changed (a contract the agent wrote, or a
         person's edit), each through admit_errors and check (e.g. its ROS types). Returns the skills that changed,
-        and the skill folders that did not load with why. Nothing is removed"""
+        and the skill folders that did not load with why. A skill whose folder is gone unloads (_unload_gone)"""
         with self._refreshing:
             pending, errors = {}, {}
+            paths           = contract_files(directory)
+            self._unload_gone(directory, {path.parent.name for path in paths}, errors)
 
-            for path in contract_files(directory):
+            for path in paths:
                 folder = path.parent.name
                 mtime  = path.stat().st_mtime
 
@@ -168,6 +172,50 @@ class Registry:
             logging.getLogger('skill_registry').warning(f'{folder} not loaded: {error}')
 
         return changed, errors
+
+    def _unload_gone(self, directory: Path, folders: set[str], errors: dict[str, str]):
+        """A skill folder that was read and is missing at two refreshes in a row (a person removed it) unloads. Not
+        while the library is missing or empty: a link made again or a git checkout is a gap, not a removal. A skill
+        that a staying skill uses (pre, effects, check, fallback, or a call in its code) stays loaded until a restart,
+        because that one would break; it is said once"""
+        if missing_folder(directory) or not folders:
+            return
+
+        gone            = {name for name in self._file_times if name not in folders}
+        confirmed       = gone & self._gone_once
+        self._gone_once = gone - confirmed
+        leaving         = set(confirmed)
+
+        while users := {name: sorted(other.name for other in self if other.name not in leaving
+                                     and name in self._uses(other, directory)) for name in leaving}:
+            staying = {name: names for name, names in users.items() if names}
+
+            if not staying:
+                break
+
+            for name, names in staying.items():
+                errors[name] = f'its folder is gone, but {", ".join(names)} use it: it stays loaded until a restart'
+
+            leaving -= set(staying)
+
+        for name in confirmed:
+            del self._file_times[name]
+
+        for name in leaving:
+            if self._contracts.pop(name, None) is not None:
+                logging.getLogger('skill_registry').info(f'{name} unloaded: its folder is gone')
+
+    @staticmethod
+    def _uses(contract: Contract, directory: Path) -> list[str]:
+        """The skills this one names, and for a code skill the skills its Python calls"""
+        from .skill_stamps import called_skills      # skill_stamps imports this module
+
+        try:
+            code = code_file(contract.name, directory).read_text() if contract.interface.transport == 'code' else ''
+        except OSError:
+            code = ''
+
+        return [*contract.references, *called_skills(code)[0]] if code else list(contract.references)
 
     def _admit_all(self, pending: dict[str, Contract], check, errors: dict[str, str]) -> list[str]:
         """Admit in passes, so a contract may name another one of the same batch"""

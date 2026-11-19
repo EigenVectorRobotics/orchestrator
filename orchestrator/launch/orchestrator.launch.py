@@ -6,7 +6,7 @@ from launch_ros.substitutions import FindPackageShare
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.actions import Node
 
-from skill_registry import KNOWLEDGE, RUNBOOK, SKILLS, STAMPS, agent_dir
+from skill_registry import KNOWLEDGE, REMOVED, RUNBOOK, SKILLS, STAMPS, agent_dir
 
 
 def generate_launch_description():
@@ -93,7 +93,10 @@ def generate_launch_description():
             output='screen',
             parameters=[params_file, {'port': ParameterValue(LaunchConfiguration('mission_control_port'), value_type=int),
                                       'token': ParameterValue(LaunchConfiguration('mission_control_token'), value_type=str),
-                                      'web_dir': PathJoinSubstitution([FindPackageShare('orchestrator'), 'web'])}],
+                                      'web_dir': PathJoinSubstitution([FindPackageShare('orchestrator'), 'web']),
+                                      'skills_dir': LaunchConfiguration('skills_dir'),
+                                      'stamps_file': PathJoinSubstitution([LaunchConfiguration('agent_dir'), STAMPS]),
+                                      'removed_dir': PathJoinSubstitution([LaunchConfiguration('agent_dir'), REMOVED])}],
             condition=IfCondition(LaunchConfiguration('mission_control'))
         ),
         Node(package='orchestrator', executable='fake_robot', output='screen', condition=IfCondition(fake)),

@@ -25,6 +25,7 @@ import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
+from skill_registry import REMOVED, agent_dir, skills_dir, stamps_file
 from std_msgs.msg import Empty, String
 from sensor_msgs.msg import Image
 from visualization_msgs.msg import ImageMarker
@@ -33,7 +34,7 @@ from .qos import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS, TRACE_QOS
 from .topics import (CANCEL_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
                      STEP_REQUEST_TOPIC, TASK_TOPIC, TRACE_TOPIC)
 from .images import Camera, Outlines
-from .mission_control import DECISION_WAIT, Commands, MissionApi, MissionState, token_ok
+from .mission_control import DECISION_WAIT, Commands, MissionApi, MissionState, SkillShelf, token_ok
 
 
 MAX_BODY  = 64 * 1024
@@ -91,7 +92,10 @@ class MissionControlNode(Node):
         ]
 
         self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel),
-                                       self.camera, token_needed=not off, outlines=self.outlines)
+                                       self.camera, token_needed=not off, outlines=self.outlines,
+                                       skills=SkillShelf(self.declare_parameter('skills_dir', str(skills_dir())).value,
+                                                         self.declare_parameter('stamps_file', str(stamps_file())).value,
+                                                         self.declare_parameter('removed_dir', str(agent_dir() / REMOVED)).value))
         self.create_timer(1.0, self._follow_outlines)
         files              = read_web(web_dir)       # before the port is bound: a missing page is not half a server
         self.server        = ThreadingHTTPServer((host, port), Handler)

@@ -82,6 +82,7 @@ main.wrap { padding-block: 16px 40px; display: grid; gap: 16px; }
 .check { display: flex; gap: 6px; align-items: center; }
 .hint { color: var(--muted); font-size: 12px; }
 .said { font: 500 12px var(--mono); color: var(--accent); }
+#saidrow:has(.said:empty) { display: none; }
 .said.bad { color: var(--bad); }
 
 /* Body grid */
@@ -136,6 +137,58 @@ details.raw summary { cursor: pointer; font: 500 12px var(--mono); color: var(--
 .rawlog div { display: grid; grid-template-columns: 52px 86px minmax(0, 1fr); gap: 8px; word-break: break-word; }
 .rawlog .warn { color: var(--warn); }
 .rawlog .error { color: var(--bad); }
+/* Tabs */
+nav { border-bottom: 1px solid var(--rule); }
+nav .wrap { display: flex; gap: 4px; overflow-x: auto; }
+.tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab .count { font: 500 11px var(--mono); background: var(--lime); color: var(--on-lime); padding: 1px 6px; margin-left: 6px; }
+.view { display: grid; gap: 16px; }
+
+/* Skills: a review queue. The list at the left, the selected skill at the right */
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.seg { display: flex; border: 1px solid var(--rule); }
+.seg button { background: transparent; border: 0; padding: 6px 12px; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.seg .n { font: 500 11px var(--mono); margin-left: 6px; opacity: .8; }
+.search { border: 1px solid var(--rule); background: var(--bg); padding: 6px 10px; min-width: 0; flex: 0 1 240px; }
+.where { font: 400 11px var(--mono); color: var(--muted); margin-left: auto; }
+.skills-grid { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 800px) { .skills-grid { grid-template-columns: minmax(0, 1fr); } }
+.slist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); max-height: 640px; overflow-y: auto; }
+.slist button { display: grid; gap: 2px; width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--rule); padding: 8px 10px; }
+.slist button:hover { background: var(--surface); }
+.slist button[aria-current="true"] { background: var(--lime); color: var(--on-lime); }
+.slist .nm { font: 500 13px var(--mono); }
+.slist .sub { font-size: 12px; color: var(--muted); }
+.slist button[aria-current="true"] .sub { color: inherit; opacity: .8; }
+.slist li.empty { padding: 30px 10px; color: var(--muted); text-align: center; }
+.tagp { display: inline-block; font: 500 10.5px var(--mono); padding: 1px 6px; margin-right: 4px; background: var(--surface); color: var(--muted); }
+.tagp.bad { background: var(--bad-bg); color: var(--bad); }
+.tagp.tested { background: var(--accent); color: var(--on-accent); }
+.detail { display: grid; gap: 18px; min-width: 0; }
+.dhead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
+.dhead h3 { font: 600 22px/1.2 var(--mono); margin: 0 0 4px; word-break: break-word; }
+.dhead p { margin: 0 0 8px; max-width: 70ch; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.btn.bad { background: transparent; color: var(--bad); border: 1px solid var(--bad); }
+.dl { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 16px; margin: 0; }
+.dl dt { font: 500 11px/1.9 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.dl dd { margin: 0; font: 400 13px/1.6 var(--mono); word-break: break-word; }
+.detail h4 { font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: .6px; margin: 0 0 8px; color: var(--muted); }
+.ports { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ports th { text-align: left; font: 500 11px var(--mono); color: var(--muted); padding: 4px 8px 4px 0; border-bottom: 1px solid var(--rule); }
+.ports td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.ports td:first-child { font-family: var(--mono); }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+@media (max-width: 1000px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.linkbtn { background: none; border: 0; padding: 0; font: 500 12px var(--mono); color: var(--accent); text-decoration: underline; text-underline-offset: 2px; margin-right: 10px; }
+details.file summary, details.deny summary { cursor: pointer; font: 500 12px var(--mono); color: var(--muted); }
+details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var(--mono); overflow-x: auto; margin: 8px 0 0; }
+.done-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--surface); padding: 10px 14px; font-size: 13px; }
+.done-bar code { font: 400 12px var(--mono); }
+.problem { background: var(--warn-bg); color: var(--warn); padding: 10px 14px; font: 500 12px var(--mono); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -149,7 +202,16 @@ details.raw summary { cursor: pointer; font: 500 12px var(--mono); color: var(--
   </div>
 </header>
 
+<nav>
+  <div class="wrap" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-view="mission">Mission</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="skills">Skills<span class="count" id="n-tab" title="Skills the agent wrote, to review" hidden></span></button>
+  </div>
+</nav>
+
 <main class="wrap">
+ <div class="row" id="saidrow"><span class="said" id="said"></span></div>
+ <div class="view" id="view-mission">
 
   <!-- The Now band: one of four states -->
   <div class="now gate" id="now-gate" hidden>
@@ -188,8 +250,6 @@ details.raw summary { cursor: pointer; font: 500 12px var(--mono); color: var(--
     </div>
   </div>
 
-  <div class="row"><span class="said" id="said"></span></div>
-
   <div class="grid">
     <section aria-labelledby="h-plan">
       <h2 id="h-plan">Plan <small id="plantag"></small></h2>
@@ -222,6 +282,32 @@ details.raw summary { cursor: pointer; font: 500 12px var(--mono); color: var(--
       </details>
     </section>
   </div>
+ </div>
+
+ <div class="view" id="view-skills" hidden>
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="Show" id="sfilter">
+      <button data-f="review" aria-pressed="true">To review<span class="n" id="n-review"></span></button>
+      <button data-f="broken" aria-pressed="false">Not loading<span class="n" id="n-broken"></span></button>
+      <button data-f="all" aria-pressed="false">All<span class="n" id="n-all"></span></button>
+    </div>
+    <input class="search" id="sfind" type="search" placeholder="Find a skill or a ROS name" aria-label="Find a skill">
+    <span class="where" id="sdir"></span>
+  </div>
+  <div class="problem" id="sproblem" hidden></div>
+  <div class="skills-grid">
+    <ul class="slist" id="slist" aria-label="Skills"></ul>
+    <div class="detail" id="sdetail"></div>
+  </div>
+  <div class="done-bar" id="donebar" hidden>
+    <span id="donetext"></span>
+    <span class="hint">Commit the changes in git: <code>git add skill_registry/skills &amp;&amp; git commit</code></span>
+  </div>
+  <details class="deny">
+    <summary>Deny list (skill_registry/deny.yaml, read only): no skill may use these</summary>
+    <pre id="deny"></pre>
+  </details>
+ </div>
 </main>
 
 <script>
@@ -491,6 +577,139 @@ async function poll() {
     polling = false;
   }
 }
+
+// ---------- Tabs, on the hash ----------
+
+const tabs = document.querySelectorAll('.tab');
+function show(view) {
+  if (!document.getElementById('view-' + view)) view = 'mission';     // the hash is not an element id: no scroll
+  tabs.forEach(tab => tab.setAttribute('aria-selected', tab.dataset.view === view));
+  document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== 'view-' + view);
+  if (view === 'mission') drawCamera();                  // the canvas had no size while it was hidden
+}
+tabs.forEach(tab => tab.addEventListener('click', () => { location.hash = tab.dataset.view; }));
+window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+show(location.hash.slice(1));
+
+// ---------- Skills ----------
+
+let shelf = {skills: []}, sFilter = 'review', sFind = '', selected = null, kept = 0, removed = 0, confirming = null;
+const toReview = item => item.agent && !item.error;
+const sShown = () => shelf.skills
+  .filter(item => sFilter === 'all' || (sFilter === 'review' ? toReview(item) : item.error))
+  .filter(item => !sFind || (item.name + ' ' + ((item.contract.interface || {}).name || '')).toLowerCase().includes(sFind));
+
+async function loadSkills() {
+  try {
+    const answer = await fetch('/api/skills'), body = safe(await answer.json());
+    if (!answer.ok) { $('sproblem').hidden = false; $('sproblem').innerHTML = body.message || 'cannot read the library'; return; }
+    shelf = body;
+  } catch (error) {
+    $('sproblem').hidden = false; $('sproblem').textContent = 'the adapter does not answer';
+    return;
+  }
+  const review = shelf.skills.filter(toReview).length;
+  $('n-review').textContent = review;
+  $('n-broken').textContent = shelf.skills.filter(item => item.error).length;
+  $('n-all').textContent = shelf.skills.length;
+  $('n-tab').textContent = review; $('n-tab').hidden = !review;
+  $('sdir').innerHTML = shelf.directory || '';
+  $('sproblem').hidden = !shelf.problem; $('sproblem').innerHTML = shelf.problem || '';
+  $('deny').innerHTML = shelf.deny || '';
+  once('skills', JSON.stringify([shelf.skills, sFilter, sFind, selected, confirming]), renderSkills);
+}
+
+function pills(item) {
+  const c = item.contract;
+  return (toReview(item) ? '<span class="tagp">to review</span>' : '')
+    + (item.error ? '<span class="tagp bad">does not load</span>' : `<span class="tagp ${c.maturity === 'tested' ? 'tested' : ''}">${c.maturity}</span>`)
+    + (item.code ? '<span class="tagp">code</span>' : '');
+}
+
+function renderSkills() {
+  const items = sShown();
+  if (!items.find(item => item.name === selected)) selected = items[0]?.name ?? null;
+  $('slist').innerHTML = items.length ? items.map(item => {
+    const c = item.contract, i = c.interface || {};
+    return `<li><button data-name="${item.name}" aria-current="${item.name === selected}"><span class="nm">${item.name}</span>
+      <span class="sub">${item.error ? 'does not load' : `${c.kind} · ${i.transport} · ${c.device}`}</span><span>${pills(item)}</span></button></li>`;
+  }).join('') : `<li class="empty">${sFilter === 'review' ? 'Nothing to review: no skill waits for a person.' : 'No skill matches.'}</li>`;
+
+  const item = shelf.skills.find(x => x.name === selected);
+  if (!item) { $('sdetail').innerHTML = ''; return; }
+  const c = item.contract, i = c.interface || {};
+  const link = name => `<button class="linkbtn" data-go="${name}">${name}</button>`;
+  const links = [['needs before', c.pre || []], ['checked by', c.check ? [c.check] : []], ['on failure', c.fallback || []], ['named by', item.named_by]]
+    .filter(([, list]) => list.length).map(([label, list]) => `<dt>${label}</dt><dd>${list.map(link).join('')}</dd>`).join('');
+  const ports = (title, list) => `<div><h4>${title}</h4>` + ((list || []).length
+    ? '<table class="ports"><tr><th>name</th><th>type</th><th>meaning</th></tr>'
+      + list.map(port => `<tr><td>${port.name}</td><td>${port.type}</td><td>${port.description || ''}</td></tr>`).join('') + '</table>'
+    : '<p class="hint">none</p>') + '</div>';
+  // An agent's skill can be kept when it loads, and removed when no other skill names it
+  const blocked = item.named_by.length ? `title="${item.named_by.join(', ')} name it: remove or change those first" disabled` : '';
+  const actions = !item.agent ? ''
+    : confirming === item.name
+      ? `<span class="hint">Move ${item.name} out of the library?</span><button class="btn bad" data-act="remove">Remove</button><button class="btn ghost" data-act="no">No</button>`
+      : (item.error ? '' : '<button class="btn" data-act="keep">Keep</button>') + `<button class="btn bad" data-act="ask" ${blocked}>Remove</button>`;
+  $('sdetail').innerHTML = `
+    <div class="dhead">
+      <div><h3>${item.name}</h3><p>${c.description || ''}</p>${pills(item)}</div>
+      <div class="actions">${actions}</div>
+    </div>
+    ${item.error ? `<div class="problem">${item.error}</div>` : `
+    <dl class="dl">
+      <dt>interface</dt><dd>${i.transport}${i.name ? ' ' + i.name : ''}${i.ros_type ? `<br><span class="hint">${i.ros_type}</span>` : ''}</dd>
+      <dt>device</dt><dd>${c.device}${c.timeout_s ? ` · timeout ${c.timeout_s} s` : ''}</dd>
+      ${links}
+      <dt>written by</dt><dd>${item.agent ? 'the agent (write_skill)' : 'a person, or kept by one'}</dd>
+      ${c.source ? `<dt>from code</dt><dd>${c.source}</dd>` : ''}
+      <dt>runs</dt><dd>${item.runs ? `the last ${item.runs} successful runs` : 'none'}<span class="hint"> (since its last save; 10 at most)</span></dd>
+    </dl>
+    <div class="two">${ports('Inputs', c.inputs)}${ports('Outputs', c.outputs)}</div>`}
+    <details class="file"><summary>contract.yaml</summary><pre>${item.text}</pre></details>
+    ${item.code ? `<details class="file"><summary>code.py</summary><pre>${item.code}</pre></details>` : ''}
+    <p class="hint">Keep takes the agent's mark away: the skill becomes a person's, and the agent may no longer replace it. It stays untested.
+      Remove moves the folder out of the library. To change a skill, edit its file in git.</p>`;
+}
+
+async function review(action) {
+  const name = selected;
+  confirming = null;
+  const item = shelf.skills.find(x => x.name === name) || {};
+  const ok = await send('/api/skill/' + action, { name: plain(name), version: plain(item.version || '') });
+  if (ok) { action === 'keep' ? kept++ : removed++; }
+  $('donebar').hidden = !(kept + removed);
+  $('donetext').textContent = `${kept} kept and ${removed} removed here. Not in git yet.`;
+  drawn.skills = null; loadSkills();
+}
+
+$('sfilter').addEventListener('click', event => {
+  const button = event.target.closest('button'); if (!button) return;
+  sFilter = button.dataset.f;
+  $('sfilter').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b === button));
+  drawn.skills = null; loadSkills();
+});
+$('sfind').addEventListener('input', event => { sFind = event.target.value.trim().toLowerCase(); renderSkills(); });
+$('slist').addEventListener('click', event => {
+  const button = event.target.closest('button'); if (!button) return;
+  selected = button.dataset.name; confirming = null; renderSkills();
+});
+$('sdetail').addEventListener('click', event => {
+  const go = event.target.closest('[data-go]');
+  if (go) {
+    sFilter = 'all'; sFind = ''; $('sfind').value = ''; confirming = null;
+    $('sfilter').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === 'all'));
+    selected = go.dataset.go; renderSkills(); return;
+  }
+  const act = event.target.closest('[data-act]')?.dataset.act;
+  if (act === 'keep') review('keep');
+  if (act === 'remove') review('remove');
+  if (act === 'ask') { confirming = selected; renderSkills(); }
+  if (act === 'no') { confirming = null; renderSkills(); }
+});
+
+loadSkills();
+setInterval(loadSkills, 5000);
 
 $('where').textContent = location.host;
 renderFeed();

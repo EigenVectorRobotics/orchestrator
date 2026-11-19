@@ -14,7 +14,12 @@ import time
 import threading
 
 from collections import deque
+from pathlib import Path
 from typing import Callable
+
+from skill_registry import missing_folder
+from skill_registry.deny import DEFAULT_PATH as DENY_FILE
+from skill_registry.skill_review import ReviewError, keep, library, remove
 
 from .images import Camera, Outlines
 from .topics import TASK_OPTIONS
@@ -164,18 +169,68 @@ class Commands:
         return 200, {'ok': True, 'message': 'cancel sent'}
 
 
+class SkillShelf:
+    """The Skills tab: the library as files, and a person's keep or remove of a skill the agent wrote (skill_review).
+    The executor's registry sees each change at its next refresh"""
+
+    def __init__(self, directory, stamps_file, removed_dir):
+        self.directory   = Path(directory)
+        self.stamps_file = stamps_file
+        self.removed_dir = Path(removed_dir)
+
+    def get(self) -> tuple[int, dict]:
+        try:
+            deny = DENY_FILE.read_text()
+        except OSError as error:
+            deny = f'(cannot read {DENY_FILE}: {error})'
+
+        try:
+            skills = library(self.directory, self.stamps_file)
+        except OSError as error:                    # e.g. a folder moved between the listing and the read
+            return 500, {'ok': False, 'message': f'cannot read the library: {error}'}
+
+        return 200, {'skills': skills, 'problem': missing_folder(self.directory), 'deny': deny,
+                     'directory': str(self.directory)}
+
+    def keep(self, body: dict) -> tuple[int, dict]:
+        return self._review(lambda name, version: keep(self.directory, name, self.stamps_file, version), body)
+
+    def remove(self, body: dict) -> tuple[int, dict]:
+        return self._review(lambda name, version: remove(self.directory, name, self.removed_dir, self.stamps_file, version),
+                            body)
+
+    def _review(self, action, body: dict) -> tuple[int, dict]:
+        """A page names the skill and the version it showed: a newer one is never kept or removed unread"""
+        name, version = body.get('name'), body.get('version')
+
+        if not isinstance(name, str) or not name or not isinstance(version, str) or not version:
+            return 400, {'ok': False, 'message': 'name the skill and the version you read'}
+
+        try:
+            return 200, {'ok': True, 'message': action(name, version)}
+        except ReviewError as error:
+            return 409, {'ok': False, 'message': str(error)}
+        except OSError as error:
+            return 500, {'ok': False, 'message': f'the file change failed: {error}'}
+
+
 class MissionApi:
     """The paths under /api; the node's web server does the HTTP and the files"""
 
     def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None,
-                 token_needed: bool = True, outlines: Outlines | None = None):
+                 token_needed: bool = True, outlines: Outlines | None = None, skills: SkillShelf | None = None):
         self.state        = state
         self.camera       = camera or Camera()
         self.outlines     = outlines or Outlines()
         self.token_needed = token_needed     # the page says so when it holds no token; it cannot see the parameter
-        self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel}
+        self.skills       = skills
+        self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel,
+                             **({'/api/skill/keep': skills.keep, '/api/skill/remove': skills.remove} if skills else {})}
 
     def get(self, path: str, query: dict) -> tuple[int, dict]:
+        if path == '/api/skills' and self.skills:
+            return self.skills.get()
+
         if path != '/api/state':
             return 404, {'ok': False, 'message': f'no such path {path}'}
 

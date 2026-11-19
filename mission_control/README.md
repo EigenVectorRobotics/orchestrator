@@ -7,7 +7,7 @@ Two pages live here and in the package:
 - **The live page**: `orchestrator/web/index.html`, served by the adapter node (`orchestrator/orchestrator/mission_control_node.py`). It has the Mission tab of `v2.html`. It sends a mission, a step decision and a cancel.
 - **The design**: `mockup/v2.html`, sample data, opened straight in a browser. The live page is built from it, one tab at a time:
   - **Mission**: the "Now" band shows what needs the operator. That is a step to approve or refuse, the running step, or the mission box. The page has no keyboard shortcuts: each decision is a click on its button, because a step may move the robot. Below it: the plan as a timeline, the camera with the EdgeTAM mask outlines and a small map, and the agent feed. The raw trace is in a closed panel.
-  - **Skills**: a review queue for the skills that the agent wrote. **Keep** removes the agent's mark line. The operator commits the change in git by hand. **Remove** deletes the skill folder.
+  - **Skills**: a review queue for the skills that the agent wrote. **Keep** removes the agent's mark lines. The operator commits the change in git by hand. **Remove** moves the skill folder out of the library.
   - **Knowledge**: first the grades to commit, the beliefs ready to become facts, and the claims contradicted lately. Then all claims. The page approves a fact with the page token. The log records "operator via Mission Control".
   - **Runs**: each run with its steps to scale, its plan and what it left (skills, claims, grades). Also its bundle and its code versions.
   - The page escapes each value from the adapter once, where it comes in. The agent writes much of that text, and the page holds the operator's token.
@@ -19,7 +19,9 @@ What the live Mission tab gets from the adapter:
 - **Camera masks:** the adapter subscribes to `/track_3d/mask_outlines` only while the page shows the masks, because track_3d works on the outlines only while something subscribes.
 - **Agent feed:** the trace events as short lines. It does not have the agent's own reasoning yet: that is in the session log of Codex or Claude Code, which the adapter does not read.
 
-Still to build in the live page: the small map, and the Skills, Knowledge and Runs tabs. Those tabs need the adapter to read the skill library, the knowledge store and the run folders.
+- **Skills tab:** the adapter reads the library files (`skill_registry/skill_review.py`). Keep and Remove need the page token, and they work only on a skill that the agent wrote. Keep takes the mark lines away; the skill stays untested, and the agent may no longer replace it. Remove moves the folder to `$EIGEN_VECTOR_WS/agent/removed_skills/`; it refuses a skill that another skill names. The executor's registry sees each change at its next refresh (5 s). A removed skill unloads when its folder is missing at two refreshes in a row, and not while the whole library is missing or empty (a git checkout, a link made again). Git is the operator's own step. Not shown yet: whether a skill is stale or live (only the executor knows).
+
+Still to build in the live page: the small map, and the Knowledge and Runs tabs. Those tabs need the adapter to read the knowledge store and the run folders.
 
 ## How it runs
 

@@ -1,7 +1,11 @@
 from types import SimpleNamespace
 
+import yaml
+
+from skill_registry.contract import AGENT_MARK
+
 from orchestrator.images import Camera, Outlines
-from orchestrator.mission_control import Commands, MissionApi, MissionState, token_ok
+from orchestrator.mission_control import Commands, MissionApi, MissionState, SkillShelf, token_ok
 
 
 def _api(reply: dict | None = {'accepted': True, 'message': 'approved'}, listening: bool = True):
@@ -222,3 +226,31 @@ def test_old_outlines_and_an_old_ask_count_for_nothing():
     outlines.ask()
 
     assert outlines.state() == {} and not outlines.wanted()
+
+
+def test_the_skills_tab_lists_the_library_and_keeps_or_removes_an_agent_skill(tmp_path):
+    library = tmp_path / 'skills'
+    (library / 'say_it').mkdir(parents=True)
+    (library / 'say_it' / 'contract.yaml').write_text(AGENT_MARK + yaml.safe_dump(
+        {'name': 'say_it', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5,
+         'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String'}}))
+    api = MissionApi(MissionState(), Commands(None, None, None),
+                     skills=SkillShelf(library, tmp_path / 'stamps.yaml', tmp_path / 'removed'))
+
+    code, shelf = api.get('/api/skills', {})
+
+    assert code == 200 and [item['name'] for item in shelf['skills']] == ['say_it'] and 'rt/' in shelf['deny']
+    version = shelf['skills'][0]['version']
+
+    assert api.post('/api/skill/keep', {})[0] == 400
+    assert api.post('/api/skill/keep', {'name': 'say_it'})[0] == 400                 # no version read: nothing changes
+    assert api.post('/api/skill/remove', {'name': 'nothing', 'version': version})[0] == 409
+    assert api.post('/api/skill/keep', {'name': 'say_it', 'version': version})[0] == 200
+    assert api.post('/api/skill/remove', {'name': 'say_it', 'version': version}) == (409, {'ok': False, 'message':
+        'say_it was written or kept by a person: remove it in git'})
+    assert MissionApi(MissionState(), Commands(None, None, None)).get('/api/skills', {})[0] == 404   # no shelf, no tab
+
+    gone = MissionApi(MissionState(), Commands(None, None, None),
+                      skills=SkillShelf(tmp_path / 'nowhere', None, tmp_path / 'removed'))
+
+    assert gone.get('/api/skills', {})[1]['skills'] == [] and 'no folder' in gone.get('/api/skills', {})[1]['problem']
