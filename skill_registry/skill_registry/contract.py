@@ -8,7 +8,7 @@ import yaml
 
 
 KINDS         = ('action', 'condition', 'composite')
-TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'tree', 'agent', 'compare', 'alive', 'command', 'python')
+TRANSPORTS    = ('action', 'service', 'topic', 'watch', 'vlm', 'agent', 'compare', 'alive', 'command', 'python')
 READ_ONLY     = ('watch', 'vlm', 'compare', 'alive', 'python')   # the transports a condition may use
 # watch: read a topic, never publish. agent: one decision from the agent bridge's model or operator, on gathered evidence.
 # compare: the input value equals the input equals; nothing leaves the executor.

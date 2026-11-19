@@ -69,7 +69,7 @@ A skill is one folder in `g1_skills/g1_skills/`: its `contract.yaml` (schema: `s
 
 ## Live skills
 
-`registry_node` loads every contract from the skill packages (or `contracts_directory`) and checks the ROS graph once a second. A skill is live when what its contract calls is in the graph now: an action server, a service server, a topic's subscriber (and the publisher of its `success_when` topic), a watched topic's publisher, what a `python` skill's `interface.requires` names; a `vlm` skill while `vlm_base_url/models` answers (probed every 5 s). `agent`, `compare`, `alive` and `command` skills are always live; a `tree` contract never is. The registry publishes the sorted list on `/skills/live` (latched) when it changes.
+`registry_node` loads every contract from the skill packages (or `contracts_directory`) and checks the ROS graph once a second. A skill is live when what its contract calls is in the graph now: an action server, a service server, a topic's subscriber (and the publisher of its `success_when` topic), a watched topic's publisher, what a `python` skill's `interface.requires` names; a `vlm` skill while `vlm_base_url/models` answers (probed every 5 s). `agent`, `compare`, `alive` and `command` skills are always live. The registry publishes the sorted list on `/skills/live` (latched) when it changes.
 
 The planner subscribes to `/skills/live` (`use_live_skills`), tells the LLM to use only those skills, and its validator refuses a skill that is not live. Until the first list arrives, there is no such check. The executor does not check liveness: it loads every contract at start.
 

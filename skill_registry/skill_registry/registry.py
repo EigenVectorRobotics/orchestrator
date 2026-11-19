@@ -139,4 +139,4 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
                 and all(name in graph.published for name in need.get('published', []))
                 and all(_absolute(name) in graph.subscribed for name in need.get('subscribed', [])))
 
-    return False                    # a tree is not a name in the graph
+    return False                    # no other transport passes the contract check (TRANSPORTS)
