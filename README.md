@@ -21,7 +21,7 @@ Limits: `task_max_steps` 40, `task_max_s` 900, `task_idle_s` 120. Design: `docs/
 
 ### The task session
 
-The task agent is a Claude Code or Codex session outside the executor, with a shell. It drives the task with `agent_cli` and reads and writes knowledge with the `knowledge` CLI. Start it in `$EIGEN_VECTOR_WS/agent`: there, `.claude/settings.json` (made by `scripts/link_agent_dir.sh` from `orchestrator/agent/claude_settings.json`; edit the template, not the file) denies the `ros2` commands that act (`topic pub`, `service call`, `action send_goal`, `param set`, `run`, `launch`, ...), `agent_cli step approve|refuse`, `~/orchestrator_ws`, and edits to the deny list, the gate, the runbook and these settings. Thus the session uses `agent_cli` to act on the robot, and the executor's checks see each step. This is a guard against mistakes. These are not matched: a wrapped command (`bash -c`, a Python script with `rclpy`), and an HTTP request to Mission Control. A Codex session does not read these settings.
+The task agent is a Claude Code or Codex session outside the executor, with a shell. It drives the task with `agent_cli` and reads and writes knowledge with the `knowledge` CLI. Start it in `$EIGEN_VECTOR_WS/agent`: there, `.claude/settings.json` (made by `scripts/link_agent_dir.sh` from `orchestrator/agent/claude_settings.json`; edit the template, not the file) denies the `ros2` commands that act (`topic pub`, `service call`, `action send_goal`, `param set`, `run`, `launch`, ...), `agent_cli step approve|refuse`, `~/orchestrator_ws`, and edits to the deny list, the gate, the runbook and these settings. Thus the session uses `agent_cli` to act on the robot, and the executor's checks see each step. This is a guard against mistakes. These are not matched: a wrapped command (`bash -c`, a Python script with `rclpy`), and an HTTP request to Mission Control. A Codex session reads the same shell rules from `.codex/rules/agent.rules` (made from the same templates), but it has no file rules.
 
 One task is one session: start a new session for the next task. Skill discovery is a separate session: press **Start discovery** in Mission Control, then start a session in `$EIGEN_VECTOR_WS/agent_discovery`, which has the `discover` skill (`docs/skill-discovery.md`). A task session uses the skills and cannot read the stack's code: its settings hide each stack repo in `src/`.
 
@@ -117,6 +117,6 @@ The NUC builds this repo in `~/eigen_vector_orch_ws`, from the deploy repo `eige
 ## Not done yet
 
 - Nothing committed after 2026-11-11 has run on the robot.
-- A Codex session has no deny rules yet (Claude Code settings only).
+- A Codex session gets the shell rules (`.codex/rules/agent.rules`), but not the file rules: it can still read the stack repos. On the NUC, the Codex sandbox does not start (bubblewrap); run Codex with `-s danger-full-access`.
 - The knowledge store follows a claim's `skill` tag only: a value measured through a skill but tagged only with a place is not reset when the skill's code moves. A code skill's `skills.run(variable)` calls are not followed.
 - The executor reads the raw camera topic (`image_topic`), because the Orin has no compressed image transport installed: about 17 MB/s at 6 fps.

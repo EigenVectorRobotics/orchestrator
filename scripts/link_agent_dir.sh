@@ -15,6 +15,7 @@
 #     CLAUDE.md, AGENTS.md -> <repo>/orchestrator/agent/discovery_session.md
 #     .claude/skills/discover, .codex/skills/discover -> <repo>/orchestrator/agent/skills/discover
 #     .claude/settings.json                               made from claude_settings.json and claude_settings_discovery.json
+#     .codex/rules/agent.rules                            the same shell rules for Codex (both folders have one)
 #     progress.md                                         the state of discovery (the discover skill makes it)
 #
 # The settings are made, not linked: the task session's hide each stack repo in src/ by its absolute path.
@@ -121,7 +122,9 @@ for folder in "$src"/*; do                 # as named in src/: agent_settings.py
 done
 
 settings="$repo/orchestrator/agent/claude_settings.json"
-python3 "$repo/scripts/agent_settings.py" "$agent/.claude/settings.json" "$settings" --hide "${stack[@]}"
+python3 "$repo/scripts/agent_settings.py" "$agent/.claude/settings.json" "$settings" --hide "${stack[@]}" \
+    --codex "$agent/.codex/rules/agent.rules"
 python3 "$repo/scripts/agent_settings.py" "$discovery/.claude/settings.json" "$settings" \
-    "$repo/orchestrator/agent/claude_settings_discovery.json" --no-edit "$discovery/skills"
-echo "made $agent/.claude/settings.json (hides ${#stack[@]} stack repos) and $discovery/.claude/settings.json"
+    "$repo/orchestrator/agent/claude_settings_discovery.json" --no-edit "$discovery/skills" \
+    --codex "$discovery/.codex/rules/agent.rules"
+echo "made the settings and Codex rules of $agent (hides ${#stack[@]} stack repos from Claude Code) and $discovery"
