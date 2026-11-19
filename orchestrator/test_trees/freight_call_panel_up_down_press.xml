@@ -1,0 +1,41 @@
+<root BTCPP_format="4">
+  <!-- Floor 2 call panel, once: walk to the preapproach, then the panel, then press the up button and then the down
+       button, each through the press slot press_panel_button (stance_check, press_button, press_judge, recover_once):
+       a press the judge does not pass goes to manipulation_recovery until one passes, recovery stops the presses, or
+       the attempts run out; then the robot asks the operator to press that button and goes on. A stance lost after a
+       reposition fails the tree there. The arms are released at the end. Run with send_tree; stop with
+       /orchestrator/cancel -->
+  <BehaviorTree ID="freight_call_panel_up_down_press">
+    <Sequence>
+      <Fallback>                          <!-- a transition to the current mode fails -->
+        <in_high_level/>
+        <set_mode mode="high_level"/>
+      </Fallback>
+      <clear_stop/>
+      <set_autonomy enabled="true"/>
+      <navigate_to goal="{freight_elevator_call_panel_preapproach}"/>
+      <Sleep msec="3000"/>
+      <navigate_to goal="{freight_elevator_call_panel}"/>
+      <set_autonomy enabled="false"/>
+      <SetBlackboard output_key="press_panel" value="{freight_elevator_call_panel}"/>
+      <SetBlackboard output_key="press_left_arm" value="false"/>
+      <SetBlackboard output_key="press_arm_min_y" value="0.0"/>   <!-- outside, the arm on the button's side -->
+      <SetBlackboard output_key="press_base_offset_x" value="0.0"/>
+      <SetBlackboard output_key="press_base_offset_y" value="0.0"/>
+      <SetBlackboard output_key="press_base_offset_z" value="0.0"/>
+      <SetBlackboard output_key="button" value="up button"/>
+      <SetBlackboard output_key="press_ask" value="Please press the up call button for me."/>
+      <SubTree ID="press_panel_button"/>
+      <SetBlackboard output_key="button" value="down button"/>
+      <SetBlackboard output_key="press_ask" value="Please press the down call button for me."/>
+      <SubTree ID="press_panel_button"/>
+      <ForceSuccess>                      <!-- the slot releases the arms already -->
+        <release_arms/>
+      </ForceSuccess>
+      <set_autonomy enabled="false"/>
+      <say text="Call panel press test done."/>
+    </Sequence>
+  </BehaviorTree>
+
+  <include path="../../skill_registry/trees/subtrees/press.xml"/>
+</root>

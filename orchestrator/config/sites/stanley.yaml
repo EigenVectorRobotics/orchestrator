@@ -4,12 +4,12 @@
 #   laptop: ~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley
 # A launch argument given on the command line wins over the value here.
 
-places_file: /home/vector/maps/fvd_map_clean_elevator1.places.yaml   # the map in use: docs/run.md, The map
+places_file: /home/vector/maps/fvd_map.places.yaml   # the map in use (freight elevator): docs/run.md, The map
 
 planner_backend: external        # a session or `planner_cli run` answers the planner
 
 agent_bridge:                    # the operator laptop that runs mission_control/agent_bridge.py, on Tailscale
-  host: 100.107.208.25
+  host: 100.75.136.24
   port: 8771
 
 raw_bag:                         # recorded beside the orchestrator from launch to shutdown, for SLAM and EKF replay

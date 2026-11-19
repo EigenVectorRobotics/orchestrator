@@ -66,7 +66,8 @@ def test_the_launch_takes_the_site_and_a_given_argument_wins():
     found = _resolve({'planner_backend': 'claude'}, 'stanley')
 
     assert found['planner_backend'] == 'claude' and found['planner_model'] == 'claude-opus-5-5'
-    assert (found['agent_push_host'], found['agent_push_port']) == ('100.107.208.25', 8771)
+    bridge = load_site('stanley', SITES)['agent_bridge']
+    assert (found['agent_push_host'], found['agent_push_port']) == (bridge['host'], bridge['port'])
     assert found['raw_bag']['output'].rsplit('/', 1)[-1].startswith('raw_') and '/tf' in found['raw_bag']['topics']
     assert _resolve({'raw_bag': 'false'}, 'stanley')['raw_bag'] is None
 
