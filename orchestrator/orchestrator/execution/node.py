@@ -15,7 +15,7 @@ from ..agent.link import PushAgentBackend, PushLink
 from ..common.config import ARTIFACTS_DIR
 from ..skills.runtime import SkillRunner
 from ..tree.leaf import SkillLeaf, make_leaf_factory
-from ..tree.engine import BehaviorTree, Context, Status, TreeError
+from ..tree.engine import BehaviorTree, BTContext, Status, TreeError
 from ..vlm.client import VlmClientConfig
 from .node_setup import Tracer, load_skills
 from ..common.topics import (AGENT_EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, CANCEL_TOPIC, COMMAND_QOS,
@@ -180,7 +180,7 @@ class ExecutorNode(Node):
             return False
 
         run_id  = uuid.uuid4().hex[:8]
-        context = Context(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record, run_id=run_id)
+        context = BTContext(blackboard=dict(self.places), on_event=self._on_node_event, on_record=self._on_record, run_id=run_id)
 
         try:
             tree = BehaviorTree(xml_text, make_leaf_factory(self.registry, self.runner), context)

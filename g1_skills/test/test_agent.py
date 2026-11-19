@@ -12,7 +12,7 @@ from orchestrator.agent import protocol
 from orchestrator.agent.api import AgentCall
 from orchestrator.agent.api import Agent, AgentSession, task_text
 from orchestrator.agent.link import PushAgentBackend
-from orchestrator.tree.engine import BehaviorTree, Context, Status
+from orchestrator.tree.engine import BehaviorTree, BTContext, Status
 from orchestrator.tree.leaf import make_leaf_factory
 
 from g1_skills.manipulation_recovery.agent import ManipulationRecovery
@@ -165,12 +165,12 @@ def _run(tree: BehaviorTree, max_ticks: int = 500) -> Status:
 def _session(phase: str, inputs: dict, evidence: dict | None = None, skill: str = 'manipulation_recovery') -> AgentSession:
     contract = Registry.from_directory(CONTRACTS).get(skill)
 
-    return AgentSession(Agent(None).skill(contract), AgentCall(contract, inputs, Context(), phase), evidence or {},
+    return AgentSession(Agent(None).skill(contract), AgentCall(contract, inputs, BTContext(), phase), evidence or {},
                         lambda *a, **k: None)
 
 
 def _tree(xml_text: str, runner: FakeRunner, agent) -> BehaviorTree:
-    context = Context(blackboard={'call_panel': dict(PANEL)})
+    context = BTContext(blackboard={'call_panel': dict(PANEL)})
     runner.agent = agent
 
     return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner), context)
@@ -327,7 +327,7 @@ def test_an_ask_help_ends_the_calls_for_its_own_panel_only(tmp_path):
                '<ForceSuccess><manipulation_recovery base_goal="{call_panel}"/></ForceSuccess>'      # the same panel: not called
                '</Sequence></BehaviorTree></root>')
     tree    = BehaviorTree(body, make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner([], agent=Agent(backend))),
-                           Context(blackboard={'call_panel': dict(PANEL), 'inside_panel': {**PANEL, 'x': 3.0}}))
+                           BTContext(blackboard={'call_panel': dict(PANEL), 'inside_panel': {**PANEL, 'x': 3.0}}))
     tree.context.last_failure = {'inputs': {}}
 
     assert _run(tree) == Status.SUCCESS
@@ -583,7 +583,7 @@ PLACES    = {name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'}
 def _full_tree(runner: FakeRunner, agent) -> BehaviorTree:
     now     = [0.0]
     clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]          # the tree's Sleeps pass in a few ticks
-    context = Context(blackboard={name: dict(pose) for name, pose in PLACES.items()}, clock=clock)
+    context = BTContext(blackboard={name: dict(pose) for name, pose in PLACES.items()}, clock=clock)
     runner.agent = agent
 
     return BehaviorTree(FULL_TREE.read_text(), make_leaf_factory(Registry.from_directory(CONTRACTS), runner), context)
@@ -652,7 +652,7 @@ def test_without_an_agent_a_failed_stance_check_still_presses():
 def test_confirm_phase_relays_the_question():
     spec     = protocol.load_spec('operator_confirm')
     contract = Registry.from_directory(CONTRACTS).get('operator_confirm')
-    call     = AgentCall(contract, {'question': 'Is the gantry removed?'}, Context(), 'confirm')
+    call     = AgentCall(contract, {'question': 'Is the gantry removed?'}, BTContext(), 'confirm')
 
     assert spec.PHASES['confirm'] == ('confirmed', 'not_confirmed') and spec.ANSWERED_BY == 'operator'
     assert 'confirmed' in spec.GOING_ON and 'not_confirmed' not in spec.GOING_ON
@@ -735,7 +735,7 @@ def _library_ride(runner: FakeRunner) -> BehaviorTree:
     clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]
     places  = {name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'} for name in LIBRARY_PLACES}
     places['inside_freight_elevator_button_panel_floor_1']['x'] = 3.0
-    context = Context(blackboard=places, clock=clock)
+    context = BTContext(blackboard=places, clock=clock)
 
     runner.agent = type('FakeAgent', (), {'start': lambda self, contract, inputs, context, path='': runner.start(contract, inputs)})()
 

@@ -24,7 +24,7 @@ class TreeError(ValueError):
 MAX_HISTORY = 50                    # records kept per tree; the oldest go first
 
 
-class Context:
+class BTContext:
     """What every node of one tree shares: the blackboard, the clock, and the record of what ran"""
 
     def __init__(
@@ -67,7 +67,7 @@ class Context:
 
 
 class TreeNode:
-    def __init__(self, tag: str, path: str, attributes: dict, children: list['TreeNode'], context: Context):
+    def __init__(self, tag: str, path: str, attributes: dict, children: list['TreeNode'], context: BTContext):
         self.tag        = tag
         self.path       = path
         self.attributes = attributes
@@ -516,19 +516,19 @@ NODE_TYPES = {
 # ========== Building a tree from XML ==========
 
 class LeafFactory(Protocol):
-    def __call__(self, skill_name: str, path: str, attributes: dict, context: Context) -> TreeNode: ...
+    def __call__(self, skill_name: str, path: str, attributes: dict, context: BTContext) -> TreeNode: ...
 
 
 class BehaviorTree:
     """One tree from a BehaviorTree.CPP v4 XML document, ready to tick"""
 
-    def __init__(self, xml_text: str, leaf_factory: LeafFactory, context: Context | None = None, main_tree: str | None = None):
+    def __init__(self, xml_text: str, leaf_factory: LeafFactory, context: BTContext | None = None, main_tree: str | None = None):
         try:
             root = ElementTree.fromstring(xml_text)
         except ElementTree.ParseError as error:
             raise TreeError(f'XML does not parse: {error}') from error
 
-        self.context = context or Context()
+        self.context = context or BTContext()
         self.trees   = {tree.get('ID'): tree for tree in root.findall('BehaviorTree')}
         self._leaves = leaf_factory
 

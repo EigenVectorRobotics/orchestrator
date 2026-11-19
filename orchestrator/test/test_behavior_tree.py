@@ -4,7 +4,7 @@ import pytest
 
 from skill_registry import Registry
 
-from orchestrator.tree.engine import BehaviorTree, Context, Status, TreeError
+from orchestrator.tree.engine import BehaviorTree, BTContext, Status, TreeError
 from orchestrator.tree.leaf import make_leaf_factory
 
 
@@ -89,7 +89,7 @@ class FakeRunner:
 
 def _tree(body: str, runner: FakeRunner, clock: FakeClock | None = None, blackboard: dict | None = None) -> BehaviorTree:
     xml_text = f'<root BTCPP_format="4"><BehaviorTree ID="main">{body}</BehaviorTree></root>'
-    context  = Context(blackboard=blackboard, clock=clock or FakeClock())
+    context  = BTContext(blackboard=blackboard, clock=clock or FakeClock())
 
     return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner), context)
 
@@ -223,7 +223,7 @@ def test_subtree_and_events():
     tree = BehaviorTree(
         xml_text,
         make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner()),
-        Context(on_event=lambda node, event: events.append(event), clock=FakeClock())
+        BTContext(on_event=lambda node, event: events.append(event), clock=FakeClock())
     )
 
     assert _run(tree) == Status.SUCCESS
@@ -241,7 +241,7 @@ def test_example_tree_builds_and_runs():
     tree   = BehaviorTree(
         EXAMPLE,
         make_leaf_factory(Registry.from_directory(CONTRACTS), runner),
-        Context(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=clock)
+        BTContext(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=clock)
     )
 
     assert _run(tree, clock) == Status.SUCCESS
@@ -254,7 +254,7 @@ def test_example_tree_fails_when_door_stays_closed():
     tree   = BehaviorTree(
         EXAMPLE,
         make_leaf_factory(Registry.from_directory(CONTRACTS), runner),
-        Context(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=clock)
+        BTContext(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=clock)
     )
 
     assert _run(tree, clock, max_ticks=2000) == Status.FAILURE
@@ -294,7 +294,7 @@ def test_example_tree_fails_when_the_walk_fails():
     tree   = BehaviorTree(
         EXAMPLE,
         make_leaf_factory(Registry.from_directory(CONTRACTS), runner),
-        Context(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=FakeClock())
+        BTContext(blackboard={'call_panel': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}, clock=FakeClock())
     )
 
     assert _run(tree) == Status.FAILURE

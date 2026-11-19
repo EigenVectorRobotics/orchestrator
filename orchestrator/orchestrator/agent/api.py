@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from skill_registry import Contract
 
-from ..tree.engine import Context, Status
+from ..tree.engine import BTContext, Status
 from ..skills.loader import SkillLibrary
 from .protocol import load_spec
 
@@ -39,7 +39,7 @@ class AgentCall:
 
     contract: Contract
     inputs:   dict
-    context:  Context
+    context:  BTContext
     phase:    str
     path:     str = ''
 
@@ -250,7 +250,7 @@ class Agent:
 
         return self.skills[contract.name]
 
-    def start(self, contract: Contract, inputs: dict, context: Context, path: str = '') -> AgentHandle:
+    def start(self, contract: Contract, inputs: dict, context: BTContext, path: str = '') -> AgentHandle:
         skill    = self.skill(contract)
         call     = AgentCall(contract, inputs, context, inputs.get('phase') or next(iter(skill.spec.PHASES)), path)
         evidence = json.loads(json.dumps({'last_failure': context.last_failure, 'history': context.history}, default=str))

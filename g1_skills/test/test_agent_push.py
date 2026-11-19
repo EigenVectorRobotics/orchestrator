@@ -12,7 +12,7 @@ from skill_registry import Registry
 from orchestrator.agent import link as agent_push
 from orchestrator.agent.api import Agent
 from orchestrator.agent.link import PushAgentBackend, PushLink, read_message, send_message
-from orchestrator.tree.engine import BehaviorTree, Context, Status
+from orchestrator.tree.engine import BehaviorTree, BTContext, Status
 from orchestrator.recording.recorder import Recorder, RecorderConfig
 from orchestrator.tree.leaf import make_leaf_factory
 
@@ -81,7 +81,7 @@ class FakeBridge:
 def _tree(xml_text: str, runner, agent) -> BehaviorTree:
     runner.agent = agent
 
-    return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner), Context(blackboard={'call_panel': dict(PANEL)}))
+    return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner), BTContext(blackboard={'call_panel': dict(PANEL)}))
 
 
 def _agent(backend, press: dict) -> Agent:
@@ -297,7 +297,7 @@ def test_a_confirm_past_its_timeout_tells_the_bridge_to_drop_it(tmp_path):
     bridge  = FakeBridge(lambda header, blobs, conn: None)
     backend = PushAgentBackend(PushLink('127.0.0.1', bridge.port))
     tree    = BehaviorTree(_body(SKILLS['confirm'][1]), make_leaf_factory(Registry.from_directory(CONTRACTS),
-                           FakeRunner([], agent=_agent(backend, None))), Context(clock=lambda: now[0]))
+                           FakeRunner([], agent=_agent(backend, None))), BTContext(clock=lambda: now[0]))
 
     try:
         for _ in range(1000):

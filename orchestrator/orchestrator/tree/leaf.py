@@ -6,7 +6,7 @@ from skill_registry import Contract, Registry
 
 from ..agent.api import AgentCall
 from ..skills.api import DoneHandle
-from .engine import DONE, Context, Status, TreeError, TreeNode
+from .engine import DONE, BTContext, Status, TreeError, TreeNode
 
 
 class SkillHandle(Protocol):
@@ -20,7 +20,7 @@ class SkillHandle(Protocol):
 
 
 class AgentRunner(Protocol):
-    def start(self, contract: Contract, inputs: dict, context: Context, path: str = '') -> SkillHandle: ...
+    def start(self, contract: Contract, inputs: dict, context: BTContext, path: str = '') -> SkillHandle: ...
 
 
 class SkillRunner(Protocol):
@@ -112,7 +112,7 @@ def resolve_inputs(contract: Contract, attributes: dict, blackboard: dict) -> di
 class SkillLeaf(TreeNode):
     """A tree leaf that runs one skill through the runner, with the contract's timeout"""
 
-    def __init__(self, contract: Contract, runner: SkillRunner, path: str, attributes: dict, context: Context):
+    def __init__(self, contract: Contract, runner: SkillRunner, path: str, attributes: dict, context: BTContext):
         super().__init__(contract.name, path, attributes, [], context)
 
         self.contract   = contract
@@ -298,7 +298,7 @@ def make_leaf_factory(registry: Registry, runner: SkillRunner):
     runner"""
     agent = runner.agent
 
-    def build_leaf(skill_name: str, path: str, attributes: dict, context: Context) -> TreeNode:
+    def build_leaf(skill_name: str, path: str, attributes: dict, context: BTContext) -> TreeNode:
         contract = registry.get(skill_name)
 
         if contract is None:
