@@ -132,6 +132,13 @@ section h2 small { font: 400 11px var(--mono); color: var(--muted); text-transfo
 .feed .warn .what::before { content: "! "; color: var(--warn); }
 .feed .fail { background: var(--bad-bg); }
 .feed li.empty { display: block; color: var(--muted); padding: 20px 0; }
+.feed .think .what, .feed .say .what { font-weight: 500; }
+.feed .think .what::before { content: "… "; color: var(--muted); }
+.feed .say .what::before   { content: "» "; color: var(--accent); }
+.feed .think .detail, .feed .say .detail { white-space: pre-line; }
+.feed .long .detail { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.feed .long { cursor: pointer; }
+.feed .long.open .detail { display: block; }
 details.raw { margin-top: 10px; }
 details.raw summary { cursor: pointer; font: 500 12px var(--mono); color: var(--muted); }
 .filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
@@ -330,7 +337,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
     </section>
 
     <section aria-labelledby="h-feed">
-      <h2 id="h-feed">Agent <small>newest first</small></h2>
+      <h2 id="h-feed">Agent <small id="feednote">newest first</small></h2>
       <ul class="feed" id="feed"></ul>
       <details class="raw" id="raw">
         <summary>Raw trace (/orchestrator/trace)</summary>
@@ -423,7 +430,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
 
 <script>
 const $ = id => document.getElementById(id);
-let events = [], seq = 0, keep = 400, filter = 'all', state = {}, drawn = {}, polling = false, masks = true, deciding = null;
+let opened = new Set(), words = [], events = [], seq = 0, keep = 400, filter = 'all', state = {}, drawn = {}, polling = false, masks = true, deciding = null;
 
 // Every value from the adapter is escaped once, where it comes in: the agent writes much of it, and this page
 // holds the operator's token. After this, a value can go into innerHTML as it is
@@ -678,13 +685,36 @@ const FEED = {
   stale_skill:   e => ['warn', 'Stale skill', e.text],
   validation:    e => ['warn', 'Validation', e.text],
   rejected:      e => ['fail', 'Rejected', e.text],
+  thought:       e => ['think', (e.who !== 'agent' ? `${e.who}: ` : '') + (e.title || 'Thinking'), e.text],      // from the session log
+  said:          e => ['say', e.who !== 'agent' ? `${e.who} says` : 'The agent says', e.text],
 };
+const LONG      = 300;                          // characters: a longer text shows 4 lines until a click opens it
 
 function renderFeed() {
-  const items = events.map(e => [e.time, FEED[e.kind] && FEED[e.kind](e)]).filter(([, item]) => item).slice(-150).reverse();
-  $('feed').innerHTML = items.length ? items.map(([time, [kind, what, detail]]) =>
-    `<li class="${kind}"><time>${clock(time)}</time><div><span class="what">${what}</span>${detail ? `<span class="detail">${detail}</span>` : ''}</div></li>`).join('')
-    : '<li class="empty">Nothing yet. The agent writes here when a mission opens.</li>';
+  // by time: the session log is read a second after the agent wrote it, so its words come after newer trace events
+  const items = events.concat(words).map(e => [e, FEED[e.kind] && FEED[e.kind](e)]).filter(([, item]) => item)
+    .sort(([a], [b]) => (a.time || 0) - (b.time || 0)).slice(-150).reverse();
+  $('feed').innerHTML = items.length ? items.map(([e, [kind, what, detail]]) => {
+    const long = detail && detail.length > LONG ? ` long${opened.has(e.seq) ? ' open' : ''}` : '';
+    return `<li class="${kind}${long}" data-seq="${e.seq}"><time>${clock(e.time)}</time><div><span class="what">${what}</span>${detail ? `<span class="detail">${detail}</span>` : ''}</div></li>`;
+  }).join('') : '<li class="empty">Nothing yet. The agent writes here when a mission opens.</li>';
+}
+$('feed').addEventListener('click', event => {
+  const item = event.target.closest('li.long');
+  if (!item) return;
+  const key = Number(item.dataset.seq);
+  opened.has(key) ? opened.delete(key) : opened.add(key);
+  item.classList.toggle('open', opened.has(key));
+});
+
+function feedNote() {
+  const log = state.reasoning, open = (state.task || {}).state === 'open';
+  const run  = (state.task || {}).run_id;
+  const hint = !log || !open || words.some(word => word.kind === 'thought' && word.run_id === run) ? ''
+    : !log.sessions ? 'no Codex session of the agent found'
+    : log.empty ? 'Codex writes no reasoning: start it with -c model_reasoning_summary="detailed"' : '';
+  const note = 'newest first' + (hint ? ' · ' + hint : '');
+  once('feednote', note, () => $('feednote').textContent = note);
 }
 
 // ---------- Raw trace ----------
@@ -720,14 +750,16 @@ async function poll() {
   try {
     const answer = await fetch('/api/state?after=' + seq + (masks ? '&outlines=1' : ''));
     state = safe(await answer.json());
-    if (state.seq < seq) { events = []; seq = 0; drawn = {}; renderFeed(); renderLog(); return; }   // the adapter restarted: read the trace again
+    if (state.seq < seq) { events = []; words = []; opened.clear(); seq = 0; drawn = {}; renderFeed(); renderLog(); return; }   // the adapter restarted: read the trace again
     seq = state.seq || seq;
     keep = state.keep || keep;
     if (state.trace && state.trace.length) {
       events = events.concat(state.trace).slice(-keep);
-      renderFeed(); renderLog();
+      renderLog();
     }
-    health(); nowBand(); renderPlan(); renderCamera();
+    if (state.words && state.words.length) words = words.concat(state.words).slice(-keep);
+    if ((state.trace && state.trace.length) || (state.words && state.words.length)) renderFeed();
+    health(); nowBand(); renderPlan(); renderCamera(); feedNote();
     once('map', JSON.stringify(state.map || {}), drawMap);
   } catch (error) {
     $('health').innerHTML = '<span class="issue">the adapter does not answer</span>';

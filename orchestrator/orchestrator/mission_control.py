@@ -30,6 +30,7 @@ from .images import Camera, Outlines
 from .knowledge import OPERATOR, Claim, KnowledgeError, KnowledgeStore, Sighting
 from .map_view import MapView
 from .run_browser import list_runs, run_detail
+from .session_log import SessionLog
 from .topics import TASK_OPTIONS
 
 
@@ -39,6 +40,7 @@ DECISION_WAIT  = 5.0                    # seconds to wait for the executor's rep
 TASK_FIELDS    = ('state', 'run_id', 'task', 'blind', 'discovery', 'end', 'limits')   # of the open message; not places, known or scratch
 STEPS_KEEP     = 200                    # steps of one task the page shows in the plan
 STEP_ENDS      = ('finished', 'halted', 'error')
+AFTER_CLOSE    = 5.0                    # seconds the agent's session log is still read after its mission closed
 
 
 class MissionState:
@@ -55,6 +57,7 @@ class MissionState:
         self._began  = None                          # when the open task started, from the trace
         self._run    = None                          # the run that the plan, the steps and began belong to
         self._events = deque(maxlen=keep)
+        self._words  = deque(maxlen=keep)            # what the agent thought and said, from its session log (session_log.py)
         self._seq    = 0
 
     def put(self, part: str, message: dict):
@@ -100,6 +103,22 @@ class MissionState:
                                     'status': 'refused', 'reason': event.get('reason', ''), 'start': event.get('time'),
                                     'end': event.get('time')})
 
+    def words(self, items: list[dict], run_id):
+        """The agent's own words: not trace events, but on the same cursor, so the page reads both with one after"""
+        with self._lock:
+            for item in items:
+                self._seq   += 1
+                self._words.append({**item, 'run_id': run_id, 'seq': self._seq})
+
+    def run(self) -> tuple[str, float, bool] | None:
+        """(run_id, start time, open) of the last mission, or None before its start"""
+        with self._lock:
+            if self._run is None or self._began is None:
+                return None
+
+            task = self._parts.get('task', {})
+            return self._run, self._began, task.get('state') == 'open' and task.get('run_id') == self._run
+
     def snapshot(self, after: int = 0) -> dict:
         """Everything the page shows; only the trace events newer than after. The task's open message is cut down
         to TASK_FIELDS, because its places and what the knowledge store knows would be resent at every poll"""
@@ -114,9 +133,41 @@ class MissionState:
                 'steps':  [dict(step) for step in self._steps],
                 'began':  self._began,
                 'trace':  [] if after >= self._seq else [event for event in self._events if event['seq'] > after],
+                'words':  [] if after >= self._seq else [word for word in self._words if word['seq'] > after],
                 'task':   {field: task[field] for field in TASK_FIELDS if field in task},
                 **{part: self._parts.get(part, {}) for part in ('status', 'step', 'recorder')},
             }
+
+
+class SessionFollower:
+    """Put what the agent thought and said since its mission opened in the feed. They do not go on
+    /orchestrator/trace: the page shows them, the recorder does not keep them. After the mission closes, it reads
+    for AFTER_CLOSE more: the agent's last words come after the last read, or just after the close"""
+
+    def __init__(self, state: MissionState, log: SessionLog, clock=time.monotonic):
+        self.state, self.log, self.clock = state, log, clock
+        self._closed = {}                        # run_id -> when this saw it closed
+
+    def __call__(self) -> int:
+        run = self.state.run()
+
+        if run is None:
+            return 0
+
+        run_id, began, open_ = run
+
+        if not open_:
+            closed = self._closed.setdefault(run_id, self.clock())
+
+            if len(self._closed) > 1:            # only the last run is still read
+                self._closed = {run_id: closed}
+
+            if self.clock() - closed > AFTER_CLOSE:
+                return 0
+
+        items = self.log.new(began)
+        self.state.words(items, run_id)
+        return len(items)
 
 
 def token_ok(expected: str, given: str) -> bool:
@@ -414,7 +465,8 @@ class MissionApi:
 
     def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None,
                  token_needed: bool = True, outlines: Outlines | None = None, skills: SkillShelf | None = None,
-                 knowledge: KnowledgeShelf | None = None, runs: RunShelf | None = None, map_view: MapView | None = None):
+                 knowledge: KnowledgeShelf | None = None, runs: RunShelf | None = None, map_view: MapView | None = None,
+                 session_log: SessionLog | None = None):
         self.state        = state
         self.camera       = camera or Camera()
         self.outlines     = outlines or Outlines()
@@ -423,6 +475,7 @@ class MissionApi:
         self.knowledge    = knowledge
         self.runs         = runs
         self.map_view     = map_view or MapView()
+        self.session_log  = session_log
         self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel,
                              **({'/api/skill/keep': skills.keep, '/api/skill/remove': skills.remove} if skills else {}),
                              **({'/api/knowledge/approve': knowledge.approve, '/api/knowledge/retire': knowledge.retire,
@@ -454,6 +507,7 @@ class MissionApi:
 
         return 200, {**self.state.snapshot(after), 'camera': self.camera.state(), 'outlines': self.outlines.state(),
                      'map': self.map_view.state(),
+                     'reasoning': self.session_log.status() if self.session_log else None,
                      'token_needed': self.token_needed}
 
     def post(self, path: str, body: dict) -> tuple[int, dict]:

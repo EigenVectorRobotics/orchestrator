@@ -40,8 +40,9 @@ from .images import Camera, Outlines
 from .map_view import MapView
 from .map_places import MapInfoPlaces
 from .mission_control import (DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf,
-                              StaleSkills, live_names, token_ok)
+                              SessionFollower, StaleSkills, live_names, token_ok)
 from .recording import RecorderConfig
+from .session_log import CODEX_SESSIONS, SessionLog
 
 
 MAX_BODY  = 64 * 1024
@@ -111,6 +112,8 @@ class MissionControlNode(Node):
 
         knowledge_dir      = self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value
         library            = self.declare_parameter('skills_dir', str(skills_dir())).value
+        agent_folders      = self.declare_parameter('agent_folders', [str(agent_dir()), str(agent_dir().parent / 'agent_discovery')]).value
+        self.session_log   = SessionLog(agent_folders, self.declare_parameter('session_logs', str(CODEX_SESSIONS)).value)
         self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel),
                                        self.camera, token_needed=not off, outlines=self.outlines,
                                        skills=SkillShelf(library,
@@ -119,7 +122,7 @@ class MissionControlNode(Node):
                                                          stale=StaleSkills(knowledge_dir, library), live=lambda: self._live),
                                        knowledge=KnowledgeShelf(knowledge_dir),
                                        runs=RunShelf(self.declare_parameter('runs_root', RecorderConfig.root).value),
-                                       map_view=self.map_view)
+                                       map_view=self.map_view, session_log=self.session_log)
         self._places = self._map_places(self.declare_parameter('map_info', '/map_info').value)
         self.create_timer(1.0, self._follow_outlines)
         self.create_timer(2.0, self._watch_live)
@@ -131,6 +134,9 @@ class MissionControlNode(Node):
         self.server.log    = self.get_logger()
         self._web          = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._web.start()
+        self._stop         = threading.Event()
+        self._follower     = SessionFollower(self.state, self.session_log)
+        threading.Thread(target=self._follow_session, daemon=True).start()   # not on the spin thread: a long log takes a while
         link = f'http://{host}:{port}/' + ('' if off else f'?t={token}')
         self.get_logger().info(f'mission control on {link} (page from {web_dir})')
 
@@ -166,6 +172,13 @@ class MissionControlNode(Node):
         """A live list from a registry_node that is gone says nothing: the latched message stays after it stops"""
         if self.count_publishers(LIVE_SKILLS_TOPIC) == 0:
             self._live = None
+
+    def _follow_session(self):
+        while not self._stop.wait(1.0):
+            try:
+                self._follower()
+            except Exception as error:                  # a bad log must not stop the feed for the rest of the run
+                self.get_logger().warn(f'cannot read the agent\'s session log: {error!r}', throttle_duration_sec=60.0)
 
     def _follow_outlines(self):
         """Subscribe to the mask outlines while a page asks for them, and stop when no page has asked for a while"""
@@ -248,6 +261,7 @@ class MissionControlNode(Node):
         return replies[0] if replies else None
 
     def shutdown(self):
+        self._stop.set()
         self.server.shutdown()
         self.server.server_close()
         self._web.join(timeout=2.0)
