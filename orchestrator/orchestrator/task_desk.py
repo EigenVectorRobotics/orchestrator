@@ -10,11 +10,13 @@ commands on COMMAND_TOPIC:
 - write_skill: a contract (YAML text) for a new skill or a new version of the agent's own, and for a code skill
   the Python that calls other skills (skill_writer.py)
 - skills: the skills that run can run now, as the executor has them
-- done, give_up: end the task
+- grade: the agent's grade of a claim that a step of this task followed (useful, misleading, wrong, not-applicable)
+- done, give_up: end the task; the reply names the applied claims with no grade
 
-A run that follows a claim of the knowledge store says so (applies): the step's end confirms it (success) or
-contradicts it (failure). A success can mean no more than "the message was published", so the store counts it as
-weak evidence (knowledge.OUTCOME). The agent writes claims itself, with the knowledge CLI (a session).
+A run that follows claims of the knowledge store says so (applies, one or more ids). The step's end changes no
+claim: a success can mean no more than "the message was published", and a failure can have another cause. The
+agent grades each claim once per task instead; useful and wrong are weak evidence (knowledge.OUTCOME). The agent
+writes claims itself, with the knowledge CLI (a session).
 
 Each command gets one reply on REPLY_TOPIC with its id. Limits: max_steps and max_task_s end the task as gave_up.
 When no command comes for idle_s between steps (the session or its cloud link is gone), the robot says so once on
@@ -38,7 +40,7 @@ from dataclasses import asdict
 from skill_registry import contract_grammar
 
 from .places import PLACE_INFO
-from .knowledge import OUTCOME, KnowledgeError, KnowledgeStore, Sighting
+from .knowledge import GRADES, OUTCOME, KnowledgeError, KnowledgeStore, Sighting
 from .tasks import Task, Tasks
 from .tasks import describe_catalog
 from skill_registry.skill_writer import SkillWriter
@@ -65,13 +67,21 @@ def trace_listener(lines: deque, run_id: str) -> Callable[[dict], None]:
 
 def writing_text(folder: Path) -> str:
     """How the task session adds evidence to the knowledge store in folder"""
-    return ('- On a run that follows a claim, give its id in applies: the end of the step confirms it (success) or '
-            'contradicts it (failure).'
+    return ('- On a run that follows claims, give their ids in applies. After the step, grade each one once: '
+            '`agent_cli grade <id> useful|misleading|wrong|not-applicable --reason R`. Useful and wrong are evidence; '
+            'misleading (it led you wrong here) and not-applicable (it did not fit this case) say that its text or '
+            'tags are too wide.'
             f'\n- Write what you learned, for later runs: `knowledge --dir {folder} note "TEXT" --by agent:task '
             f'--run <run_id> --evidence step:<n> --about skill=<name>`. After a failure, write what to do '
             f'instead: "When <what failed and how it showed>, <what to do instead>." Confirm or contradict a '
             f'claim you checked: `knowledge --dir {folder} confirm|contradict <id> --by agent:task --run '
             f'<run_id> --evidence ...`.')
+
+
+def _ids(applies) -> list[str]:
+    """The claim ids a run follows: one id or a list, each once, in order"""
+    applies = [applies] if isinstance(applies, str) else list(applies or [])
+    return list(dict.fromkeys(str(claim_id) for claim_id in applies if claim_id))
 
 
 def place_text(info: dict) -> str:
@@ -112,7 +122,7 @@ class TaskDesk:
         self.publish_open  = publish_open
         self.publish_reply = publish_reply
         self.speak         = speak
-        self.knowledge     = knowledge               # what is known, for the open task; the outcome of applies goes in
+        self.knowledge     = knowledge               # what is known, for the open task; the grades go in
         self.stale         = stale                   # every stale skill and why, in one read (skill_stamps.reasons)
         self.ran           = ran                     # a step that succeeded: kept with the skill's stamp as evidence
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
@@ -125,6 +135,8 @@ class TaskDesk:
         self.heard         = 0.0
         self.spoke_lost    = False
         self.plans         = 0
+        self.applied       = {}                      # claim id -> (skill, step) of the last step of this task that followed it
+        self.graded        = set()                   # the claims graded in this task: once each
         self.busy          = 0                       # commands in progress: a session waiting for a step is not quiet
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
 
@@ -141,6 +153,8 @@ class TaskDesk:
         self.opened     = self.heard = self.clock()
         self.spoke_lost = False
         self.plans      = 0
+        self.applied    = {}
+        self.graded     = set()
         opened          = {
             'state':   'open',
             'run_id':  context.run_id,
@@ -232,7 +246,10 @@ class TaskDesk:
 
         if op == 'run':
             return self._run(task, message['skill'], dict(message.get('inputs') or {}), str(message.get('subgoal', '')),
-                             str(message.get('applies') or ''))
+                             _ids(message.get('applies')))
+
+        if op == 'grade':
+            return self._grade(task, str(message['claim']), str(message['grade']), str(message.get('reason', '')))
 
         if op == 'write_skill':
             return self._write_skill(str(message['yaml']), str(message.get('code', '')))
@@ -243,7 +260,7 @@ class TaskDesk:
         if op in ('done', 'give_up'):
             return self._end(task, 'done' if op == 'done' else 'gave_up', str(message.get('reason', '')))
 
-        return {'ok': False, 'message': f'unknown op {op}; use plan, run, write_skill, skills, done or give_up'}
+        return {'ok': False, 'message': f'unknown op {op}; use plan, run, grade, write_skill, skills, done or give_up'}
 
     def _write_skill(self, text: str, code: str = '') -> dict:
         if self.writer is None:
@@ -269,9 +286,12 @@ class TaskDesk:
 
         return {'ok': True, 'message': f'plan v{self.plans} saved', 'version': self.plans}
 
-    def _run(self, task: Task, skill: str, inputs: dict, subgoal: str, applies: str = '') -> dict:
+    def _run(self, task: Task, skill: str, inputs: dict, subgoal: str, applies: list[str] = ()) -> dict:
         if task.steps >= self.max_steps:
             return {'ok': False, 'message': f'max_steps {self.max_steps} reached: end the task with done or give_up'}
+
+        if applies and (problem := self._not_live(applies)):
+            return {'ok': False, 'message': f'the step did not run: {problem}'}
 
         if self.gate is not None:
             decision = self.ask_step({'skill': skill, 'inputs': inputs, 'subgoal': subgoal},
@@ -288,13 +308,47 @@ class TaskDesk:
 
         reply = {'ok': result.status != 'error', **asdict(result)}
 
-        if applies and result.status in ('success', 'failure'):    # an error never ran: it says nothing of the claim
-            sighting         = Sighting(by=f'{OUTCOME}:{skill}', time=time.time(), run=task.run_id,
-                                        evidence=[f'step:{task.steps}'])
-            confirms         = result.status == 'success'
-            reply['applies'] = self._know(lambda: f'{applies} {self.knowledge.sight(applies, sighting, confirms)}')
+        if applies and result.status in ('success', 'failure'):    # an error never ran: there is nothing to grade
+            self.applied |= {claim_id: (skill, task.steps) for claim_id in applies}
+            reply['applies'] = f'grade each once: agent_cli grade <id> {"|".join(GRADES)} --reason R: {", ".join(applies)}'
 
         return reply
+
+    def _not_live(self, applies: list[str]) -> str:
+        """Why a run cannot follow these claims, or ''"""
+        if self.knowledge is None:
+            return 'applies needs a knowledge store, and there is none here'
+
+        try:
+            retired = [claim_id for claim_id in applies if self.knowledge.get(claim_id).tier == 'retired']
+        except KnowledgeError as error:
+            return str(error)
+
+        return f'retired: {", ".join(retired)}' if retired else ''
+
+    def _grade(self, task: Task, claim_id: str, grade: str, reason: str) -> dict:
+        if claim_id not in self.applied:
+            return {'ok': False, 'message': f'no step of this task followed {claim_id}: grade only a claim that a run gave in applies'}
+
+        if claim_id in self.graded:
+            return {'ok': False, 'message': f'{claim_id} is graded already in this task'}
+
+        if not reason.strip():
+            return {'ok': False, 'message': 'a grade needs a reason'}
+
+        skill, step = self.applied[claim_id]
+        sighting    = Sighting(by=f'{OUTCOME}:{skill}', time=time.time(), run=task.run_id, evidence=[f'step:{step}'],
+                               grade=grade, reason=reason.strip())
+
+        try:
+            said = f'{claim_id} {self.knowledge.grade(claim_id, sighting)}'
+        except KnowledgeError as error:
+            return {'ok': False, 'message': str(error)}
+
+        self.graded.add(claim_id)
+        self.tasks.tracer.emit('knowledge', said, claim=claim_id, grade=grade)
+
+        return {'ok': True, 'message': said}
 
     def _note_stale(self, skill: str) -> None:
         """Say in the trace and the bundle that a step used a stale skill, not only in the catalog that the session reads"""
@@ -312,21 +366,6 @@ class TaskDesk:
         except OSError as error:
             self.tasks.tracer.emit('stamp_error', f'{skill}: the run was not kept: {error!r}', level='warn')
 
-    def _know(self, write: Callable[[], str]) -> str:
-        """A write to the knowledge store after a step: bookkeeping, so as _keep it never fails the step. Returns
-        what the store did, or why not"""
-        if self.knowledge is None:
-            return 'not kept: there is no knowledge store here'
-
-        try:
-            said = write()
-        except (OSError, KnowledgeError) as error:
-            said = f'not kept: {error!r}'
-
-        self.tasks.tracer.emit('knowledge', said, level='warn' if said.startswith('not kept') else 'info')
-
-        return said
-
     def ask_step(self, request: dict, still_open=None, step=None) -> dict:
         """Ask a person about one step and trace the answer; also used for a call inside a code skill"""
         if self.gate is None:
@@ -341,10 +380,16 @@ class TaskDesk:
         return decision
 
     def _end(self, task: Task, end: str, reason: str) -> dict:
+        ungraded = [claim_id for claim_id in self.applied if claim_id not in self.graded]
         self._close(task, end)                           # first: else check() sees it end and closes it as 'ended'
         self.tasks.end_task(task, end, reason)
+        message  = f'the task ended: {end}'
 
-        return {'ok': True, 'message': f'the task ended: {end}'}
+        if ungraded:                                     # said, not enforced: a grade is the agent's judgement
+            message += f'; not graded: {", ".join(ungraded)}'
+            self.tasks.tracer.emit('knowledge', f'not graded: {", ".join(ungraded)}', level='warn', claims=ungraded)
+
+        return {'ok': True, 'message': message}
 
     def _close(self, task: Task, end: str):
         with self._lock:                                 # check() and a command can both close it; a new task may be open

@@ -239,3 +239,25 @@ def test_a_skill_claim_with_no_record_of_its_code_counts_nothing_until_it_is_see
     store.confirm(claim.id, seen(by='operator', run='r2'))
 
     assert store.get(claim.id).under == {'version': 1} and len(store.get(claim.id).counted.confirmations) == 1
+
+
+def test_only_useful_and_wrong_grades_are_evidence(tmp_path):
+    store    = KnowledgeStore(tmp_path)
+    claim, _ = store.note('When it stops short, walk again.', seen(), {'skill': 'navigate_to'})
+    graded   = lambda grade, run: Sighting(by='outcome:navigate_to', time=200.0, run=run, grade=grade, reason='why')
+    store.confirm(claim.id, seen(by='operator', run='r2'))
+    claim    = store.get(claim.id)
+    assert claim.tier == 'belief'
+
+    store.grade(claim.id, graded('misleading', 'r3'))
+    store.grade(claim.id, graded('not-applicable', 'r4'))
+    assert store.get(claim.id).reliability() == claim.reliability() and len(store.get(claim.id).grades) == 2
+
+    store.grade(claim.id, graded('useful', 'r5'))
+    store.grade(claim.id, graded('wrong', 'r6'))
+    after = store.get(claim.id)
+    assert [s.grade for s in after.confirmations] == [None, None, 'useful'] and [s.grade for s in after.contradictions] == ['wrong']
+    assert after.tier == 'belief'                                           # a wrong grade moves no tier
+
+    with pytest.raises(KnowledgeError):
+        store.grade(claim.id, graded('great', 'r7'))

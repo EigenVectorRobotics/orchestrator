@@ -5,9 +5,9 @@ nothing. Every later sighting is a confirmation or a contradiction, with its evi
 The rules (docs/knowledge.md):
 
 - observation -> belief: confirmed in 2 runs or more, by 2 sources or more (a check, an agent skill, the operator).
-  The end of a step that followed a claim (OUTCOME) is weak evidence: it counts in reliability, but it moves no
-  tier, up or down, because a success can mean no more than "the message was published" and a failure can have
-  another cause
+  The agent's grade of a claim that a step followed (OUTCOME) is weak evidence: useful confirms and wrong
+  contradicts; it counts in reliability, but it moves no tier, up or down. Misleading and not-applicable are kept
+  apart (Claim.grades) and change no reliability: they say that the claim's text or tags are too wide
 - belief -> fact: the Wilson lower bound of confirmations / (confirmations + contradictions) is at least
   FACT_RELIABILITY, and the operator approves it. Nobody else makes a fact.
 - fact -> belief -> observation: one contradiction moves a claim down one tier
@@ -49,7 +49,8 @@ WILSON_Z         = 1.645            # one-sided 95 %: with no contradiction, 11 
 MIN_RUNS         = 2
 MIN_SOURCES      = 2
 OPERATOR         = 'operator'
-OUTCOME          = 'outcome'        # by 'outcome:<skill>': a step that followed a claim, as weak evidence
+OUTCOME          = 'outcome'        # by 'outcome:<skill>': the grade of a step that followed a claim, as weak evidence
+GRADES           = {'useful': True, 'wrong': False, 'misleading': None, 'not-applicable': None}   # True confirms, False contradicts
 TAG_KIND         = re.compile(r'[a-z][a-z0-9_]*')
 
 
@@ -82,6 +83,8 @@ class Sighting:
     evidence: list[str] = field(default_factory=list)    # e.g. 'record:7', 'frame:press', 'step:3'
     value:    object = None
     moved:    str | None = None         # the code under the claim moved after it was seen: it no longer counts
+    grade:    str | None = None         # the agent's grade of a claim that a step followed (GRADES)
+    reason:   str | None = None         # why, in the agent's words
 
 
 class Counted(NamedTuple):
@@ -102,6 +105,7 @@ class Claim:
     contradictions: list[Sighting] = field(default_factory=list)
     approved_by:    str | None = None
     under:          dict | None = None                   # the code the counted sightings were seen on (a skill tag)
+    grades:         list[Sighting] = field(default_factory=list)   # misleading or not-applicable: no evidence
 
     def __post_init__(self):
         self.about = _clean(self.about)              # a claim written by hand in claims.yaml too; a bad kind still loads
@@ -183,6 +187,7 @@ def _claim_from(raw: dict) -> Claim:
     raw = dict(raw)
     raw['confirmations']  = [Sighting(**s) for s in raw.get('confirmations', [])]
     raw['contradictions'] = [Sighting(**s) for s in raw.get('contradictions', [])]
+    raw['grades']         = [Sighting(**s) for s in raw.get('grades', [])]
     return Claim(**raw)
 
 
@@ -215,10 +220,10 @@ class KnowledgeStore:
         to_fact = next(n for n in range(1, 1000) if wilson_lower_bound(n, n) >= FACT_RELIABILITY)
         rules   = [
             f'- Tiers: {" -> ".join(LIVE)}. A claim becomes a belief when it is seen in {MIN_RUNS} runs by '
-            f'{MIN_SOURCES} sources; the end of a step that followed it ({OUTCOME}:<skill>) counts as evidence, but it '
-            f'moves no tier. A belief becomes a fact after {to_fact} confirmations with no contradiction, and '
+            f'{MIN_SOURCES} sources; your grade of a step that followed it ({OUTCOME}:<skill>) counts as evidence, '
+            f'but it moves no tier. A belief becomes a fact after {to_fact} confirmations with no contradiction, and '
             f'only when the operator approves it.',
-            '- What makes a claim lose trust: a contradiction moves it down one tier (not an outcome); a claim with valid_for_s is '
+            '- What makes a claim lose trust: a contradiction moves it down one tier (not a grade); a claim with valid_for_s is '
             'retired that long after it was last seen; the operator can retire it.',
             '- A claim about a skill holds only for the code under that skill: its contract, the skills it runs, and '
             'the repos it uses. When that code changes, its evidence stops counting and it is an observation again, '
@@ -275,6 +280,23 @@ class KnowledgeStore:
 
     def contradict(self, claim_id: str, sighting: Sighting) -> str:
         return self.sight(claim_id, sighting, confirms=False)
+
+    def grade(self, claim_id: str, sighting: Sighting) -> str:
+        """The agent's grade of a claim that a step followed: useful or wrong is weak evidence; misleading or
+        not-applicable is kept apart and changes no reliability"""
+        if sighting.grade not in GRADES:
+            raise KnowledgeError(f'no grade {sighting.grade}; use {", ".join(GRADES)}')
+
+        with self._locked() as claims:
+            claim = _lookup(claims, claim_id, live=True)
+
+            if (confirms := GRADES[sighting.grade]) is not None:
+                return f'{sighting.grade}: ' + self._sight(claim, sighting, confirms)
+
+            claim.grades.append(sighting)
+            self._log('grade', claim, sighting.by, grade=sighting.grade, reason=sighting.reason, run=sighting.run)
+
+            return f'{sighting.grade}: kept apart, no evidence; make the text or tags narrower'
 
     def approve(self, claim_id: str, by: str, text: str | None = None) -> Claim:
         """The operator makes a ready belief a fact, with the exact text (edited or not)"""
@@ -462,7 +484,7 @@ def _sources(claim: Claim) -> int:
 
 
 def _weak(sighting: Sighting) -> bool:
-    """The end of a step that followed the claim: it counts in reliability, but it does not move a tier"""
+    """A grade of a step that followed the claim: it counts in reliability, but it does not move a tier"""
     return sighting.by.startswith(f'{OUTCOME}:')
 
 

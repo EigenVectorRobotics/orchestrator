@@ -1,6 +1,6 @@
 # Reasoning areas, knowledge graduation and map annotation (design, not built)
 
-Status: 2026-11-05. Built (except `scratch/<run_id>/` for the agent): `orchestrator/knowledge.py` (claims, tiers, rules, log), the store's guide in the open task, `--applies` evidence, the `knowledge` CLI. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, claims from `retrospect`. Places come from `map_info`'s latched `~/places` (2026-11-09), with kind, floor and note; floor links wait for a decision on the nav side. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
+Status: 2026-11-05. Built (except `scratch/<run_id>/` for the agent): `orchestrator/knowledge.py` (claims, tiers, rules, log), the store's guide in the open task, graded `--applies` (2026-11-18), the `knowledge` CLI. Not built yet: reasoning on a contradiction, `{fact:...}` in trees, claims from `retrospect`. Places come from `map_info`'s latched `~/places` (2026-11-09), with kind, floor and note; floor links wait for a decision on the nav side. Depends on `docs/recorder.md` (evidence) and `map_info` (places).
 
 Built rules: observation → belief at 2 runs and 2 sources; a belief is ready for a fact when the Wilson lower bound (z = 1.645) is at least 0.8, that is 11 confirmations with no contradiction; the operator approves it with `knowledge approve`, at a terminal only.
 
@@ -69,7 +69,10 @@ On the NUC, the store is in `$EIGEN_VECTOR_WS/agent/knowledge/` (`knowledge_dir`
 - The task agent, as a session (built 2026-11-17): it writes with `knowledge note|confirm|contradict --by agent:task`, for example after a failure what to do instead ("When <what failed>, <what to do instead>"). The CLI uses the executor's code clock: the executor saves where it reads the code in `<knowledge_dir>/code_clock.yaml`, so a claim about a skill keeps the code under it. `--by operator` works only at a terminal.
 - How the task agent learns the store (built 2026-11-17): the open task carries `TaskDesk.known()`: `KnowledgeStore.guide()` (the rules, made from the store's constants, and an index of subjects) and how to write (`writing_text`). The session reads the claims it needs with `knowledge list|show`.
 - A known limit: the code clock follows the `skill` tag only. A value measured through a skill but tagged only with a place (an arrival offset) depends on that skill's code too, and is not reset. Give such a claim the skill tag as well.
-- A step that follows a claim (`applies: <id>` on a run): the step's end confirms it (success) or contradicts it (failure), by `outcome:<skill>`. This is weak evidence, because a success can mean only that the message was published: it counts in reliability, not as a source for graduation.
+- A step that follows claims (`applies` on a run, one or more ids) changes no claim at its end: a success can mean only that the message was published, and a failure can have another cause. The session grades each claim once per task (`agent_cli grade`, as ASPIRE grades each library entry it used):
+  - `useful` confirms and `wrong` contradicts, by `outcome:<skill>`. This is weak evidence: it counts in reliability, not as a source for graduation, and it moves no tier.
+  - `misleading` (it led the agent wrong here) and `not-applicable` (it did not fit this case) are kept in `Claim.grades` and change no reliability. They say that the claim's text or tags are too wide.
+  - Each grade keeps the agent's reason and the step. `done` and `give_up` name the claims with no grade; they do not block the end.
 
 ### Graduation
 

@@ -35,7 +35,7 @@ agent_cli write-skill greet.yaml --code greet.py
 agent_cli done --reason "arrived"
 ```
 
-`agent_cli run ... --applies <claim id>` says that the step follows a claim of the knowledge store; the step's end is recorded on the claim as weak evidence.
+`agent_cli run ... --applies <claim id>` says that the step follows a claim of the knowledge store (give it again for each claim). The step's end changes no claim. After the step, the session grades each claim once per task: `agent_cli grade <id> useful|misleading|wrong|not-applicable --reason R`. `done` and `give-up` name the claims with no grade, but they do not stop the end.
 
 ## Skills
 
@@ -72,7 +72,7 @@ def run(skills, inputs):
 What the robot learns is kept as claims in `<agent_dir>/knowledge/` (`docs/knowledge.md`). A claim is an observation, a belief or a fact.
 
 - **A claim about a skill is about its code.** It keeps a snapshot of the code under the skill and the skills it runs. When that code moves, its old sightings stop counting and it goes back to an observation.
-- **A contradiction moves a claim down one tier.** The end of an `--applies` step is weak evidence: it counts in the claim's reliability but moves no tier.
+- **A contradiction moves a claim down one tier.** A grade of `useful` or `wrong` is weak evidence: it counts in the claim's reliability but moves no tier. `misleading` and `not-applicable` are kept apart: `knowledge list` says to make the claim's text or tags narrower.
 - **Only the operator makes a fact,** at a terminal: `approve`, `refuse`, `retire`, and `--by operator`.
 
 ```bash
