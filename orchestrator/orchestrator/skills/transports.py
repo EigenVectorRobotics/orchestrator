@@ -358,8 +358,9 @@ class TopicHandle(Handle):
 
 # ========== Transports ==========
 
-class Transport:
-    """How the executor reaches what a contract names: one instance per transport, shared by every skill using it"""
+class Driver:
+    """Makes every call of one transport: builds the message, sends it, and returns the call's handle. One instance per
+    transport, shared by every skill using it"""
 
     name = ''
 
@@ -370,7 +371,7 @@ class Transport:
         raise NotImplementedError
 
 
-class ActionTransport(Transport):
+class ActionDriver(Driver):
     name = 'action'
 
     def prepare(self, contract: Contract, ctx: 'SkillContext'):
@@ -383,7 +384,7 @@ class ActionTransport(Transport):
         return ActionHandle(ctx.action_client(contract.interface.name, action_type), goal, contract, ctx.server_wait_s)
 
 
-class ServiceTransport(Transport):
+class ServiceDriver(Driver):
     name = 'service'
 
     def prepare(self, contract: Contract, ctx: 'SkillContext'):
@@ -401,7 +402,7 @@ class ServiceTransport(Transport):
         return ServiceHandle(ctx.service_client(interface.name, service_type), request, contract, ctx.server_wait_s, watch)
 
 
-class TopicTransport(Transport):
+class TopicDriver(Driver):
     name = 'topic'
 
     def prepare(self, contract: Contract, ctx: 'SkillContext'):
@@ -418,7 +419,7 @@ class TopicTransport(Transport):
         return TopicHandle(ctx.publisher(interface.name, interface.ros_type), message, contract, watch, ctx.server_wait_s)
 
 
-class WatchTransport(Transport):
+class WatchDriver(Driver):
     """A condition on the latest messages of a topic; it never publishes"""
 
     name = 'watch'
@@ -447,7 +448,7 @@ def check_watch(spec: Watch, inputs: dict, ctx: 'SkillContext') -> DoneHandle:
     return DoneHandle(watch.matches(spec), f'{spec.field} = {watch.read(spec)}')
 
 
-class CompareTransport(Transport):
+class CompareDriver(Driver):
     """The input value equals the input equals; nothing leaves the executor"""
 
     name = 'compare'
@@ -458,7 +459,7 @@ class CompareTransport(Transport):
         return DoneHandle(value == equals, f'{value} {"==" if value == equals else "!="} {equals}')
 
 
-class AliveTransport(Transport):
+class AliveDriver(Driver):
     """Each listed topic has a publisher, each service exists, each URL answers"""
 
     name = 'alive'
@@ -467,7 +468,7 @@ class AliveTransport(Transport):
         return FutureHandle(ctx.submit('commands', check_alive, ctx.node, contract.interface.alive))
 
 
-class CommandTransport(Transport):
+class CommandDriver(Driver):
     """The contract's fixed shell command on the executor's machine; exit code 0 is success"""
 
     name = 'command'
@@ -507,7 +508,7 @@ class VlmHandle(Handle):
         return self.status
 
 
-class VlmTransport(Transport):
+class VlmDriver(Driver):
     """A closed question about the latest camera frame, to the VLM server"""
 
     name = 'vlm'
@@ -529,7 +530,7 @@ class VlmTransport(Transport):
         return VlmHandle(future, question, interface.success_answer)
 
 
-class PythonTransport(Transport):
+class PythonDriver(Driver):
     """A skill whose skill.py runs every call itself; reaching here means it did not"""
 
     name = 'python'
@@ -538,9 +539,9 @@ class PythonTransport(Transport):
         return DoneHandle(False, f'{contract.name}: transport python needs a skill.py whose start() runs the call')
 
 
-def default_transports() -> dict[str, Transport]:
-    """Every built-in transport by name; agent and tree are run by their own leaves"""
-    transports = [ActionTransport(), ServiceTransport(), TopicTransport(), WatchTransport(), CompareTransport(),
-                  AliveTransport(), CommandTransport(), VlmTransport(), PythonTransport()]
+def default_drivers() -> dict[str, Driver]:
+    """The driver of every built-in transport, by the transport's name; agent and tree are run by their own leaves"""
+    drivers = [ActionDriver(), ServiceDriver(), TopicDriver(), WatchDriver(), CompareDriver(),
+               AliveDriver(), CommandDriver(), VlmDriver(), PythonDriver()]
 
-    return {transport.name: transport for transport in transports}
+    return {driver.name: driver for driver in drivers}

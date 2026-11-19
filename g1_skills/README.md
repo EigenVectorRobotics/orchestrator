@@ -157,5 +157,5 @@ ROS. `operator_confirm/` is the smallest example; `manipulation_recovery/` the l
 - A change to an agent skill's `spec.py` or `prompt.py` reaches the model only when the laptop's bridge runs the same
   checkout: pull and restart it.
 
-A new transport (rare) is a `Transport` subclass in `orchestrator/orchestrator/skills/transports.py`, added to
-`default_transports()` there, and its name added to `TRANSPORTS` in `skill_registry/skill_registry/contract.py`.
+A new transport (rare) is a `Driver` subclass in `orchestrator/orchestrator/skills/transports.py`, added to
+`default_drivers()` there, and its name added to `TRANSPORTS` in `skill_registry/skill_registry/contract.py`.

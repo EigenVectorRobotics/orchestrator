@@ -14,7 +14,7 @@ from ..sensing import Camera, Tf
 from ..vlm.client import VlmClient
 from .api import DoneHandle, Handle, Skill
 from .loader import SkillLibrary
-from .transports import TopicWatch, Transport, default_transports
+from .transports import Driver, TopicWatch, default_drivers
 
 
 T = TypeVar('T')
@@ -94,13 +94,13 @@ CALL_ERRORS = (AttributeError, ValueError, TypeError, KeyError, ModuleNotFoundEr
 
 
 class SkillRunner:
-    """Starts every call of a non-agent skill: the skill's own before, start and wrap around its transport"""
+    """Starts every call of a non-agent skill: the skill's own before, start and wrap around its transport's driver"""
 
     def __init__(self, ctx: SkillContext, registry: Registry, library: SkillLibrary | None = None,
-                 transports: dict[str, Transport] | None = None):
-        self.ctx        = ctx
-        self.library    = library or SkillLibrary()
-        self.transports = transports or default_transports()
+                 drivers: dict[str, Driver] | None = None):
+        self.ctx     = ctx
+        self.library = library or SkillLibrary()
+        self.drivers = drivers or default_drivers()
         self.skills: dict[str, Skill] = {}
 
         for contract in registry:
@@ -109,14 +109,14 @@ class SkillRunner:
     def prepare(self, contract: Contract):
         """Make clients, subscriptions and the skill's own state early, so a tree's first call finds them ready"""
         interface = contract.interface
-        transport = self.transports.get(interface.transport)
+        driver    = self.drivers.get(interface.transport)
 
         try:
             if interface.success_when is not None:
                 self.ctx.watch(interface.success_when)
 
-            if transport is not None:
-                transport.prepare(contract, self.ctx)
+            if driver is not None:
+                driver.prepare(contract, self.ctx)
 
             skill_class = self.library.find(contract.name, 'skill', Skill)
 
@@ -128,7 +128,7 @@ class SkillRunner:
 
     def start(self, contract: Contract, inputs: dict) -> Handle:
         skill     = self.skills.get(contract.name)
-        transport = self.transports.get(contract.interface.transport)
+        driver    = self.drivers.get(contract.interface.transport)
 
         try:
             if skill is not None and (refused := skill.before(inputs)) is not None:
@@ -136,10 +136,10 @@ class SkillRunner:
 
             handle = skill.start(inputs) if skill is not None else None
 
-            if handle is None and transport is None:
-                return DoneHandle(False, f'transport {contract.interface.transport} is not supported by this runner')
+            if handle is None and driver is None:
+                return DoneHandle(False, f'transport {contract.interface.transport} has no driver in this runner')
 
-            handle = handle if handle is not None else transport.start(contract, inputs, self.ctx)
+            handle = handle if handle is not None else driver.start(contract, inputs, self.ctx)
 
             return skill.wrap(handle, inputs) if skill is not None else handle
         except CALL_ERRORS as error:
