@@ -25,7 +25,7 @@ fallback:
 maturity: wip
 source: navigation_stack/route_planner/route_planner/route_planner_node.py
 notes: >-
-  Succeeds only on arrival: local_planner's /goal_reached with the robot within 0.5 m of the goal.
+  Succeeds only on arrival: local_planner's /goal_reached with the robot within 0.1 m of the goal.
   The status state "arrived" comes earlier, when the goal is within lookahead along the route, so it is not the end.
   The result's reason says why a goal ended, e.g. arrived, cancelled, replaced by a new goal, autonomy off.
   The feedback state is routing | arrived | blocked, sent when it changes. blocked can clear when new terrain frees

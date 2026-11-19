@@ -1,6 +1,6 @@
 name: set_profile
 kind: action
-device: orin
+device: nuc
 description: Set the joint gain profile
 interface:
   transport: service

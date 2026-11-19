@@ -16,5 +16,5 @@ outputs:
   type: string
 timeout_s: 5
 maturity: untested
-source: vlm/launch/llama_server.launch.py
+source: orchestrator/orchestrator/vlm/server.py (vlm_server on the Thor, at vlm_base_url)
 notes: New adapter. Narrow perception questions only, never planning.

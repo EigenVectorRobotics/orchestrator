@@ -1,6 +1,6 @@
 name: release_arms
 kind: action
-device: orin
+device: nuc
 description: Give arm control back to the locomotion controller
 interface:
   transport: service

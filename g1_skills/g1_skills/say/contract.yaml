@@ -1,6 +1,6 @@
 name: say
 kind: action
-device: orin
+device: nuc
 description: Speak a sentence
 interface:
   transport: topic

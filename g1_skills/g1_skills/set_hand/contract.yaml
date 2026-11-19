@@ -1,6 +1,6 @@
 name: set_hand
 kind: action
-device: orin
+device: nuc
 description: Set a hand pose
 interface:
   transport: service
@@ -17,8 +17,8 @@ inputs:
   type: enum
   field: target_pose
   values:
-    ball: 0
-    point: 1
+    open: 0
+    closed: 1
 resources:
 - arms
 timeout_s: 3
