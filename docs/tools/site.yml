@@ -1,0 +1,45 @@
+title: Orchestrator
+description: Agentic behavior-tree execution for the Unitree G1 elevator task
+repo_url: https://github.com/EigenVectorRobotics/orchestrator
+links:
+- title: Eigen Vector docs
+  url: https://eigenvectorrobotics.github.io/eigen_vector/
+api_roots:
+- orchestrator
+- skill_registry
+- g1_skills
+- run_viewer/src
+nav:
+- Home: README.md
+- Architecture:
+  - Overview: docs/architecture.md
+  - System: docs/design/system.md
+  - Classes and interfaces: docs/design/classes.md
+  - Sequences: docs/design/sequences.md
+  - Trees and the press slot: docs/design/trees.md
+  - Agent skills: docs/agents.md
+- Running the robot:
+  - Run: docs/run.md
+  - Demo checklist: docs/demo.md
+  - Machines: docs/machines.md
+  - Troubleshooting: docs/troubleshooting.md
+  - Recorded runs: docs/recorder.md
+- Packages:
+  - g1_skills: g1_skills/README.md
+  - mission_control: mission_control/README.md
+  - Robot scripts: mission_control/robot/README.md
+  - Run Viewer: run_viewer/README.md
+- Code map:
+  - orchestrator: docs/code/orchestrator.md
+  - orchestrator/agent: docs/code/orchestrator/agent.md
+  - orchestrator/common: docs/code/orchestrator/common.md
+  - orchestrator/execution: docs/code/orchestrator/execution.md
+  - orchestrator/health: docs/code/orchestrator/health.md
+  - orchestrator/planning: docs/code/orchestrator/planning.md
+  - orchestrator/recording: docs/code/orchestrator/recording.md
+  - orchestrator/skills: docs/code/orchestrator/skills.md
+  - orchestrator/tree: docs/code/orchestrator/tree.md
+  - orchestrator/vlm: docs/code/orchestrator/vlm.md
+  - g1_skills: docs/code/g1_skills.md
+  - skill_registry: docs/code/skill_registry.md
+- Rules for agents: CLAUDE.md

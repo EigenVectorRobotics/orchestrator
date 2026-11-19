@@ -15,13 +15,22 @@ concurrency:
 jobs:
   site:
     runs-on: ubuntu-latest
+    env:
+      BUNDLE_GEMFILE: ${{ github.workspace }}/docs/tools/Gemfile
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install -r docs/tools/requirements.txt
-      - run: mkdocs build --strict
+      - name: Lay out the Jekyll source
+        run: python docs/tools/build_site.py _site_src
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - name: Build with Jekyll
+        run: bundle exec jekyll build --source _site_src --destination site --baseurl "/${GITHUB_REPOSITORY#*/}"
       - name: Push the site to github-pages/<branch>
         working-directory: site
         run: |
