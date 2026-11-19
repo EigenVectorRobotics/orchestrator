@@ -1,6 +1,6 @@
 ---
 name: discover
-description: The discovery session of the G1 orchestrator. Read the stack's code and the live ROS graph, and write a skill contract for each interface that a task could use, and one doc page per package. Use when a discovery task is open ("Learn the stack", started with Mission Control's Start discovery), or when the operator asks you to run or continue discovery.
+description: The discovery session of the G1 orchestrator. Read the stack's code and the live ROS graph, and write a skill contract for each interface that a task could use, and one doc page per package. Use when a discovery task is open (the task line says "(discovery)": "Learn the stack" from Mission Control's Start discovery, or a different sentence), or when the operator asks you to run or continue discovery.
 ---
 
 # Discover the stack
@@ -24,6 +24,8 @@ real missions. That is the test of your work.
    task is for a task session. If the message has no contract grammar, `write-skill` is off on this robot: stop and
    tell the operator. Save the open message once, for the workers: `agent_cli task show >
    <scratch>/task.md` (the scratch folder is in the message).
+   If the task sentence does not start with "Learn the stack", it is a special discovery task. Do the work that the
+   sentence asks, with these rules and steps. In step 4, select only the repos that the sentence needs.
 3. **Read the state.**
    - `progress.md` in this folder. If it does not exist, make it from the template at the end of this file.
    - `agent_cli skills` once: the skills that exist, and the stale ones with the reason. Keep a short list of their
@@ -34,7 +36,8 @@ real missions. That is the test of your work.
 5. **One repo at a time.** If you can start subagents, give each repo to one subagent with
    [repo-worker.md](repo-worker.md), filled in. If you cannot, do the worker's steps yourself. The worker writes its
    drafts in `<scratch>/<repo>/` and returns only the file names, the facts and the questions.
-6. **Write the skills.** For each draft:
+6. **Write the skills.** First the condition skills, then the skills that name them in `pre`, `effects`, `check` or
+   `fallback`. For each draft:
    - If your list has a skill for the same interface, read that one contract and improve it, or drop the draft.
    - Run `agent_cli write-skill <scratch>/<repo>/<name>.yaml` (and `--code FILE` for a code skill).
    - A refusal names the rule. Fix the draft and try again, three times at most. Then record the refusal in
@@ -44,12 +47,14 @@ real missions. That is the test of your work.
    - Copy the package page to `docs/<package>.md`: what the package does, its interfaces, the frames, the units.
    - A measured fact (a rate, a frame, a unit that the code does not state) goes to the knowledge store:
      `knowledge note "TEXT" --by agent:discovery --run <run_id> --evidence <what you read> --about skill=<name>`.
-8. **Update `progress.md`** after each repo: done, the skills written, the refusals and why, open questions.
+8. **Update `progress.md`** after each repo: done, the skills written, the refusals and why, open questions. In a
+   special discovery task, do not mark a repo done. Write its work under Sessions only.
 9. **End.**
    - **Context nearly full:** write a short summary in `progress.md` and stop. Do not end the task: it has no time
      limit, and a new session continues it from step 1 (`agent_cli task wait` gives the same open task).
    - **All repos done:** run `agent_cli done --reason R`. If some repos cannot be done, `agent_cli give-up --reason
      R`, with what is left in `progress.md`.
+   - **Special discovery task:** when the work of the sentence is complete, run `agent_cli done --reason R`.
 
 ## What gets a skill
 

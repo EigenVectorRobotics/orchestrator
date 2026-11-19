@@ -35,6 +35,9 @@ a port, an item of inputs or outputs: {field_text(Port)}
 success_when: {field_text(Watch)}
 failure_when: {field_text(HeldValue)}
 Rules: {NAME_RULE}. An action or code skill needs a timeout_s above 0.
+pre, effects and check give names of condition skills that the library knows, and fallback gives names of skills
+that the library knows: never prose. Write a named skill before the skill that names it. A condition that other
+skills name stays a condition.
 A condition only reads ({one_of(READ_ONLY)}). An {one_of(ROS_TRANSPORTS)} skill needs the ROS name and the
 ros_type it takes. A watch needs success_when. A compare skill needs the inputs value and equals. A vlm skill
 needs a question; a {{field}} in a question must be an input; success_answer must be one of choices. failure_when

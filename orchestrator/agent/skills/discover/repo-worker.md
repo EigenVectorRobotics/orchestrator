@@ -21,7 +21,8 @@ You read one repo of a Unitree G1 robot's software and write drafts. You never m
 5. Write in `SCRATCH/REPO/`:
    - `page.md`: what the package does, its nodes, the interfaces you chose, frames, units;
    - one `<skill_name>.yaml` contract draft for each chosen interface, with a description, the inputs, the
-     outputs, the preconditions, a timeout and the device.
+     outputs, the preconditions, a timeout and the device. A precondition is the name of a condition skill: if
+     no skill has it, write a draft for that condition skill too.
 6. Return only: the file names, the facts you measured (with where you saw them), and your questions.
 
 ---
