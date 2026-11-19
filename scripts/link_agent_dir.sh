@@ -5,25 +5,37 @@
 #     skills     -> <repo>/skill_registry/skills          the skill library (write_skill saves here)
 #     runbook.md -> <repo>/orchestrator/agent/runbook.md  what the robot is
 #     docs       -> <repo>/orchestrator/agent/docs        the agent's codebase docs
-#     .claude/settings.json -> <repo>/orchestrator/agent/claude_settings.json   the task session's permissions
+#     .claude/settings.json                               the task session's permissions, made from
+#                                                         orchestrator/agent/claude_settings.json (not a link)
 #     knowledge/                                          claims and their log (not in git)
 #     stamps.yaml                                         what each skill was proved against (not in git)
 #
+#   $EIGEN_VECTOR_WS/agent_discovery/                     where the discovery session starts
+#     skills, runbook.md, docs                            the same links
+#     CLAUDE.md, AGENTS.md -> <repo>/orchestrator/agent/discovery_session.md
+#     .claude/skills/discover, .codex/skills/discover -> <repo>/orchestrator/agent/skills/discover
+#     .claude/settings.json                               made from claude_settings.json and claude_settings_discovery.json
+#     progress.md                                         the state of discovery (the discover skill makes it)
+#
+# The settings are made, not linked: the task session's hide each stack repo in src/ by its absolute path.
 # Safe to run again. It never deletes a file: a real file or folder where a link must go stops the script.
 # The old layout moves in: agent/contracts/<name>.yaml and agent/code/<name>.py go into skills/<name>/, and the files
 # of a real agent/docs/ go into the docs folder in git. A real agent/runbook.md is renamed runbook.md.local, for a
 # person to merge into the one in git.
 #
-# Usage: scripts/link_agent_dir.sh [AGENT_DIR]     (default: $EIGEN_VECTOR_WS/agent)
+# Usage: scripts/link_agent_dir.sh [AGENT_DIR [DISCOVERY_DIR [SRC_DIR]]]
+#   (defaults: $EIGEN_VECTOR_WS/agent, $EIGEN_VECTOR_WS/agent_discovery, $EIGEN_VECTOR_WS/src)
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 agent="${1:-${EIGEN_VECTOR_WS:?set EIGEN_VECTOR_WS or give the agent folder}/agent}"
+discovery="${2:-$(dirname "$agent")/agent_discovery}"
+src="${3:-$(dirname "$agent")/src}"
 
-mkdir -p "$agent/knowledge" "$agent/.claude"
+mkdir -p "$agent/knowledge" "$agent/.claude" "$discovery/.claude/skills" "$discovery/.codex/skills"
 
-link() {        # link NAME TARGET
-    local path="$agent/$1" target="$2"
+link() {        # link NAME TARGET [FOLDER]
+    local path="${3:-$agent}/$1" target="$2"
 
     if [[ -L "$path" ]]; then
         ln -sfn "$target" "$path"
@@ -87,7 +99,24 @@ if [[ -f "$agent/runbook.md" && ! -L "$agent/runbook.md" ]]; then
     echo "renamed $agent/runbook.md to runbook.md.local: merge it into $repo/orchestrator/agent/runbook.md, then delete it"
 fi
 
-link skills     "$repo/skill_registry/skills"
-link runbook.md "$repo/orchestrator/agent/runbook.md"
-link docs       "$repo/orchestrator/agent/docs"
-link .claude/settings.json "$repo/orchestrator/agent/claude_settings.json"
+for folder in "$agent" "$discovery"; do
+    link skills     "$repo/skill_registry/skills"     "$folder"
+    link runbook.md "$repo/orchestrator/agent/runbook.md" "$folder"
+    link docs       "$repo/orchestrator/agent/docs"   "$folder"
+done
+
+link CLAUDE.md               "$repo/orchestrator/agent/discovery_session.md" "$discovery"
+link AGENTS.md               "$repo/orchestrator/agent/discovery_session.md" "$discovery"
+link .claude/skills/discover "$repo/orchestrator/agent/skills/discover"     "$discovery"
+link .codex/skills/discover  "$repo/orchestrator/agent/skills/discover"     "$discovery"
+
+stack=()                                     # the stack repos: a task session uses the skills, not their code
+for folder in "$src"/*/; do
+    [[ -d "$folder" && "$(realpath "$folder")" != "$repo" ]] && stack+=("$(realpath "$folder")")
+done
+
+settings="$repo/orchestrator/agent/claude_settings.json"
+python3 "$repo/scripts/agent_settings.py" "$agent/.claude/settings.json" "$settings" --hide "${stack[@]}"
+python3 "$repo/scripts/agent_settings.py" "$discovery/.claude/settings.json" "$settings" \
+    "$repo/orchestrator/agent/claude_settings_discovery.json"
+echo "made $agent/.claude/settings.json (hides ${#stack[@]} stack repos) and $discovery/.claude/settings.json"

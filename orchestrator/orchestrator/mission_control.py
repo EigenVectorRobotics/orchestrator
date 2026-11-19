@@ -96,12 +96,13 @@ class Commands:
         if len(sentence) > MAX_TASK_CHARS:
             return 400, {'ok': False, 'message': f'a task sentence is {MAX_TASK_CHARS} characters at most, not {len(sentence)}'}
 
-        blind = bool(body.get('blind'))
+        blind     = bool(body.get('blind'))
+        discovery = bool(body.get('discovery'))
 
-        if not self.send_task({'task': sentence, 'blind': blind}):
+        if not self.send_task({'task': sentence, 'blind': blind, 'discovery': discovery}):
             return 504, {'ok': False, 'message': 'the executor does not listen for a task; is it running?'}
 
-        return 200, {'ok': True, 'message': 'task sent' + (' (blind)' if blind else '')}
+        return 200, {'ok': True, 'message': 'task sent' + (' (blind)' if blind else '') + (' (discovery)' if discovery else '')}
 
     def step(self, body: dict) -> tuple[int, dict]:
         """Approve or refuse a step. The gate takes or refuses the decision; this only relays its answer"""

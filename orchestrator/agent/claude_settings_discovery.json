@@ -1,0 +1,9 @@
+{
+  "$comment": "The discovery session's permissions: the task session's (claude_settings.json) and these. scripts/link_agent_dir.sh makes $EIGEN_VECTOR_WS/agent_discovery/.claude/settings.json from both. The discovery session reads the stack's code and never moves the robot; the desk also refuses run in a discovery task.",
+  "permissions": {
+    "deny": [
+      "Bash(agent_cli run:*)",
+      "Edit(**/skill_registry/skills/**)"
+    ]
+  }
+}

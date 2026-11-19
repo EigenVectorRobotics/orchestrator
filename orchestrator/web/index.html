@@ -96,6 +96,7 @@ main { padding: 20px 24px 40px; max-width: 1600px; margin: 0 auto; }
       <div class="row">
         <label class="check"><input type="checkbox" id="blind"> blind</label>
         <button class="btn" id="send">Send task</button>
+        <button class="btn" id="discover" title="A discovery task: the discovery session reads the stack's code and writes skills. No step runs, no time limit">Start discovery</button>
         <span class="said" id="said"></span>
       </div>
       <p class="note">The task opens a run. The task session decides each step.</p>
@@ -170,8 +171,12 @@ async function send(path, body) {
   }
 }
 
+const DISCOVERY_TASK = 'Learn the stack: write a skill for each interface that a task could use';
+
 document.getElementById('send').addEventListener('click', () =>
   send('/api/task', { task: document.getElementById('task').value, blind: document.getElementById('blind').checked }));
+document.getElementById('discover').addEventListener('click', () =>
+  send('/api/task', { task: DISCOVERY_TASK, discovery: true }));
 document.getElementById('cancel').addEventListener('click', () => send('/api/cancel', {}));
 document.getElementById('filters').addEventListener('click', event => {
   const button = event.target.closest('button');

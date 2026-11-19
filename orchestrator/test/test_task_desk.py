@@ -266,3 +266,16 @@ def test_a_staged_file_that_cannot_be_committed_is_set_aside_and_the_next_task_o
     d.desk.open('Go back', _context('r2'))
 
     assert d.opened[-1]['state'] == 'open' and (store.staged_dir / 'r0.bad').exists() and store.staged_runs() == []
+
+
+def test_a_discovery_task_runs_no_skill_and_has_no_time_limit_or_idle_speech(tmp_path):
+    d = _desk(FakeRunner({'navigate_to': [Status.SUCCESS]}), tmp_path, idle_s=60.0, max_task_s=300.0)
+    d.desk.open('Learn the stack', _context('r2'), discovery=True)
+
+    d.desk.command({'id': 'x', 'run_id': 'r2', 'op': 'run', 'skill': 'navigate_to', 'inputs': {}, 'subgoal': 'walk'})
+    d.clock.now = 1000.0
+    d.desk.check()
+
+    assert not d.replies[0]['ok'] and 'never moves the robot' in d.replies[0]['message'] and d.tasks.task.steps == 0
+    assert d.opened[-1]['discovery'] and 'discovery' in task_summary(d.opened[-1]) and d.said == []
+    assert d.desk.task is not None                                          # still open after max_task_s

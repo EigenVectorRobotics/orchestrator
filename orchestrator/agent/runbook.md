@@ -11,6 +11,9 @@ floors by itself.
 
 You decide one step at a time. The robot does it, and you see the result in the next turn.
 
+A task marked **(discovery** is for the discovery session, which writes skills and runs none. If you are a task
+session, do not act on it: wait for the next task.
+
 ## Your three computers
 
 The stack runs on three computers at the same time. A skill names the device it needs.

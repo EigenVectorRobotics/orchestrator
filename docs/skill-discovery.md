@@ -1,6 +1,6 @@
-# Skill discovery: the agent seeds its own skill library (design, not built)
+# Skill discovery: the agent seeds its own skill library
 
-Status: draft for review, 2026-11-05. Branch `feat/skill-discovery`. Related: `docs/task-mode.md`, `docs/skill-packages.md` (versions, graduation, compositions), `docs/knowledge.md`.
+Status: 2026-11-18, the discovery session is built (not yet run on the robot). First draft 2026-11-05. Branch `feat/skill-discovery`. Related: `docs/task-mode.md`, `docs/skill-packages.md` (versions, graduation, compositions), `docs/knowledge.md`.
 
 ## Goal
 
@@ -38,15 +38,18 @@ People write only a short agent runbook (`orchestrator/agent/runbook.md`, which 
 
 Discovery is its own session (decided 2026-11-18). It reads the stack's code and writes contracts. A task session uses only the contracts and does not read the code.
 
-1. **A discovery task** ("learn the stack"), on the NUC with the robot up and standing still. The step gate is on, but the discovery itself reads only: it calls no skill that moves the robot.
-2. The agent reads the stack repos in the workspace's `src/` (read-only) and the live graph (`agent_cli topics`, `agent_cli interface`), and writes:
-   - a contract for each interface it can use, at `experimental`, with a description, inputs, outputs, preconditions, a timeout and the device;
-   - a page per package: what it does, its interfaces, the frames and units.
-3. `write_skill` (built: `agent_cli write-skill FILE`, `skill_writer.py`) checks each contract (the schema, the deny list, its references, its ROS types and fields, as `contract_check.py`), and saves it in the agent's folder with a mark on the first line (`AGENT_MARK`). It then loads through `Registry.refresh`, the one way in while the nodes run: the executor (at once after a write, and every 5 s) and `registry_node` (every 5 s) load new and changed files, each checked by the deny list and its references (and its ROS types, in the executor). A file with the mark always loads at maturity `untested`, so the agent does not grade its own skills even when it writes the file directly; a skill's folder name must be its name (`skills/<name>/contract.yaml`). A new version moves the old file to `old/` in that folder (not in git). The agent cannot replace a contract that a person wrote (no mark). It is on by default, because the library starts empty. `write_skill:=false` refuses the command; a contract that a person puts in the folder still loads, because both nodes refresh every 5 s. The library is `<agent_dir>/skills` (`agent_dir` defaults to `$EIGEN_VECTOR_WS/agent`), a link to `skill_registry/skills/` in git, so each skill the agent writes is a change for a person to review and commit.
-   - **The agent is told the contract grammar** (`grammar.py`): the fields, the allowed values, the rules and one example, rendered from the parser's own dataclasses and constants (`contract.py`), so the text cannot drift from what `write_skill` takes. It rides the open message (`grammar`, only when a writer is there) and `task_summary`, as the runbook does, so the session reads it. It owns everything about what `write_skill` takes, the code-skill shape too. A refusal names the same lists, never a Python `TypeError`.
-   - A **code skill** is written the same way: the contract has `transport: code` and the command carries the Python too (`agent_cli write-skill FILE --code FILE`). Both files are saved together in the skill's folder (`contract.yaml`, `code.py`), both go back if either is refused, and an earlier version of each goes to `old/`. The code runs in the agent sandbox and reaches the robot only through `skills.run`, so every call it makes is a loaded contract that the deny list already passed; `gate.yaml` names the skills that ask the operator again inside it, and a code skill may build on another one (README, "Code skills").
-   - `agent_cli interface NAME|TYPE` (built, read-only): the types of a topic, service or action in the live graph, or of one type, with their fields.
-4. The operator reviews the seeded library before the first robot use, as the graduation gate says.
+- **Start:** Mission Control's **Start discovery** button, or `ros2 topic pub --once /orchestrator/task std_msgs/msg/String '{data: "{\"task\": \"Learn the stack\", \"discovery\": true}"}'`. Then start a Claude Code or Codex session in `$EIGEN_VECTOR_WS/agent_discovery`.
+- **A discovery task** goes through the desk like any task (a run, a bundle, `write-skill`), with three differences: the desk refuses `run`, so discovery never moves the robot; it has no time limit; and the robot does not say that the agent is lost, because reading code takes long with no command between.
+- **The procedure is an agent skill** in git: `orchestrator/agent/skills/discover/SKILL.md`, linked into the discovery folder for Claude Code (`.claude/skills/`) and for Codex (`.codex/skills/`). A change to the procedure is a git change for review.
+- **Scope:** all stack repos in `src/` except the orchestrator, one at a time; a contract for each interface that a task could call or read, minus the deny list. The skill says what to skip (plumbing, debug topics, duplicates). There is no limit on the number: each contract must pass `write-skill`, and there are no duplicates.
+- **Long work:** one coordinator session; one subagent per repo (`repo-worker.md`) that only reads and returns a package page and contract drafts. Only the coordinator runs `write-skill`. `progress.md` in the discovery folder holds the state, so a new session continues.
+- **What it writes:** contracts (`skill_registry/skills/`), one page per package (`orchestrator/agent/docs/`), and observations (`knowledge note --by agent:discovery`). A person reviews them in git and in the store.
+- **The test:** discovery checks the types and reads the live graph. A skill that moves the robot stays `untested`. A new task session that does real missions with only these skills is the verifier (as in ASPIRE).
+- **When the stack changes:** the stamps mark skills stale; a later discovery does the repos of stale skills first.
+- **Two folders, two permission sets.** `scripts/link_agent_dir.sh` makes both `.claude/settings.json` files from templates in git (`orchestrator/agent/claude_settings.json`, `claude_settings_discovery.json`, by `scripts/agent_settings.py`):
+  - the task session (`$EIGEN_VECTOR_WS/agent`): a Read deny for each stack repo in `src/` by its absolute path (not the orchestrator repo: its skills and docs are there);
+  - the discovery session (`$EIGEN_VECTOR_WS/agent_discovery`): it reads `src/`; `agent_cli run` and edits in the skills folder are denied.
+  - Checked with live Claude Code sessions (2026-11-18). A Codex session does not read these settings.
 
 ## Improving the skills
 
@@ -59,8 +62,9 @@ Discovery is its own session (decided 2026-11-18). It reads the stack's code and
 1. Task desk and `agent_cli` task commands (`docs/task-mode.md`): needed for every agent task. Done.
 2. The deny list and the step gate on the robot. Done.
 3. `write_skill`, `interface_show`, and the registry loading contracts while it runs. Done.
-4. The agent runbook, the session's permissions, and the discovery task.
+4. The agent runbook, the session's permissions, and the discovery task. Done (2026-11-18).
 
 ## Open questions
 
-- How long may discovery take, and how many contracts is too many (one per interface, or only the ones a task can use)?
+- How long does discovery take on the robot? No limit is set; measure it in the first run.
+- How many contracts is too many? Answered (2026-11-18): one per interface that a task could use, with no duplicates; no number limit.

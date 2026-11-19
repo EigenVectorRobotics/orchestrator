@@ -20,13 +20,14 @@ from skill_registry import Contract, Issue, Registry, TreeValidator, ValidatorCo
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
 
 
-def parse_task_request(text: str) -> tuple[str, bool]:
-    """A message on /orchestrator/task: a plain sentence, or JSON {"task": "...", "blind": true}"""
+def parse_task_request(text: str) -> tuple[str, bool, bool]:
+    """A message on /orchestrator/task: a plain sentence, or JSON {"task": "...", "blind": true, "discovery": true}.
+    Returns the sentence, blind and discovery"""
     try:
         request = json.loads(text)
-        return str(request['task']), bool(request.get('blind', False))
+        return str(request['task']), bool(request.get('blind', False)), bool(request.get('discovery', False))
     except (json.JSONDecodeError, TypeError, KeyError):
-        return text, False
+        return text, False, False
 
 
 @dataclass

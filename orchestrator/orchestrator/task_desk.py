@@ -15,6 +15,10 @@ commands on COMMAND_TOPIC:
 - done, give_up: end the task; the reply names the applied claims with no grade
 - commit: after the task ends, its staged grades go into the knowledge store together
 
+A discovery task (discovery: true in the request; Mission Control's Start discovery) is for the discovery session,
+which reads the stack's code and writes skills (the discover agent skill). It refuses run, so it never moves the
+robot, and it has no time limit and no idle speech: reading code takes long, with no command between.
+
 A run that follows claims of the knowledge store says so (applies, one or more ids). The step's end changes no
 claim: a success can mean no more than "the message was published", and a failure can have another cause. The
 agent grades each claim instead, and commits the grades after the task, like a database commit; useful and wrong
@@ -99,7 +103,8 @@ def task_summary(task: dict) -> str:
     places = ''.join(f'\n  {{{key}}} {place_text(info)}' for key, info in (task.get('places') or {}).items())
     lines  = [task['runbook']] if task.get('runbook') else []        # what the robot is, before what it must do
     lines += [
-        f'task {task["run_id"]}' + (' (blind)' if task.get('blind') else '') + f': {task["task"]}',
+        f'task {task["run_id"]}' + (' (blind)' if task.get('blind') else '')
+        + (' (discovery: write skills, no run, no time limit)' if task.get('discovery') else '') + f': {task["task"]}',
         'places on the blackboard:' + (places or ' none'),
         f'scratch folder: {task.get("scratch")}',
         f'limits: {task.get("limits")}',
@@ -135,11 +140,12 @@ class TaskDesk:
         self.heard         = 0.0
         self.spoke_lost    = False
         self.plans         = 0
+        self.discovery     = False                   # the open task is a discovery task: no run, no time limit
         self.busy          = 0                       # commands in progress: a session waiting for a step is not quiet
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
         self._grading      = threading.Lock()        # the staged file of a run: each command runs on its own thread
 
-    def open(self, sentence: str, context: Context, blind: bool = False) -> None:
+    def open(self, sentence: str, context: Context, blind: bool = False, discovery: bool = False) -> None:
         """Open a task and publish the open message"""
         if self.task is not None:
             self._close(self.task, 'replaced')          # a new task halts the old one (start_task)
@@ -153,17 +159,19 @@ class TaskDesk:
         self.opened     = self.heard = self.clock()
         self.spoke_lost = False
         self.plans      = 0
+        self.discovery  = discovery
         opened          = {
             'state':   'open',
             'run_id':  context.run_id,
             'task':    sentence,
             'blind':   blind,
+            'discovery': discovery,
             'places':  {key: {field: place[field] for field in PLACE_INFO if field in place} for key, place in sorted(context.blackboard.items())},
             'known':   self.known(),
             'runbook': self.runbook(),
             'grammar': contract_grammar() if self.writer else '',   # how to write a skill, if it may write one
             'scratch': context.scratch_dir,
-            'limits':  {'max_steps': self.max_steps, 'max_task_s': self.max_task_s},
+            'limits':  {'max_steps': self.max_steps, 'max_task_s': None if discovery else self.max_task_s},
         }
         self.publish_open(opened)
 
@@ -220,6 +228,8 @@ class TaskDesk:
 
         if self.tasks.task is not task:                  # cancelled, or a tree sent alone replaced it
             self._close(task, 'ended')
+        elif self.discovery:                             # reading code takes long, with no command between
+            return
         elif self.clock() - self.opened > self.max_task_s:
             self._end(task, 'gave_up', f'the task took longer than max_task_s {self.max_task_s:.0f} s')
         elif not self.busy and not self.spoke_lost and self.clock() - self.heard > self.idle_s:
@@ -244,6 +254,10 @@ class TaskDesk:
 
         if op == 'plan':
             return self._plan(task, [str(subgoal) for subgoal in message['subgoals']])
+
+        if op == 'run' and self.discovery:
+            return {'ok': False, 'message': 'a discovery task runs no skill: it never moves the robot. Write skills; '
+                                            'a task session tries them'}
 
         if op == 'run':
             applies = message.get('applies') or []

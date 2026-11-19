@@ -23,7 +23,7 @@ Limits: `task_max_steps` 40, `task_max_s` 900, `task_idle_s` 120. Design: `docs/
 
 The task agent is a Claude Code or Codex session outside the executor, with a shell. It drives the task with `agent_cli` and reads and writes knowledge with the `knowledge` CLI. Start it in `$EIGEN_VECTOR_WS/agent`: there, `.claude/settings.json` (a link to `orchestrator/agent/claude_settings.json`) denies the `ros2` commands that act (`topic pub`, `service call`, `action send_goal`, `param set`, `run`, `launch`, ...), `agent_cli step approve|refuse`, `~/orchestrator_ws`, and edits to the deny list, the gate, the runbook and these settings. Thus the session uses `agent_cli` to act on the robot, and the executor's checks see each step. This is a guard against mistakes. These are not matched: a wrapped command (`bash -c`, a Python script with `rclpy`), and an HTTP request to Mission Control. A Codex session does not read these settings.
 
-One task is one session: start a new session for the next task. Skill discovery is a separate session (`docs/skill-discovery.md`); a task session uses the contracts and does not read the stack's code.
+One task is one session: start a new session for the next task. Skill discovery is a separate session: press **Start discovery** in Mission Control, then start a session in `$EIGEN_VECTOR_WS/agent_discovery`, which has the `discover` skill (`docs/skill-discovery.md`). A task session uses the skills and cannot read the stack's code: its settings hide each stack repo in `src/`.
 
 ```bash
 agent_cli task wait                     # the open task
@@ -111,7 +111,7 @@ The NUC builds this repo in `~/eigen_vector_orch_ws`, from the deploy repo `eige
 - **Mission Control:** `ssh -L 8080:localhost:8080 vector@vector-nuc`, then open the link with its token from the node log (`mission control on ...`).
 - **The step gate is on.** Approve or refuse each step in Mission Control, or at a terminal with `agent_cli step approve|refuse`.
 - **VLM skills** (for example `ask_vlm`) post to `vlm_base_url`, default `http://vector-thor:8090/v1`. On the Thor, start `ros2 run orchestrator cosmos_vlm_server --port 8090` in the environment that runs `ground_server`. It answers with the Cosmos daemon, one request at a time.
-- **Once after a deploy:** `scripts/link_agent_dir.sh` (safe to run again). It moves a library in the old layout (`agent/contracts/`, `agent/code/`) into `skill_registry/skills/`.
+- **Once after a deploy:** `scripts/link_agent_dir.sh` (safe to run again). It moves a library in the old layout (`agent/contracts/`, `agent/code/`) into `skill_registry/skills/`. It also makes `$EIGEN_VECTOR_WS/agent_discovery` and both sessions' settings. Run it again when a repo is added to `src/`, so that the task session's settings hide it too.
 - **First checks of a launch:** the log says `runbook: ...` and no `broken link`; it says `skill stamps: N repos under ...`, and `$EIGEN_VECTOR_WS/agent/knowledge/code_clock.yaml` exists.
 
 ## Not done yet

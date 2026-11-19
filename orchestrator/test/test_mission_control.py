@@ -88,12 +88,14 @@ def test_a_task_needs_a_sentence():
     api, _, sent = _api()
 
     assert api.post('/api/task', {'task': '  Walk to the\n  call panel ', 'blind': True})[0] == 200
-    assert sent.tasks == [{'task': 'Walk to the call panel', 'blind': True}]
+    assert api.post('/api/task', {'task': 'Learn the stack', 'discovery': True})[0] == 200
+    assert sent.tasks == [{'task': 'Walk to the call panel', 'blind': True, 'discovery': False},
+                          {'task': 'Learn the stack', 'blind': False, 'discovery': True}]
     assert api.post('/api/task', {'task': '   '})[0] == 400
     assert api.post('/api/task', {'task': 'x' * 401})[0] == 400
     assert api.post('/api/nothing', {})[0] == 404
     assert api.get('/api/nothing', {})[0] == 404
-    assert len(sent.tasks) == 1
+    assert len(sent.tasks) == 2
 
     quiet, _, _ = _api(listening=False)             # the executor is not there: the page is told, not told "sent"
 
