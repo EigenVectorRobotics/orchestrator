@@ -287,3 +287,15 @@ def test_a_grade_of_code_that_changed_after_its_step_is_kept_but_not_counted(tmp
     graded = [s for s in store.get(claim.id).confirmations if s.grade]
     assert graded[0].moved and not graded[1].moved and 'not counted' in said[0]
     assert store.get(claim.id).counted.confirmations == graded[1:] and store.staged_runs() == []
+
+
+def test_a_grade_in_the_run_that_noted_the_claim_adds_nothing(tmp_path):
+    store    = KnowledgeStore(tmp_path)
+    claim, _ = store.note('When it stops short, walk again.', seen(run='r1'), {'skill': 'navigate_to'})
+    once     = claim.reliability()
+
+    store.grade(claim.id, seen(by='outcome:navigate_to', run='r1', grade='useful'))
+    assert store.get(claim.id).reliability() == once
+
+    store.grade(claim.id, seen(by='outcome:navigate_to', run='r2', grade='useful'))
+    assert store.get(claim.id).reliability() > once

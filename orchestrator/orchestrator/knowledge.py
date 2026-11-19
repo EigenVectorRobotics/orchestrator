@@ -529,8 +529,12 @@ def _numeric(value) -> bool:
 
 
 def _independent(sightings: list[Sighting]) -> int:
-    """One per run and source; a sighting with no run counts on its own"""
-    return len({(s.run, s.by) if s.run else (s.time, s.by) for s in sightings})
+    """One per run and source; a sighting with no run counts on its own. A grade (weak) adds nothing in a run that
+    has another sighting already: an agent that notes a claim and grades it in one run has seen it once"""
+    strong = {(s.run, s.by) if s.run else (s.time, s.by) for s in sightings if not _weak(s)}
+    runs   = {s.run for s in sightings if s.run and not _weak(s)}
+    weak   = {s.run if s.run else (s.time, s.by) for s in sightings if _weak(s) and s.run not in runs}
+    return len(strong) + len(weak)
 
 
 def _runs(claim: Claim) -> int:

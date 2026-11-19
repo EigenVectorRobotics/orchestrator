@@ -74,6 +74,7 @@ On the NUC, the store is in `$EIGEN_VECTOR_WS/agent/knowledge/` (`knowledge_dir`
   - `misleading` (it led the agent wrong here) and `not-applicable` (it did not fit this case) are kept in `Claim.grades` and change no reliability. They say that the claim's text or tags are too wide.
   - **Stage, then commit.** A grade is staged after the step, during the task or after it ends, in `knowledge/staged/<run_id>.json`; the last grade of a claim wins. After the task ends, `agent_cli commit` puts the run's grades in the claims together. The next task open commits what an earlier run left.
   - **Attribution to the right version.** At the step, the desk keeps the code under the claim (the code clock). At the commit, a grade of code that changed since its step (the agent rewrote the skill) is kept as moved and not counted.
+  - **No double count in one run.** Reliability counts one sighting per run and source. A grade adds nothing in a run that has another sighting of the claim already: an agent that notes a claim and grades it in one run has seen it once.
   - Each grade keeps the agent's reason and the step. `done` and `give_up` name the claims with no grade; they do not block the end.
 
 ### Graduation
