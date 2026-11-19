@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vector Mission Control</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: one "Now" band says what needs the operator; below it, plan | camera | agent feed. Team colors
+   (forest and lime), IBM Plex Sans for text and titles, IBM Plex Mono for data. Light only. */
+:root {
+  --bg:       #FAFBF6;
+  --surface:  #F0F3E8;
+  --ink:      #16201A;
+  --muted:    #646E5F;
+  --rule:     #D8DDCE;
+  --head-bg:  #003310;
+  --head-fg:  #E0F0B0;
+  --lime:     #E0F0B0;
+  --on-lime:  #003310;
+  --accent:   #085420;
+  --on-accent:#E0F0B0;
+  --frame:    #121A14;
+  --good:     #1E7A3A;
+  --warn:     #9A5200;
+  --warn-bg:  #FCEBD5;
+  --bad:      #A32020;
+  --bad-bg:   #FBE1E1;
+  --sans:  'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif;
+  --mono:  'IBM Plex Mono', ui-monospace, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); margin: 0; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1500px; margin: 0 auto; }
+
+/* Header: one quiet line. Color only on a problem */
+header { background: var(--head-bg); color: var(--head-fg); }
+header .wrap { display: flex; align-items: center; gap: 20px; padding-block: 10px; flex-wrap: wrap; }
+.brand { font: 600 18px/1 var(--sans); letter-spacing: .2px; white-space: nowrap; }
+.health { display: flex; gap: 8px; align-items: center; flex: 1; flex-wrap: wrap; font: 500 12px var(--mono); }
+.health .ok { opacity: .75; }
+.health .ok::before { content: ""; display: inline-block; width: 7px; height: 7px; background: var(--head-fg); margin-right: 6px; }
+.health .issue { background: var(--warn-bg); color: var(--warn); padding: 3px 8px; }
+.health .issue::before { content: "! "; font-weight: 700; }
+.cancel { background: transparent; border: 1px solid var(--head-fg); color: var(--head-fg); padding: 6px 12px; font-weight: 600; }
+.cancel:hover { background: var(--head-fg); color: var(--head-bg); }
+
+nav { border-bottom: 1px solid var(--rule); }
+nav .wrap { display: flex; gap: 4px; overflow-x: auto; }
+.tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab .count { font: 500 11px var(--mono); background: var(--lime); color: var(--on-lime); padding: 1px 6px; margin-left: 6px; }
+
+main.wrap { padding-block: 16px 40px; display: grid; gap: 16px; }
+[hidden] { display: none !important; }
+
+/* The Now band */
+.now { padding: 18px 20px; display: grid; gap: 14px; }
+.now.gate { background: var(--lime); color: var(--on-lime); }
+.now.running, .now.idle { background: var(--surface); }
+.eyebrow { font: 500 11px var(--mono); letter-spacing: .7px; text-transform: uppercase; opacity: .75; }
+.now h1 { font: 600 26px/1.2 var(--sans); letter-spacing: -.2px; margin: 2px 0 0; text-wrap: balance; }
+.now h1 code { font: 500 .7em var(--mono); }
+.now .why { margin: 0; max-width: 70ch; }
+.gate-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: end; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 400 12px var(--mono); opacity: .85; }
+.decide { display: grid; gap: 8px; min-width: 300px; }
+.decide .pair { display: flex; gap: 8px; }
+.big { padding: 10px 18px; font-weight: 700; border: 2px solid var(--on-lime); }
+.approve { background: var(--on-lime); color: var(--lime); flex: 1; }
+.refuse { background: transparent; color: var(--bad); border-color: var(--bad); }
+.decide input { border: 1px solid var(--on-lime); background: var(--bg); color: var(--ink); padding: 8px 10px; width: 100%; }
+kbd { font: 500 11px var(--mono); border: 1px solid currentColor; padding: 0 4px; margin-left: 6px; opacity: .7; }
+.wait { font: 500 12px var(--mono); }
+
+.run-row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.bar { height: 6px; background: var(--rule); flex: 1; min-width: 160px; }
+.bar i { display: block; height: 100%; background: var(--accent); width: 28%; }
+.compose { display: grid; gap: 10px; }
+.compose textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--rule); background: var(--bg); padding: 10px; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.btn { background: var(--accent); color: var(--on-accent); border: 0; padding: 8px 16px; font-weight: 600; }
+.btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.check { display: flex; gap: 6px; align-items: center; }
+.hint { color: var(--muted); font-size: 12px; }
+
+/* Body grid */
+.grid { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 380px); gap: 24px; align-items: start; }
+@media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .grid .camera { grid-column: 1 / -1; order: -1; } }
+@media (max-width: 700px)  { .grid { grid-template-columns: minmax(0, 1fr); } .gate-body { grid-template-columns: 1fr; } .decide { min-width: 0; } }
+section h2 { font: 600 15px/1.2 var(--sans); text-transform: uppercase; letter-spacing: .6px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+section h2 small { font: 400 11px var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; }
+
+/* Plan timeline */
+.plan { list-style: none; margin: 0; padding: 0; }
+.plan li { position: relative; padding: 0 0 14px 26px; }
+.plan li::before { content: ""; position: absolute; left: 5px; top: 18px; bottom: 0; width: 1px; background: var(--rule); }
+.plan li:last-child::before { display: none; }
+.plan .mark { position: absolute; left: 0; top: 4px; width: 11px; height: 11px; border: 1.5px solid var(--muted); background: var(--bg); }
+.plan .done { color: var(--muted); }
+.plan .done .mark { background: var(--good); border-color: var(--good); }
+.plan .now-step { font-weight: 700; }
+.plan .now-step .mark { background: var(--lime); border: 2px solid var(--accent); }
+.plan .failed .mark { background: var(--bad); border-color: var(--bad); }
+.plan .meta { display: block; font: 400 11px var(--mono); color: var(--muted); font-weight: 400; }
+
+/* Camera */
+/* A 16:9 canvas, the JPEG fitted in it, the EdgeTAM mask outlines drawn on top */
+.frame { position: relative; background: var(--frame); aspect-ratio: 16 / 9; max-width: 100%; overflow: hidden; }
+.frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.cap { font: 400 11px var(--mono); color: var(--muted); margin-top: 6px; }
+.cap .stale { color: var(--warn); font-weight: 500; }
+.cap .track { display: inline-block; width: 9px; height: 9px; margin: 0 4px 0 10px; vertical-align: -1px; }
+.minimap { position: absolute; right: 10px; bottom: 10px; width: 24%; max-width: 200px; opacity: .92; background: var(--surface); border: 1px solid var(--rule); }
+.minimap svg { display: block; width: 100%; height: auto; }
+.minimap[hidden] { display: none; }
+.toggles { display: flex; gap: 6px; }
+.toggle { background: transparent; border: 1px solid var(--rule); padding: 3px 9px; font: 500 11px var(--mono); color: var(--muted); }
+.toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Agent feed */
+.feed { list-style: none; margin: 0; padding: 0; max-height: 620px; overflow-y: auto; border-top: 1px solid var(--rule); }
+.feed li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+.feed time { font: 400 11px/1.9 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.feed .what { font-weight: 600; }
+.feed .detail { display: block; color: var(--muted); font-size: 13px; }
+.feed .think .what { font-weight: 400; font-style: italic; color: var(--muted); }
+.feed .ok .what::before   { content: "✓ "; color: var(--good); }
+.feed .fail .what::before { content: "✗ "; color: var(--bad); }
+.feed .ask .what::before  { content: "● "; color: var(--accent); }
+.feed .fail { background: var(--bad-bg); }
+details.raw { margin-top: 10px; }
+details.raw summary { cursor: pointer; font: 500 12px var(--mono); color: var(--muted); }
+.rawlog { font: 400 11px/1.6 var(--mono); max-height: 240px; overflow: auto; color: var(--muted); padding-top: 6px; }
+
+
+.demo { position: fixed; right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 6px; display: flex; gap: 4px; align-items: center; font: 500 11px var(--mono); z-index: 5; }
+.demo span { padding: 0 6px; opacity: .7; }
+.demo button { background: transparent; border: 1px solid transparent; color: inherit; padding: 4px 8px; font: inherit; }
+.demo button[aria-pressed="true"] { border-color: currentColor; }
+/* Skills: a review queue. List at the left, the selected skill at the right */
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.seg { display: flex; border: 1px solid var(--rule); }
+.seg button { background: transparent; border: 0; padding: 6px 12px; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.seg .n { font: 500 11px var(--mono); margin-left: 6px; opacity: .8; }
+.search { border: 1px solid var(--rule); background: var(--bg); padding: 6px 10px; min-width: 0; flex: 0 1 240px; }
+.sample { font: 400 11px var(--mono); color: var(--muted); margin-left: auto; }
+.skills-grid { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 24px; align-items: start; margin-top: 14px; }
+@media (max-width: 800px) { .skills-grid { grid-template-columns: minmax(0, 1fr); } }
+.slist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); max-height: 640px; overflow-y: auto; }
+.slist .group { font: 500 11px var(--mono); letter-spacing: .6px; text-transform: uppercase; color: var(--muted); padding: 12px 10px 4px; }
+.slist button { display: grid; gap: 2px; width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--rule); padding: 8px 10px; }
+.slist button:hover { background: var(--surface); }
+.slist button[aria-current="true"] { background: var(--lime); color: var(--on-lime); }
+.slist .nm { font: 500 13px var(--mono); }
+.slist .sub { font-size: 12px; color: var(--muted); }
+.slist button[aria-current="true"] .sub { color: inherit; opacity: .8; }
+.pill { display: inline-block; font: 500 10.5px var(--mono); padding: 1px 6px; margin-right: 4px; background: var(--surface); color: var(--muted); }
+.pill.stale { background: var(--warn-bg); color: var(--warn); }
+.pill.off { background: transparent; border: 1px dashed var(--muted); }
+.pill.tested { background: var(--accent); color: var(--on-accent); }
+.empty { padding: 30px 10px; color: var(--muted); text-align: center; }
+.detail { display: grid; gap: 18px; }
+.dhead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
+.dhead h3 { font: 600 22px/1.2 var(--mono); margin: 0 0 4px; word-break: break-word; }
+.dhead p { margin: 0 0 8px; max-width: 70ch; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.btn.bad { background: transparent; color: var(--bad); border: 1px solid var(--bad); }
+.dl { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 16px; margin: 0; }
+.dl dt { font: 500 11px/1.9 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.dl dd { margin: 0; font: 400 13px/1.6 var(--mono); word-break: break-word; }
+.detail h4 { font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: .6px; margin: 0 0 8px; color: var(--muted); }
+.ports { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ports th { text-align: left; font: 500 11px var(--mono); color: var(--muted); padding: 4px 8px 4px 0; border-bottom: 1px solid var(--rule); }
+.ports td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.ports td:first-child { font-family: var(--mono); }
+a.links { color: var(--accent); text-underline-offset: 2px; cursor: pointer; }
+.linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-align: left; }
+.links .linkbtn { font: 500 12px var(--mono); margin-right: 10px; }
+.checks { display: flex; gap: 14px; flex-wrap: wrap; font: 400 12px var(--mono); }
+.checks span::before { content: "✓ "; color: var(--good); font-weight: 700; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+@media (max-width: 1000px) { .two { grid-template-columns: minmax(0, 1fr); } }
+details.yaml summary, details.deny summary { cursor: pointer; font: 500 12px var(--mono); color: var(--muted); }
+details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var(--mono); overflow-x: auto; margin: 8px 0 0; }
+.done-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--surface); padding: 10px 14px; margin-top: 18px; font-size: 13px; }
+.done-bar b { font-family: var(--mono); }
+.toast { font: 500 12px var(--mono); color: var(--accent); }
+/* Knowledge: "Needs you" first (grades, ready facts, contradictions), then all claims */
+.kblock { display: grid; gap: 10px; }
+.kblock + .kblock { margin-top: 28px; }
+.kblock > h3 { font: 600 15px var(--sans); text-transform: uppercase; letter-spacing: .6px; margin: 0; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.kblock > h3 small { font: 400 12px var(--sans); text-transform: none; letter-spacing: 0; color: var(--muted); }
+.kblock > h3 .btn { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.grades { width: 100%; border-collapse: collapse; font-size: 13px; }
+.grades th { text-align: left; font: 500 11px var(--mono); color: var(--muted); padding: 6px 10px 6px 0; border-bottom: 1px solid var(--rule); }
+.grades td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.grades td.m { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.tablebox { overflow-x: auto; }
+.g { font: 500 11px var(--mono); padding: 2px 7px; white-space: nowrap; }
+.g.useful { background: var(--lime); color: var(--on-lime); }
+.g.wrong { background: var(--bad-bg); color: var(--bad); }
+.g.misleading, .g.not-applicable { background: var(--warn-bg); color: var(--warn); }
+.g.moved { background: transparent; border: 1px dashed var(--muted); color: var(--muted); }
+.kcard { border: 1px solid var(--rule); padding: 14px 16px; display: grid; gap: 10px; background: var(--bg); }
+.kcard.hot { border-left: 4px solid var(--bad); }
+.kcard textarea { width: 100%; border: 1px solid var(--rule); padding: 8px 10px; font: 600 15px/1.4 var(--sans); resize: vertical; min-height: 44px; background: var(--bg); }
+.kcard .claimtext { font: 600 15px/1.4 var(--sans); margin: 0; }
+.kmeta { display: flex; gap: 6px 16px; flex-wrap: wrap; font: 400 12px var(--mono); color: var(--muted); }
+.meter { display: flex; gap: 10px; align-items: center; font: 400 12px var(--mono); }
+.meter .track { position: relative; width: 160px; height: 6px; background: var(--rule); }
+.meter .track i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.meter .track b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+.tier { font: 500 10.5px var(--mono); padding: 1px 6px; }
+.tier.observation { background: var(--surface); color: var(--muted); }
+.tier.belief { background: var(--lime); color: var(--on-lime); }
+.tier.fact { background: var(--accent); color: var(--on-accent); }
+.tier.retired { border: 1px dashed var(--muted); color: var(--muted); }
+.tag { font: 400 11px var(--mono); color: var(--muted); }
+.sightings { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.sightings li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.sightings .c::before { content: "+"; color: var(--good); font: 700 13px var(--mono); }
+.sightings .x::before { content: "−"; color: var(--bad); font: 700 13px var(--mono); }
+.sightings .gr::before { content: "~"; color: var(--warn); font: 700 13px var(--mono); }
+.sightings small { display: block; font: 400 11px var(--mono); color: var(--muted); }
+/* Runs: list of runs, then one run: summary, step timeline to scale, steps, plan, what it left, files */
+.oc { font: 500 10.5px var(--mono); padding: 1px 6px; }
+.oc.done { background: var(--lime); color: var(--on-lime); }
+.oc.gave_up, .oc.halted { background: var(--warn-bg); color: var(--warn); }
+.oc.error, .oc.cancelled { background: var(--bad-bg); color: var(--bad); }
+.oc.running { background: var(--accent); color: var(--on-accent); }
+.oc.unknown { border: 1px dashed var(--muted); color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.stats div { background: var(--bg); padding: 10px 12px; }
+.stats b { display: block; font: 600 20px/1.1 var(--mono); font-variant-numeric: tabular-nums; }
+.stats span { font-size: 12px; color: var(--muted); }
+.tl { position: relative; height: 34px; background: var(--surface); }
+.tl i { position: absolute; top: 6px; bottom: 6px; min-width: 3px; background: var(--good); }
+.tl i.fail { background: var(--bad); }
+.tl i.refused { background: transparent; border: 2px solid var(--warn); }
+.tl i.wait { background: var(--lime); }
+.tlaxis { display: flex; justify-content: space-between; font: 400 11px var(--mono); color: var(--muted); margin-top: 4px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font: 400 11px var(--mono); color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+.copyrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.copyrow code { font: 400 12px var(--mono); background: var(--surface); padding: 6px 10px; overflow-x: auto; max-width: 100%; white-space: nowrap; flex: 1; min-width: 0; }
+.dirty { color: var(--warn); font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="brand">Mission Control</div>
+    <div class="health" aria-label="Robot health" title="NUC, Orin, Thor, localization, Unitree mode, recorder, cloud link">
+      <span class="issue">Thor down: no VLM</span>
+      <span class="ok">5 more OK</span>
+    </div>
+    <button class="cancel" id="cancel">Cancel task</button>
+  </div>
+</header>
+
+<nav>
+  <div class="wrap" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-view="mission">Mission</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="skills">Skills<span class="count" title="Agent-written skills to review"></span></button>
+    <button class="tab" role="tab" aria-selected="false" data-view="knowledge">Knowledge<span class="count" title="Items that need you"></span></button>
+    <button class="tab" role="tab" aria-selected="false" data-view="runs">Runs</button>
+  </div>
+</nav>
+
+<main class="wrap">
+  <div class="view" id="mission">
+
+    <!-- The Now band: one of three states -->
+    <div class="now gate" id="now-gate">
+      <div class="gate-body">
+        <div>
+          <div class="eyebrow"><span id="gatemsg">Step 6 needs your decision</span><span id="waitwrap"> · waiting <span id="waited">0:12</span></span></div>
+          <h1>Walk to the call panel <code>navigate_to</code></h1>
+          <p class="why">“The robot is at the pre-approach pose, 0.3 m off. The call panel is 1.4 m ahead, so the next subgoal is the walk to the panel.”</p>
+          <div class="facts"><span>goal = freight_elevator_call_panel</span><span>skill untested</span><span>moves the robot</span></div>
+        </div>
+        <div class="decide">
+          <div class="pair">
+            <button class="big approve" id="approve">Approve<kbd>A</kbd></button>
+            <button class="big refuse" id="refuse">Refuse<kbd>R</kbd></button>
+          </div>
+          <input id="why" type="text" placeholder="Reason for refusal (the agent gets it)" aria-label="Reason for refusal">
+        </div>
+      </div>
+    </div>
+
+    <div class="now running" id="now-running" hidden>
+      <div class="eyebrow">Mission running · run 3eddf2de</div>
+      <h1>Step 7: find the down button</h1>
+      <div class="run-row"><div class="bar" aria-label="Time used"><i></i></div><span class="wait">4:12 of 15:00 · 6 steps · 1 refused</span></div>
+    </div>
+
+    <div class="now idle" id="now-idle" hidden>
+      <div class="eyebrow">No mission</div>
+      <div class="compose">
+        <textarea id="task" aria-label="Mission">Walk to the freight elevator call panel and press the down button</textarea>
+        <div class="row">
+          <button class="btn" id="send">Send mission</button>
+          <label class="check"><input type="checkbox" id="blind"> blind</label>
+          <label class="check"><input type="checkbox" id="discovery"> discovery (reads code, never moves)</label>
+          <span class="hint">An agent session in the agent folder picks it up.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:16px">
+      <section aria-labelledby="h-plan">
+        <h2 id="h-plan">Plan <small>revision 2</small></h2>
+        <ol class="plan">
+          <li class="done"><span class="mark"></span>Check that the robot is localized<span class="meta">localized · 1 s</span></li>
+          <li class="failed"><span class="mark"></span>Walk to the pre-approach pose<span class="meta">navigate_to · timeout 120 s</span></li>
+          <li class="done"><span class="mark"></span>Clear the terrain map<span class="meta">clear_terrain_map · added in revision 2</span></li>
+          <li class="done"><span class="mark"></span>Walk to the pre-approach pose<span class="meta">navigate_to · 0.3 m off · 62 s</span></li>
+          <li class="now-step"><span class="mark"></span>Walk to the call panel<span class="meta">navigate_to · waiting for you</span></li>
+          <li><span class="mark"></span>Find the down button</li>
+          <li><span class="mark"></span>Press it and check that it is lit</li>
+        </ol>
+      </section>
+
+      <section class="camera" aria-labelledby="h-cam">
+        <h2 id="h-cam">Head camera
+          <span class="toggles">
+            <button class="toggle" id="t-masks" aria-pressed="true">masks</button>
+            <button class="toggle" id="t-map" aria-pressed="true">map</button>
+          </span>
+        </h2>
+        <div class="frame" id="frame">
+          <canvas id="cam" aria-label="Head camera frame with the EdgeTAM mask outlines"></canvas>
+          <div class="minimap" id="minimap" title="Floor 2 · nearest place: call_panel_preapproach, 0.3 m">
+            <svg viewBox="0 0 220 130" role="img" aria-label="Map: the robot is 0.3 m from the pre-approach pose">
+              <rect width="220" height="130" fill="var(--surface)"/>
+              <path d="M10 10 H210 V120 H10 Z M110 10 V60 M110 80 V120" fill="none" stroke="var(--muted)" stroke-width="1.2"/>
+              <rect x="160" y="18" width="40" height="34" fill="var(--lime)" stroke="var(--accent)"/>
+              <path d="M30 100 C 80 96, 120 70, 150 50" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"/>
+              <circle cx="158" cy="46" r="3.5" fill="var(--accent)"/>
+              <g transform="translate(146 54) rotate(-35)"><path d="M-6 -5 L8 0 L-6 5 Z" fill="var(--ink)"/></g>
+              <text x="14" y="124" font-family="IBM Plex Mono, monospace" font-size="9" fill="var(--muted)">floor 2</text>
+            </svg>
+          </div>
+        </div>
+        <div class="cap" id="camcap">Waiting for the camera.</div>
+      </section>
+
+      <section aria-labelledby="h-feed">
+        <h2 id="h-feed">Agent <small>Codex · newest first</small></h2>
+        <ul class="feed" id="feed"></ul>
+        <details class="raw">
+          <summary>Raw trace (/orchestrator/trace)</summary>
+          <div class="rawlog" id="raw"></div>
+        </details>
+      </section>
+    </div>
+  </div>
+
+  <div class="view" id="skills" hidden>
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Show" id="sfilter">
+        <button data-f="review" aria-pressed="true">To review<span class="n" id="n-review"></span></button>
+        <button data-f="stale" aria-pressed="false">Stale<span class="n" id="n-stale"></span></button>
+        <button data-f="all" aria-pressed="false">All<span class="n" id="n-all"></span></button>
+      </div>
+      <input class="search" id="sfind" type="search" placeholder="Find a skill or a ROS name" aria-label="Find a skill">
+      <span class="sample">sample skills · keys: ↑ ↓ move, K keep, X remove</span>
+    </div>
+    <div class="skills-grid">
+      <ul class="slist" id="slist" aria-label="Skills"></ul>
+      <div class="detail" id="sdetail"></div>
+    </div>
+    <div class="done-bar" id="donebar" hidden>
+      <span><b id="n-kept">0</b> kept and <b id="n-removed">0</b> removed. Not in git yet.</span>
+      <span class="hint">Keep removes the agent's mark line. Commit the changes in git on the laptop: <code>git add skill_registry/skills &amp;&amp; git commit</code></span>
+    </div>
+    <details class="deny" style="margin-top:18px">
+      <summary>Deny list (skill_registry/deny.yaml, read only): no skill may use these</summary>
+      <pre>rt/*                  low-level DDS
+*lowcmd*              low-level command
+change_mode 0, 3, 4   MONOSTATE, EMERGENCY, LOW_LEVEL
+ready_locomotion      damps and stands up again</pre>
+    </details>
+  </div>
+  <div class="view" id="knowledge" hidden>
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Show" id="kmode">
+        <button data-m="needs" aria-pressed="true">Needs you<span class="n" id="n-needs"></span></button>
+        <button data-m="claims" aria-pressed="false">Claims<span class="n" id="n-claims"></span></button>
+      </div>
+      <div class="seg" role="group" aria-label="Tier" id="ktier" hidden>
+        <button data-t="all" aria-pressed="true">all</button>
+        <button data-t="observation" aria-pressed="false">observation</button>
+        <button data-t="belief" aria-pressed="false">belief</button>
+        <button data-t="fact" aria-pressed="false">fact</button>
+        <button data-t="retired" aria-pressed="false">retired</button>
+      </div>
+      <input class="search" id="kfind" type="search" placeholder="Find text, a place or a skill" aria-label="Find a claim" hidden>
+      <span class="sample">sample claims</span>
+    </div>
+
+    <div id="kneeds" style="margin-top:16px">
+      <div class="kblock" id="kgrades"></div>
+      <div class="kblock" id="kready"></div>
+      <div class="kblock" id="kcontra"></div>
+    </div>
+
+    <div class="skills-grid" id="kclaims" hidden>
+      <ul class="slist" id="klist" aria-label="Claims"></ul>
+      <div class="detail" id="kdetail"></div>
+    </div>
+  </div>
+  <div class="view" id="runs" hidden>
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Kind" id="rkind">
+        <button data-k="all" aria-pressed="true">All</button>
+        <button data-k="mission" aria-pressed="false">Missions</button>
+        <button data-k="discovery" aria-pressed="false">Discovery</button>
+      </div>
+      <input class="search" id="rfind" type="search" placeholder="Find a mission or a run id" aria-label="Find a run">
+      <span class="sample">sample runs · ~/orch_runs on the NUC</span>
+    </div>
+    <div class="skills-grid">
+      <ul class="slist" id="rlist" aria-label="Runs"></ul>
+      <div class="detail" id="rdetail"></div>
+    </div>
+  </div>
+</main>
+
+<div class="demo" role="group" aria-label="Mockup state">
+  <span>mockup:</span>
+  <button data-state="gate" aria-pressed="true">needs you</button>
+  <button data-state="running" aria-pressed="false">running</button>
+  <button data-state="idle" aria-pressed="false">idle</button>
+</div>
+
+<script>
+// Every value from outside the page (here the sample data; in the live page each value from the adapter) is escaped
+// once, where it comes in, because the agent writes much of it and the page holds the operator's token
+const escapeText = value => String(value).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const safe = value => typeof value === 'string' ? escapeText(value) : Array.isArray(value) ? value.map(safe)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, safe(v)])) : value;
+const FEED = safe([
+  ['15:43', 'ask',   'Asks to run navigate_to → call panel', 'Step 6. Waiting for your decision.'],
+  ['15:43', 'think', 'The robot is at the pre-approach pose; next is the walk to the panel.', ''],
+  ['15:43', 'ok',    'navigate_to → pre-approach', '0.3 m off goal · 62 s'],
+  ['15:42', 'ok',    'clear_terrain_map', 'done · 1 s'],
+  ['15:42', 'plan',  'Plan revision 2', 'Clear the terrain map first, then walk again.'],
+  ['15:42', 'think', 'The timeout looks like the stale terrain map. Clear it, then try again.', ''],
+  ['15:42', 'fail',  'navigate_to → pre-approach', 'timeout 120 s · 1 feedback sample'],
+  ['15:40', 'ok',    'localized', 'true · 1 s'],
+  ['15:40', 'plan',  'Plan: 5 subgoals', ''],
+  ['15:40', 'plan',  'Mission opened', 'Walk to the freight elevator call panel and press the down button'],
+]);
+document.getElementById('feed').innerHTML = FEED.map(([time, kind, what, detail]) =>
+  `<li class="${kind}"><time>${time}</time><div><span class="what">${what}</span>${detail ? `<span class="detail">${detail}</span>` : ''}</div></li>`).join('');
+document.getElementById('raw').innerHTML = safe([
+  '15:43:09 info step_gate step 6 navigate_to {call_panel}: waiting',
+  '15:43:01 info record navigate_to: success, 0.3 m to goal',
+  '15:42:53 info record clear_terrain_map: success',
+  '15:42:47 info plan revision 2',
+  '15:42:24 warn record navigate_to: timeout 120 s, 1 feedback sample',
+  '15:40:16 info record localized: success (localized: true)',
+  '15:40:02 info task_started run 3eddf2de']).join('<br>');
+
+// Tabs, on the hash
+const tabs = document.querySelectorAll('.tab');
+function show(view) {
+  if (!document.getElementById(view)?.classList.contains('view')) view = 'mission';
+  tabs.forEach(tab => tab.setAttribute('aria-selected', tab.dataset.view === view));
+  document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== view);
+  document.querySelector('.demo').hidden = view !== 'mission';
+}
+tabs.forEach(tab => tab.addEventListener('click', () => { location.hash = tab.dataset.view; }));
+window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+show(location.hash.slice(1));
+
+// Mockup state switch
+let state = 'gate';
+function setState(next) {
+  state = next;
+  if (next === 'gate') { $('gatemsg').textContent = 'Step 6 needs your decision'; $('waitwrap').hidden = false; }
+  ['gate', 'running', 'idle'].forEach(name => document.getElementById('now-' + name).hidden = name !== next);
+  document.querySelectorAll('.demo button').forEach(b => b.setAttribute('aria-pressed', b.dataset.state === next));
+  document.getElementById('cancel').hidden = next === 'idle';
+}
+document.querySelector('.demo').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setState(b.dataset.state); });
+
+// Camera. The mockup paints a sample frame; the page gets a 640 px JPEG and the
+// /track_3d/mask_outlines segments (LINE_LIST in image pixels, one colour per track) from the adapter
+const $ = id => document.getElementById(id);
+let showMasks = true;
+const camera = (() => {
+  const w = 640, h = 360, c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  const wall = g.createLinearGradient(0, 0, 0, h); wall.addColorStop(0, '#59605a'); wall.addColorStop(.72, '#3f4540'); wall.addColorStop(.72, '#2b2f2c'); wall.addColorStop(1, '#1d201e');
+  g.fillStyle = wall; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#7d8580'; g.fillRect(150, 40, 230, 220);           // elevator doors
+  g.fillStyle = '#6c736f'; g.fillRect(264, 40, 2, 220);
+  g.fillStyle = '#8c918d'; g.fillRect(446, 120, 44, 80);            // call panel
+  g.fillStyle = '#c8ccc9'; [[468, 144], [468, 176]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 9, 0, 7); g.fill(); });
+  const ring = (cx, cy, r, n = 16) => Array.from({length: n}, (_, i) => {
+    const a = i / n * 2 * Math.PI, b = (i + 1) / n * 2 * Math.PI;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a), cx + r * Math.cos(b), cy + r * Math.sin(b)];
+  });
+  const box = (x, y, bw, bh) => [[x, y, x + bw, y], [x + bw, y, x + bw, y + bh], [x + bw, y + bh, x, y + bh], [x, y + bh, x, y]];
+  const tracks = safe([{name: 'down button', color: '#F2C14E', segments: ring(468, 176, 12)},
+                  {name: 'call panel',  color: '#7FD1AE', segments: box(443, 117, 50, 86)}]);
+  return {w, h, time: Date.now() / 1000 - 0.4, topic: '/camera/camera/color/image_raw', jpeg: c.toDataURL('image/jpeg', .8), tracks,
+          segments: tracks.flatMap(t => t.segments), colors: tracks.flatMap(t => t.segments.map(() => t.color))};
+})();
+const camImg = new Image();
+camImg.onload = drawCamera;
+camImg.src = camera.jpeg;
+
+function fitCanvas(canvas) {
+  const ratio = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  return {ctx, W, H};
+}
+
+function drawCamera() {
+  const {ctx, W, H} = fitCanvas($('cam'));
+  if (!camImg.complete || !camImg.naturalWidth) return;
+  const s = Math.min(W / camera.w, H / camera.h), ox = (W - camera.w * s) / 2, oy = (H - camera.h * s) / 2;
+  ctx.drawImage(camImg, ox, oy, camera.w * s, camera.h * s);
+  ctx.lineWidth = 2; ctx.lineCap = 'round';
+  if (showMasks) camera.segments.forEach(([x1, y1, x2, y2], i) => {
+    ctx.strokeStyle = camera.colors[i];
+    ctx.beginPath(); ctx.moveTo(ox + x1 * s, oy + y1 * s); ctx.lineTo(ox + x2 * s, oy + y2 * s); ctx.stroke();
+  });
+  const age = Date.now() / 1000 - camera.time;
+  $('camcap').title = camera.topic + ' · /track_3d/mask_outlines';
+  $('camcap').innerHTML = (age > 3 ? `<span class="stale">frame ${age.toFixed(0)} s old</span>` : `frame ${age.toFixed(1)} s old`)
+    + camera.tracks.map(t => `<span class="track" style="background:${t.color}"></span>${t.name}`).join('');
+}
+new ResizeObserver(drawCamera).observe($('cam').parentElement);
+
+// Camera toggles
+function toggle(id, apply) {
+  const button = document.getElementById(id);
+  button.addEventListener('click', () => { const on = button.getAttribute('aria-pressed') !== 'true'; button.setAttribute('aria-pressed', on); apply(on); });
+}
+toggle('t-masks', on => { showMasks = on; drawCamera(); });
+toggle('t-map', on => document.getElementById('minimap').hidden = !on);
+
+// Decisions: buttons and the A / R keys (not while typing)
+function decide(approve) {
+  if (state !== 'gate') return;
+  state = 'deciding';                                   // one decision per step: a second key or click does nothing
+  $('gatemsg').textContent = approve ? 'Approved step 6' : 'Refused step 6';
+  $('waitwrap').hidden = true;
+  setTimeout(() => setState('running'), 600);
+}
+document.getElementById('approve').addEventListener('click', () => decide(true));
+document.getElementById('refuse').addEventListener('click', () => decide(false));
+document.addEventListener('keydown', e => {
+  if (document.getElementById('mission').hidden || e.target.closest('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'a' || e.key === 'A') decide(true);
+  if (e.key === 'r' || e.key === 'R') document.getElementById('why').focus(), e.preventDefault();
+});
+document.getElementById('why').addEventListener('keydown', e => { if (e.key === 'Enter') decide(false); });
+
+let waited = 12;
+setInterval(() => { if (state !== 'gate') return; waited++; $('waited').textContent = `${Math.floor(waited / 60)}:${String(waited % 60).padStart(2, '0')}`; }, 1000);
+// ---------- Skills (sample data in the shape of contract.yaml) ----------
+const RUN = 'discovery run 94942642';
+const SKILLS = safe([
+  {name: 'navigate_to', repo: 'navigation_stack', kind: 'action', transport: 'action', ros: '/route_planner/navigate_to_goal', type: 'route_planner_msgs/action/NavigateToGoal', device: 'nuc', timeout: 120,
+   description: 'Walk to a named place or a pose with the route planner', inputs: [['goal', 'string', 'a place name from /map_info/places']], outputs: [['distance', 'float', 'metres to the goal at the end']],
+   pre: ['localized'], check: 'at_goal', fallback: ['cancel_navigation', 'clear_terrain_map'], source: 'src/navigation_stack/route_planner/src/route_planner_node.cpp', agent: true, live: true, maturity: 'untested'},
+  {name: 'cancel_navigation', repo: 'navigation_stack', kind: 'action', transport: 'service', ros: '/route_planner/cancel', type: 'std_srvs/srv/Trigger', device: 'nuc', timeout: 5,
+   description: 'Stop the current route', inputs: [], outputs: [['success', 'bool', '']], pre: [], check: '', fallback: [], source: 'src/navigation_stack/route_planner/src/route_planner_node.cpp', agent: true, live: true, maturity: 'untested'},
+  {name: 'clear_terrain_map', repo: 'navigation_stack', kind: 'action', transport: 'topic', ros: '/map_clearing', type: 'std_msgs/msg/Float32', device: 'nuc', timeout: 2,
+   description: 'Clear the terrain points around the robot, for a stale map', inputs: [['radius', 'float', 'metres; default 4.0']], outputs: [], pre: [], check: '', fallback: [], source: 'src/navigation_stack/terrain_analysis/src/terrainAnalysis.cpp', agent: true, live: true, maturity: 'untested'},
+  {name: 'at_goal', repo: 'navigation_stack', kind: 'condition', transport: 'watch', ros: '/route_planner/status', type: 'std_msgs/msg/String', device: 'nuc', timeout: 0,
+   description: 'True when the route planner says the goal is reached', inputs: [], outputs: [['state', 'string', '']], pre: [], check: '', fallback: [], source: 'src/navigation_stack/route_planner/src/route_planner_node.cpp', agent: true, live: true, maturity: 'untested'},
+  {name: 'localized', repo: 'state_estimation', kind: 'condition', transport: 'watch', ros: '/slam_elevatorlio/status', type: 'std_msgs/msg/String', device: 'nuc', timeout: 0,
+   description: 'True when the localizer tracks the prior map', inputs: [], outputs: [['status', 'string', '']], pre: [], check: '', fallback: [], source: 'src/state_estimation/elevator_lio/src/laserMapping.cpp', agent: false, live: true, maturity: 'tested', stale: 'laserMapping.cpp changed after the last run (a1c4e90)'},
+  {name: 'wait_for_elevator_lio_mode', repo: 'elevator_mapping', kind: 'condition', transport: 'watch', ros: '/LIO/in_elevator', type: 'std_msgs/msg/Bool', device: 'nuc', timeout: 0,
+   description: 'True when the localizer has switched to its in-elevator mode', inputs: [], outputs: [['data', 'bool', '']], pre: [], check: '', fallback: [], source: 'src/elevator_mapping/Elevator-LIO/src/laserMapping.cpp', agent: true, live: false, maturity: 'untested', by: 'task run 3eddf2de'},
+  {name: 'current_floor', repo: 'elevator_mapping', kind: 'condition', transport: 'watch', ros: '/slam_elevatorlio/floor', type: 'std_msgs/msg/Int32', device: 'nuc', timeout: 0,
+   description: 'The floor that the localizer says the robot is on', inputs: [], outputs: [['data', 'int', 'floor number']], pre: [], check: '', fallback: [], source: 'src/elevator_mapping/Elevator-LIO/src/floor_tracker.cpp', agent: true, live: false, maturity: 'untested'},
+  {name: 'start_tracking', repo: 'trt_edgetam', kind: 'action', transport: 'service', ros: '/track_3d/start', type: 'track_interfaces/srv/StartTrack', device: 'orin', timeout: 10,
+   description: 'Start EdgeTAM tracking of an object named in words', inputs: [['prompt', 'string', 'what to track, for example "down button"']], outputs: [['track_id', 'int', '']], pre: [], check: 'is_tracking', fallback: [], source: 'src/trt_edgetam/track_anything/track_3d_node.py', agent: true, live: false, maturity: 'untested'},
+  {name: 'is_tracking', repo: 'trt_edgetam', kind: 'condition', transport: 'watch', ros: '/track_3d/status', type: 'std_msgs/msg/String', device: 'orin', timeout: 0,
+   description: 'True while EdgeTAM has a track', inputs: [], outputs: [['state', 'string', '']], pre: [], check: '', fallback: [], source: 'src/trt_edgetam/track_anything/track_3d_node.py', agent: true, live: false, maturity: 'untested'},
+  {name: 'set_high_level_mode', repo: 'unitree_interface', kind: 'action', transport: 'service', ros: '/unitree/change_mode', type: 'unitree_interface/srv/ChangeMode', device: 'nuc', timeout: 10,
+   description: 'Put the G1 in high-level mode (idle or high_level only; the deny list blocks the rest)', inputs: [['mode', 'enum', 'idle | high_level']], outputs: [['success', 'bool', '']], pre: [], check: '', fallback: [], source: 'src/unitree_interface/src/mode_server.cpp', agent: true, live: true, maturity: 'untested'},
+]);
+const NAMED_BY = name => SKILLS.filter(o => [...o.pre, o.check, ...o.fallback].includes(name)).map(o => o.name);
+let sFilter = 'review', sFind = '', selected = null, kept = 0, removed = 0;
+const toReview = sk => sk.agent && !sk.done;
+const shown = () => SKILLS.filter(sk => !sk.gone)
+  .filter(sk => sFilter === 'all' || (sFilter === 'review' ? toReview(sk) : sk.stale))
+  .filter(sk => !sFind || (sk.name + ' ' + sk.ros).toLowerCase().includes(sFind));
+
+function counts() {
+  const live = SKILLS.filter(sk => !sk.gone);
+  $('n-review').textContent = live.filter(toReview).length;
+  $('n-stale').textContent = live.filter(sk => sk.stale).length;
+  $('n-all').textContent = live.length;
+  document.querySelector('[data-view="skills"] .count').textContent = live.filter(toReview).length || '';
+  document.querySelector('[data-view="skills"] .count').hidden = !live.filter(toReview).length;
+  $('n-kept').textContent = kept; $('n-removed').textContent = removed;
+  $('donebar').hidden = !(kept + removed);
+}
+
+function pills(sk) {
+  return (sk.agent && !sk.done ? '<span class="pill">new</span>' : '')
+    + `<span class="pill ${sk.maturity === 'tested' ? 'tested' : ''}">${sk.maturity}</span>`
+    + (sk.stale ? '<span class="pill stale">stale</span>' : '')
+    + (sk.live ? '' : '<span class="pill off" title="Its ROS name is not on the graph now">not live</span>');
+}
+
+function renderList() {
+  const items = shown();
+  if (!items.find(sk => sk.name === selected)) selected = items[0]?.name ?? null;
+  let repo = '';
+  $('slist').innerHTML = items.length ? items.map(sk => {
+    const head = sk.repo !== repo ? `<li class="group">${repo = sk.repo}</li>` : '';
+    return head + `<li><button data-name="${sk.name}" aria-current="${sk.name === selected}">
+      <span class="nm">${sk.name}</span><span class="sub">${sk.kind} · ${sk.transport} · ${sk.device}</span><span>${pills(sk)}</span></button></li>`;
+  }).join('') : `<li class="empty">${sFilter === 'review' ? 'Nothing to review. All agent-written skills are kept or removed.' : 'No skill matches.'}</li>`;
+  renderDetail();
+}
+
+function yamlOf(sk) {
+  const ports = list => list.length ? '\n' + list.map(([n, t, d]) => `- {name: ${n}, type: ${t}${d ? `, description: ${d}` : ''}}`).join('\n') : ' []';
+  return (sk.agent && !sk.done ? '# written by the agent with write_skill; a person may edit it, and then remove this line\n' : '')
+    + `name: ${sk.name}\nkind: ${sk.kind}\ndevice: ${sk.device}\ndescription: ${sk.description}\ninterface:\n  transport: ${sk.transport}\n  name: ${sk.ros}\n  ros_type: ${sk.type}\n`
+    + `inputs:${ports(sk.inputs)}\noutputs:${ports(sk.outputs)}\n`
+    + (sk.pre.length ? `pre: [${sk.pre.join(', ')}]\n` : '') + (sk.check ? `check: ${sk.check}\n` : '') + (sk.fallback.length ? `fallback: [${sk.fallback.join(', ')}]\n` : '')
+    + (sk.timeout ? `timeout_s: ${sk.timeout}\n` : '') + `maturity: ${sk.maturity}\nsource: ${sk.source}`;
+}
+
+function renderDetail() {
+  const sk = SKILLS.find(o => o.name === selected);
+  if (!sk) { $('sdetail').innerHTML = ''; return; }
+  const link = n => `<button class="linkbtn" data-go="${n}">${n}</button>`;
+  const links = [['needs before', sk.pre], ['checked by', sk.check ? [sk.check] : []], ['on failure', sk.fallback], ['named by', NAMED_BY(sk.name)]]
+    .filter(([, l]) => l.length).map(([label, l]) => `<dt>${label}</dt><dd class="links">${l.map(link).join('')}</dd>`).join('');
+  const ports = (title, list) => list.length ? `<div><h4>${title}</h4><table class="ports"><tr><th>name</th><th>type</th><th>meaning</th></tr>`
+    + list.map(([n, t, d]) => `<tr><td>${n}</td><td>${t}</td><td>${d}</td></tr>`).join('') + '</table></div>' : `<div><h4>${title}</h4><p class="hint">none</p></div>`;
+  $('sdetail').innerHTML = `
+    <div class="dhead">
+      <div><h3>${sk.name}</h3><p>${sk.description}</p>${pills(sk)}</div>
+      <div class="actions">${toReview(sk)
+        ? '<button class="btn" id="keep">Keep<kbd>K</kbd></button><button class="btn ghost" id="edit">Edit</button><button class="btn bad" id="remove">Remove<kbd>X</kbd></button>'
+        : '<button class="btn ghost" id="edit">Edit</button>'}</div>
+    </div>
+    ${sk.stale ? `<p class="pill stale" style="padding:8px 10px;font-size:12px">Stale: ${sk.stale}. A new discovery does this repo first.</p>` : ''}
+    <dl class="dl">
+      <dt>interface</dt><dd>${sk.transport} ${sk.ros}<br><span class="hint">${sk.type}</span></dd>
+      <dt>device</dt><dd>${sk.device}${sk.timeout ? ` · timeout ${sk.timeout} s` : ''}</dd>
+      ${links}
+      <dt>written by</dt><dd>${sk.agent ? (sk.by || RUN) : 'a person'}</dd>
+      <dt>from code</dt><dd>${sk.source}</dd>
+      <dt>runs</dt><dd>none yet</dd>
+    </dl>
+    <div class="two">${ports('Inputs', sk.inputs)}${ports('Outputs', sk.outputs)}</div>
+    <div><h4>Checks at write</h4><div class="checks"><span>schema</span><span>deny list</span><span>references</span><span>ROS types</span></div></div>
+    <details class="yaml"><summary>contract.yaml</summary><pre>${yamlOf(sk).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre></details>`;
+  $('keep')?.addEventListener('click', () => review(true));
+  $('remove')?.addEventListener('click', () => review(false));
+}
+
+function review(keep) {
+  const sk = SKILLS.find(o => o.name === selected);
+  if (!sk || !toReview(sk)) return;
+  const items = shown(), at = items.indexOf(sk);
+  if (keep) { sk.done = true; kept++; } else { sk.gone = true; removed++; }
+  selected = (items[at + 1] || items[at - 1] || {}).name;   // move to the next skill in the queue
+  counts(); renderList();
+}
+
+$('sfilter').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  sFilter = b.dataset.f;
+  $('sfilter').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  renderList();
+});
+$('sfind').addEventListener('input', e => { sFind = e.target.value.trim().toLowerCase(); renderList(); });
+$('slist').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { selected = b.dataset.name; renderList(); } });
+$('sdetail').addEventListener('click', e => {
+  const a = e.target.closest('[data-go]'); if (!a) return;
+  if (SKILLS.find(sk => sk.name === a.dataset.go)?.gone) { a.textContent += ' (removed)'; a.disabled = true; return; }
+  sFilter = 'all'; sFind = ''; $('sfind').value = ''; setSeg('sfilter', 'f', 'all');
+  selected = a.dataset.go; renderList();
+});
+document.addEventListener('keydown', e => {
+  if ($('skills').hidden || e.target.closest('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+  const items = shown(), at = items.findIndex(sk => sk.name === selected);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const next = items[Math.min(items.length - 1, Math.max(0, at + (e.key === 'ArrowDown' ? 1 : -1)))];
+    if (next) { selected = next.name; renderList(); e.preventDefault(); }
+  }
+  if (e.key === 'k' || e.key === 'K') review(true);
+  if (e.key === 'x' || e.key === 'X') review(false);
+});
+counts(); renderList();
+// ---------- Knowledge (sample data in the shape of claims.yaml and staged/<run_id>.json) ----------
+const CLAIMS = safe([
+  {id: 'C-0007', text: 'The freight elevator call panel does not light when it is pressed.', about: {place: 'freight_elevator_call_panel'}, key: 'lights_when_pressed', value: 'false', tier: 'belief', conf: 11, contra: 0,
+   sightings: [['c', 'run 3eddf2de · step 9', 'agent:task · press_button check'], ['c', 'run 1c7a02f4 · step 6', 'frame judged by VLM'], ['c', 'run 0b19e3aa', 'operator']], grades: []},
+  {id: 'C-0012', text: 'The cabin has no cloud link.', about: {object: 'freight_elevator_cabin'}, tier: 'belief', conf: 12, contra: 0,
+   sightings: [['c', 'run 3eddf2de', 'agent:task · speech lost at 15:51'], ['c', 'run 1c7a02f4', 'agent:task · speech lost at 16:20']], grades: []},
+  {id: 'C-0003', text: 'The elevator door stays open for 8 s.', about: {object: 'freight_elevator'}, key: 'door_open_s', value: '8', tier: 'belief', conf: 6, contra: 1, moved: 'fact → belief',
+   sightings: [['x', 'run 3eddf2de · step 12', 'door_state watch: open 15 s'], ['c', 'run 1c7a02f4', 'door_state watch: open 8 s'], ['c', 'run 0b19e3aa', 'operator']], grades: []},
+  {id: 'C-0019', text: 'When navigate_to times out near the call panel, clear the terrain map and walk again.', about: {skill: 'navigate_to', place: 'freight_elevator_call_panel'}, tier: 'observation', conf: 2, contra: 0,
+   sightings: [['c', 'run 3eddf2de · step 4', 'agent:task']], grades: [['useful', 'run 3eddf2de · step 4']]},
+  {id: 'C-0021', text: 'The press offset for the down button is 2 cm left of the detected centre.', about: {place: 'freight_elevator_call_panel', skill: 'press_button'}, key: 'press_offset_m', value: '[0, 0.02, 0]', tier: 'observation', conf: 1, contra: 1,
+   sightings: [['c', 'run 1c7a02f4', 'agent:task'], ['x', 'run 3eddf2de · step 9', 'agent:task grade: wrong']], grades: [['wrong', 'run 3eddf2de · step 9']]},
+  {id: 'C-0004', text: 'The route planner needs 1.5 m of free floor in front of the robot to start.', about: {skill: 'navigate_to'}, tier: 'fact', conf: 15, contra: 0, approved: 'operator, 2026-11-12',
+   sightings: [['c', 'runs 0b19e3aa … 3eddf2de (15)', 'skill checks']], grades: []},
+  {id: 'C-0002', text: 'A person stands near the lab door.', about: {place: 'lab_door'}, tier: 'retired', conf: 1, contra: 0, retired: 'valid_for_s 600 passed',
+   sightings: [['c', 'run 0b19e3aa', 'frame judged by VLM']], grades: []},
+]);
+const STAGED = safe({run: '3eddf2de', task: 'Walk to the call panel and press the down button', ended: '15:58', grades: [
+  {claim: 'C-0019', grade: 'useful', step: 4, reason: 'Clearing the terrain map made the second walk work.'},
+  {claim: 'C-0021', grade: 'wrong', step: 9, reason: 'With the 2 cm offset the press missed; the panel did not change.'},
+  {claim: 'C-0003', grade: 'not-applicable', step: 12, reason: 'A person held the door, so the open time says nothing.'},
+  {claim: 'C-0007', grade: 'useful', step: 9, reason: 'Did not wait for a light; checked the floor indicator instead.', moved: true},
+]});
+const WILSON_Z = 1.645;
+const wilson = (k, n) => { if (!n) return 0; const p = k / n, z2 = WILSON_Z * WILSON_Z;
+  return (p + z2 / (2 * n) - WILSON_Z * Math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))) / (1 + z2 / n); };
+const claimOf = id => CLAIMS.find(c => c.id === id);
+const tags = about => Object.entries(about).map(([k, v]) => `${k}=${v}`).join(' · ') || 'general';
+let kMode = 'needs', kTier = 'all', kFind = '', kSel = 'C-0007', staged = true;
+const ready = () => CLAIMS.filter(c => c.tier === 'belief' && !c.contra && wilson(c.conf, c.conf + c.contra) >= 0.8);
+const contradicted = () => CLAIMS.filter(c => c.moved && !c.seen);
+const needCount = () => (staged ? 1 : 0) + ready().length + contradicted().length;
+
+function meter(c) {
+  const lb = wilson(c.conf, c.conf + c.contra);
+  return `<div class="meter"><span class="track" title="Wilson lower bound; the mark is 0.8"><i style="width:${(lb * 100).toFixed(0)}%"></i><b style="left:80%"></b></span>`
+    + `<span>${c.conf} confirmed · ${c.contra} contradicted · ${lb.toFixed(2)} of 0.80</span></div>`;
+}
+
+function renderNeeds() {
+  $('kgrades').innerHTML = staged ? `
+    <h3>Grades to commit <small>run ${STAGED.run} · “${STAGED.task}” · ended ${STAGED.ended}</small>
+      <button class="btn" id="kcommit">Commit ${STAGED.grades.filter(g => !g.moved).length} grades</button></h3>
+    <div class="tablebox"><table class="grades">
+      <tr><th>claim</th><th>grade</th><th>step</th><th>the agent's reason</th></tr>
+      ${STAGED.grades.map(g => `<tr><td><button class="linkbtn" data-claim="${g.claim}"><span class="tag">${g.claim}</span> ${claimOf(g.claim).text}</button></td>
+        <td class="m">${g.moved ? '<span class="g moved" title="The skill code changed after this step, so the grade does not count">code moved</span>' : `<span class="g ${g.grade}">${g.grade}</span>`}</td>
+        <td class="m">${g.step}</td><td>${g.reason}</td></tr>`).join('')}
+    </table></div>
+    <p class="hint">useful and wrong count as weak evidence. misleading and not-applicable say the claim's text or tags are too wide. If you do not commit, the next mission commits them.</p>`
+    : `<h3>Grades to commit <small>none: the last mission's grades are in the claims</small></h3>`;
+  $('kcommit')?.addEventListener('click', () => { staged = false; kCounts(); renderNeeds(); });
+
+  const r = ready();
+  $('kready').innerHTML = `<h3>Ready to become facts <small>${r.length ? 'A fact needs your approval of the exact text.' : 'none'}</small></h3>`
+    + r.map(c => `<div class="kcard">
+        <textarea id="txt-${c.id}" aria-label="Claim text">${c.text}</textarea>
+        <div class="kmeta"><span>${c.id}</span><span>${tags(c.about)}</span>${c.key ? `<span>${c.key} = ${c.value}</span>` : ''}</div>
+        ${meter(c)}
+        <div class="row"><button class="btn" data-approve="${c.id}">Approve as fact</button><button class="btn ghost" data-claim="${c.id}">Open evidence</button>
+          <button class="btn bad" data-retire="${c.id}">Retire</button></div>
+      </div>`).join('');
+
+  const x = contradicted();
+  $('kcontra').innerHTML = `<h3>Contradicted lately <small>${x.length ? 'A contradiction moved these down one tier.' : 'none'}</small></h3>`
+    + x.map(c => { const last = c.sightings.find(([k]) => k === 'x');
+      return `<div class="kcard hot">
+        <p class="claimtext">${c.text}</p>
+        <div class="kmeta"><span>${c.id}</span><span>${tags(c.about)}</span><span>${c.moved}</span></div>
+        <div>New sighting: <b>${last[2]}</b> <span class="tag">(${last[1]})</span></div>
+        <div class="row"><button class="btn ghost" data-claim="${c.id}">Open evidence</button><button class="btn ghost" data-seen="${c.id}">Seen</button>
+          <button class="btn bad" data-retire="${c.id}">Retire</button></div>
+      </div>`; }).join('');
+}
+
+function kShown() {
+  return CLAIMS.filter(c => kTier === 'all' || c.tier === kTier)
+    .filter(c => !kFind || (c.text + ' ' + tags(c.about)).toLowerCase().includes(kFind));
+}
+
+function renderClaims() {
+  const items = kShown();
+  if (!items.find(c => c.id === kSel)) kSel = items[0]?.id ?? null;
+  $('klist').innerHTML = items.length ? items.map(c => `<li><button data-id="${c.id}" aria-current="${c.id === kSel}">
+      <span class="sub">${c.text}</span><span><span class="tier ${c.tier}">${c.tier}</span> <span class="tag">${c.id} · ${tags(c.about)}</span></span></button></li>`).join('')
+    : '<li class="empty">No claim matches.</li>';
+  const c = claimOf(kSel);
+  if (!c) { $('kdetail').innerHTML = ''; return; }
+  $('kdetail').innerHTML = `
+    <div class="dhead"><div><p class="claimtext" style="font:600 20px/1.3 var(--sans)">${c.text}</p>
+      <span class="tier ${c.tier}">${c.tier}</span> <span class="tag">${c.id}</span></div>
+      <div class="actions">${c.tier !== 'retired' ? `<button class="btn bad" data-retire="${c.id}">Retire</button>` : ''}</div></div>
+    <dl class="dl">
+      <dt>about</dt><dd>${tags(c.about)}</dd>
+      ${c.key ? `<dt>value</dt><dd>${c.key} = ${c.value}</dd>` : ''}
+      <dt>evidence</dt><dd>${meter(c)}</dd>
+      ${c.approved ? `<dt>approved</dt><dd>${c.approved}</dd>` : ''}
+      ${c.retired ? `<dt>retired</dt><dd>${c.retired}</dd>` : ''}
+    </dl>
+    <div><h4>Sightings, newest first</h4><ul class="sightings">
+      ${c.sightings.map(([k, where, by]) => `<li class="${k}"><span></span><span>${by}<small>${where}</small></span></li>`).join('')}
+      ${c.grades.map(([g, where]) => `<li class="gr"><span></span><span>graded <span class="g ${g}">${g}</span><small>${where}</small></span></li>`).join('')}
+    </ul></div>
+    <p class="hint">A step up needs 2 runs and 2 sources (observation → belief), then a lower bound of 0.80 and your approval (belief → fact). One contradiction moves a claim down one tier.</p>`;
+}
+
+function kCounts() {
+  $('n-needs').textContent = needCount();
+  $('n-claims').textContent = CLAIMS.length;
+  const badge = document.querySelector('[data-view="knowledge"] .count');
+  badge.textContent = needCount(); badge.hidden = !needCount();
+}
+
+function kRender() {
+  $('kneeds').hidden = kMode !== 'needs';
+  $('kclaims').hidden = $('ktier').hidden = $('kfind').hidden = kMode !== 'claims';
+  kMode === 'needs' ? renderNeeds() : renderClaims();
+}
+
+function openClaim(id) {
+  kSel = id; kMode = 'claims'; kTier = 'all'; kFind = ''; $('kfind').value = '';
+  setSeg('kmode', 'm', 'claims'); setSeg('ktier', 't', 'all');
+}
+function setSeg(id, attr, value) { $(id).querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset[attr] === value)); }
+$('kmode').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { kMode = b.dataset.m; setSeg('kmode', 'm', kMode); kRender(); } });
+$('ktier').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { kTier = b.dataset.t; setSeg('ktier', 't', kTier); renderClaims(); } });
+$('kfind').addEventListener('input', e => { kFind = e.target.value.trim().toLowerCase(); renderClaims(); });
+$('klist').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { kSel = b.dataset.id; renderClaims(); } });
+$('knowledge').addEventListener('click', e => {
+  const t = e.target.closest('[data-claim], [data-approve], [data-retire], [data-seen]'); if (!t) return;
+  if (t.dataset.claim) openClaim(t.dataset.claim);
+  if (t.dataset.approve) { const c = claimOf(t.dataset.approve); c.text = escapeText($('txt-' + c.id).value); c.tier = 'fact'; c.approved = 'you, now'; }
+  if (t.dataset.retire) { const c = claimOf(t.dataset.retire); c.tier = 'retired'; c.retired = 'by you, now'; c.seen = true; }
+  if (t.dataset.seen) claimOf(t.dataset.seen).seen = true;
+  kCounts(); kRender();
+});
+kCounts(); kRender();
+// ---------- Runs (sample data in the shape of a run bundle: task.json, steps.jsonl, plans.jsonl, outcome.json) ----------
+const RUNS = safe([
+  {id: '3eddf2de', day: '2026-11-19', start: '15:40', task: 'Walk to the freight elevator call panel and press the down button', kind: 'mission', outcome: 'running', dur: 252, limit: 900,
+   agent: 'Codex (codex-cli 0.167.0)', blind: false, session: '20261119-1538-a4', n: 3, bag: '412 MB',
+   steps: [[0, 1, 'localized', 'Check that the robot is localized', 'ok'], [8, 120, 'navigate_to', 'Walk to the pre-approach pose', 'fail', 'timeout 120 s'],
+           [129, 2, 'cancel_navigation', 'Walk to the pre-approach pose', 'refused', 'refused: “the terrain map is stale, clear it”'], [171, 1, 'clear_terrain_map', 'Clear the terrain map', 'ok'],
+           [179, 62, 'navigate_to', 'Walk to the pre-approach pose', 'ok', '0.3 m off goal'], [247, 5, 'navigate_to', 'Walk to the call panel', 'wait', 'waiting for you']],
+   plans: [['1', '5 subgoals'], ['2', 'Clear the terrain map first, then walk again']], left: {skills: 0, grades: 4, claims: ['C-0019']},
+   git: [['orchestrator', 'd679b62', false], ['navigation_stack', '8e21c0a', true], ['elevator_mapping', '41f9d2e', false]], contracts: 25},
+  {id: '94942642', day: '2026-11-19', start: '04:27', task: 'Learn the stack: write a skill for each interface that a task could use', kind: 'discovery', outcome: 'done', dur: 420, limit: 0,
+   agent: 'Codex · coordinator and 8 workers', blind: false, session: '20261119-0420-c2', n: 2, bag: 'none (discovery)',
+   steps: [], plans: [], left: {skills: 20, grades: 0, claims: [], pages: 8},
+   git: [['orchestrator', '9b6a598', false], ['navigation_stack', '8e21c0a', true]], contracts: 4},
+  {id: '1c7a02f4', day: '2026-11-18', start: '16:05', task: 'Walk to freight_elevator_call_panel_preapproach', kind: 'mission', outcome: 'halted', dur: 400, limit: 900,
+   agent: 'Claude Code', blind: false, session: '20261118-1550-9f', n: 2, bag: '655 MB',
+   steps: [[0, 1, 'localized', 'Check that the robot is localized', 'ok'], [12, 120, 'navigate_to', 'Walk to the pre-approach pose', 'fail', 'timeout 120 s'],
+           [150, 120, 'navigate_to', 'Walk to the pre-approach pose', 'fail', 'timeout 120 s'], [300, 2, 'cancel_navigation', 'Stop', 'ok']],
+   plans: [['1', '2 subgoals']], left: {skills: 0, grades: 1, claims: ['C-0021']},
+   git: [['orchestrator', 'df9989b', false], ['navigation_stack', '8e21c0a', true]], contracts: 4},
+  {id: '0b19e3aa', day: '2026-11-17', start: '19:02', task: 'Say hello, then say where you are', kind: 'mission', outcome: 'done', dur: 115, limit: 900,
+   agent: 'Claude Code', blind: false, session: '20261117-1855-02', n: 1, bag: '120 MB',
+   steps: [[0, 2, 'say', 'Say hello', 'ok'], [20, 1, 'localized', 'Check that the robot is localized', 'ok'], [40, 3, 'nearest_place', 'Find the nearest place', 'ok'], [70, 2, 'say', 'Say the place', 'ok']],
+   plans: [['1', '3 subgoals']], left: {skills: 0, grades: 0, claims: []},
+   git: [['orchestrator', 'cb0b07a', false]], contracts: 4},
+]);
+const mmss = sec => { const t = Math.round(sec); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+const OUT = {done: 'done', running: 'running', halted: 'halted', gave_up: 'gave up', error: 'error', cancelled: 'cancelled', unknown: 'unknown'};
+let rKind = 'all', rFind = '', rSel = RUNS[0].id;
+const rShown = () => RUNS.filter(r => rKind === 'all' || r.kind === rKind).filter(r => !rFind || (r.task + ' ' + r.id).toLowerCase().includes(rFind));
+
+function renderRuns() {
+  const items = rShown();
+  if (!items.find(r => r.id === rSel)) rSel = items[0]?.id ?? null;
+  let day = '';
+  $('rlist').innerHTML = items.length ? items.map(r => (r.day !== day ? `<li class="group">${day = r.day}</li>` : '')
+    + `<li><button data-id="${r.id}" aria-current="${r.id === rSel}"><span class="sub" style="color:inherit">${r.task}</span>
+       <span><span class="oc ${r.outcome}">${OUT[r.outcome]}</span> <span class="tag">${r.start} · ${mmss(r.dur)} · ${r.kind === 'discovery' ? 'discovery' : r.steps.length + ' steps'}</span></span></button></li>`).join('')
+    : '<li class="empty">No run matches.</li>';
+  const r = RUNS.find(x => x.id === rSel);
+  if (!r) { $('rdetail').innerHTML = ''; return; }
+  const span = Math.max(r.dur, ...r.steps.map(([t, d]) => t + d));
+  const refused = r.steps.filter(x => x[4] === 'refused').length, failed = r.steps.filter(x => x[4] === 'fail').length;
+  const bundle = `~/orch_runs/${r.session}/runs/${r.n}-${r.kind === 'discovery' ? 'discovery' : 'task'}`;
+  const copy = `rsync -a vector@vector-nuc:${bundle} ./runs/`;
+  $('rdetail').innerHTML = `
+    <div class="dhead"><div><p class="claimtext" style="font:600 20px/1.3 var(--sans);margin:0 0 6px">${r.task}</p>
+      <span class="oc ${r.outcome}">${OUT[r.outcome]}</span> <span class="tag">run ${r.id} · ${r.day} ${r.start} · ${r.agent}${r.blind ? ' · blind' : ''}</span></div>
+      <div class="actions">${r.outcome === 'running' ? '<button class="btn" onclick="location.hash=\'mission\'">Open live</button>' : ''}</div></div>
+    <div class="stats">
+      <div><b>${mmss(r.dur)}</b><span>${r.limit ? `of ${mmss(r.limit)} limit` : 'no time limit'}</span></div>
+      ${r.kind === 'discovery'
+        ? `<div><b>${r.left.skills}</b><span>skills written</span></div><div><b>${r.left.pages}</b><span>doc pages</span></div><div><b>0</b><span>steps (never moves)</span></div>`
+        : `<div><b>${r.steps.length}</b><span>steps</span></div><div><b>${failed}</b><span>failed</span></div><div><b>${refused}</b><span>refused by you</span></div><div><b>${r.left.grades}</b><span>grades</span></div>`}
+    </div>
+    ${r.steps.length ? `<div><h4>Steps in time</h4>
+      <div class="tl" role="img" aria-label="Steps on a time line">${r.steps.map(([t, d, sk, sub, st]) =>
+        `<i class="${st}" style="left:${(t / span * 100).toFixed(2)}%;width:${(d / span * 100).toFixed(2)}%" title="${sk} · ${mmss(t)} +${d} s"></i>`).join('')}</div>
+      <div class="tlaxis"><span>0:00</span><span>${mmss(span / 2)}</span><span>${mmss(span)}</span></div>
+      <div class="legend"><span><i style="background:var(--good)"></i>success</span><span><i style="background:var(--bad)"></i>failed</span>
+        <span><i style="border:2px solid var(--warn)"></i>refused</span><span><i style="background:var(--lime)"></i>waiting</span><span>gaps: the agent thinks</span></div></div>
+    <div class="tablebox"><table class="grades">
+      <tr><th>#</th><th>at</th><th>skill</th><th>subgoal</th><th>result</th></tr>
+      ${r.steps.map(([t, d, sk, sub, st, note], i) => `<tr><td class="m">${i + 1}</td><td class="m">${mmss(t)}</td><td class="m">${sk}</td><td>${sub}</td>
+        <td>${{ok: '<span class="g useful">success</span>', fail: '<span class="g wrong">failed</span>', refused: '<span class="g misleading">refused</span>', wait: '<span class="g moved">waiting</span>'}[st]}
+        ${note ? `<span class="hint">${note}</span>` : `<span class="hint">${d} s</span>`}</td></tr>`).join('')}
+    </table></div>` : `<p class="hint">A discovery run has no steps: it reads code and writes skills. See the Skills tab for what it wrote.</p>`}
+    ${r.plans.length ? `<div><h4>Plan</h4><dl class="dl">${r.plans.map(([v, t]) => `<dt>revision ${v}</dt><dd style="font-family:var(--sans)">${t}</dd>`).join('')}</dl></div>` : ''}
+    <div><h4>What it left</h4><dl class="dl">
+      <dt>skills</dt><dd>${r.left.skills ? `<a class="links" href="#skills"><span>${r.left.skills} written, to review</span></a>` : 'none'}</dd>
+      <dt>claims</dt><dd class="links">${r.left.claims.length ? r.left.claims.map(c => `<button class="linkbtn" data-claim="${c}">${c}</button>`).join('') : 'none'}</dd>
+      <dt>grades</dt><dd>${r.left.grades ? `<a class="links" href="#knowledge"><span>${r.left.grades} grades</span></a>` : 'none'}</dd>
+    </dl></div>
+    <div><h4>Bundle</h4><dl class="dl">
+      <dt>folder</dt><dd>${bundle}</dd>
+      <dt>bag</dt><dd>${r.bag}</dd>
+      <dt>code</dt><dd>${r.git.map(([repo, rev, dirty]) => `${repo} ${rev}${dirty ? ' <span class="dirty">+ local edits</span>' : ''}`).join('<br>')}</dd>
+      <dt>skills loaded</dt><dd>${r.contracts}</dd>
+    </dl>
+    <div class="copyrow" style="margin-top:10px"><code id="rsync">${copy}</code><button class="btn ghost" id="copyr">Copy</button><span class="toast" id="copied"></span></div></div>`;
+  $('copyr').addEventListener('click', () => {
+    const select = () => {
+      const range = document.createRange(); range.selectNodeContents($('rsync'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range); $('copied').textContent = 'Selected: press Ctrl+C';
+    };
+    if (!navigator.clipboard?.writeText) return select();   // not a secure context (http on a LAN address)
+    navigator.clipboard.writeText(copy).then(() => $('copied').textContent = 'Copied', select);
+  });
+}
+$('rkind').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { rKind = b.dataset.k; setSeg('rkind', 'k', rKind); renderRuns(); } });
+$('rfind').addEventListener('input', e => { rFind = e.target.value.trim().toLowerCase(); renderRuns(); });
+$('rlist').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { rSel = b.dataset.id; renderRuns(); } });
+$('rdetail').addEventListener('click', e => {
+  const a = e.target.closest('[data-claim]'); if (!a) return;
+  openClaim(a.dataset.claim); kRender(); location.hash = 'knowledge';
+});
+renderRuns();
+</script>
+</body>
+</html>
