@@ -271,3 +271,19 @@ def test_a_useful_grade_in_a_second_run_does_not_make_a_belief(tmp_path):
     store.grade(claim.id, seen(by='outcome:navigate_to', run='r2', grade='useful'))
 
     assert store.get(claim.id).tier == 'observation'                        # a grade is no run for graduation
+
+
+def test_a_grade_of_code_that_changed_after_its_step_is_kept_but_not_counted(tmp_path):
+    code     = FakeCode()
+    store    = KnowledgeStore(tmp_path, code=code)
+    claim, _ = store.note('When it stops short, walk again.', seen(), {'skill': 'navigate_to'})
+
+    store.stage('r2', claim.id, 'useful', 'it helped', 'navigate_to', 1, store.code_under(claim.id))
+    code.version = 2                                                        # the agent rewrote the skill after step 1
+    said = store.commit('r2')
+    store.stage('r3', claim.id, 'useful', 'it helped', 'navigate_to', 1, store.code_under(claim.id))
+    store.commit('r3')
+
+    graded = [s for s in store.get(claim.id).confirmations if s.grade]
+    assert graded[0].moved and not graded[1].moved and 'not counted' in said[0]
+    assert store.get(claim.id).counted.confirmations == graded[1:] and store.staged_runs() == []

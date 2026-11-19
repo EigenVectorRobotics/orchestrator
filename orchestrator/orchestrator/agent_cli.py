@@ -25,8 +25,10 @@ Task mode (docs/task-mode.md): the session does a task step by step.
   agent_cli give-up --reason R          the task cannot be done
   agent_cli run ... --applies ID        the step follows that claim of the knowledge store (again for each claim)
   agent_cli grade ID useful|misleading|wrong|not-applicable --reason R
-                                        grade, once per task, a claim that a step followed: useful and wrong are
-                                        evidence; misleading and not-applicable say its text or tags are too wide
+                                        stage a grade of a claim that a step followed (the last one wins; also after
+                                        the task ends): useful and wrong are evidence; misleading and not-applicable
+                                        say its text or tags are too wide
+  agent_cli commit                      after the task ends: its staged grades go into the knowledge store
 
 The step gate (on the real robot): a person approves each step, at a terminal; the session cannot.
   agent_cli step wait [--timeout S]     block until a step waits for approval; print it
@@ -142,11 +144,12 @@ def _value(text: str):
 
 
 def _task_command(node, command: dict, timeout_s: float,
-                  show=lambda reply: json.dumps({key: value for key, value in reply.items() if key != 'id'}, indent=1, default=str)) -> int:
-    """One command for the open task; prints show(the executor's reply)"""
+                  show=lambda reply: json.dumps({key: value for key, value in reply.items() if key != 'id'}, indent=1, default=str),
+                  ended: bool = False) -> int:
+    """One command for the open task (ended: or the task that ended last); prints show(the executor's reply)"""
     task = _latest(node, OPEN_TOPIC, 3.0)
 
-    if task is None or task['state'] != 'open':
+    if task is None or task['state'] != 'open' and not ended:
         print('no open task; run agent_cli task wait', file=sys.stderr)
         return 1
 
@@ -279,6 +282,7 @@ def main():
     grade.add_argument('claim')
     grade.add_argument('grade', choices=list(GRADES))
     grade.add_argument('--reason', required=True)
+    commands.add_parser('commit')
     for name in ('done', 'give-up'):
         commands.add_parser(name).add_argument('--reason', required=True)
     arguments = parser.parse_args()
@@ -351,7 +355,10 @@ def _run(node, arguments) -> int:
 
     if arguments.command == 'grade':
         return _task_command(node, {'op': 'grade', 'claim': arguments.claim, 'grade': arguments.grade,
-                                    'reason': arguments.reason}, 10.0)
+                                    'reason': arguments.reason}, 10.0, ended=True)
+
+    if arguments.command == 'commit':
+        return _task_command(node, {'op': 'commit'}, 30.0, ended=True)
 
     if arguments.command in ('done', 'give-up'):
         return _task_command(node, {'op': arguments.command.replace('-', '_'), 'reason': arguments.reason}, 10.0)

@@ -4,6 +4,10 @@ A claim is one thing seen or measured, about open tags (a place by its map_info 
 nothing. Every later sighting is a confirmation or a contradiction, with its evidence (a run, a record, who saw it).
 The rules (docs/knowledge.md):
 
+Grades are staged, then committed (stage, commit): the agent stages a grade after a step that followed a claim,
+and the grades of a run go into the claims together after the run ends. Each grade keeps the code under the claim
+at its step (under), so a grade of code that has changed since is kept but not counted.
+
 - observation -> belief: confirmed in 2 runs or more, by 2 sources or more (a check, an agent skill, the operator).
   The agent's grade of a claim that a step followed (OUTCOME) is weak evidence: useful confirms and wrong
   contradicts; it counts in reliability, but it moves no tier, up or down. Misleading and not-applicable are kept
@@ -200,6 +204,7 @@ class KnowledgeStore:
 
         self.claims_path = self.folder / 'claims.yaml'
         self.log_path    = self.folder / 'log.jsonl'
+        self.staged_dir  = self.folder / 'staged'       # <run_id>.json: the grades of a run, not committed yet
 
     # ========== Reading ==========
 
@@ -303,6 +308,53 @@ class KnowledgeStore:
             self._log('grade', claim, sighting.by, grade=sighting.grade, reason=sighting.reason, run=sighting.run)
 
             return f'{sighting.grade}: kept apart, no evidence; make the text or tags narrower'
+
+    def code_under(self, claim_id: str) -> dict | None:
+        """The code under the claim now (its skill tag), to keep with a grade at its step; None: no skill tag"""
+        return self._snapshot(self.get(claim_id))
+
+    def stage(self, run_id: str, claim_id: str, grade: str, reason: str, skill: str, step: int,
+              under: dict | None) -> None:
+        """A grade, kept apart until the run is committed; the last grade of a claim in a run wins"""
+        if grade not in GRADES:
+            raise KnowledgeError(f'no grade {grade}; use {", ".join(GRADES)}')
+
+        grades           = self.staged(run_id)
+        grades[claim_id] = {'grade': grade, 'reason': reason, 'skill': skill, 'step': step, 'under': under,
+                            'time': self.clock()}
+        path             = self.staged_dir / f'{run_id}.json'
+        temporary        = path.with_suffix('.json.tmp')
+        self.staged_dir.mkdir(exist_ok=True)
+        temporary.write_text(json.dumps(grades, indent=1, default=str))
+        temporary.replace(path)
+
+    def staged(self, run_id: str) -> dict:
+        path = self.staged_dir / f'{run_id}.json'
+        return json.loads(path.read_text()) if path.exists() else {}
+
+    def staged_runs(self) -> list[str]:
+        return sorted(path.stem for path in self.staged_dir.glob('*.json')) if self.staged_dir.exists() else []
+
+    def commit(self, run_id: str) -> list[str]:
+        """The staged grades of a run go into the claims. A grade of code that changed after its step is kept, as
+        moved, and not counted. Returns what happened to each"""
+        said = []
+
+        for claim_id, staged in self.staged(run_id).items():
+            sighting = Sighting(by=f'{OUTCOME}:{staged["skill"]}', time=staged['time'], run=run_id,
+                                evidence=[f'step:{staged["step"]}'], grade=staged['grade'], reason=staged['reason'])
+
+            try:
+                skill          = self.get(claim_id).about.get('skill')
+                changed        = self.code.since(skill, staged['under']) if self.code and skill and staged['under'] else ''
+                sighting.moved = f'graded on older code: {changed}' if changed else None
+                said.append(f'{claim_id} {self.grade(claim_id, sighting)}' + (f' (not counted: {sighting.moved})' if changed else ''))
+            except KnowledgeError as error:
+                said.append(f'{claim_id} not kept: {error}')
+
+        (self.staged_dir / f'{run_id}.json').unlink(missing_ok=True)
+
+        return said
 
     def approve(self, claim_id: str, by: str, text: str | None = None) -> Claim:
         """The operator makes a ready belief a fact, with the exact text (edited or not)"""

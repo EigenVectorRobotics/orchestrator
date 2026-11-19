@@ -37,7 +37,7 @@ class Task:
     context: Context
     blind:   bool
     steps:   int = 0
-    applied: dict = field(default_factory=dict)   # claim id -> the last step that followed it: skill, step, graded
+    applied: dict = field(default_factory=dict)   # claim id -> the last step that followed it: skill, step, code under
 
 
 @dataclass

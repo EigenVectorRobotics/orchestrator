@@ -197,34 +197,42 @@ def _claims(tmp_path, *texts):
                    for text in texts]
 
 
-def test_a_step_that_follows_claims_changes_none_until_the_agent_grades_each_once(tmp_path):
+def test_grades_are_staged_and_go_into_the_store_only_at_the_commit_after_the_task(tmp_path):
     store, (lesson, place, other) = _claims(tmp_path, 'When it stops short, walk again.', 'The panel is left.', 'Small.')
     d = _desk(FakeRunner({'navigate_to': [Status.FAILURE]}), tmp_path, knowledge=store)
 
     _command(d, op='grade', claim=lesson, grade='useful', reason='no step followed it yet')
     _command(d, op='run', skill='navigate_to', inputs={'goal': '{call_panel}'}, subgoal='walk', applies=[lesson, place])
-    assert not store.get(lesson).contradictions                             # a failed step is not a contradiction
-    _command(d, op='grade', claim=lesson, grade='wrong', reason='walking again did not help')
-    _command(d, op='grade', claim=lesson, grade='useful', reason='a second grade')
+    _command(d, op='grade', claim=lesson, grade='useful', reason='a first thought')
+    _command(d, op='grade', claim=lesson, grade='wrong', reason='walking again did not help')    # the last one wins
     _command(d, op='grade', claim=other, grade='useful', reason='no step followed it')
+    _command(d, op='commit')
+    assert store.get(lesson).sightings == store.get(lesson).confirmations[:1]  # nothing in the store before the commit
+    _command(d, op='done', reason='it did not arrive')
+    _command(d, op='commit')
 
-    assert [reply['ok'] for reply in d.replies] == [False, True, True, False, False]
-    assert 'no step of this task followed' in d.replies[0]['message'] and 'graded already' in d.replies[3]['message']
+    assert [reply['ok'] for reply in d.replies] == [False, True, True, True, False, False, True, True]
+    assert 'no step of this task followed' in d.replies[0]['message'] and 'no step' in d.replies[4]['message']
+    assert 'still open' in d.replies[5]['message'] and d.replies[6]['message'].endswith(f'not graded: {place}')
     wrong = store.get(lesson).contradictions[0]
     assert (wrong.by, wrong.grade, wrong.evidence) == ('outcome:navigate_to', 'wrong', ['step:1'])
-    assert 'agent_cli grade' in d.opened[0]['known'] and 'knowledge note' in d.opened[0]['known']
+    assert len(store.get(lesson).confirmations) == 1 and d.replies[7]['not_graded'] == [place]
+    assert 'agent_cli commit' in d.opened[0]['known'] and 'knowledge note' in d.opened[0]['known']
 
 
-def test_done_names_the_claims_with_no_grade_and_still_ends_the_task(tmp_path):
-    store, (lesson, place) = _claims(tmp_path, 'When it stops short, walk again.', 'The panel is left.')
+def test_a_grade_after_the_end_goes_in_when_the_next_task_opens(tmp_path):
+    store, (lesson,) = _claims(tmp_path, 'When it stops short, walk again.')
     d = _desk(FakeRunner({'navigate_to': [Status.SUCCESS]}), tmp_path, knowledge=store)
 
-    _command(d, op='run', skill='navigate_to', inputs={'goal': '{call_panel}'}, subgoal='walk', applies=[lesson, place])
-    _command(d, op='grade', claim=lesson, grade='useful', reason='it walked again and arrived')
+    _command(d, op='run', skill='navigate_to', inputs={'goal': '{call_panel}'}, subgoal='walk', applies=[lesson])
     _command(d, op='done', reason='arrived')
+    _command(d, op='grade', claim=lesson, grade='useful', reason='it walked again and arrived')
+    assert len(store.get(lesson).confirmations) == 1
 
-    assert d.replies[-1]['ok'] and 'not graded' in d.replies[-1]['message'] and d.replies[-1]['message'].endswith(f': {place}')
-    assert d.opened[-1]['state'] == 'closed' and not store.get(place).confirmations[1:]
+    d.desk.open('Go back', _context('r2'))
+    _command(d, op='grade', claim=lesson, grade='wrong', reason='too late: r1 is committed')
+
+    assert [s.grade for s in store.get(lesson).confirmations] == [None, 'useful'] and not d.replies[-1]['ok']
 
 
 def test_a_step_that_follows_an_unknown_claim_does_not_run(tmp_path):
