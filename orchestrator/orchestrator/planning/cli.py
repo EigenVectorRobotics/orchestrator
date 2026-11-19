@@ -1,13 +1,13 @@
 """planner_cli: write the planner's plan from a session, e.g. Claude Code over ssh on the NUC (planner backend external).
 
-  planner_cli wait [--timeout S]        block until a planning call is open; print it and save its system prompt
-  planner_cli show                      the current call; saves its system prompt
-  planner_cli answer --use-tree ID --note TEXT     choose an existing tree
-  planner_cli answer --use-tree ID --param goal={target_floor_2} --note TEXT
-                                                   choose an existing tree with other parameter values
-  planner_cli answer --tree FILE --note TEXT       answer with the tree in FILE (BehaviorTree.CPP v4 XML)
-  planner_cli run --use-tree ID [--param NAME=VALUE ...] [--task TEXT] [--note TEXT]
-                                                   send the task, wait for its call (after preflight), answer it
+    planner_cli wait [--timeout S]        block until a planning call is open; print it and save its system prompt
+    planner_cli show                      the current call; saves its system prompt
+    planner_cli answer --use-tree ID --note TEXT     choose an existing tree
+    planner_cli answer --use-tree ID --param goal={target_floor_2} --note TEXT
+                                                     choose an existing tree with other parameter values
+    planner_cli answer --tree FILE --note TEXT       answer with the tree in FILE (BehaviorTree.CPP v4 XML)
+    planner_cli run --use-tree ID [--param NAME=VALUE ...] [--task TEXT] [--note TEXT]
+                                                     send the task, wait for its call (after preflight), answer it
 
 The system prompt (skill catalog, existing trees, rules) is saved to --system-out. The last message of the call is
 the task, or the validator's errors on the last answer. Run it in the same ROS environment as the planner.

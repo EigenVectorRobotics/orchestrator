@@ -11,6 +11,7 @@ Each document below is read by a session at the moment named; a document that no
 | `docs/run.md` | Before you start, run, watch or stop anything on the robot |
 | `docs/demo.md` | When the operator wants the short on-site checklist |
 | `docs/troubleshooting.md` | First, when something on the robot fails: a machine, localization, a walk, a press, the orchestrator |
+| `docs/design/system.md`, `docs/design/classes.md`, `docs/design/sequences.md`, `docs/design/trees.md` | Before you change how the parts connect: the diagrams of the machines, packages, class ownership and interfaces, startup and call sequences, trees and the press slot. Update a diagram in the same change |
 | `docs/architecture.md` | Before you change planner, executor, skill or tree code; its **Open problems** section before you analyse a run or change press or walk behaviour |
 | `docs/agents.md` | Before you analyse an agent call or change `press_judge`, `manipulation_recovery`, `operator_confirm`, the executor's rules or the bridge |
 | `docs/machines.md` | Before you deploy, or touch the NUC, the Orin or the Thor |
@@ -46,6 +47,7 @@ Your part in a run: start the orchestrator, send the task, watch, and cancel whe
 - **Delete or rename something, and clean every reference to it in the same change**: documents, code comments, contracts, trees, config. `grep -rn "<name>" --exclude-dir=.git .` finds them.
 - **Skill logic lives in its skill folder** (`g1_skills/README.md`), never in `orchestrator/orchestrator/`.
 - **A change in behaviour updates its document in the same change**: a skill or tree in `docs/architecture.md`, an agent call or prompt in `docs/agents.md`, a run step in `docs/run.md`.
+- **The documentation site** is built by MkDocs from `mkdocs.yml` and `docs/tools/hooks.py`, and deployed to GitHub Pages from main (`.github/workflows/docs.yml`). Check it with `mkdocs build --strict` and `python3 docs/tools/check_mermaid.py` (`docs/tools/requirements.txt`, plus playwright).
 - **A new document is added to the table above**, with when to read it. `orchestrator/test/test_docs.py` fails on a document that is not listed, a link that does not resolve, or a file path in backticks that does not exist.
 - **Observations from a run** go in `docs/architecture.md` under **Open problems** while nothing handles them: what was seen, the numbers, the evidence (session, run, call id), and its status (confirmed, reported, suspected). A session drafts the text; a person approves it word for word before it goes in. When the code or a prompt comes to handle it, the entry is deleted, and its reason moves, as one sentence, next to the mechanism that handles it.
 - A change to a prompt, an executor rule or a tree changes what the robot does: say in the commit that it is not yet tested on the robot until it is.

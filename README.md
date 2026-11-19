@@ -25,6 +25,7 @@ Agentic task execution for a Unitree G1 that rides a freight elevator and presse
 | Document | Read it when |
 |---|---|
 | `CLAUDE.md` | You are an agent working in this repository: start here |
+| `docs/design/system.md` | You want the diagrams: machines and packages here, then `docs/design/classes.md`, `docs/design/sequences.md` and `docs/design/trees.md` |
 | `docs/architecture.md` | You change the planner, validator, executor, contracts, preflight or trace, or need the open problems |
 | `docs/agents.md` | You work on an agent skill, the bridge's prompts, the executor's rules or the limits |
 | `g1_skills/README.md` | You add or change a skill |

@@ -27,7 +27,7 @@ How the orchestrator turns a task into robot motion: the nodes, the skills and t
 
 ## The code
 
-The core, `orchestrator/orchestrator/`, runs trees, calls skills through their transports, talks to the agent bridge, plans and records; it names no skill. The skills live in `g1_skills/g1_skills/`, one folder each. What each folder of the code holds is in `docs/code/orchestrator.md`, `docs/code/g1_skills.md` and `docs/code/skill_registry.md`.
+The core, `orchestrator/orchestrator/`, runs trees, calls skills through their transports, talks to the agent bridge, plans and records; it names no skill. The diagrams of how its parts fit are in [System](design/system.md), [Classes and interfaces](design/classes.md), [Sequences](design/sequences.md) and [Trees](design/trees.md). The skills live in `g1_skills/g1_skills/`, one folder each. What each folder of the code holds is in `docs/code/orchestrator.md`, `docs/code/g1_skills.md` and `docs/code/skill_registry.md`.
 
 ## Topics
 
