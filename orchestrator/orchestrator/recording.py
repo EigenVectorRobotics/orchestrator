@@ -183,7 +183,8 @@ class Recorder:
         self._end_step({'kind': 'halted', 'text': 'the task ended during the step'})
         self._safely(self.bag.stop)
         self._move_scratch()
-        self._safely(write_json, self.run / 'outcome.json', {**self._ending(event, event.get('end')), 'steps': event.get('steps')})
+        self._safely(write_json, self.run / 'outcome.json', {**self._ending(event, event.get('end')), 'steps': event.get('steps'),
+                                                             'reason': event.get('reason')})
         self.run = None
 
     def _start_step(self, event: dict):

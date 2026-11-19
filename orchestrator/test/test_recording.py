@@ -52,7 +52,7 @@ def test_a_task_gets_its_folder_steps_task_records_and_outcome(tmp_path):
     recorder.on_task('Go to the elevator and call it')
     start_task(recorder, 'call_elevator', run_id='r1', blind=True)
     recorder.on_event(executor('record', record={'skill': 'navigate_to', 'status': 'success'}))
-    end_task(recorder, status='success')
+    end_task(recorder, status='success', reason='called')
 
     run  = recorder.path / 'runs' / '001-call_elevator'
     task = json.loads((run / 'task.json').read_text())
@@ -63,6 +63,7 @@ def test_a_task_gets_its_folder_steps_task_records_and_outcome(tmp_path):
     assert task['run_id'] == 'r1' and task['blind'] and task['task']['task'] == 'Go to the elevator and call it'
     assert json.loads((run / 'records.jsonl').read_text())['skill'] == 'navigate_to'
     assert json.loads((run / 'outcome.json').read_text())['end'] == 'success'
+    assert json.loads((run / 'outcome.json').read_text())['reason'] == 'called'      # the reason alone, for the Runs tab
     assert bag.calls == [('start', run / 'bag'), ('stop',)]
     assert recorder.run is None
 

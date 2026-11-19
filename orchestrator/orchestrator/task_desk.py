@@ -396,7 +396,8 @@ class TaskDesk:
                 try:
                     self._commit(run_id, ' at the next open')
                 except Exception as error:                # bookkeeping must never stop a task from opening
-                    self.tasks.tracer.emit('knowledge', f'could not commit {run_id}, set aside: {error!r}', level='warn')
+                    self.tasks.tracer.emit('knowledge', f'could not commit {run_id}, set aside: {error!r}', level='warn',
+                                           run_id=run_id)
                     self._set_aside(run_id)
 
     def _staged_runs(self) -> list[str]:
@@ -409,7 +410,7 @@ class TaskDesk:
         try:
             self.knowledge.set_aside(run_id)
         except (OSError, KnowledgeError) as error:
-            self.tasks.tracer.emit('knowledge', f'could not set {run_id} aside: {error!r}', level='warn')
+            self.tasks.tracer.emit('knowledge', f'could not set {run_id} aside: {error!r}', level='warn', run_id=run_id)
 
     def _note_stale(self, skill: str) -> None:
         """Say in the trace and the bundle that a step used a stale skill, not only in the catalog that the session reads"""

@@ -222,6 +222,28 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
 .sightings { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .sightings li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
 .sightings small { display: block; font: 400 11px var(--mono); color: var(--muted); word-break: break-word; }
+/* Runs: the list of runs, then one run: numbers, steps to scale, steps, plan, what it left, bundle */
+.oc { font: 500 10.5px var(--mono); padding: 1px 6px; }
+.oc.done, .oc.success { background: var(--lime); color: var(--on-lime); }
+.oc.gave_up, .oc.halted, .oc.closed, .oc.lost, .oc.replaced { background: var(--warn-bg); color: var(--warn); }
+.oc.error, .oc.cancelled, .oc.failure { background: var(--bad-bg); color: var(--bad); }
+.oc.open { background: var(--accent); color: var(--on-accent); }
+.slist li.group { font: 500 11px var(--mono); letter-spacing: .6px; text-transform: uppercase; color: var(--muted); padding: 12px 10px 4px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.stats div { background: var(--bg); padding: 10px 12px; }
+.stats b { display: block; font: 600 20px/1.1 var(--mono); font-variant-numeric: tabular-nums; }
+.stats span { font-size: 12px; color: var(--muted); }
+.tl { position: relative; height: 34px; background: var(--surface); }
+.tl i { position: absolute; top: 6px; bottom: 6px; min-width: 3px; background: var(--good); }
+.tl i.fail { background: var(--bad); }
+.tl i.refused { background: transparent; border: 2px solid var(--warn); min-width: 6px; }
+.tl i.open { background: var(--lime); }
+.tlaxis { display: flex; justify-content: space-between; font: 400 11px var(--mono); color: var(--muted); margin-top: 4px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font: 400 11px var(--mono); color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+.copyrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.copyrow code { font: 400 12px var(--mono); background: var(--surface); padding: 6px 10px; overflow-x: auto; white-space: nowrap; flex: 1; min-width: 0; }
+.dirty { color: var(--warn); font-weight: 500; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -240,6 +262,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
     <button class="tab" role="tab" aria-selected="true" data-view="mission">Mission</button>
     <button class="tab" role="tab" aria-selected="false" data-view="skills">Skills<span class="count" id="n-tab" title="Skills the agent wrote, to review" hidden></span></button>
     <button class="tab" role="tab" aria-selected="false" data-view="knowledge">Knowledge<span class="count" id="n-ktab" title="Items that need you" hidden></span></button>
+    <button class="tab" role="tab" aria-selected="false" data-view="runs">Runs</button>
   </div>
 </nav>
 
@@ -368,6 +391,23 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
   <div class="skills-grid" id="kclaims" hidden>
     <ul class="slist" id="klist" aria-label="Claims"></ul>
     <div class="detail" id="kdetail"></div>
+  </div>
+ </div>
+
+ <div class="view" id="view-runs" hidden>
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="Kind" id="rkind">
+      <button data-k="all" aria-pressed="true">All</button>
+      <button data-k="mission" aria-pressed="false">Missions</button>
+      <button data-k="discovery" aria-pressed="false">Discovery</button>
+    </div>
+    <input class="search" id="rfind" type="search" placeholder="Find a mission or a run id" aria-label="Find a run">
+    <span class="where" id="rdir"></span>
+  </div>
+  <div class="problem" id="rproblem" hidden></div>
+  <div class="skills-grid">
+    <ul class="slist" id="rlist" aria-label="Runs"></ul>
+    <div class="detail" id="rdetail"></div>
   </div>
  </div>
 </main>
@@ -902,6 +942,131 @@ $('view-knowledge').addEventListener('click', async event => {
 loadKnowledge(true);
 setInterval(() => loadKnowledge(false), 5000);
 window.addEventListener('hashchange', () => { if (location.hash === '#knowledge') loadKnowledge(true); });
+
+// ---------- Runs ----------
+
+let runs = [], rKind = 'all', rFind = '', rSel = null, rDetail = null, rLoaded = 0;
+const ENDS = {done: 'done', success: 'done', gave_up: 'gave up', halted: 'halted', error: 'error', cancelled: 'cancelled',
+              closed: 'recorder stopped', lost: 'recorder stopped', replaced: 'replaced', failure: 'failed'};
+const endOf = run => run.end ? `<span class="oc ${run.end}">${ENDS[run.end] || run.end}</span>` : '<span class="oc open">open</span>';
+const dayOf = time => time ? new Date(time * 1000).toISOString().slice(0, 10) : 'no date';
+const kindOf = run => run.name === 'discovery' ? 'discovery' : 'mission';
+
+async function loadRuns(now) {
+  if (!now && ($('view-runs').hidden || Date.now() - rLoaded < 10000)) return;
+  rLoaded = Date.now();
+  try {
+    const answer = await fetch('/api/runs'), body = safe(await answer.json());
+    if (!answer.ok) { $('rproblem').hidden = false; $('rproblem').innerHTML = body.message || 'cannot read the runs'; return; }
+    runs = body.runs; $('rproblem').hidden = true; $('rdir').innerHTML = body.root || '';
+  } catch (error) {
+    $('rproblem').hidden = false; $('rproblem').textContent = 'the adapter does not answer';
+    return;
+  }
+  renderRuns();
+  if (rDetail && rDetail.key === rSel && !rDetail.end) loadRun(rSel);   // an open run changes; renderRuns loads a new one
+}
+
+async function loadRun(key) {
+  let body, problem = '';
+  try {
+    const answer = await fetch('/api/run?key=' + encodeURIComponent(plain(key)));
+    body = safe(await answer.json());
+    if (!answer.ok) problem = body.message || 'cannot read the run';
+  } catch (error) {
+    problem = 'the adapter does not answer';
+  }
+  if (key !== rSel) return;                       // an answer for a run that is no longer selected
+  if (problem) { rDetail = null; $('rdetail').innerHTML = `<div class="problem">${problem}</div>`; return; }
+  rDetail = body;
+  renderRun();
+}
+
+function selectRun(key) {
+  rSel = key; rDetail = null;
+  $('rdetail').innerHTML = key ? '<p class="hint">Reading the run…</p>' : '';
+  if (key) loadRun(key);
+}
+
+function renderRuns() {
+  const items = runs.filter(run => rKind === 'all' || kindOf(run) === rKind)
+    .filter(run => !rFind || `${run.task || ''} ${run.run_id || ''} ${run.name}`.toLowerCase().includes(rFind));
+  if (!items.find(run => run.key === rSel)) selectRun(items[0]?.key ?? null);
+  let day = '';
+  $('rlist').innerHTML = items.length ? items.map(run => (dayOf(run.started) !== day ? `<li class="group">${day = dayOf(run.started)}</li>` : '')
+    + `<li><button data-key="${run.key}" aria-current="${run.key === rSel}"><span class="sub" style="color:inherit">${run.task || run.name}</span>
+       <span>${endOf(run)} <span class="tagk">${clock(run.started)} · ${run.finished ? mmss(run.finished - run.started) : 'open'} · ${kindOf(run) === 'discovery' ? 'discovery' : `${run.steps} step${run.steps === 1 ? '' : 's'}`}</span></span></button></li>`).join('')
+    : '<li class="empty">No run matches.</li>';
+}
+
+function renderRun() {
+  const run = rDetail;
+  if (!run || run.key !== rSel) return;
+  const end = run.finished || (state.time || Date.now() / 1000), span = Math.max(1, end - run.started);
+  const at = time => ((time - run.started) / span * 100).toFixed(2);
+  const bars = [
+    ...run.steps.map(step => `<i class="${step.status === 'success' ? '' : step.finished ? 'fail' : 'open'}" style="left:${at(step.started)}%;width:${Math.max(0, ((step.finished || end) - step.started) / span * 100).toFixed(2)}%" title="${step.tree_id} · ${mmss(step.started - run.started)}"></i>`),
+    ...run.refused.map(item => `<i class="refused" style="left:${at(item.time)}%" title="refused ${item.skill}"></i>`)];
+  const rows = [...run.steps.map(step => ({at: step.started, skill: step.tree_id, subgoal: step.subgoal, result: step.status || step.end,
+                                           note: step.status === 'success' ? `${Math.round(step.finished - step.started)} s` : step.text})),
+                ...run.refused.map(item => ({at: item.time, skill: item.skill, subgoal: item.subgoal, result: 'refused',
+                                             note: [item.reason, item.by && `by ${item.by}`].filter(Boolean).join(' · ')}))]
+    .sort((a, b) => a.at - b.at);
+  const result = value => ({success: '<span class="g useful">success</span>', refused: '<span class="g misleading">refused</span>'}[value]
+                           || (value ? `<span class="g wrong">${value}</span>` : '<span class="g none">running</span>'));
+  const discovery = kindOf(run) === 'discovery';
+  $('rdetail').innerHTML = `
+    <div class="dhead"><div><p class="claimtext" style="font-size:20px;margin-bottom:6px">${run.task || run.name}</p>
+      ${endOf(run)} <span class="tagk">run ${run.run_id} · ${dayOf(run.started)} ${clock(run.started)}${run.blind ? ' · blind' : ''}${run.reason ? ` · ${run.reason}` : ''}</span></div>
+      <div class="actions">${!run.end && (state.task || {}).run_id === run.run_id ? '<button class="btn" data-live="1">Open live</button>' : ''}</div></div>
+    <div class="stats">
+      <div><b>${mmss(end - run.started)}</b><span>${run.end ? 'duration' : 'so far'}</span></div>
+      ${discovery ? '<div><b>0</b><span>steps: it never moves</span></div>'
+        : `<div><b>${run.steps.length}</b><span>steps</span></div><div><b>${run.failed}</b><span>did not succeed</span></div><div><b>${run.refused.length}</b><span>refused at the gate</span></div>`}
+      <div><b>${run.left.length}</b><span>things it left</span></div>
+    </div>
+    ${rows.length ? `<div><h4>Steps in time</h4>
+      <div class="tl" role="img" aria-label="The steps on a time line">${bars.join('')}</div>
+      <div class="tlaxis"><span>0:00</span><span>${mmss(span / 2)}</span><span>${mmss(span)}</span></div>
+      <div class="legend"><span><i style="background:var(--good)"></i>success</span><span><i style="background:var(--bad)"></i>did not succeed</span>
+        <span><i style="border:2px solid var(--warn)"></i>refused</span><span><i style="background:var(--lime)"></i>running</span><span>gaps: the agent thinks</span></div></div>
+    <div class="tablebox"><table class="grades"><tr><th>at</th><th>skill</th><th>subgoal</th><th>result</th></tr>
+      ${rows.map(row => `<tr><td class="m">${mmss(row.at - run.started)}</td><td class="m">${row.skill}</td><td>${row.subgoal || ''}</td>
+        <td>${result(row.result)} <span class="hint">${row.note || ''}</span></td></tr>`).join('')}
+    </table></div>` : `<p class="hint">${discovery ? 'A discovery run has no steps: it reads code and writes skills. See the Skills tab for what it wrote.' : 'No step ran.'}</p>`}
+    ${run.plans.length ? `<div><h4>Plan</h4><dl class="dl">${run.plans.map(plan => `<dt>revision ${plan.version}</dt><dd style="font-family:var(--sans)">${(plan.subgoals || []).join(' · ')}</dd>`).join('')}</dl></div>` : ''}
+    ${run.left.length ? `<div><h4>What it left</h4><ul class="sightings">${run.left.map(item => `<li><span class="tagk">${clock(item.time)}</span><span>${item.text}<small>${item.kind}</small></span></li>`).join('')}</ul></div>` : ''}
+    <div><h4>Bundle</h4><dl class="dl">
+      <dt>folder</dt><dd>${run.folder}</dd>
+      <dt>bag</dt><dd>${run.bag === null ? 'none' : `${(run.bag / 1e6).toFixed(0)} MB`}</dd>
+      <dt>scratch</dt><dd>${run.scratch.length ? run.scratch.join('<br>') : 'none'}</dd>
+      <dt>code</dt><dd>${run.git.map(repo => `${(repo.path || '').split('/').pop()} ${(repo.revision || repo.error || '').slice(0, 8)}${repo.dirty ? ' <span class="dirty">+ local edits</span>' : ''}`).join('<br>') || 'not recorded'}</dd>
+      <dt>skills loaded</dt><dd>${run.skills}</dd>
+    </dl>
+    <div class="copyrow" style="margin-top:10px"><code id="rpath">${run.folder}</code><button class="btn ghost" id="rcopy">Copy the path</button><span class="said" id="rcopied"></span></div></div>`;
+}
+
+$('rkind').addEventListener('click', event => { const b = event.target.closest('button'); if (b) { rKind = b.dataset.k; setSeg('rkind', 'k', rKind); renderRuns(); } });
+$('rfind').addEventListener('input', event => { rFind = event.target.value.trim().toLowerCase(); renderRuns(); });
+$('rlist').addEventListener('click', event => {
+  const b = event.target.closest('button'); if (!b) return;
+  selectRun(b.dataset.key); renderRuns();
+});
+$('rdetail').addEventListener('click', event => {
+  if (event.target.closest('[data-live]')) { location.hash = 'mission'; return; }
+  if (!event.target.closest('#rcopy')) return;
+  const select = () => {
+    const range = document.createRange(); range.selectNodeContents($('rpath'));
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    $('rcopied').textContent = 'Selected: copy it with the menu';
+  };
+  if (!navigator.clipboard?.writeText) return select();          // not a secure context
+  navigator.clipboard.writeText($('rpath').textContent).then(() => $('rcopied').textContent = 'Copied', select);   // the path on the screen
+});
+
+setInterval(() => loadRuns(false), 2000);
+window.addEventListener('hashchange', () => { if (location.hash === '#runs') loadRuns(true); });
+if (location.hash === '#runs') loadRuns(true);
 
 $('where').textContent = location.host;
 renderFeed();

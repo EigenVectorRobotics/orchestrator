@@ -34,7 +34,8 @@ from .qos import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS, TRACE_QOS
 from .topics import (CANCEL_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
                      STEP_REQUEST_TOPIC, TASK_TOPIC, TRACE_TOPIC)
 from .images import Camera, Outlines
-from .mission_control import DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, SkillShelf, token_ok
+from .mission_control import DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf, token_ok
+from .recording import RecorderConfig
 
 
 MAX_BODY  = 64 * 1024
@@ -96,7 +97,8 @@ class MissionControlNode(Node):
                                        skills=SkillShelf(self.declare_parameter('skills_dir', str(skills_dir())).value,
                                                          self.declare_parameter('stamps_file', str(stamps_file())).value,
                                                          self.declare_parameter('removed_dir', str(agent_dir() / REMOVED)).value),
-                                       knowledge=KnowledgeShelf(self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value))
+                                       knowledge=KnowledgeShelf(self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value),
+                                       runs=RunShelf(self.declare_parameter('runs_root', RecorderConfig.root).value))
         self.create_timer(1.0, self._follow_outlines)
         files              = read_web(web_dir)       # before the port is bound: a missing page is not half a server
         self.server        = ThreadingHTTPServer((host, port), Handler)

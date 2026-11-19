@@ -27,6 +27,7 @@ from skill_registry.skill_stamps import SkillClock
 
 from .images import Camera, Outlines
 from .knowledge import OPERATOR, Claim, KnowledgeError, KnowledgeStore, Sighting
+from .run_browser import list_runs, run_detail
 from .topics import TASK_OPTIONS
 
 
@@ -318,18 +319,43 @@ class KnowledgeShelf:
             return 500, {'ok': False, 'message': f'the knowledge store could not be changed: {error!r}'}
 
 
+class RunShelf:
+    """The Runs tab: the recorder's run bundles, to read (run_browser)"""
+
+    def __init__(self, root):
+        self.root = Path(root).expanduser()
+
+    def list(self) -> tuple[int, dict]:
+        try:
+            return 200, {'runs': list_runs(self.root), 'root': str(self.root)}
+        except OSError as error:
+            return 500, {'ok': False, 'message': f'cannot read {self.root}: {error!r}'}
+
+    def get(self, key) -> tuple[int, dict]:
+        if not isinstance(key, str) or not key:
+            return 400, {'ok': False, 'message': 'name the run'}
+
+        try:
+            detail = run_detail(self.root, key)
+        except OSError as error:
+            return 500, {'ok': False, 'message': f'cannot read the run: {error!r}'}
+
+        return (200, detail) if detail else (404, {'ok': False, 'message': f'no run {key}'})
+
+
 class MissionApi:
     """The paths under /api; the node's web server does the HTTP and the files"""
 
     def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None,
                  token_needed: bool = True, outlines: Outlines | None = None, skills: SkillShelf | None = None,
-                 knowledge: KnowledgeShelf | None = None):
+                 knowledge: KnowledgeShelf | None = None, runs: RunShelf | None = None):
         self.state        = state
         self.camera       = camera or Camera()
         self.outlines     = outlines or Outlines()
         self.token_needed = token_needed     # the page says so when it holds no token; it cannot see the parameter
         self.skills       = skills
         self.knowledge    = knowledge
+        self.runs         = runs
         self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel,
                              **({'/api/skill/keep': skills.keep, '/api/skill/remove': skills.remove} if skills else {}),
                              **({'/api/knowledge/approve': knowledge.approve, '/api/knowledge/retire': knowledge.retire,
@@ -341,6 +367,12 @@ class MissionApi:
 
         if path == '/api/knowledge' and self.knowledge:
             return self.knowledge.get()
+
+        if path == '/api/runs' and self.runs:
+            return self.runs.list()
+
+        if path == '/api/run' and self.runs:
+            return self.runs.get(query.get('key'))
 
         if path != '/api/state':
             return 404, {'ok': False, 'message': f'no such path {path}'}

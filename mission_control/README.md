@@ -23,8 +23,9 @@ What the live Mission tab gets from the adapter:
 
 - **Knowledge tab:** the adapter reads the store (`orchestrator/knowledge.py`) with its file lock, and applies expiry and code moves before it shows a tier (at most every 30 s), as the `knowledge` CLI does. Approve, retire and seen need the page token; with the token off they are refused, because any process on the NUC could then act as the operator. The log records each act with `by: operator` and `via: mission_control`. The staged grades are shown, not committed: the agent commits them (`agent_cli commit`), or the next mission does, because the agent may grade until then. "Contradicted lately" lists the live claims that a contradiction moved down in the last 14 days, until you mark them seen or retire them.
 - **The token:** the node writes it to its log, which the agent's shell on the NUC can read. The token stops mistakes, not an agent that looks for it.
+- **Runs tab:** the adapter reads the recorder's bundles in `~/orch_runs` (`orchestrator/run_browser.py`, parameter `runs_root`). It lists the newest 200 runs. For one run, it shows the steps, the plan, the refusals and what the run left. These come from the session's `events.jsonl`. It also shows the bag, the scratch files and the code versions. A run without an end in an old or closed session shows as "recorder stopped". A run is named by its key, `<session>/<folder>`. The adapter looks up the key in its list: a key is never a path.
 
-Still to build in the live page: the small map, and the Runs tab. The Runs tab needs the adapter to read the run folders.
+Still to build in the live page: the small map, the stale and live state of a skill, and the agent's own reasoning in the feed.
 
 ## How it runs
 
