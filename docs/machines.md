@@ -1,6 +1,6 @@
 # Machines
 
-The Stanley G1's computers in two parts: what runs where, as last checked on the machines (a snapshot), and what the NUC, the Orin, the Thor and the operator laptop must change for the orchestrator on `ltx-reorg`, with the contracts in this repository that check each change. How to bring the machines up and run a task is in [run.md](run.md).
+The Stanley G1's computers in two parts: what runs where, as last checked on the machines (a snapshot), and what the NUC, the Orin, the Thor and the operator laptop must change for the orchestrator on `integration`, with the contracts in this repository that check each change. How to bring the machines up and run a task is in [run.md](run.md).
 
 ## What runs where (snapshot)
 
@@ -50,7 +50,7 @@ Branch @ commit, and local changes, as checked on 2026-11-08. "No upstream": the
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `orchestrator` | **to deploy:** `ltx-reorg` | checked: `jean/planner-tree-library` @ `e99f402` |
+| `orchestrator` | **to deploy:** `integration` | checked: `jean/planner-tree-library` @ `e99f402` |
 
 #### Orin, `~/eigen_vector_ws/src`
 
@@ -70,7 +70,7 @@ Branch @ commit, and local changes, as checked on 2026-11-08. "No upstream": the
 | `~/eigen_vector_ws_bringup` | `bringup` | from `eigen_vector` `main`, `bringup/`, copied by `deploy.sh`; not a git checkout | |
 | | `vlm` | `main` @ `3ca4861` | clean; `ground_server` runs from here |
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
-| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-reorg` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd` (2026-11-04), a branch now deleted on GitHub and in the team's clones. `launch_thor_stack` starts `orchestrator/orchestrator/vlm/server.py` from this checkout; since `thor_up` checks only the grounding, preflight does not need it |
+| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `integration` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd` (2026-11-04), a branch now deleted on GitHub and in the team's clones. `launch_thor_stack` starts `orchestrator/orchestrator/vlm/server.py` from this checkout; since `thor_up` checks only the grounding, preflight does not need it |
 | `~/eigen_vector_ws` | `track_anything` `trt` @ `f5a1f47`, `vlm` `thor` @ `3ca4861` | | not in use |
 
 Running when checked (2026-11-08): on the Thor, the tmux session `eigen_vector_bringup` (`ground_server`); no `vlm_server` session, so the VLM endpoint `http://vector-thor:8090/v1` did not answer. The Thor rebooted on its own on 2026-11-08 at about 21:20 and came back with no stack ([troubleshooting.md](troubleshooting.md), "Machines and processes").
@@ -88,9 +88,9 @@ Running when checked (2026-11-08): on the Thor, the tmux session `eigen_vector_b
 | NUC | `~/places_markers.py` | publishes the places as markers for Foxglove (`tmux -L places`) | optional; stops with a reboot |
 | NUC | `~/orch_runs/` | run records: one folder per bring-up session, `runs/<n>-<tree>/` each | the operator clears old runs by hand |
 
-### Expected after the `ltx-reorg` deploy (from the code, not checked)
+### Expected after the `integration` deploy (from the code, not checked)
 
-Paths the orchestrator on `ltx-reorg` creates or uses on the NUC, read from the code. None of them was checked on a machine.
+Paths the orchestrator on `integration` creates or uses on the NUC, read from the code. None of them was checked on a machine.
 
 | Path | What |
 |---|---|
@@ -103,7 +103,7 @@ Paths the orchestrator on `ltx-reorg` creates or uses on the NUC, read from the 
 
 Questions the next check must answer. Each is open until someone looks on the machine.
 
-1. NUC and Thor: does `~/orchestrator_ws/src/orchestrator` run `ltx-reorg`, at which commit, with which local changes?
+1. NUC and Thor: does `~/orchestrator_ws/src/orchestrator` run `integration`, at which commit, with which local changes?
 2. NUC: is `bringup` redeployed from `eigen_vector` `main`, so that `nuc.launch.py` starts `door_state_node` and `cyclonedds.xml` has `MaxAutoParticipantIndex` 120 with no hand edit? Is `floor_map_selector` gone with it?
 3. NUC: does the stack run from one `nuc.launch.py`, or still from `~/nuc_manip_only.launch.py` and `~/nuc_nav_only.launch.py`?
 4. NUC: which `manipulation_stack` is built? Is it `main` at `f8d28b3` or later, with `/check_reach` (`ik_server`) and `/body_ekf/reset`, and are the 6 uncommitted files on `cam-gripper-estimation` kept somewhere or dropped?
@@ -137,7 +137,7 @@ Then change the date under "How to read it", move each **to deploy** row that is
 
 ## What the machines must change
 
-The orchestrator on `ltx-reorg` expects some things from the NUC, the Orin and the Thor that are not in this repository: other repositories' branches, files deployed by hand, and processes started by hand. This part lists what has to change on those machines, and the contracts in this repository that check them, so the two stay in step.
+The orchestrator on `integration` expects some things from the NUC, the Orin and the Thor that are not in this repository: other repositories' branches, files deployed by hand, and processes started by hand. This part lists what has to change on those machines, and the contracts in this repository that check them, so the two stay in step.
 
 - When an item is done on the robot, mark it **done** with the date and who did it. When it is no longer needed, delete it.
 - Every item names the contract or tree that depends on it, so a check on the robot can be tied back to the code.
