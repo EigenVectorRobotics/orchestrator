@@ -18,4 +18,5 @@ STEP_REPLY_TOPIC    = '/orchestrator/step_decision/reply'   # whether the gate t
 
 RECORDER_TOPIC = '/orchestrator/recorder/status'    # the recorder's state, latched (run_recorder.py)
 
+LIVE_SKILLS_TOPIC = '/skills/live'                 # the skills whose interface is in the ROS graph, latched (registry_node)
 OUTLINE_TOPIC = '/track_3d/mask_outlines'           # track_anything: the mask outlines of a frame, only while subscribed

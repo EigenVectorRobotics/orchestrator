@@ -31,10 +31,11 @@ from sensor_msgs.msg import Image
 from visualization_msgs.msg import ImageMarker
 
 from .qos import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS, TRACE_QOS
-from .topics import (CANCEL_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
+from .topics import (CANCEL_TOPIC, LIVE_SKILLS_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
                      STEP_REQUEST_TOPIC, TASK_TOPIC, TRACE_TOPIC)
 from .images import Camera, Outlines
-from .mission_control import DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf, token_ok
+from .mission_control import (DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf,
+                              StaleSkills, live_names, token_ok)
 from .recording import RecorderConfig
 
 
@@ -75,6 +76,7 @@ class MissionControlNode(Node):
         self.state    = MissionState(keep=self.declare_parameter('trace_keep', 400).value)
         self.camera   = Camera(image_topic, max_side=self.declare_parameter('camera_max_side', 960).value, quality=80)
         self.outlines = Outlines()
+        self._live    = None                         # the live skills, from registry_node; None until it says
         self._outline_subscription = None            # only while the page shows the masks
         self._waiting = {}                           # step id -> (Event, [reply]) for each decision in flight
         self._lock    = threading.Lock()
@@ -90,16 +92,21 @@ class MissionControlNode(Node):
             self.create_subscription(String, TRACE_TOPIC, self._reader('trace'), TRACE_QOS),
             self.create_subscription(String, STEP_REPLY_TOPIC, self._reader('step_reply'), COMMAND_QOS),
             self.create_subscription(Image, image_topic, self.camera.put, SENSOR_QOS),
+            self.create_subscription(String, LIVE_SKILLS_TOPIC, self._on_live, LATCHED_QOS),
         ]
 
+        knowledge_dir      = self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value
+        library            = self.declare_parameter('skills_dir', str(skills_dir())).value
         self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel),
                                        self.camera, token_needed=not off, outlines=self.outlines,
-                                       skills=SkillShelf(self.declare_parameter('skills_dir', str(skills_dir())).value,
+                                       skills=SkillShelf(library,
                                                          self.declare_parameter('stamps_file', str(stamps_file())).value,
-                                                         self.declare_parameter('removed_dir', str(agent_dir() / REMOVED)).value),
-                                       knowledge=KnowledgeShelf(self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value),
+                                                         self.declare_parameter('removed_dir', str(agent_dir() / REMOVED)).value,
+                                                         stale=StaleSkills(knowledge_dir, library), live=lambda: self._live),
+                                       knowledge=KnowledgeShelf(knowledge_dir),
                                        runs=RunShelf(self.declare_parameter('runs_root', RecorderConfig.root).value))
         self.create_timer(1.0, self._follow_outlines)
+        self.create_timer(2.0, self._watch_live)
         files              = read_web(web_dir)       # before the port is bound: a missing page is not half a server
         self.server        = ThreadingHTTPServer((host, port), Handler)
         self.server.api    = self.api
@@ -117,6 +124,17 @@ class MissionControlNode(Node):
             self.get_logger().info('open that link, with its token: a command without the token is refused')
 
     # ========== State in ==========
+
+    def _on_live(self, message: String):
+        self._live = live_names(message.data)
+
+        if self._live is None:
+            self.get_logger().warn(f'{LIVE_SKILLS_TOPIC}: not a list of skill names: {message.data[:200]!r}')
+
+    def _watch_live(self):
+        """A live list from a registry_node that is gone says nothing: the latched message stays after it stops"""
+        if self.count_publishers(LIVE_SKILLS_TOPIC) == 0:
+            self._live = None
 
     def _follow_outlines(self):
         """Subscribe to the mask outlines while a page asks for them, and stop when no page has asked for a while"""

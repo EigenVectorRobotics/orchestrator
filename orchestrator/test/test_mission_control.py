@@ -7,7 +7,8 @@ from skill_registry.contract import AGENT_MARK
 
 from orchestrator.images import Camera, Outlines
 from orchestrator.knowledge import KnowledgeStore, Sighting
-from orchestrator.mission_control import Commands, KnowledgeShelf, MissionApi, MissionState, SkillShelf, token_ok
+from orchestrator.mission_control import (Commands, KnowledgeShelf, MissionApi, MissionState, SkillShelf, StaleSkills,
+                                          live_names, token_ok)
 
 
 def _api(reply: dict | None = {'accepted': True, 'message': 'approved'}, listening: bool = True):
@@ -312,3 +313,71 @@ def test_the_knowledge_tab_applies_expiry_before_it_shows_a_tier_and_says_a_brok
     code, said = shelf.get()
 
     assert code == 500 and 'cannot read the knowledge store' in said['message']
+
+
+def test_the_skills_tab_says_which_skills_are_stale_and_live(tmp_path):
+    library = tmp_path / 'skills'
+
+    for name in ('say_it', 'walk'):
+        (library / name).mkdir(parents=True)
+        (library / name / 'contract.yaml').write_text(yaml.safe_dump(
+            {'name': name, 'kind': 'action', 'device': 'nuc', 'timeout_s': 5,
+             'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String'}}))
+
+    shelf = SkillShelf(library, None, tmp_path / 'removed', stale=lambda: ({'walk': 'the code moved under it'}, ''),
+                       live=lambda: {'say_it'})
+    items = {item['name']: item for item in shelf.get()[1]['skills']}
+
+    assert (items['walk']['stale'], items['walk']['live']) == ('the code moved under it', False)
+    assert (items['say_it']['stale'], items['say_it']['live']) == ('', True)
+
+    unknown = SkillShelf(library, None, tmp_path).get()[1]                    # no clock, no registry_node: not known
+
+    assert [(item['stale'], item['live']) for item in unknown['skills']] == [(None, None), (None, None)]
+
+
+def test_the_live_list_is_names_or_nothing():
+    assert live_names('["walk", "say_it"]') == {'walk', 'say_it'}
+    assert live_names('[{"name": "walk", "maturity": "tested"}]') == {'walk'}             # a richer list later
+    assert live_names('"walk"') is None and live_names('not json') is None                # never the letters of a name
+    assert live_names('[{"maturity": "tested"}]') is None and live_names('[1]') is None and live_names('[[1]]') is None
+
+
+def _clock_files(tmp_path, stamps_text: str):
+    library, stamps = tmp_path / 'skills', tmp_path / 'stamps.yaml'
+    (library / 'walk').mkdir(parents=True, exist_ok=True)
+    (library / 'walk' / 'contract.yaml').write_text(yaml.safe_dump(
+        {'name': 'walk', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5,
+         'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String'}}))
+    (tmp_path / 'code_clock.yaml').write_text(yaml.safe_dump({'skills': str(library), 'stamps': str(stamps), 'repo_roots': []}))
+    stamps.write_text(stamps_text)
+
+    return library
+
+
+def test_stale_skills_come_from_the_executor_s_stamps_and_are_kept_a_while(tmp_path):
+    now   = [0.0]
+    stale = StaleSkills(tmp_path, tmp_path / 'skills', every_s=30.0, clock=lambda: now[0])
+
+    assert stale()[0] is None and 'no executor' in stale()[1]                  # no clock yet: not known, not "none"
+
+    _clock_files(tmp_path, yaml.safe_dump({'walk': {'self': 'not the file', 'repos': {}}}))
+
+    assert stale()[0] is None                                                  # said 0 s ago: kept
+
+    now[0] = 31.0
+
+    assert stale() == ({'walk': 'its own contract was edited after it was stamped'}, '')
+    assert 'another library' in StaleSkills(tmp_path, tmp_path / 'other')()[1]
+
+
+def test_a_bad_stamps_file_is_said_and_kept_a_while(tmp_path):
+    library = _clock_files(tmp_path, '- walk\n')                               # a list: reasons() cannot read it
+    now     = [0.0]
+    stale   = StaleSkills(tmp_path, library, every_s=30.0, clock=lambda: now[0])
+
+    assert stale()[0] is None and 'stale not known' in stale()[1]
+
+    (tmp_path / 'code_clock.yaml').unlink()                                    # not looked at again within every_s
+
+    assert 'stale not known' in stale()[1] and 'no executor' not in stale()[1]

@@ -166,6 +166,8 @@ nav .wrap { display: flex; gap: 4px; overflow-x: auto; }
 .tagp { display: inline-block; font: 500 10.5px var(--mono); padding: 1px 6px; margin-right: 4px; background: var(--surface); color: var(--muted); }
 .tagp.bad { background: var(--bad-bg); color: var(--bad); }
 .tagp.tested { background: var(--accent); color: var(--on-accent); }
+.tagp.warn { background: var(--warn-bg); color: var(--warn); }
+.tagp.off { background: transparent; border: 1px dashed var(--muted); }
 .detail { display: grid; gap: 18px; min-width: 0; }
 .dhead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; padding-bottom: 14px; border-bottom: 1px solid var(--rule); }
 .dhead h3 { font: 600 22px/1.2 var(--mono); margin: 0 0 4px; word-break: break-word; }
@@ -345,6 +347,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
   <div class="toolbar">
     <div class="seg" role="group" aria-label="Show" id="sfilter">
       <button data-f="review" aria-pressed="true">To review<span class="n" id="n-review"></span></button>
+      <button data-f="stale" aria-pressed="false">Stale<span class="n" id="n-stale"></span></button>
       <button data-f="broken" aria-pressed="false">Not loading<span class="n" id="n-broken"></span></button>
       <button data-f="all" aria-pressed="false">All<span class="n" id="n-all"></span></button>
     </div>
@@ -352,6 +355,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
     <span class="where" id="sdir"></span>
   </div>
   <div class="problem" id="sproblem" hidden></div>
+  <p class="hint" id="sstale" hidden></p>
   <div class="skills-grid">
     <ul class="slist" id="slist" aria-label="Skills"></ul>
     <div class="detail" id="sdetail"></div>
@@ -698,7 +702,7 @@ show(location.hash.slice(1));
 let shelf = {skills: []}, sFilter = 'review', sFind = '', selected = null, kept = 0, removed = 0, confirming = null;
 const toReview = item => item.agent && !item.error;
 const sShown = () => shelf.skills
-  .filter(item => sFilter === 'all' || (sFilter === 'review' ? toReview(item) : item.error))
+  .filter(item => sFilter === 'all' || (sFilter === 'review' ? toReview(item) : sFilter === 'stale' ? item.stale : item.error))
   .filter(item => !sFind || (item.name + ' ' + ((item.contract.interface || {}).name || '')).toLowerCase().includes(sFind));
 
 async function loadSkills() {
@@ -713,6 +717,8 @@ async function loadSkills() {
   const review = shelf.skills.filter(toReview).length;
   $('n-review').textContent = review;
   $('n-broken').textContent = shelf.skills.filter(item => item.error).length;
+  $('n-stale').textContent = shelf.stale_unknown ? '?' : shelf.skills.filter(item => item.stale).length;
+  $('sstale').hidden = !shelf.stale_unknown; $('sstale').innerHTML = shelf.stale_unknown || '';
   $('n-all').textContent = shelf.skills.length;
   $('n-tab').textContent = review; $('n-tab').hidden = !review;
   $('sdir').innerHTML = shelf.directory || '';
@@ -725,7 +731,9 @@ function pills(item) {
   const c = item.contract;
   return (toReview(item) ? '<span class="tagp">to review</span>' : '')
     + (item.error ? '<span class="tagp bad">does not load</span>' : `<span class="tagp ${c.maturity === 'tested' ? 'tested' : ''}">${c.maturity}</span>`)
-    + (item.code ? '<span class="tagp">code</span>' : '');
+    + (item.code ? '<span class="tagp">code</span>' : '')
+    + (item.stale ? `<span class="tagp warn" title="${item.stale}">stale</span>` : '')
+    + (item.live === false ? '<span class="tagp off" title="Its interface is not in the ROS graph now">not live</span>' : '');
 }
 
 function renderSkills() {
@@ -765,6 +773,7 @@ function renderSkills() {
       ${links}
       <dt>written by</dt><dd>${item.agent ? 'the agent (write_skill)' : 'a person, or kept by one'}</dd>
       ${c.source ? `<dt>from code</dt><dd>${c.source}</dd>` : ''}
+      <dt>state</dt><dd>${item.live === null ? 'live: not known (no registry_node)' : item.live ? 'live: its interface is in the ROS graph' : 'not live: its interface is not in the ROS graph now'}${item.stale ? `<br><span class="dirty">stale: ${item.stale}</span>` : item.stale === null ? '<br>stale: not known' : ''}</dd>
       <dt>runs</dt><dd>${item.runs ? `the last ${item.runs} successful runs` : 'none'}<span class="hint"> (since its last save; 10 at most)</span></dd>
     </dl>
     <div class="two">${ports('Inputs', c.inputs)}${ports('Outputs', c.outputs)}</div>`}

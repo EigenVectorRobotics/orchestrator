@@ -10,6 +10,7 @@ checks the HTTP body, sends the decision and relays the gate's answer.
 """
 
 import hmac
+import json
 import math
 import time
 import threading
@@ -175,14 +176,71 @@ class Commands:
         return 200, {'ok': True, 'message': 'cancel sent'}
 
 
+def live_names(data: str) -> set[str] | None:
+    """registry_node's /skills/live: a JSON list of names, or of {name, ...}. Anything else is None: it says nothing,
+    and it never raises on the spin thread"""
+    try:
+        items = json.loads(data)
+    except ValueError:
+        return None
+
+    if not isinstance(items, list):
+        return None
+
+    names = [item.get('name') if isinstance(item, dict) else item for item in items]
+
+    return set(names) if all(isinstance(name, str) for name in names) else None
+
+
+class StaleSkills:
+    """Which skills are stale and why, as the executor's catalog says (skill_stamps): the stamps and the repo roots
+    come from the code clock the executor saves beside the knowledge store. A check runs git in every repo, so the
+    answer, or the reason there is none, is kept for every_s, and one request at a time makes it.
+
+    Returns ({skill: why}, '') or (None, why it is not known)"""
+
+    def __init__(self, knowledge_dir, skills_dir, every_s: float = 30.0, clock=time.monotonic):
+        self.knowledge_dir = knowledge_dir
+        self.skills_dir    = Path(skills_dir).expanduser()
+        self.every_s       = every_s
+        self.clock         = clock
+        self._said         = (-math.inf, (None, ''))
+        self._lock         = threading.Lock()
+
+    def __call__(self) -> tuple[dict | None, str]:
+        with self._lock:
+            if self.clock() - self._said[0] >= self.every_s:
+                self._said = (self.clock(), self._check())
+
+            return self._said[1]
+
+    def _check(self) -> tuple[dict | None, str]:
+        code = SkillClock.load(self.knowledge_dir)
+
+        if code is None:
+            return None, 'stale not known: no executor has saved its code clock here yet'
+
+        if code.stamps.skills.resolve() != self.skills_dir.resolve():
+            return None, f'stale not known: the executor stamps another library ({code.stamps.skills})'
+
+        try:
+            return code.stamps.reasons(code.registry), ''
+        except Exception as error:                  # a bad stamps file: said, and the library still shows
+            return None, f'stale not known: {error!r}'
+
+
 class SkillShelf:
     """The Skills tab: the library as files, and a person's keep or remove of a skill the agent wrote (skill_review).
-    The executor's registry sees each change at its next refresh"""
+    The executor's registry sees each change at its next refresh. stale: {skill: why}; live: the skills whose
+    interface is in the ROS graph now (registry_node's /skills/live), or None while nothing says"""
 
-    def __init__(self, directory, stamps_file, removed_dir):
+    def __init__(self, directory, stamps_file, removed_dir, stale: Callable[[], tuple] = lambda: (None, ''),
+                 live: Callable[[], set | None] = lambda: None):
         self.directory   = Path(directory)
         self.stamps_file = stamps_file
         self.removed_dir = Path(removed_dir)
+        self.stale       = stale
+        self.live        = live
 
     def get(self) -> tuple[int, dict]:
         try:
@@ -195,7 +253,14 @@ class SkillShelf:
         except OSError as error:                    # e.g. a folder moved between the listing and the read
             return 500, {'ok': False, 'message': f'cannot read the library: {error}'}
 
-        return 200, {'skills': skills, 'problem': missing_folder(self.directory), 'deny': deny,
+        stale, unknown = self.stale()
+        live           = self.live()
+
+        for item in skills:
+            item['stale'] = None if stale is None else stale.get(item['name'], '')   # None: not known
+            item['live']  = None if live is None else item['name'] in live
+
+        return 200, {'skills': skills, 'problem': missing_folder(self.directory), 'stale_unknown': unknown, 'deny': deny,
                      'directory': str(self.directory)}
 
     def keep(self, body: dict) -> tuple[int, dict]:
