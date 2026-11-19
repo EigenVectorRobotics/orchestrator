@@ -25,7 +25,9 @@ What the live Mission tab gets from the adapter:
 - **The token:** the node writes it to its log, which the agent's shell on the NUC can read. The token stops mistakes, not an agent that looks for it.
 - **Runs tab:** the adapter reads the recorder's bundles in `~/orch_runs` (`orchestrator/run_browser.py`, parameter `runs_root`). It lists the newest 200 runs. For one run, it shows the steps, the plan, the refusals and what the run left. These come from the session's `events.jsonl`. It also shows the bag, the scratch files and the code versions. A run without an end in an old or closed session shows as "recorder stopped". A run is named by its key, `<session>/<folder>`. The adapter looks up the key in its list: a key is never a path.
 
-Still to build in the live page: the small map, and the agent's own reasoning in the feed.
+- **Small map:** in the corner of the camera, to scale, in the map frame with +y up (not north). It shows the places of the robot's floor (from `map_info`), the robot and its heading (`/odom_base_link`), and the route (`/route_planner/path`). The floor comes from `/slam_elevatorlio/floor`; while it is not known, all places show. The nearest place of the robot's floor is marked, and the caption gives its distance. The route shows only on the robot's floor (z within 1.5 m). A pose older than 3 s shows grey.
+
+Still to build in the live page: the agent's own reasoning in the feed.
 
 ## How it runs
 

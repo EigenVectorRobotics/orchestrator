@@ -28,6 +28,7 @@ from skill_registry.skill_stamps import SkillClock
 
 from .images import Camera, Outlines
 from .knowledge import OPERATOR, Claim, KnowledgeError, KnowledgeStore, Sighting
+from .map_view import MapView
 from .run_browser import list_runs, run_detail
 from .topics import TASK_OPTIONS
 
@@ -413,7 +414,7 @@ class MissionApi:
 
     def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None,
                  token_needed: bool = True, outlines: Outlines | None = None, skills: SkillShelf | None = None,
-                 knowledge: KnowledgeShelf | None = None, runs: RunShelf | None = None):
+                 knowledge: KnowledgeShelf | None = None, runs: RunShelf | None = None, map_view: MapView | None = None):
         self.state        = state
         self.camera       = camera or Camera()
         self.outlines     = outlines or Outlines()
@@ -421,6 +422,7 @@ class MissionApi:
         self.skills       = skills
         self.knowledge    = knowledge
         self.runs         = runs
+        self.map_view     = map_view or MapView()
         self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel,
                              **({'/api/skill/keep': skills.keep, '/api/skill/remove': skills.remove} if skills else {}),
                              **({'/api/knowledge/approve': knowledge.approve, '/api/knowledge/retire': knowledge.retire,
@@ -451,6 +453,7 @@ class MissionApi:
             self.outlines.ask()
 
         return 200, {**self.state.snapshot(after), 'camera': self.camera.state(), 'outlines': self.outlines.state(),
+                     'map': self.map_view.state(),
                      'token_needed': self.token_needed}
 
     def post(self, path: str, body: dict) -> tuple[int, dict]:

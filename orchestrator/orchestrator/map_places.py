@@ -15,12 +15,13 @@ from skill_registry.geometry import pose_dict
 class MapInfoPlaces:
     """The places of map_info at `prefix` (e.g. /map_info); call it for the places now"""
 
-    def __init__(self, node: Node, prefix: str):
+    def __init__(self, node: Node, prefix: str, without: str = 'Tasks have no named places'):
         from navigation_interfaces.msg import Places
 
         self.places        = {}
         self.heard         = False
         self._topic        = f'{prefix}/places'
+        self._without      = without                # what is missing without the places, for the warning
         self._logger       = node.get_logger()
         self._subscription = node.create_subscription(Places, self._topic, self._on_places, LATCHED_QOS)
         self._check        = node.create_timer(10.0, self._check_heard)
@@ -32,7 +33,7 @@ class MapInfoPlaces:
         self._check.cancel()
 
         if not self.heard:
-            self._logger.warn(f'no places from {self._topic} after 10 s: is map_info running? Tasks have no named places')
+            self._logger.warn(f'no places from {self._topic} after 10 s: is map_info running? {self._without}')
 
     def __call__(self) -> dict:
         return self.places

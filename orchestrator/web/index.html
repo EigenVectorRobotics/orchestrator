@@ -113,6 +113,10 @@ section h2 small { font: 400 11px var(--mono); color: var(--muted); text-transfo
 .cap { font: 400 11px var(--mono); color: var(--muted); margin-top: 6px; }
 .cap .stale { color: var(--warn); font-weight: 500; }
 .cap .track { display: inline-block; width: 9px; height: 9px; margin: 0 4px 0 10px; vertical-align: -1px; }
+.minimap { position: absolute; right: 10px; bottom: 10px; width: 26%; min-width: 150px; max-width: 240px; aspect-ratio: 4 / 3; background: var(--surface); border: 1px solid var(--rule); opacity: .94; }
+.minimap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.minimap .mapcap { position: absolute; left: 6px; right: 6px; bottom: 4px; font: 400 10px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toggles { display: flex; gap: 6px; }
 .toggle { background: transparent; border: 1px solid var(--rule); padding: 3px 9px; font: 500 11px var(--mono); color: var(--muted); }
 .toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
@@ -316,10 +320,11 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
     </section>
 
     <section class="camera" aria-labelledby="h-cam">
-      <h2 id="h-cam">Head camera <button class="toggle" id="t-masks" aria-pressed="true" title="EdgeTAM mask outlines (/track_3d/mask_outlines)">masks</button></h2>
+      <h2 id="h-cam">Head camera <span class="toggles"><button class="toggle" id="t-masks" aria-pressed="true" title="EdgeTAM mask outlines (/track_3d/mask_outlines)">masks</button><button class="toggle" id="t-map" aria-pressed="true" title="The places of the robot's floor, the robot and its route">map</button></span></h2>
       <div class="frame">
         <canvas id="cam" aria-label="Head camera frame with the EdgeTAM mask outlines"></canvas>
         <span class="none" id="camnone">No camera frame yet. The Orin publishes the colour image; with the fake robot there is none.</span>
+        <div class="minimap" id="minimap" hidden><canvas id="mapc" aria-label="Map: the places of the robot's floor, the robot and its route"></canvas><span class="mapcap" id="mapcap"></span></div>
       </div>
       <div class="cap" id="camcap"></div>
     </section>
@@ -609,6 +614,53 @@ $('t-masks').addEventListener('click', () => {
   renderCamera(); drawCamera();
 });
 
+// ---------- The small map: to scale, the map frame with +y up, the robot's floor only ----------
+
+let showMap = true;
+
+function drawMap() {
+  const map = state.map || {}, box = $('minimap');
+  box.hidden = !showMap || !(map.places || []).length && !map.robot;
+  if (box.hidden) return;
+  const {ctx, W, H} = fitCanvas($('mapc'));
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const points = [...map.places.map(p => [p.x, p.y]), ...(map.robot ? [[map.robot.x, map.robot.y]] : []), ...map.route];
+  const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+  const pad = 14, bottom = 16;                            // room for the caption
+  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 4);
+  const s = Math.min((W - 2 * pad) / span, (H - 2 * pad - bottom) / span);
+  const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+  const at = (x, y) => [W / 2 + (x - cx) * s, (H - bottom) / 2 - (y - cy) * s];     // y up, as on a plan
+  if (map.route.length > 1) {
+    ctx.strokeStyle = css('--accent'); ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.beginPath();
+    map.route.forEach(([x, y], i) => ctx[i ? 'lineTo' : 'moveTo'](...at(x, y))); ctx.stroke(); ctx.setLineDash([]);
+  }
+  const nearest = map.robot && map.robot.nearest && map.robot.nearest.name;
+  map.places.forEach(place => {
+    const [x, y] = at(place.x, place.y), near = place.name === nearest;
+    ctx.fillStyle = near ? css('--accent') : css('--muted');
+    ctx.beginPath(); ctx.arc(x, y, near ? 4 : 2.5, 0, 2 * Math.PI); ctx.fill();
+  });
+  if (map.robot) {
+    const [x, y] = at(map.robot.x, map.robot.y), yaw = map.robot.yaw;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-yaw);
+    ctx.fillStyle = map.robot.old ? css('--muted') : css('--ink');
+    ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(-6, -5); ctx.lineTo(-6, 5); ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+  const robot = map.robot;
+  $('mapcap').innerHTML = [map.floor !== null && map.floor !== undefined ? `floor ${map.floor}` : '',
+    robot && robot.nearest ? `${robot.nearest.name} ${robot.nearest.distance} m` : '',
+    robot && robot.old ? `pose ${robot.age_s} s old` : '', !robot ? 'no pose' : ''].filter(Boolean).join(' · ');
+  $('mapcap').title = plain($('mapcap').innerHTML);       // the whole caption, when a long name is cut
+}
+new ResizeObserver(drawMap).observe($('minimap'));
+
+$('t-map').addEventListener('click', () => {
+  showMap = !showMap;
+  $('t-map').setAttribute('aria-pressed', showMap);
+  drawMap();
+});
+
 // ---------- Agent feed ----------
 
 const FEED = {
@@ -676,8 +728,10 @@ async function poll() {
       renderFeed(); renderLog();
     }
     health(); nowBand(); renderPlan(); renderCamera();
+    once('map', JSON.stringify(state.map || {}), drawMap);
   } catch (error) {
     $('health').innerHTML = '<span class="issue">the adapter does not answer</span>';
+    $('minimap').hidden = true;                          // a pose that no longer comes must not look fresh
     drawn = {};
   } finally {
     polling = false;
@@ -691,7 +745,7 @@ function show(view) {
   if (!document.getElementById('view-' + view)) view = 'mission';     // the hash is not an element id: no scroll
   tabs.forEach(tab => tab.setAttribute('aria-selected', tab.dataset.view === view));
   document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== 'view-' + view);
-  if (view === 'mission') drawCamera();                  // the canvas had no size while it was hidden
+  if (view === 'mission') { drawCamera(); drawMap(); }  // the canvases had no size while they were hidden
 }
 tabs.forEach(tab => tab.addEventListener('click', () => { location.hash = tab.dataset.view; }));
 window.addEventListener('hashchange', () => show(location.hash.slice(1)));

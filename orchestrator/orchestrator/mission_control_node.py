@@ -29,11 +29,16 @@ from skill_registry import REMOVED, agent_dir, agent_knowledge_dir, skills_dir, 
 from std_msgs.msg import Empty, String
 from sensor_msgs.msg import Image
 from visualization_msgs.msg import ImageMarker
+from nav_msgs.msg import Odometry, Path as RoutePath
+from std_msgs.msg import Int32
+from skill_registry.geometry import pose_dict
 
 from .qos import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS, TRACE_QOS
 from .topics import (CANCEL_TOPIC, LIVE_SKILLS_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
                      STEP_REQUEST_TOPIC, TASK_TOPIC, TRACE_TOPIC)
 from .images import Camera, Outlines
+from .map_view import MapView
+from .map_places import MapInfoPlaces
 from .mission_control import (DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf,
                               StaleSkills, live_names, token_ok)
 from .recording import RecorderConfig
@@ -76,6 +81,7 @@ class MissionControlNode(Node):
         self.state    = MissionState(keep=self.declare_parameter('trace_keep', 400).value)
         self.camera   = Camera(image_topic, max_side=self.declare_parameter('camera_max_side', 960).value, quality=80)
         self.outlines = Outlines()
+        self.map_view = MapView()
         self._live    = None                         # the live skills, from registry_node; None until it says
         self._outline_subscription = None            # only while the page shows the masks
         self._waiting = {}                           # step id -> (Event, [reply]) for each decision in flight
@@ -93,6 +99,14 @@ class MissionControlNode(Node):
             self.create_subscription(String, STEP_REPLY_TOPIC, self._reader('step_reply'), COMMAND_QOS),
             self.create_subscription(Image, image_topic, self.camera.put, SENSOR_QOS),
             self.create_subscription(String, LIVE_SKILLS_TOPIC, self._on_live, LATCHED_QOS),
+            self.create_subscription(Odometry, self.declare_parameter('pose_topic', '/odom_base_link').value,
+                                     self._on_pose, SENSOR_QOS),
+            self.create_subscription(Int32, self.declare_parameter('floor_topic', '/slam_elevatorlio/floor').value,
+                                     lambda message: self.map_view.put_floor(message.data), LATCHED_QOS),
+            self.create_subscription(RoutePath, self.declare_parameter('route_topic', '/route_planner/path').value,
+                                     lambda message: self.map_view.put_route([(stamped.pose.position.x, stamped.pose.position.y,
+                                                                               stamped.pose.position.z)
+                                                                              for stamped in message.poses]), LATCHED_QOS),
         ]
 
         knowledge_dir      = self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value
@@ -104,7 +118,9 @@ class MissionControlNode(Node):
                                                          self.declare_parameter('removed_dir', str(agent_dir() / REMOVED)).value,
                                                          stale=StaleSkills(knowledge_dir, library), live=lambda: self._live),
                                        knowledge=KnowledgeShelf(knowledge_dir),
-                                       runs=RunShelf(self.declare_parameter('runs_root', RecorderConfig.root).value))
+                                       runs=RunShelf(self.declare_parameter('runs_root', RecorderConfig.root).value),
+                                       map_view=self.map_view)
+        self._places = self._map_places(self.declare_parameter('map_info', '/map_info').value)
         self.create_timer(1.0, self._follow_outlines)
         self.create_timer(2.0, self._watch_live)
         files              = read_web(web_dir)       # before the port is bound: a missing page is not half a server
@@ -124,6 +140,21 @@ class MissionControlNode(Node):
             self.get_logger().info('open that link, with its token: a command without the token is refused')
 
     # ========== State in ==========
+
+    def _on_pose(self, message: Odometry):
+        if self.map_view.wants_pose():               # 50-200 Hz in, about 5 Hz kept: the spin thread stays free
+            self.map_view.put_pose(pose_dict(message))
+
+    def _map_places(self, prefix: str):
+        """The places of map_info, as the executor reads them; nothing when there is no map_info here"""
+        try:
+            places = MapInfoPlaces(self, prefix, without='the small map shows no places')
+        except ImportError:                         # navigation_interfaces is not built here
+            self.get_logger().warn('no navigation_interfaces: the map shows no places')
+            return None
+
+        self.create_timer(2.0, lambda: self.map_view.put_places(places()))
+        return places
 
     def _on_live(self, message: String):
         self._live = live_names(message.data)
