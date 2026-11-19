@@ -46,22 +46,32 @@ def codex_rules(templates: list[Path]) -> str:
     lines = [f'# {MADE} from {", ".join(map(str, templates))}: edit those, then run link_agent_dir.sh again.']
 
     for rule in _deny(templates):
-        if shell := re.fullmatch(r'Bash\((.+?)(?::\*)?\)', rule):
-            lines.append(f'prefix_rule(pattern = {json.dumps(shell[1].split())}, decision = "forbidden", '
-                         f'justification = "denied for agent sessions: {shell[1]}")')
+        if not rule.startswith('Bash'):
+            continue                                                    # a file rule: Codex has none
+
+        shell = re.fullmatch(r'Bash\(([^*?]+?):\*\)', rule)
+
+        if shell is None:
+            raise SystemExit(f'stop: {rule} has no Codex form; a shell rule must be Bash(<command words>:*)')
+
+        lines.append(f'prefix_rule(pattern = {json.dumps(shell[1].split())}, decision = "forbidden", '
+                     f'justification = {json.dumps("denied for agent sessions: " + shell[1])})')
 
     return '\n'.join(lines) + '\n'
 
 
-def _write(out: Path, text: str) -> str | None:
-    """Write a file this script makes; a file that a person wrote stops it (returns why)"""
+def _person_wrote(out: Path) -> str | None:
+    """Why this script must not replace out, or None: it replaces only a file that it made, or an old link"""
     if out.exists() and not out.is_symlink() and MADE not in out.read_text():
         return f'stop: {out} is a file that a person wrote; move what you need into the templates, then run this again'
 
+    return None
+
+
+def _write(out: Path, text: str) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.unlink(missing_ok=True)                                         # an old link into git: never write through it
     out.write_text(text)
-    return None
 
 
 def main():
@@ -73,9 +83,16 @@ def main():
     parser.add_argument('--codex', type=Path, help='also write the shell rules as Codex rules here')
     arguments = parser.parse_args()
 
-    made = json.dumps(settings(arguments.templates, arguments.hide, arguments.no_edit), indent=2) + '\n'
+    files = {arguments.out: json.dumps(settings(arguments.templates, arguments.hide, arguments.no_edit), indent=2) + '\n'}
 
-    return _write(arguments.out, made) or (arguments.codex and _write(arguments.codex, codex_rules(arguments.templates)))
+    if arguments.codex:
+        files[arguments.codex] = codex_rules(arguments.templates)
+
+    if stop := next(filter(None, map(_person_wrote, files)), None):     # all or none: the two tools keep the same rules
+        return stop
+
+    for out, text in files.items():
+        _write(out, text)
 
 
 if __name__ == '__main__':

@@ -117,6 +117,6 @@ The NUC builds this repo in `~/eigen_vector_orch_ws`, from the deploy repo `eige
 ## Not done yet
 
 - Nothing committed after 2026-11-11 has run on the robot.
-- A Codex session gets the shell rules (`.codex/rules/agent.rules`), but not the file rules: it can still read the stack repos. On the NUC, the Codex sandbox does not start (bubblewrap); run Codex with `-s danger-full-access`.
+- A Codex session gets the shell rules (`.codex/rules/agent.rules`), but no file rules: it can read the stack repos and edit the skills folder, `deny.yaml`, `gate.yaml` and the runbook. On the NUC, the Codex sandbox does not start (bubblewrap); run Codex with `-s danger-full-access`.
 - The knowledge store follows a claim's `skill` tag only: a value measured through a skill but tagged only with a place is not reset when the skill's code moves. A code skill's `skills.run(variable)` calls are not followed.
 - The executor reads the raw camera topic (`image_topic`), because the Orin has no compressed image transport installed: about 17 MB/s at 6 fps.

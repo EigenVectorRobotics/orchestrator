@@ -18,32 +18,34 @@ real missions. That is the test of your work.
 
 ## Steps
 
-1. **Check the task.** Run `agent_cli task wait`. The task line must say `(discovery)`. If it does not, stop: that
+1. **Check your rules.** Run `agent_cli run --help`. A rule must reject it. If it runs, your session did not load its
+   rules (for Codex: trust this folder, then start again): stop and tell the operator.
+2. **Check the task.** Run `agent_cli task wait`. The task line must say `(discovery)`. If it does not, stop: that
    task is for a task session. If the message has no contract grammar, `write-skill` is off on this robot: stop and
    tell the operator. Save the open message once, for the workers: `agent_cli task show >
    <scratch>/task.md` (the scratch folder is in the message).
-2. **Read the state.**
+3. **Read the state.**
    - `progress.md` in this folder. If it does not exist, make it from the template at the end of this file.
    - `agent_cli skills` once: the skills that exist, and the stale ones with the reason. Keep a short list of their
      names and interfaces; do not read the catalog again for each draft.
    - `ls docs/`. Read a page only for the repo that you work on.
-3. **Choose the work.** `ls $EIGEN_VECTOR_WS/src`. Skip `orchestrator` (the software that runs you). First the repos
+4. **Choose the work.** `ls $EIGEN_VECTOR_WS/src`. Skip `orchestrator` (the software that runs you). First the repos
    of stale skills, then the repos that `progress.md` does not mark done.
-4. **One repo at a time.** If you can start subagents, give each repo to one subagent with
+5. **One repo at a time.** If you can start subagents, give each repo to one subagent with
    [repo-worker.md](repo-worker.md), filled in. If you cannot, do the worker's steps yourself. The worker writes its
    drafts in `<scratch>/<repo>/` and returns only the file names, the facts and the questions.
-5. **Write the skills.** For each draft:
+6. **Write the skills.** For each draft:
    - If your list has a skill for the same interface, read that one contract and improve it, or drop the draft.
    - Run `agent_cli write-skill <scratch>/<repo>/<name>.yaml` (and `--code FILE` for a code skill).
    - A refusal names the rule. Fix the draft and try again, three times at most. Then record the refusal in
      `progress.md` and continue.
    - Add each skill that loads to your list.
-6. **Write what you learned.**
+7. **Write what you learned.**
    - Copy the package page to `docs/<package>.md`: what the package does, its interfaces, the frames, the units.
    - A measured fact (a rate, a frame, a unit that the code does not state) goes to the knowledge store:
      `knowledge note "TEXT" --by agent:discovery --run <run_id> --evidence <what you read> --about skill=<name>`.
-7. **Update `progress.md`** after each repo: done, the skills written, the refusals and why, open questions.
-8. **End.**
+8. **Update `progress.md`** after each repo: done, the skills written, the refusals and why, open questions.
+9. **End.**
    - **Context nearly full:** write a short summary in `progress.md` and stop. Do not end the task: it has no time
      limit, and a new session continues it from step 1 (`agent_cli task wait` gives the same open task).
    - **All repos done:** run `agent_cli done --reason R`. If some repos cannot be done, `agent_cli give-up --reason

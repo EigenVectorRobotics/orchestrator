@@ -48,7 +48,9 @@ Discovery is its own session (decided 2026-11-18). It reads the stack's code and
   - the task session (`$EIGEN_VECTOR_WS/agent`): a Read deny for each stack repo in `src/` by its absolute path (not the orchestrator repo: its skills and docs are there);
   - the discovery session (`$EIGEN_VECTOR_WS/agent_discovery`): it reads `src/`; `agent_cli run` and edits in the skills folder are denied.
   - Checked with live Claude Code sessions (2026-11-18).
-- **Codex** (on the NUC, Codex is the only session tool) reads `.codex/rules/agent.rules` in each folder: the same shell rules as Codex prefix rules, made from the same templates (checked on the NUC with `codex execpolicy check` and a live `codex exec`, 2026-11-18). Codex has no rule for a file read: it reads files with shell commands, so a Codex task session can still read the stack repos. On the NUC the Codex sandbox (bubblewrap) cannot start, so start Codex with `-s danger-full-access`; the rules still apply. For the reasoning in the session log, add `-c model_reasoning_summary="detailed"`.
+- **Codex** reads `.codex/rules/agent.rules` in the folder where it starts. On the NUC, Codex is the only session tool. The file holds the same shell rules, made from the same templates. Checked on the NUC with `codex execpolicy check` and a live `codex exec` (2026-11-18).
+  - **Codex gets no file rules.** It reads and writes files with shell commands. Thus a Codex task session can read the stack repos, and any Codex session can edit the skills folder, `deny.yaml`, `gate.yaml` and the runbook. `write-skill`, the executor's deny list and git review still apply.
+  - Codex may use a folder's rules only when it trusts the folder. The `discover` skill checks this first: `agent_cli run --help` must be rejected. On the NUC the Codex sandbox (bubblewrap) cannot start, so start Codex with `-s danger-full-access`; the rules still apply. For the reasoning in the session log, add `-c model_reasoning_summary="detailed"`.
 
 ## Improving the skills
 

@@ -22,7 +22,10 @@
       "Edit(**/skill_registry/gate.yaml)",
       "Edit(**/runbook.md)",
       "Edit(**/claude_settings*.json)",
-      "Edit(**/.claude/settings.json)"
+      "Edit(**/.claude/settings.json)",
+      "Edit(**/.codex/rules/**)",
+      "Edit(**/scripts/agent_settings.py)",
+      "Edit(**/scripts/link_agent_dir.sh)"
     ]
   }
 }
