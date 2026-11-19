@@ -84,7 +84,7 @@ def on_page_markdown(markdown, page, config, files):
     def rewrite(match):
         prefix, target, anchor, suffix = match.group(1), match.group(2), match.group(3) or '', match.group(4)
 
-        if re.match(r'[a-z]+:', target) or page.file.generated:
+        if re.match(r'[a-z]+:', target) or page.file.generated_by is not None:
             return match.group(0)
 
         resolved = (base / target).resolve()
