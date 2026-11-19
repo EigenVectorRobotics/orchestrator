@@ -22,7 +22,7 @@ Agentic task execution for a Unitree G1 that rides a freight elevator and presse
 
 ## Documents
 
-The site at https://eigenvectorrobotics.github.io/orchestrator/ shows these documents with their diagrams and an API reference generated from the code. It builds from main; the team's other repositories are linked from https://eigenvectorrobotics.github.io/eigen_vector/.
+The site at https://eigenvectorrobotics.github.io/orchestrator/ shows these documents with their diagrams and an API reference generated from the code. Every push builds the branch's site into `github-pages/<branch>`; Pages serves the main one. The team's other repositories are linked from https://eigenvectorrobotics.github.io/eigen_vector/.
 
 | Document | Read it when |
 |---|---|
