@@ -1,12 +1,12 @@
 """write_skill: the agent writes a contract (docs/skill-discovery.md). It is checked (the schema, the deny list, the
-references, the ROS types), saved in the agent's skill folder with AGENT_MARK, and loaded through Registry.refresh,
+references, the ROS types), saved in its own folder of the library with AGENT_MARK, and loaded through Registry.refresh,
 the same way in as a file that changes on disk, so the next step can run it.
 
-A code skill (transport code) is two files: the contract, and the Python that calls other skills. Both are saved
+A code skill (transport code) is two files in its folder: the contract, and the Python that calls other skills. Both are saved
 together and both go back if either is refused, so the library never holds a contract without its code.
 
 The agent does not grade its own skills: a file with the mark loads at maturity untested. It may write a new version
-of a skill it wrote (the old file goes to old/), never one that a person wrote. This module needs no ROS: the
+of a skill it wrote (the old files go to old/ in the skill's folder), never one that a person wrote. This module needs no ROS: the
 executor gives it the ROS type check and what to do with a loaded contract.
 """
 
@@ -18,18 +18,17 @@ from pathlib import Path
 
 import yaml
 
-from skill_registry import Contract, ContractError, Registry, code_file, parse_contract
-from skill_registry.contract import AGENT_MARK
+from .contract import AGENT_MARK, Contract, ContractError, parse_contract
+from .registry import Registry, code_file, contract_file
 
 CODE_MARK = '# written by the agent with write_skill; it runs in the sandbox and calls skills through the executor\n'
 
 
 class SkillWriter:
     def __init__(self, registry: Registry, directory: Path, check_types: Callable[[Contract], list[str]],
-                 loaded: Callable[[Contract], None], code_dir: Path | None = None, stamps=None):
+                 loaded: Callable[[Contract], None], stamps=None):
         self.registry    = registry
-        self.directory   = Path(directory)
-        self.code_dir    = Path(code_dir) if code_dir else self.directory.parent / 'code'   # where CodeRunner looks
+        self.directory   = Path(directory)               # the library: one folder per skill
         self.check_types = check_types            # contract -> what does not match its ROS types
         self.loaded      = loaded                 # e.g. the runner makes its clients for the new skill
         self.stamps      = stamps                 # skill_stamps.Stamps: what this skill was proved against; None: off
@@ -51,13 +50,13 @@ class SkillWriter:
         except (ContractError, TypeError, ValueError) as error:
             return _refused(str(error))
 
-        path     = self.directory / f'{contract.name}.yaml'
+        path     = contract_file(contract.name, self.directory)
         replaced = path.exists()
 
         if replaced and not path.read_text().startswith(AGENT_MARK):
             return _refused(f'{contract.name} was written by a person; choose another name')
 
-        code_path = code_file(contract.name, self.code_dir)
+        code_path = code_file(contract.name, self.directory)
 
         if problem := _code_problem(contract, code, code_path):
             return _refused(problem)
@@ -73,22 +72,22 @@ class SkillWriter:
 
             changed, errors = self.registry.refresh(self.directory, self.type_errors)
 
-            if path.name in errors:                 # the registry keeps the old version: so does the folder
+            if contract.name in errors:             # the registry keeps the old version: so does the folder
                 for written, old in saved:
                     _put_back(written, old)
 
         for name in changed:
             self.loaded(self.registry.get(name))
 
-        if path.name in errors:
-            return _refused(errors[path.name])
+        if contract.name in errors:
+            return _refused(errors[contract.name])
 
         if self.stamps is not None:               # after the save: the stamp reads the files that are now on disk
             self.stamps.write(contract)           # write_skill is the only thing that proves a skill
 
         message = f'{contract.name} {"replaced" if replaced else "added"}, maturity untested'
 
-        return {'ok': True, 'message': f'{message}, code in {code_path.name}' if code else message, 'path': str(path)}
+        return {'ok': True, 'message': f'{message}, with its code' if code else message, 'path': str(path.parent)}
 
     def type_errors(self, contract: Contract) -> list[str]:
         try:
@@ -109,29 +108,30 @@ class SkillWriter:
         return changed
 
     def _save_code(self, path: Path, code: str) -> Path | None:
-        """The Python of a code skill, beside the contracts; an earlier version goes to code/old/"""
+        """The Python of a code skill, beside its contract; an earlier version goes to old/"""
         path.parent.mkdir(parents=True, exist_ok=True)
-        moved = _move_aside(path, '.py')
+        moved = _move_aside(path)
         path.write_text(CODE_MARK + code.removeprefix(CODE_MARK))
 
         return moved
 
     def _save(self, path: Path, raw: dict) -> Path | None:
         """Write the file; an earlier version goes to old/. Returns where it went"""
-        self.directory.mkdir(parents=True, exist_ok=True)
-        moved = _move_aside(path, '.yaml')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        moved = _move_aside(path)
 
         path.write_text(AGENT_MARK + yaml.safe_dump(raw, sort_keys=False))
 
         return moved
 
 
-def _move_aside(path: Path, suffix: str) -> Path | None:
+def _move_aside(path: Path) -> Path | None:
     """An earlier version goes to old/ beside it, numbered; returns where it went"""
     if not path.exists():
         return None
 
-    old = path.parent / 'old'
+    old    = path.parent / 'old'
+    suffix = path.suffix
     old.mkdir(exist_ok=True)
     numbers = [int(file.suffixes[-2][1:]) for file in old.glob(f'{path.stem}.*{suffix}') if file.suffixes[-2][1:].isdigit()]
 
@@ -144,6 +144,8 @@ def _put_back(path: Path, old: Path | None):
 
     if old:
         old.rename(path)
+    elif not any(path.parent.iterdir()):        # a new skill's folder: the library keeps no empty folder
+        path.parent.rmdir()
 
 
 def _code_problem(contract: Contract, code: str, code_path: Path) -> str:

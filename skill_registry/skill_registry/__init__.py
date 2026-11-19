@@ -2,6 +2,6 @@ from .contract import DEFAULT_ESSENTIAL_DEVICES, Contract, ContractError, Interf
 from .deny import DenyList, PatternList
 from .gate import GateList
 from .grammar import contract_grammar
-from .registry import (GraphSnapshot, Registry, agent_code_dir, agent_contracts_dir, agent_dir, agent_knowledge_dir,
-                       agent_runbook_file, code_file, is_present, missing_folder)
+from .registry import (KNOWLEDGE, RUNBOOK, SKILLS, STAMPS, GraphSnapshot, Registry, agent_dir, agent_knowledge_dir,
+                       agent_runbook_file, code_file, is_present, missing_folder, skills_dir, stamps_file)
 from .validator import Issue, TreeValidator, ValidatorConfig

@@ -1,4 +1,4 @@
-"""run_python for the agent: a child Python process under agent_guard, with resource limits and no ROS discovery"""
+"""run_python for the agent: a child Python process under sandbox_guard, with resource limits and no ROS discovery"""
 
 import os
 import signal
@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from skill_registry import DenyList
 
 
-GUARD_PATH  = Path(__file__).with_name('agent_guard.py')
+GUARD_PATH  = Path(__file__).with_name('sandbox_guard.py')
 CODE_FOLDER = '.code'
 # Folders the agent's code must not read: the other orchestrator workspace on the NUC, whose hand-written contracts
 # skill discovery must find on its own. fnmatch patterns on the real path; * crosses /
@@ -47,7 +47,7 @@ def _clip(text: str, limit: int) -> str:
 
 
 def sandbox_env(config: SandboxConfig, scratch: Path) -> dict:
-    """The environment of a guarded child: no ROS discovery, the deny list's modules, the limits agent_guard applies"""
+    """The environment of a guarded child: no ROS discovery, the deny list's modules, the limits sandbox_guard applies"""
     return {
         'PATH':                          '/usr/bin:/bin',
         'HOME':                          str(scratch),
@@ -57,7 +57,7 @@ def sandbox_env(config: SandboxConfig, scratch: Path) -> dict:
         'ROS_AUTOMATIC_DISCOVERY_RANGE': 'OFF',          # even if ROS loads, it finds no one
         'OMP_NUM_THREADS':               '2',
         'PYTHONDONTWRITEBYTECODE':       '1',
-        'AGENT_MEMORY_MB':               str(config.memory_mb),     # agent_guard applies the limits itself
+        'AGENT_MEMORY_MB':               str(config.memory_mb),     # sandbox_guard applies the limits itself
         'AGENT_CPU_S':                   str(int(config.timeout_s) + 5),
         'AGENT_DENIED_MODULES':          _denied_modules(),     # the deny list's: the Unitree SDK, raw DDS
         'AGENT_HIDDEN':                  ':'.join(config.hidden),

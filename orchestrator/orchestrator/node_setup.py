@@ -7,7 +7,7 @@ from typing import Callable
 
 from rclpy.node import Node
 
-from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry, agent_contracts_dir, missing_folder
+from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry, missing_folder, skills_dir
 
 from .places import parse_places
 from .map_places import MapInfoPlaces
@@ -23,24 +23,23 @@ def load_places(path: str) -> dict:
 
 
 def declare_sources(node: Node) -> tuple[str, str, str]:
-    """Declare contracts_directory, places_file and map_info: where every node loads its skills and places from.
+    """Declare skills_dir, places_file and map_info: where every node loads its skills and places from.
     A places_file is used when it is set; else the places come from the map_info node (e.g. /map_info), live"""
-    contracts_directory = node.declare_parameter('contracts_directory', str(agent_contracts_dir())).value
-    places_file         = node.declare_parameter('places_file', '').value
+    library     = node.declare_parameter('skills_dir', str(skills_dir())).value
+    places_file = node.declare_parameter('places_file', '').value
+    map_info    = node.declare_parameter('map_info', '/map_info').value
 
-    map_info            = node.declare_parameter('map_info', '/map_info').value
-
-    return contracts_directory, places_file, map_info
+    return library, places_file, map_info
 
 
 def load_skills(node: Node) -> tuple[Registry, Callable[[], dict], set[str]]:
     """Declare the sources and essential_devices; return the registry, the places now (a call) and the devices"""
-    contracts_directory, places_file, map_info = declare_sources(node)
+    library, places_file, map_info             = declare_sources(node)
     essential_devices                          = node.declare_parameter('essential_devices', sorted(DEFAULT_ESSENTIAL_DEVICES)).value
     file_places                                = load_places(places_file)
     places                                     = (lambda: file_places) if places_file or not map_info else MapInfoPlaces(node, map_info)
 
-    if warning := missing_folder(contracts_directory):
+    if warning := missing_folder(library):
         node.get_logger().warning(warning)
 
-    return Registry.from_directory(Path(contracts_directory)), places, set(essential_devices)
+    return Registry.from_directory(Path(library)), places, set(essential_devices)

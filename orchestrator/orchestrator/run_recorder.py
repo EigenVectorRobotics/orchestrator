@@ -15,28 +15,24 @@ from pathlib import Path
 import rclpy
 
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import String
 
-from skill_registry import agent_code_dir
+from skill_registry.registry import CODE_FILE, CONTRACT_FILE
+from skill_registry.provenance import DEFAULT_REPO_ROOTS, directory_digests, file_digest, find_repos, git_state
 
-from .tasks import TASK_TOPIC
-from .trace import TRACE_QOS, TRACE_TOPIC
 from .node_setup import declare_sources
-from .task_agent import COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC
-from .ros_skill_runner import LATCHED_QOS
-from .recording import (DEFAULT_REPO_ROOTS, Recorder, RecorderConfig, directory_digests, file_digest, find_repos,
-                        git_state, largest_runs)
+from .qos import LATCHED_QOS, TRACE_QOS
+from .topics import (COMMAND_TOPIC, OPEN_TOPIC, RECORDER_TOPIC, REPLY_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
+                     STEP_REQUEST_TOPIC, TASK_TOPIC, TRACE_TOPIC)
+from .recording import Recorder, RecorderConfig, largest_runs
 
 
-STATUS_TOPIC = '/orchestrator/recorder/status'
 BAG_STOP_S   = 10.0                             # SIGINT, then this long to close the file, then SIGKILL
 
-BAG_TOPICS = [
-    TRACE_TOPIC, OPEN_TOPIC, COMMAND_TOPIC, REPLY_TOPIC, STEP_REQUEST_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
-    '/speak', '/route_goal', '/route_planner/status', '/nav_state', '/state_estimation', '/odom_base_link',
-    '/right_ee_pose', '/left_ee_pose', '/track_3d/is_tracking', '/track_3d/selected_target_3d', '/slam_elevatorlio/status',
-]
+# The orchestrator's own topics. The robot stack's topics are the parameter stack_topics (config/orchestrator.yaml)
+BAG_TOPICS = [TRACE_TOPIC, OPEN_TOPIC, COMMAND_TOPIC, REPLY_TOPIC, STEP_REQUEST_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC]
 
 
 class RosBag:
@@ -84,24 +80,23 @@ class RunRecorderNode(Node):
         min_free_gb = self.declare_parameter('min_free_gb', RecorderConfig.min_free_gb).value
         repo_roots  = self.declare_parameter('repo_roots', DEFAULT_REPO_ROOTS).value
         record_bag  = self.declare_parameter('bag', True).value
-        bag_topics  = self.declare_parameter('bag_topics', BAG_TOPICS).value
-        code_dir    = self.declare_parameter('code_dir', str(agent_code_dir())).value
+        bag_topics  = BAG_TOPICS + (self.declare_parameter('stack_topics', Parameter.Type.STRING_ARRAY).value or [])
 
-        contracts, places_file, map_info = declare_sources(self)
+        library, places_file, map_info = declare_sources(self)
 
         provenance = {
             'git':    [git_state(repo) for repo in find_repos(repo_roots)],
             'places': {'path': places_file, 'sha256': file_digest(Path(places_file))} if places_file else {'map_info': map_info},
         }
-        # read at the start of each run, not once: the agent writes contracts while the session runs (write_skill)
-        library = lambda: {'contracts': directory_digests(Path(contracts), '*.yaml'),
-                           'code':      directory_digests(Path(code_dir), '*.py')}
+        # read at the start of each run, not once: the agent writes skills while the session runs (write_skill)
+        digests = lambda: (directory_digests(Path(library), f'*/{CONTRACT_FILE}')
+                           | directory_digests(Path(library), f'*/{CODE_FILE}'))
 
-        self.bag      = RosBag(self, list(bag_topics)) if record_bag else None
+        self.bag      = RosBag(self, bag_topics) if record_bag else None
         self.recorder = Recorder(RecorderConfig(root=root, min_free_gb=min_free_gb), provenance,
-                                 self.bag, library=library)
+                                 self.bag, library=digests)
 
-        self._status_publisher = self.create_publisher(String, STATUS_TOPIC, LATCHED_QOS)
+        self._status_publisher = self.create_publisher(String, RECORDER_TOPIC, LATCHED_QOS)
         self._subscriptions    = [       # not self._subscriptions of Node: that name is taken by rclpy
             self.create_subscription(String, TRACE_TOPIC, self._json(self.recorder.on_event), TRACE_QOS),
             self.create_subscription(String, TASK_TOPIC, lambda message: self.recorder.on_task(message.data), 10),

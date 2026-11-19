@@ -32,9 +32,9 @@ from pathlib import Path
 
 import yaml
 
-from skill_registry import Contract, Registry, agent_code_dir, code_file
-
-from .recording import file_digest, repo_states
+from .contract import Contract
+from .registry import Registry, code_file, contract_file
+from .provenance import file_digest, repo_states
 
 
 def called_skills(code: str) -> tuple[list[str], bool]:
@@ -68,13 +68,11 @@ def uses_of(contract: Contract, code: str = '') -> tuple[list[str], bool]:
 
 
 class Stamps:
-    """The stamps of the agent's skills, in one file beside its library"""
+    """The stamps of the library's skills, in one file outside git (registry.stamps_file)"""
 
-    def __init__(self, contracts_dir: Path | str, repo_roots: list[str], code_dir: Path | str | None = None,
-                 sweep_s: float = 5.0):
-        self.contracts  = Path(contracts_dir).expanduser()
-        self.code_dir   = Path(code_dir).expanduser() if code_dir else agent_code_dir()
-        self.path       = self.contracts.parent / 'stamps.yaml'
+    def __init__(self, skills_dir: Path | str, repo_roots: list[str], path: Path | str, sweep_s: float = 5.0):
+        self.skills     = Path(skills_dir).expanduser()
+        self.path       = Path(path).expanduser()
         self.repo_roots = list(repo_roots)
         self.sweep_s    = sweep_s           # how long one git sweep serves; the registry reloads on the same period
         self._lock      = threading.Lock()  # the writer stamps on a save, the desk on a step: two threads, one file
@@ -115,15 +113,24 @@ class Stamps:
         stack: coarse on purpose, because a wrong 'nothing changed' is worse than a loud one.
 
         source is free text, so a name is matched whole: 'vector' must not match a repo called vector_nav"""
-        states = repo_states(self.repo_roots) if states is None else states
+        states = self.repo_states() if states is None else states
         words  = set(re.split(r'[^0-9A-Za-z_]+', contract.source))
         named  = {path: state for path, state in states.items() if Path(path).name in words}
 
         return named or states
 
+    def repo_states(self) -> dict[str, str]:
+        """The repos as they are now, without the agent's own files in them: the library, and whatever else the agent
+        folder (beside the stamps file) links to, such as its docs and the runbook. A skill or a doc written or
+        committed there is not a change in the code under a skill; its own file and the skills it uses are stamped
+        by digest"""
+        links = [path for path in self.path.parent.glob('*') if path.is_symlink()]
+
+        return repo_states(self.repo_roots, exclude=[self.skills, *links])
+
     def code_of(self, contract: Contract) -> str:
         """The Python of a code skill, where the runner and write_skill agree it is; '' for another transport"""
-        path = code_file(contract.name, self.code_dir)
+        path = code_file(contract.name, self.skills)
 
         return path.read_text() if contract.interface.transport == 'code' and path.is_file() else ''
 
@@ -149,7 +156,7 @@ class Stamps:
             return {}
 
     def digest(self, name: str) -> str | None:
-        return file_digest(self.contracts / f'{name}.yaml')
+        return file_digest(contract_file(name, self.skills))
 
     def reasons(self, registry: Registry | None = None) -> dict[str, str]:
         """Every stale skill and why, in one pass: the stamp file and the repo states are read once, not once per
@@ -170,7 +177,7 @@ class Stamps:
         """The stamps and the repo states, swept at most every sweep_s"""
         with self._lock:
             if self._world is None or time.monotonic() - self._world[0] > self.sweep_s:
-                self._world = (time.monotonic(), self._read(), repo_states(self.repo_roots))
+                self._world = (time.monotonic(), self._read(), self.repo_states())
 
             return self._world[1], self._world[2]
 
@@ -219,7 +226,7 @@ class SkillClock:
     """The knowledge store's code clock: the code under a skill, by name, as the executor has it loaded.
 
     The executor saves where it reads the code (save) beside the knowledge store, and the knowledge CLI loads the
-    same (load). A clock with other repo roots or another contracts folder would see every claim as moved"""
+    same (load). A clock with other repo roots or another skills folder would see every claim as moved"""
 
     def __init__(self, stamps: Stamps, registry: Registry):
         self.stamps   = stamps
@@ -275,7 +282,7 @@ class SkillClock:
         return f'{skill} now runs {", ".join(added)}' if added else ''
 
     def save(self, folder: Path | str) -> None:
-        where     = {'contracts': str(self.stamps.contracts), 'code': str(self.stamps.code_dir),
+        where     = {'skills': str(self.stamps.skills), 'stamps': str(self.stamps.path),
                      'repo_roots': list(self.stamps.repo_roots)}
         path      = Path(folder).expanduser() / CLOCK_FILE
         temporary = path.with_suffix(f'.{os.getpid()}.tmp')
@@ -287,12 +294,12 @@ class SkillClock:
         """The executor's clock, or None when no executor has saved one here, or it cannot be read"""
         try:
             where    = yaml.safe_load((Path(folder).expanduser() / CLOCK_FILE).read_text())
-            stamps   = Stamps(where['contracts'], list(where['repo_roots']), code_dir=where['code'])
+            stamps   = Stamps(where['skills'], list(where['repo_roots']), path=where['stamps'])
         except (OSError, yaml.YAMLError, TypeError, KeyError):
             return None
 
         registry = Registry()
-        registry.refresh(stamps.contracts)  # as the executor loads: a bad file is left out
+        registry.refresh(stamps.skills)     # as the executor loads: a bad file is left out
 
         return cls(stamps, registry)
 

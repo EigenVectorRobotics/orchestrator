@@ -4,7 +4,7 @@ The fields and the allowed values come from the parser itself (contract.py), so 
 write_skill takes cannot drift apart. The rules are prose, and a refusal says the same thing in the same words: a
 new rule in parse_contract needs its line here too. The task desk carries this text in the open message, as it
 carries the runbook, so a session with agent_cli and the task loop in the executor both read it. Everything about
-what write_skill takes is here, the code skills too; task_loop.SYSTEM says only how to decide.
+what write_skill takes is here, the code skills too; codex_agent.SYSTEM says only how to decide.
 """
 
 from .contract import NAME_RULE, READ_ONLY, ROS_TRANSPORTS, Contract, HeldValue, Interface, Port, Watch, field_text, one_of

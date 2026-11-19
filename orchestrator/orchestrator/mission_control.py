@@ -5,7 +5,7 @@ and the rules of a command, so that both can be read and tested alone.
 
 The page reads one state message (GET /api/state) and sends a task, a step decision or a cancel (POST). A
 decision goes out on the same topic as `agent_cli step`, so the gate, the limits and the recorder see no
-difference. The step gate itself is the only judge of a decision (StepGate.decide in task_agent.py): this module
+difference. The step gate itself is the only judge of a decision (StepGate.decide in step_gate.py): this module
 checks the HTTP body, sends the decision and relays the gate's answer.
 """
 
@@ -16,15 +16,13 @@ import threading
 from collections import deque
 from typing import Callable
 
-from .images import ImageError, encode_rgb, image_to_rgb
+from .images import Camera
 
 
 MAX_TASK_CHARS = 400                    # a task sentence; longer is a plan, not a task
 TRACE_KEEP     = 400                    # trace events the page can scroll back through
 DECISION_WAIT  = 5.0                    # seconds to wait for the executor's reply to a decision
 TASK_FIELDS    = ('state', 'run_id', 'task', 'blind', 'end', 'limits')   # of the open message; not places, known or scratch
-CAMERA_SIDE    = 960                    # the long side of the frame the page gets, in pixels
-CAMERA_QUALITY = 80
 
 
 class MissionState:
@@ -78,57 +76,6 @@ class MissionState:
 def token_ok(expected: str, given: str) -> bool:
     """True when a command carries the node's token. `off` takes the check away, for a bench with no agent on it"""
     return expected == 'off' or (bool(expected) and hmac.compare_digest(expected.encode(), (given or '').encode()))
-
-
-class Camera:
-    """The latest camera frame, encoded only when the page asks for one: the robot publishes faster than a person
-    looks. No ROS here either: images.py reads any message with height, width, step, encoding and data"""
-
-    def __init__(self, topic: str = '', max_side: int = CAMERA_SIDE, quality: int = CAMERA_QUALITY):
-        self.topic     = topic
-        self.max_side  = max_side
-        self.quality   = quality
-        self._lock     = threading.Lock()
-        self._message  = None
-        self._at       = 0.0
-        self._encoded  = None                        # (the message it came from, bytes, media type)
-
-    def put(self, message):
-        with self._lock:
-            self._message, self._at, self._encoded = message, time.time(), None
-
-    def state(self) -> dict:
-        """What the page shows next to the frame"""
-        with self._lock:
-            message = self._message
-
-            if message is None:
-                return {'have': False, 'topic': self.topic}
-
-            return {'have': True, 'topic': self.topic, 'stamp': self._at, 'age_s': round(time.time() - self._at, 1),
-                    'width': message.width, 'height': message.height}
-
-    def frame(self) -> tuple[bytes, str] | None:
-        """The latest frame as JPEG, or None; the encoding runs on the web server's thread, not on the spin thread"""
-        with self._lock:
-            message, encoded = self._message, self._encoded
-
-        if message is None:
-            return None
-
-        if encoded is not None and encoded[0] is message:
-            return encoded[1], encoded[2]
-
-        try:
-            body, media_type = encode_rgb(image_to_rgb(message), max_side=self.max_side, quality=self.quality)
-        except ImageError:
-            return None
-
-        with self._lock:
-            if self._message is message:
-                self._encoded = (message, body, media_type)
-
-        return body, media_type
 
 
 class Commands:

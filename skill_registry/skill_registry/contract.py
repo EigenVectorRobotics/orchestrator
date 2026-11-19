@@ -303,7 +303,8 @@ def _format_fields(text: str) -> set[str]:
 
 
 def load_contract(path: Path) -> Contract:
-    """A contract file: its name must be the file's name; an agent's file (AGENT_MARK) is at maturity untested"""
+    """A contract file: the skill's name must be its folder's name; an agent's file (AGENT_MARK) is at maturity
+    untested"""
     text = Path(path).read_text()
     raw  = yaml.safe_load(text)
 
@@ -312,7 +313,7 @@ def load_contract(path: Path) -> Contract:
 
     contract = parse_contract(raw)
 
-    if contract.name != Path(path).stem:
-        raise ContractError(f'{path}: the file of skill {contract.name} must be {contract.name}.yaml')
+    if contract.name != Path(path).parent.name:
+        raise ContractError(f'{path}: the folder of skill {contract.name} must be {contract.name}/')
 
     return contract

@@ -8,7 +8,7 @@ from skill_registry import Registry, contract_grammar, parse_contract
 
 from orchestrator.tasks import describe_catalog
 
-from orchestrator.task_loop import MAX_SECTION_CHARS, CodexDecider, DeciderError, TaskLoop, build_prompt
+from orchestrator.codex_agent import MAX_SECTION_CHARS, CodexDecider, DeciderError, TaskLoop, build_prompt
 from orchestrator.behavior_tree import Status
 
 from fakes import FakeRunner, _context, _desk, _tick_until

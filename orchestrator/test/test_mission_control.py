@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
-from orchestrator.mission_control import Camera, Commands, MissionApi, MissionState, token_ok
+from orchestrator.images import Camera
+from orchestrator.mission_control import Commands, MissionApi, MissionState, token_ok
 
 
 def _api(reply: dict | None = {'accepted': True, 'message': 'approved'}, listening: bool = True):

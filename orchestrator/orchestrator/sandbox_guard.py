@@ -1,6 +1,6 @@
 """Run one agent code file under an audit hook: no ROS, no network, no new processes, writes only in the scratch directory.
 
-The sandbox runs `python3 -I agent_guard.py <code file>`. This is a guard against mistakes, not a security boundary:
+The sandbox runs `python3 -I sandbox_guard.py <code file>`. This is a guard against mistakes, not a security boundary:
 code that means harm can get around an audit hook (e.g. through ctypes). The NUC allows no user namespaces, so
 bubblewrap and unshare cannot give a real one.
 """

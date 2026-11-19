@@ -14,7 +14,7 @@ setup(
         (f'share/{PACKAGE_NAME}/launch', glob('launch/*.launch.py')),
         (f'share/{PACKAGE_NAME}/config', glob('config/*.yaml')),
         (f'share/{PACKAGE_NAME}/web', glob('web/*')),
-        (f'share/{PACKAGE_NAME}/agent', glob('agent/*.md')),
+        (f'share/{PACKAGE_NAME}/agent', ['agent/runbook.md']),     # the same file, when the workspace link is missing
     ],
     install_requires=['setuptools'],
     zip_safe=True,

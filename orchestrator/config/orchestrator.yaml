@@ -1,6 +1,6 @@
 # Parameters for all orchestrator nodes, loaded by orchestrator.launch.py (params_file:=... to use another).
 # /** applies to every node; a node that does not declare a parameter ignores it.
-# contracts_directory, places_file and vlm_base_url are launch arguments, so they are not set here.
+# skills_dir, places_file and vlm_base_url are launch arguments, so they are not set here.
 /**:
   ros__parameters:
     essential_devices: [nuc, orin]      # devices whose loss stops the robot anyway; skills elsewhere need a recovery
@@ -17,8 +17,7 @@ orchestrator_recorder:
   ros__parameters:
     # root: ~/orch_runs (default), one folder per bring-up; the operator clears old runs by hand
     min_free_gb: 20.0                   # below this, no task runs (checked at start and every 5 s)
-    bag: true                           # a bag of bag_topics for each task run
-
-skill_registry:
-  ros__parameters:
-    max_age_s: 5.0
+    bag: true                           # a bag for each task run: the orchestrator's own topics, and these
+    stack_topics: [/speak, /route_goal, /route_planner/status, /nav_state, /state_estimation, /odom_base_link,
+                   /right_ee_pose, /left_ee_pose, /track_3d/is_tracking, /track_3d/selected_target_3d,
+                   /slam_elevatorlio/status]

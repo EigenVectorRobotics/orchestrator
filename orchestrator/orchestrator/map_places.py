@@ -8,7 +8,8 @@ runs is on the blackboard of the next task. The entries have the format of place
 from rclpy.node import Node
 
 from .places import PlacesError, parse_places
-from .ros_skill_runner import LATCHED_QOS, pose_dict
+from .qos import LATCHED_QOS
+from skill_registry.geometry import pose_dict
 
 
 class MapInfoPlaces:

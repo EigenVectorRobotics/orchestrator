@@ -20,16 +20,8 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import Trigger
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PoseStamped
 
-from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS
-
-
-BUTTON_BOX = (300, 220, 340, 260)       # where the fake camera draws the button, x_min y_min x_max y_max
-
-# (phase of the press, depth along the goal's +X): approach, hold at the pre-grasp, push, hold, retreat
-PRESS_PROFILE = [(0.0, -0.40), (0.4, -0.10), (0.5, -0.10), (0.7, 0.0), (0.75, 0.0), (1.0, -0.10)]
-MISS_PROFILE  = [(0.0, -0.40), (0.6, -0.13), (1.0, -0.13)]
+from .qos import COMMAND_QOS, LATCHED_QOS
 
 
 class FakeRobot(Node):
@@ -56,8 +48,7 @@ class FakeRobot(Node):
         self._tracking  = self.create_publisher(Bool, '/track_3d/is_tracking', COMMAND_QOS)
         self._elevator  = self.create_publisher(Bool, '/LIO/in_elevator', COMMAND_QOS)
         self._camera    = self.create_publisher(Image, '/camera/camera/color/image_raw', 1)     # raw, as on the Orin
-        self._ee        = {arm: self.create_publisher(PoseStamped, f'/{arm}_ee_pose', COMMAND_QOS) for arm in ('right', 'left')}
-        self._make_camera()
+        self._frame     = np.full((480, 640, 3), (90, 90, 95), dtype=np.uint8)                   # a plain grey frame
 
         self.create_subscription(Bool, '/cancel_goal', self._on_cancel, COMMAND_QOS)
         self.create_subscription(String, '/keyboard_input', self._on_query, COMMAND_QOS)
@@ -165,46 +156,6 @@ class FakeRobot(Node):
         image.data                = self._frame.tobytes()
         self._camera.publish(image)
 
-        if self.is_tracking and self._boxes is not None:     # track_anything stamps its boxes as their frame
-            self._publish_box(image.header)
-
-    def _make_camera(self):
-        """A 640x480 RGB frame with a grey button in the middle, and track_anything's box topics if vision_msgs is there"""
-        x_min, y_min, x_max, y_max = BUTTON_BOX
-        rows, columns = np.mgrid[0:480, 0:640]
-        inside        = ((columns - (x_min + x_max) / 2) / ((x_max - x_min) / 2)) ** 2 + ((rows - (y_min + y_max) / 2) / ((y_max - y_min) / 2)) ** 2 <= 1
-        self._frame   = np.full((480, 640, 3), (90, 90, 95), dtype=np.uint8)
-        self._frame[inside] = (200, 200, 200)
-
-        try:
-            from vision_msgs.msg import Detection2DArray, Detection3D
-
-            self._box_types = (Detection2DArray, Detection3D)
-            self._boxes     = self.create_publisher(Detection2DArray, '/track_3d/detections_2d', COMMAND_QOS)
-            self._target    = self.create_publisher(Detection3D, '/track_3d/selected_target_3d', COMMAND_QOS)
-        except ImportError:
-            self._boxes = None
-
-    def _publish_box(self, header):
-        boxes_type, target_type = self._box_types
-        x_min, y_min, x_max, y_max = BUTTON_BOX
-        boxes = boxes_type(header=header)
-        boxes.detections.append(self._detection(header, x_min, y_min, x_max, y_max))
-        self._boxes.publish(boxes)
-        self._target.publish(target_type(header=header, id='1'))
-
-    @staticmethod
-    def _detection(header, x_min, y_min, x_max, y_max):
-        from vision_msgs.msg import Detection2D
-
-        detection                        = Detection2D(header=header, id='1')
-        detection.bbox.center.position.x = (x_min + x_max) / 2
-        detection.bbox.center.position.y = (y_min + y_max) / 2
-        detection.bbox.size_x            = float(x_max - x_min)
-        detection.bbox.size_y            = float(y_max - y_min)
-
-        return detection
-
     # ========== Tracking, voice, services ==========
 
     def _on_query(self, message: String):
@@ -243,15 +194,12 @@ class FakeRobot(Node):
         )
 
     def _press(self, goal_handle):
-        """Like the servo node: feedback at 2 Hz, and the end-effector pose at 100 Hz along the press. The pose
-        approaches to the pre-grasp (0.10 m before the goal), holds, pushes to the goal, holds, and retreats. A miss
-        stalls 0.13 m short of the goal and never pushes, as an arm out of reach does"""
+        """Like the servo node: feedback at 2 Hz for press_time_s, then the result. A miss is an arm out of reach"""
         out_of_reach = self.press_fails > 0
         self.press_fails -= 1 if out_of_reach else 0
         success      = self.press_success and not out_of_reach
         start        = time.monotonic()
         feedback     = self._action_type.Feedback()
-        arm          = 'left' if goal_handle.request.left_arm else 'right'
         goal         = (0.62, -0.18, 1.05)
 
         feedback.current_goal.header.frame_id = 'foot_world'
@@ -267,16 +215,13 @@ class FakeRobot(Node):
                 goal_handle.canceled()
                 return self._action_type.Result(success=False, message='Cancelled')
 
-            depth = self._press_depth(elapsed / self.press_time_s, out_of_reach)
-            self._publish_ee(arm, (goal[0] + depth, goal[1], goal[2]))
-
             if elapsed - last_feedback >= 0.5:
                 last_feedback              = elapsed
                 feedback.elapsed_time      = elapsed
-                feedback.distance_to_goal  = abs(depth)
+                feedback.distance_to_goal  = max(0.0, 0.10 * (1.0 - elapsed / self.press_time_s))
                 goal_handle.publish_feedback(feedback)
 
-            time.sleep(0.01)
+            time.sleep(0.05)
 
         self.is_tracking = False                                   # and resets it when the goal ends
         result = self._action_type.Result(success=success, message='Controller reached target')
@@ -289,21 +234,6 @@ class FakeRobot(Node):
             goal_handle.abort()
 
         return result
-
-    @staticmethod
-    def _press_depth(phase: float, out_of_reach: bool) -> float:
-        """Depth along the goal's +X at a phase in [0, 1]: 0 at the goal, -0.10 at the pre-grasp"""
-        profile = MISS_PROFILE if out_of_reach else PRESS_PROFILE
-
-        return float(np.interp(phase, [point[0] for point in profile], [point[1] for point in profile]))
-
-    def _publish_ee(self, arm: str, position: tuple):
-        pose                 = PoseStamped()
-        pose.header.frame_id = 'foot_world'
-        pose.header.stamp    = self.get_clock().now().to_msg()
-        pose.pose.position.x, pose.pose.position.y, pose.pose.position.z = position
-        pose.pose.orientation.w = 1.0
-        self._ee[arm].publish(pose)
 
     # ========== VLM ==========
 

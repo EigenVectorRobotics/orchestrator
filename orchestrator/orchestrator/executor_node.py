@@ -9,12 +9,11 @@ from pathlib import Path
 import rclpy
 
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
 
 from ament_index_python.packages import get_package_share_directory
-from skill_registry import agent_code_dir, agent_knowledge_dir, agent_runbook_file
+from skill_registry import agent_knowledge_dir, agent_runbook_file, stamps_file
 
 from .trace import Tracer
 from .knowledge import KnowledgeStore
@@ -22,23 +21,22 @@ from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
 from .code_skill import CodeRunner
-from .agent_sandbox import SandboxConfig
-from .tasks import CANCEL_TOPIC, STATUS_TOPIC, TASK_TOPIC, Tasks, parse_task_request
-from .task_loop import CodexDecider, TaskLoop
+from .sandbox import SandboxConfig
+from .tasks import Tasks, parse_task_request
+from .codex_agent import CodexDecider, TaskLoop
 from .tasks import describe_catalog
-from .recording import DEFAULT_REPO_ROOTS, repo_states
-from .skill_stamps import SkillClock, Stamps
-from .skill_writer import SkillWriter
-from .contract_check import check_ros_types
-from .task_agent import (COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC as TASK_REPLY_TOPIC, STEP_DECISION_TOPIC,
-                         STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC, StepGate, TaskDesk)
+from skill_registry.provenance import DEFAULT_REPO_ROOTS
+from skill_registry.skill_stamps import SkillClock, Stamps
+from skill_registry.skill_writer import SkillWriter
+from skill_registry.contract_check import check_ros_types
+from .step_gate import StepGate
+from .task_desk import TaskDesk
 from .behavior_tree import Context, Status
 from .ros_skill_runner import RosSkillRunner
-from .run_recorder import STATUS_TOPIC as RECORDER_TOPIC
-
-
-STATUS_QOS  = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-COMMAND_QOS = QoSProfile(depth=5)
+from .sensing import CameraStream
+from .qos import COMMAND_QOS, LATCHED_QOS
+from .topics import (CANCEL_TOPIC, COMMAND_TOPIC, OPEN_TOPIC, RECORDER_TOPIC, REPLY_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC,
+                     STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC, TASK_TOPIC)
 
 
 def read_text(path: Path) -> str:
@@ -50,7 +48,7 @@ def read_text(path: Path) -> str:
 
 
 def share_runbook() -> Path:
-    """The runbook as the package installs it (setup.py); the agent folder's copy wins over it"""
+    """The runbook as the package installs it: the same file from git, for when the workspace link is missing"""
     return Path(get_package_share_directory('orchestrator')) / 'agent' / 'runbook.md'
 
 
@@ -59,6 +57,7 @@ class ExecutorNode(Node):
         super().__init__('orchestrator_executor')
 
         self.registry, self.places, self.essential_devices = load_skills(self)
+        self.skills_dir   = Path(self.get_parameter('skills_dir').value)     # the library, declared by load_skills
 
         self.tick_hz      = self.declare_parameter('tick_hz', 10.0).value
         self.image_topic  = self.declare_parameter('image_topic', '/camera/camera/color/image_raw').value
@@ -71,11 +70,12 @@ class ExecutorNode(Node):
 
         self.tracer   = Tracer(self, 'executor')
         self._speaker = self.create_publisher(String, '/speak', 10)            # unitree_interface's TTS (remapped ~/tts)
+        self.camera   = CameraStream(self, self.image_topic)
         self.runner   = RosSkillRunner(
             self,
             self.registry,
+            self.camera,
             VlmClient(VlmClientConfig(base_url=self.vlm_base_url, model=self.vlm_model, timeout_s=self.vlm_timeout)),
-            self.image_topic
         )
 
         knowledge_dir  = self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value     # claims.yaml, log.jsonl
@@ -88,18 +88,17 @@ class ExecutorNode(Node):
                            self._publish_status, self.essential_devices, make_scratch=self._run_scratch,
                            on_error=self.get_logger().error)
 
-        self._status_publisher   = self.create_publisher(String, STATUS_TOPIC, STATUS_QOS)
+        self._status_publisher   = self.create_publisher(String, STATUS_TOPIC, LATCHED_QOS)
         self._subscriptions      = [
             self.create_subscription(Empty, CANCEL_TOPIC, self._on_cancel, 10),
-            self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, STATUS_QOS),
+            self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, LATCHED_QOS),
         ]
-        # contracts that change on disk load while it runs, checked as write_skill checks them (skill_writer.py)
-        contracts_dir            = Path(self.get_parameter('contracts_directory').value)
-        self.stamps              = self._make_stamps(contracts_dir)
+        # skills that change on disk load while it runs, checked as write_skill checks them (skill_writer.py)
+        self.stamps              = self._make_stamps(self.skills_dir)
         self.knowledge.code      = SkillClock(self.stamps, self.registry)     # a claim about a skill counts evidence on its code now
         self.knowledge.code.save(self.knowledge.folder)                       # and the knowledge CLI uses the same clock
-        self.writer              = SkillWriter(self.registry, contracts_dir, check_ros_types, self.runner.prepare,
-                                               code_dir=self.code.code_dir, stamps=self.stamps)
+        self.writer              = SkillWriter(self.registry, self.skills_dir, check_ros_types, self.runner.prepare,
+                                               stamps=self.stamps)
         self.desk                = self._make_desk()
         self.loop                = self._make_loop()
         self._tick_timer         = self.create_timer(1.0 / self.tick_hz, self._tick)
@@ -108,13 +107,14 @@ class ExecutorNode(Node):
         self._publish_status('idle')
         self.get_logger().info(f'{len(self.registry)} skills, {len(self.places())} places')
 
-    def _make_stamps(self, contracts_dir: Path) -> Stamps:
+    def _make_stamps(self, skills_dir: Path) -> Stamps:
         """What a skill was proved against. repo_roots is also run_recorder's parameter and both nodes default to
         DEFAULT_REPO_ROOTS, but they are declared per node: set it on one only and the stamps and the run bundle
         answer 'which code is this' about different repos, so the roots are logged at start"""
         roots  = self.declare_parameter('repo_roots', DEFAULT_REPO_ROOTS).value
-        stamps = Stamps(contracts_dir, list(roots), code_dir=self.code.code_dir)
-        found  = len(repo_states(stamps.repo_roots))
+        path   = self.declare_parameter('stamps_file', str(stamps_file())).value
+        stamps = Stamps(skills_dir, list(roots), path=path)
+        found  = len(stamps.repo_states())
 
         if found:
             self.get_logger().info(f'skill stamps: {found} repos under {", ".join(stamps.repo_roots)}')
@@ -129,10 +129,10 @@ class ExecutorNode(Node):
 
     def _make_desk(self) -> TaskDesk:
         """Task mode: a session (agent_cli) does each task step by step through these topics"""
-        open_publisher  = self.create_publisher(String, OPEN_TOPIC, STATUS_QOS)
-        reply_publisher = self.create_publisher(String, TASK_REPLY_TOPIC, COMMAND_QOS)
+        open_publisher  = self.create_publisher(String, OPEN_TOPIC, LATCHED_QOS)
+        reply_publisher = self.create_publisher(String, REPLY_TOPIC, COMMAND_QOS)
         publish_reply   = lambda message: reply_publisher.publish(String(data=json.dumps(message, default=str)))
-        self._runbook_given = self.declare_parameter('runbook', '').value
+        self._runbook   = Path(self.declare_parameter('runbook', str(agent_runbook_file())).value).expanduser()
         self._say_which_runbook()
         writes          = self.declare_parameter('write_skill', True).value
 
@@ -187,36 +187,29 @@ class ExecutorNode(Node):
         self.get_logger().info(f'task agent: codex {decider.model}, one decision per turn')
 
         return TaskLoop(self.desk, decider, lambda: describe_catalog(self.registry, self.essential_devices, self._stale()),
-                        self.runner.latest_image, self.tracer)
+                        self.camera.latest, self.tracer)
 
     def _runbook_file(self) -> Path:
-        """What the robot is: the operator's file wins, else the one the package ships, so a fresh robot is never
-        without a runbook. Chosen again at each task open, so a file written or removed while it runs is seen"""
-        wanted = Path(self._runbook_given).expanduser() if self._runbook_given else agent_runbook_file()
-
-        return wanted if wanted.is_file() else share_runbook()
+        """The runbook is in git (orchestrator/agent/runbook.md), and the agent folder links to it
+        (scripts/link_agent_dir.sh). Without the link, the copy that the package installs: the agent never runs
+        without the robot's description and safety rules. Chosen at each task open, so a fixed link is seen"""
+        return self._runbook if self._runbook.is_file() else share_runbook()
 
     def _say_which_runbook(self) -> None:
-        """Once at start: which runbook the agent will get, and whether the operator's own file was found"""
-        wanted = Path(self._runbook_given).expanduser() if self._runbook_given else agent_runbook_file()
-        found  = self._runbook_file()
-
-        if not wanted.is_file():
-            self.get_logger().warning(f'no runbook at {wanted}: the one the package installs is used')
-
-        if found.is_file():
-            self.get_logger().info(f'runbook: {found}')
+        """Once at start"""
+        if self._runbook.is_file():
+            self.get_logger().info(f'runbook: {self._runbook}')
         else:
-            self.get_logger().warning(f'no runbook at {found} either: the agent gets no description of the robot')
+            self.get_logger().warning(f'no runbook at {self._runbook} (run scripts/link_agent_dir.sh): the agent gets '
+                                      f'the copy the package installs, {share_runbook()}')
 
     def _make_code(self) -> CodeRunner:
         """Code skills: Python in the sandbox that calls other skills back through this executor"""
-        code_dir = self.declare_parameter('code_dir', str(agent_code_dir())).value
         scratch  = self.declare_parameter('code_scratch_dir', str(Path.home() / 'orch_knowledge' / 'scratch' / 'code')).value
         timeout  = self.declare_parameter('code_cpu_s', 60.0).value
 
         return CodeRunner(self.registry, SandboxConfig(scratch_dir=scratch, timeout_s=timeout),
-                          code_dir=code_dir, approve=self._approve_inside_code)
+                          skills_dir=self.skills_dir, approve=self._approve_inside_code)
 
     def _approve_inside_code(self, contract, inputs: dict, reasons: list[str]) -> tuple[bool, str]:
         """A code skill is approved once; a skill the operator's gate.yaml names asks again, inside the code"""
@@ -230,7 +223,7 @@ class ExecutorNode(Node):
 
     def _make_gate(self) -> StepGate:
         """The real robot, at first: a person approves each step (agent_cli step approve|refuse, at a terminal)"""
-        request_publisher = self.create_publisher(String, STEP_REQUEST_TOPIC, STATUS_QOS)
+        request_publisher = self.create_publisher(String, STEP_REQUEST_TOPIC, LATCHED_QOS)
         reply_publisher   = self.create_publisher(String, STEP_REPLY_TOPIC, COMMAND_QOS)
         gate              = StepGate(lambda request: request_publisher.publish(String(data=json.dumps(request, default=str))))
 

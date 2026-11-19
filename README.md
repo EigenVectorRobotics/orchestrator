@@ -4,10 +4,10 @@ Agentic task planning for the G1. A task is one sentence. An agent does it step 
 
 | Package | Holds |
 |---|---|
-| `skill_registry` | The contract schema and grammar, the deny list, the validator, the step gate's quiet list. No skills: the agent writes them in `<agent_dir>/contracts` |
-| `orchestrator` | Executor, task desk, ROS skill runner, code skills and their sandbox, knowledge store, skill stamps, recorder, Mission Control, fake robot |
+| `skill_registry` | The skill library (`skills/`, one folder per skill) and what a skill is: the contract schema and grammar, the deny list, the step gate's quiet list, the tree validator, `write_skill`, the ROS type checks, the message conversion, and the skill stamps |
+| `orchestrator` | Executor, task desk, step gate, ROS skill runner, code skills and their sandbox, knowledge store, recorder, Mission Control, fake robot. The agent's runbook and codebase docs (`agent/`) |
 
-`<agent_dir>` is `$EIGEN_VECTOR_WS/agent` (launch argument `agent_dir`). It holds what the agent writes and learns: `contracts/`, `code/`, `knowledge/`, `runbook.md`, `stamps.yaml`.
+`<agent_dir>` is `$EIGEN_VECTOR_WS/agent` (launch argument `agent_dir`). `scripts/link_agent_dir.sh` makes it. It holds links to what is in git (`skills/`, `runbook.md`, `docs/`). It also holds what changes on each run (`knowledge/`, `stamps.yaml`). Thus, a skill or a doc that the agent writes is a change in git. A person reviews it and commits it.
 
 ## How it works (task mode, the default)
 
@@ -22,7 +22,7 @@ Limits: `task_max_steps` 40, `task_max_s` 900, `task_idle_s` 120. Design: `docs/
 ### Two task agents (`task_agent`)
 
 - **`session` (the default):** a Claude Code or Codex session outside the executor, with a shell. It drives the task with `agent_cli` and reads and writes knowledge with the `knowledge` CLI. Give it permission for `agent_cli` (not `step approve|refuse`) and for `knowledge list|show|note|confirm|contradict` only (`docs/skill-discovery.md`).
-- **`codex`:** a loop inside the executor (`task_loop.py`), one tool-free `codex exec` per decision (`codex_model`, default `gpt-6-astra`). The prompt is its only channel: it gets the knowledge pushed in and cannot write knowledge.
+- **`codex`:** a loop inside the executor (`codex_agent.py`), one tool-free `codex exec` per decision (`codex_model`, default `gpt-6-astra`). The prompt is its only channel: it gets the knowledge pushed in and cannot write knowledge.
 
 ```bash
 agent_cli task wait                     # the open task
@@ -43,11 +43,11 @@ The library starts empty. The agent writes each skill with `write_skill` (`docs/
 - An input's `field` can index a sequence: it can set `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters.
 - A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`; give z on the two-storey map, or the route planner takes the lowest storey. A pose output comes back as `{x, y, z, yaw, frame}`.
 - Two read-only transports run inside the executor: `graph` checks that each listed topic has at most its allowed publishers, and `compare` checks that an input equals a value.
-- **Skill stamps** (`<agent_dir>/stamps.yaml`): `write_skill` stamps a skill with the state of its repos and the digest of every skill it runs. When that code moves, the catalog says the skill is stale, with the reason. A step that succeeds is kept as evidence and clears nothing.
+- **Skill stamps** (`<agent_dir>/stamps.yaml`, not in git): `write_skill` stamps a skill with the state of its repos and the digest of every skill it runs. When that code moves, the catalog says the skill is stale, with the reason. A step that succeeds is kept as evidence and clears nothing.
 
 ### Code skills
 
-A code skill is a skill whose body is Python: a policy over the skills that already exist (Code as Policies). Its contract is `transport: code`, and the Python sits in `<agent_dir>/code/<name>.py`:
+A code skill is a skill whose body is Python: a policy over the skills that already exist (Code as Policies). Its contract is `transport: code`, and the Python sits beside it, in `skills/<name>/code.py`:
 
 ```python
 def run(skills, inputs):
@@ -93,7 +93,7 @@ ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Tell me wh
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-The library starts empty, so the agent must write its skills first. To exercise the engine alone, run the tests: they use a small made-up robot (`skill_registry/test/contracts`).
+The library starts empty, so the agent must write its skills first. To exercise the engine alone, run the tests: they use a small made-up robot (`skill_registry/test/skills`).
 
 All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). `fake_robot` has the same topics, services, navigation and arm actions, and VLM server as the robot. The two actions need `navigation_interfaces` (from `navigation_stack`) and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`, `press_fail_count:=1`, `nav_blocked:=true`, `vlm_answers:=door=closed`, `nav_time_s:=5.0`, `vlm_port`.
 
@@ -110,7 +110,8 @@ The NUC builds this repo in `~/eigen_vector_orch_ws`, from the deploy repo `eige
 - **Mission Control:** `ssh -L 8080:localhost:8080 vector@vector-nuc`, then open the link with its token from the node log (`mission control on ...`).
 - **The step gate is on.** Approve or refuse each step in Mission Control, or at a terminal with `agent_cli step approve|refuse`.
 - **VLM skills** (for example `ask_vlm`) post to `vlm_base_url`, default `http://vector-thor:8090/v1`. On the Thor, start `ros2 run orchestrator cosmos_vlm_server --port 8090` in the environment that runs `ground_server`. It answers with the Cosmos daemon, one request at a time.
-- **First checks of a launch:** the log says `skill stamps: N repos under ...`, and `$EIGEN_VECTOR_WS/agent/knowledge/code_clock.yaml` exists.
+- **Once after a deploy:** `scripts/link_agent_dir.sh` (safe to run again). It moves a library in the old layout (`agent/contracts/`, `agent/code/`) into `skill_registry/skills/`.
+- **First checks of a launch:** the log says `runbook: ...` and no `broken link`; it says `skill stamps: N repos under ...`, and `$EIGEN_VECTOR_WS/agent/knowledge/code_clock.yaml` exists.
 
 ## Not done yet
 

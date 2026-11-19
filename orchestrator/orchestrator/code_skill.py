@@ -16,7 +16,7 @@ from pathlib import Path
 from skill_registry import Contract, GateList, Registry, code_file
 
 from .behavior_tree import Status, TreeError
-from .agent_sandbox import GUARD_PATH, SandboxConfig, sandbox_env
+from .sandbox import GUARD_PATH, SandboxConfig, sandbox_env
 from .skill_leaf import DoneHandle
 
 
@@ -33,16 +33,16 @@ def _approved(contract, inputs, reasons):
 class CodeRunner:
     """Starts code skills; it holds what one needs: the library, the runner under it, and the operator's gate"""
 
-    def __init__(self, registry: Registry, sandbox: SandboxConfig, code_dir: str, approve=_approved):
+    def __init__(self, registry: Registry, sandbox: SandboxConfig, skills_dir: str, approve=_approved):
         self.registry   = registry
         self.sandbox    = sandbox
-        self.code_dir   = Path(code_dir)
+        self.skills_dir = Path(skills_dir)
         self.gate       = GateList.load()
         self.approve    = approve          # (contract, inputs, reasons) -> (approved, reason)
         self.build_leaf = None             # set once the leaf factory exists: a call inside the code is a leaf too
 
     def path_of(self, contract: Contract) -> Path:
-        return code_file(contract.name, self.code_dir)
+        return code_file(contract.name, self.skills_dir)
 
     def start(self, contract: Contract, inputs: dict, context, chain: str = ''):
         """chain: the path of leaves down to this call, so a policy can see which policies it is already inside"""

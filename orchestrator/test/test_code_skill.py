@@ -8,7 +8,7 @@ from skill_registry import Registry, parse_contract
 
 from orchestrator.behavior_tree import Context, Status
 from orchestrator.code_skill import CodeRunner
-from orchestrator.agent_sandbox import SandboxConfig
+from orchestrator.sandbox import SandboxConfig
 from orchestrator.skill_leaf import DoneHandle, make_leaf_factory
 
 
@@ -59,12 +59,12 @@ def _context(blackboard=None):
 
 
 def _runner(tmp_path, code: str, runner=None, approve=None) -> CodeRunner:
-    (tmp_path / 'code').mkdir(exist_ok=True)
-    (tmp_path / 'code' / 'where_am_i.py').write_text(code)
+    (tmp_path / 'skills' / 'where_am_i').mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'skills' / 'where_am_i' / 'code.py').write_text(code)
 
     registry = Registry([parse_contract(SAY), parse_contract(WALK), parse_contract(CODE)])
     skills   = CodeRunner(registry, SandboxConfig(scratch_dir=str(tmp_path / 'scratch'), timeout_s=20),
-                          code_dir=str(tmp_path / 'code'), **({'approve': approve} if approve else {}))
+                          skills_dir=str(tmp_path / 'skills'), **({'approve': approve} if approve else {}))
     skills.runner     = runner or FakeRunner()
     skills.build_leaf = make_leaf_factory(registry, skills.runner, code=skills)
 
@@ -164,7 +164,8 @@ def test_one_code_skill_builds_on_another(tmp_path):
                              '    return {"pressed": pressed.ok, "tries": pressed.outputs.get("tries")}\n',
                    approve=lambda contract, inputs, reasons: (True, ''))
     code.registry.add(parse_contract(SERVO))
-    (tmp_path / 'code' / 'servo_press.py').write_text('def run(skills, inputs):\n'
+    (tmp_path / 'skills' / 'servo_press').mkdir()
+    (tmp_path / 'skills' / 'servo_press' / 'code.py').write_text('def run(skills, inputs):\n'
                                                       '    for attempt in range(1, 3):\n'
                                                       '        if skills.run("say", text=f"press {attempt}"):\n'
                                                       '            return {"tries": attempt}\n'
@@ -184,7 +185,8 @@ def test_a_policy_that_calls_itself_through_another_is_refused(tmp_path):
     code = _runner(tmp_path, 'def run(skills, inputs):\n'
                              '    return skills.run("servo_press").outputs\n')
     code.registry.add(parse_contract(SERVO))
-    (tmp_path / 'code' / 'servo_press.py').write_text('def run(skills, inputs):\n'
+    (tmp_path / 'skills' / 'servo_press').mkdir()
+    (tmp_path / 'skills' / 'servo_press' / 'code.py').write_text('def run(skills, inputs):\n'
                                                       '    return {"why": skills.run("where_am_i").message}\n')
     handle = code.start(code.registry.get('where_am_i'), {}, _context())
 
@@ -213,7 +215,7 @@ def test_code_that_raises_fails_the_skill_with_its_traceback(tmp_path):
 
 def test_a_missing_code_file_fails_before_anything_starts(tmp_path):
     code   = _runner(tmp_path, 'def run(skills, inputs):\n    return {}\n')
-    (tmp_path / 'code' / 'where_am_i.py').unlink()
+    (tmp_path / 'skills' / 'where_am_i' / 'code.py').unlink()
     handle = code.start(code.registry.get('where_am_i'), {}, _context())
 
     assert handle.poll() == Status.FAILURE

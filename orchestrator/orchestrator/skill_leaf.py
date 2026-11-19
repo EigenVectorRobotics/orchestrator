@@ -36,6 +36,26 @@ class SkillRunner(Protocol):
     def start(self, contract: Contract, inputs: dict) -> SkillHandle: ...
 
 
+class Transports:
+    """The one place a call goes by its transport: a code skill to the code runner (code_skill.py), every other
+    transport to the skill runner (ros_skill_runner.py)"""
+
+    def __init__(self, runner: SkillRunner, code=None):
+        self.runner = runner
+        self.code   = code                  # None: this executor runs no code skills
+
+    def check(self, contract: Contract, path: str):
+        """At build time: a call that no runner here can start is a tree error, not a failure later"""
+        if contract.interface.transport == 'code' and self.code is None:
+            raise TreeError(f'{path}: {contract.name} is a code skill, and this executor runs none')
+
+    def start(self, contract: Contract, inputs: dict, context: Context, path: str) -> SkillHandle:
+        if contract.interface.transport == 'code':
+            return self.code.start(contract, inputs, context, chain=path)
+
+        return self.runner.start(contract, inputs)
+
+
 class InputError(ValueError):
     pass
 
@@ -120,13 +140,13 @@ def resolve_inputs(contract: Contract, attributes: dict, blackboard: dict) -> di
 
 
 class SkillLeaf(TreeNode):
-    """A tree leaf that runs one skill through the runner, with the contract's timeout"""
+    """A tree leaf that runs one skill, of any transport, with the contract's timeout"""
 
-    def __init__(self, contract: Contract, runner: SkillRunner, path: str, attributes: dict, context: Context):
+    def __init__(self, contract: Contract, transports: Transports, path: str, attributes: dict, context: Context):
         super().__init__(contract.name, path, attributes, [], context)
 
         self.contract   = contract
-        self.runner     = runner
+        self.transports = transports
         self.handle     = None
         self.start_time = 0.0
         self.inputs     = {}
@@ -142,7 +162,7 @@ class SkillLeaf(TreeNode):
 
             self.message    = ''
             self.start_time = self.context.clock()
-            self.handle     = self._start_call()
+            self.handle     = self.transports.start(self.contract, self.inputs, self.context, self.path)
 
         status = self.handle.poll()
 
@@ -167,9 +187,6 @@ class SkillLeaf(TreeNode):
             self.handle = None
 
         return status
-
-    def _start_call(self) -> SkillHandle:
-        return self.runner.start(self.contract, self.inputs)
 
     def _finish_call(self, status: Status):
         """Record a finished action call, with its feedback over time; and the failure of a check.
@@ -240,31 +257,17 @@ class SkillLeaf(TreeNode):
                 self.context.blackboard[key] = outputs[port.name]
 
 
-class CodeLeaf(SkillLeaf):
-    """A leaf whose skill is Python (code_skill.py); its timeout, records and outputs are a plain skill's"""
-
-    def __init__(self, contract: Contract, code, path: str, attributes: dict, context: Context):
-        super().__init__(contract, None, path, attributes, context)
-
-        self.code = code
-
-    def _start_call(self) -> SkillHandle:
-        return self.code.start(self.contract, self.inputs, self.context, chain=self.path)
-
-
 def make_leaf_factory(registry: Registry, runner: SkillRunner, code=None):
+    transports = Transports(runner, code)
+
     def build_leaf(skill_name: str, path: str, attributes: dict, context: Context) -> TreeNode:
         contract = registry.get(skill_name)
 
         if contract is None:
             raise TreeError(f'{path}: unknown skill {skill_name}')
 
-        if contract.interface.transport == 'code':
-            if code is None:
-                raise TreeError(f'{path}: {skill_name} is a code skill, and this executor runs none')
+        transports.check(contract, path)
 
-            return CodeLeaf(contract, code, path, attributes, context)
-
-        return SkillLeaf(contract, runner, path, attributes, context)
+        return SkillLeaf(contract, transports, path, attributes, context)
 
     return build_leaf

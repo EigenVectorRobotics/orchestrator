@@ -1,5 +1,4 @@
 import os
-import time
 import logging
 import threading
 
@@ -9,41 +8,74 @@ from dataclasses import dataclass
 import yaml
 
 from .deny import DenyList
-from .contract import Contract, ContractError, load_contract, parse_contract
+from .contract import Contract, ContractError, load_contract
+
+
+CONTRACT_FILE = 'contract.yaml'          # each skill is a folder: <skills_dir>/<name>/contract.yaml
+CODE_FILE     = 'code.py'                # and, for a code skill, <skills_dir>/<name>/code.py
+
+# The agent folder's names; the launch file and scripts/link_agent_dir.sh use the same
+SKILLS     = 'skills'
+KNOWLEDGE  = 'knowledge'
+STAMPS     = 'stamps.yaml'
+RUNBOOK    = 'runbook.md'
+
+
+def workspace() -> Path:
+    """The colcon workspace this runs from: $EIGEN_VECTOR_WS (the deploy's env.sh sets it), else home"""
+    return Path(os.environ.get('EIGEN_VECTOR_WS', Path.home()))
 
 
 def agent_dir() -> Path:
-    """The agent's own folder: contracts/ (write_skill), code/, knowledge/, runbook.md and docs/; the package has
-    no skills"""
-    return Path(os.environ.get('EIGEN_VECTOR_WS', Path.home())) / 'agent'
+    """The agent's folder in the workspace: links to what is in git (skills/, runbook.md, docs/, made by
+    scripts/link_agent_dir.sh), and what changes on each run (knowledge/, stamps.yaml)"""
+    return workspace() / 'agent'
 
 
-def agent_contracts_dir() -> Path:
-    return agent_dir() / 'contracts'
-
-
-def agent_code_dir() -> Path:
-    return agent_dir() / 'code'
+def skills_dir() -> Path:
+    """The skill library: a link to this package's skills/ folder, so what write_skill saves is a change in git"""
+    return agent_dir() / SKILLS
 
 
 def agent_knowledge_dir() -> Path:
     """The knowledge store (claims.yaml, log.jsonl), beside the library it is about"""
-    return agent_dir() / 'knowledge'
+    return agent_dir() / KNOWLEDGE
+
+
+def stamps_file() -> Path:
+    """What each skill was proved against (skill_stamps.py). Not in git: each step adds a run, and it names this
+    machine's repos"""
+    return agent_dir() / STAMPS
 
 
 def agent_runbook_file() -> Path:
     """What the robot is, for the agent's prompt. The operator's file, like deny.yaml: the agent never writes it"""
-    return agent_dir() / 'runbook.md'
+    return agent_dir() / RUNBOOK
 
 
-def code_file(name: str, code_dir=None) -> Path:
+def contract_file(name: str, directory) -> Path:
+    return Path(directory) / name / CONTRACT_FILE
+
+
+def code_file(name: str, directory) -> Path:
     """Where the Python of a code skill lives; the runner and write_skill must agree on it"""
-    return Path(code_dir) / f'{name}.py' if code_dir else agent_code_dir() / f'{name}.py'
+    return Path(directory) / name / CODE_FILE
+
+
+def contract_files(directory) -> list[Path]:
+    """The contract of each skill folder, by name"""
+    return sorted(Path(directory).glob(f'*/{CONTRACT_FILE}'))
 
 
 def missing_folder(directory) -> str:
-    """'' if the folder is there; else why no skill loads, e.g. a typo in contracts_directory"""
-    return '' if Path(directory).is_dir() else f'no folder {directory}: no skill loads until it is made'
+    """'' if the folder is there; else why no skill loads, e.g. a typo in skills_dir or a broken link"""
+    if Path(directory).is_dir():
+        return ''
+
+    if Path(directory).is_symlink():
+        return f'{directory} is a broken link (to {os.readlink(directory)}): no skill loads; run scripts/link_agent_dir.sh'
+
+    return f'no folder {directory}: no skill loads until it is made'
 
 
 class Registry:
@@ -51,10 +83,9 @@ class Registry:
 
     def __init__(self, contracts: list[Contract] | None = None, deny: DenyList | None = None):
         self._contracts: dict[str, Contract] = {}
-        self._last_seen: dict[str, float]    = {}   # skill name -> monotonic time of last announce
         self.deny                            = deny if deny is not None else DenyList.load()
         self.denied:     dict[str, list[str]] = {}  # skill name -> why it was left out
-        self._file_times: dict[str, float]    = {}  # refresh: contract file -> the mtime it was last read at
+        self._file_times: dict[str, float]    = {}  # refresh: skill folder -> the mtime of its contract when last read
         self._refreshing                      = threading.Lock()
 
         for contract in contracts or []:
@@ -63,11 +94,11 @@ class Registry:
     @classmethod
     def from_directory(cls, directory: Path, deny: DenyList | None = None) -> 'Registry':
         """The contracts in directory, without those the deny list refuses (see registry.denied); none if it is empty"""
-        paths    = sorted(Path(directory).glob('*.yaml'))
+        paths    = contract_files(directory)
         registry = cls([load_contract(path) for path in paths], deny)
         registry._drop_dependents_of_denied()
         registry.check_references()
-        registry._file_times = {path.name: path.stat().st_mtime for path in paths}
+        registry._file_times = {path.parent.name: path.stat().st_mtime for path in paths}
 
         return registry
 
@@ -109,31 +140,32 @@ class Registry:
     def refresh(self, directory: Path, check=lambda contract: []) -> tuple[list[str], dict[str, str]]:
         """The one way in while it runs: load the files that are new or changed (a contract the agent wrote, or a
         person's edit), each through admit_errors and check (e.g. its ROS types). Returns the skills that changed,
-        and the files that did not load with why. Nothing is removed"""
+        and the skill folders that did not load with why. Nothing is removed"""
         with self._refreshing:
             pending, errors = {}, {}
 
-            for path in sorted(Path(directory).glob('*.yaml')):
-                mtime = path.stat().st_mtime
+            for path in contract_files(directory):
+                folder = path.parent.name
+                mtime  = path.stat().st_mtime
 
-                if self._file_times.get(path.name) == mtime:
+                if self._file_times.get(folder) == mtime:
                     continue
 
-                self._file_times[path.name] = mtime
+                self._file_times[folder] = mtime
 
                 try:
                     contract = load_contract(path)
                 except (ContractError, OSError, ValueError, TypeError, yaml.YAMLError) as error:   # e.g. a half-saved edit
-                    errors[path.name] = str(error)
+                    errors[folder] = str(error)
                     continue
 
                 if self.get(contract.name) != contract:
-                    pending[path.name] = contract
+                    pending[folder] = contract
 
             changed = self._admit_all(pending, check, errors)
 
-        for file_name, error in errors.items():
-            logging.getLogger('skill_registry').warning(f'{file_name} not loaded: {error}')
+        for folder, error in errors.items():
+            logging.getLogger('skill_registry').warning(f'{folder} not loaded: {error}')
 
         return changed, errors
 
@@ -208,33 +240,6 @@ class Registry:
 
         return errors + [f'{contract.name}: unknown fallback {fallback}' for fallback in contract.fallback if fallback not in self]
 
-    # ========== Online discovery ==========
-
-    def announce(self, raw: dict, now: float | None = None) -> Contract:
-        """A skill server says it is up. New skills join the registry, unless the deny list refuses them"""
-        contract = parse_contract(raw)
-
-        if contract.name not in self and not self.add(contract):
-            raise ContractError(f'{contract.name} is denied: {"; ".join(self.denied[contract.name])}')
-
-        self._last_seen[contract.name] = time.monotonic() if now is None else now
-
-        return self._contracts[contract.name]
-
-    def is_live(self, name: str, max_age_s: float, now: float | None = None) -> bool:
-        now = time.monotonic() if now is None else now
-
-        return name in self._last_seen and now - self._last_seen[name] <= max_age_s
-
-    def live(self, max_age_s: float, now: float | None = None) -> list[Contract]:
-        now = time.monotonic() if now is None else now
-
-        return [
-            self._contracts[name]
-            for name, seen in self._last_seen.items()
-            if now - seen <= max_age_s
-        ]
-
 
 @dataclass
 class GraphSnapshot:
@@ -274,4 +279,4 @@ def is_present(contract: Contract, graph: GraphSnapshot, vlm_up: bool) -> bool:
     if interface.transport in ('compare', 'graph'):
         return True                 # they run inside the executor
 
-    return False                    # trees are live only when announced
+    return False                    # a tree or a code skill: nothing in the graph says it is up

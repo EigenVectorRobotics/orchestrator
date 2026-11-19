@@ -5,7 +5,7 @@ from skill_registry import Registry
 from orchestrator.behavior_tree import BehaviorTree, Context, Status, TreeError
 from orchestrator.skill_leaf import make_leaf_factory, parse_pose
 
-from data_paths import CONTRACTS
+from data_paths import SKILLS
 
 from fakes import FakeClock, FakeRunner
 
@@ -14,7 +14,7 @@ def _tree(body: str, runner: FakeRunner, clock: FakeClock | None = None, blackbo
     xml_text = f'<root BTCPP_format="4"><BehaviorTree ID="main">{body}</BehaviorTree></root>'
     context  = Context(blackboard=blackboard, clock=clock or FakeClock())
 
-    return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(CONTRACTS), runner), context)
+    return BehaviorTree(xml_text, make_leaf_factory(Registry.from_directory(SKILLS), runner), context)
 
 
 def _run(tree: BehaviorTree, clock: FakeClock | None = None, max_ticks: int = 100) -> Status:
@@ -134,7 +134,7 @@ def test_subtree_and_events():
     )
     tree = BehaviorTree(
         xml_text,
-        make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner()),
+        make_leaf_factory(Registry.from_directory(SKILLS), FakeRunner()),
         Context(on_event=lambda node, event: events.append(event), clock=FakeClock())
     )
 

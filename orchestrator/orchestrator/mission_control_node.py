@@ -28,12 +28,11 @@ from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
 from sensor_msgs.msg import Image
 
-from .trace import TRACE_QOS, TRACE_TOPIC
-from .tasks import CANCEL_TOPIC, STATUS_TOPIC, TASK_TOPIC
-from .run_recorder import STATUS_TOPIC as RECORDER_TOPIC
-from .ros_skill_runner import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS
-from .mission_control import DECISION_WAIT, Camera, Commands, MissionApi, MissionState, token_ok
-from .task_agent import OPEN_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC
+from .qos import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS, TRACE_QOS
+from .topics import (CANCEL_TOPIC, OPEN_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
+                     STEP_REQUEST_TOPIC, TASK_TOPIC, TRACE_TOPIC)
+from .images import Camera
+from .mission_control import DECISION_WAIT, Commands, MissionApi, MissionState, token_ok
 
 
 MAX_BODY  = 64 * 1024
@@ -71,7 +70,7 @@ class MissionControlNode(Node):
 
         image_topic   = self.declare_parameter('image_topic', '/camera/camera/color/image_raw').value
         self.state    = MissionState(keep=self.declare_parameter('trace_keep', 400).value)
-        self.camera   = Camera(image_topic, max_side=self.declare_parameter('camera_max_side', 960).value)
+        self.camera   = Camera(image_topic, max_side=self.declare_parameter('camera_max_side', 960).value, quality=80)
         self._waiting = {}                           # step id -> (Event, [reply]) for each decision in flight
         self._lock    = threading.Lock()
 

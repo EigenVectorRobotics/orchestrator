@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from builtin_interfaces.msg import Time
 from rosidl_runtime_py.utilities import get_action, get_message, get_service
 
-from skill_registry import Contract
-
-from .ros_skill_runner import build_message, pose_dict, read_field
+from .contract import Contract
+from .geometry import pose_dict
+from .ros_messages import build_message, read_field
 
 
 SAMPLES = {'string': 'x', 'int': 0, 'float': 0.0, 'bool': False, 'pose': {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}

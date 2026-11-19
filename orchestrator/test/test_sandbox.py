@@ -1,4 +1,4 @@
-from orchestrator.agent_sandbox import SandboxConfig, run_python
+from orchestrator.sandbox import SandboxConfig, run_python
 
 
 def test_run_python_runs_code_and_blocks_ros_writes_processes_and_hidden_folders(tmp_path):

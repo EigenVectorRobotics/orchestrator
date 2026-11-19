@@ -11,7 +11,7 @@ Task mode (docs/task-mode.md): the session does a task step by step.
   agent_cli task wait [--timeout S]     block until a task is open; print it (the sentence, places, what is known)
   agent_cli task show                   the open task, or how the last one ended
   agent_cli skills [--dir DIR]          the skills that run can run now, from the executor (with an open task);
-                                        --dir reads a contracts folder instead, without ROS
+                                        --dir reads a skills folder instead, without ROS
   agent_cli plan SUBGOAL [SUBGOAL ...]  save the task plan (again, to change it)
   agent_cli run SKILL [KEY=VALUE ...] --subgoal S
                                         run one skill as the next step; wait for its end and print the result.
@@ -49,20 +49,18 @@ from pathlib import Path
 import rclpy
 
 from rclpy.action import get_action_names_and_types
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.executors import SingleThreadedExecutor
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 
 from .images import FrameBuffer, ImageError, image_to_jpeg, stamp_seconds
 from .agent_ros import RosReader, RosReadError
-from .agent_sandbox import SandboxConfig, run_python
-from .task_agent import (task_summary, COMMAND_TOPIC, OPEN_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC,
-                         REPLY_TOPIC as TASK_REPLY_TOPIC)
+from .sandbox import SandboxConfig, run_python
+from .task_desk import task_summary
+from .qos import COMMAND_QOS, LATCHED_QOS
+from .topics import COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC
 
 
-LATCHED      = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-COMMAND      = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
 CAMERA_TOPIC = '/camera/camera/color/image_raw'
 SPEAK_TOPIC  = '/speak'                 # unitree_interface's TTS, remapped by its launch file
 MAX_SPEECH   = 200                      # characters: one or two short sentences
@@ -86,7 +84,7 @@ def _latest(node, topic: str, timeout_s: float, until=None) -> dict | None:
     which until(message) holds"""
     holder = []
     done   = lambda: bool(holder) and (until is None or until(holder[-1]))
-    node.create_subscription(String, topic, lambda message: holder.append(json.loads(message.data)), LATCHED)
+    node.create_subscription(String, topic, lambda message: holder.append(json.loads(message.data)), LATCHED_QOS)
 
     return holder[-1] if _spin_until(node, done, timeout_s) else None
 
@@ -94,8 +92,8 @@ def _latest(node, topic: str, timeout_s: float, until=None) -> dict | None:
 def _request_reply(node, topic: str, reply_topic: str, message: dict, timeout_s: float) -> dict | None:
     """Publish message on topic; return the reply with its id, or None (the reason is printed)"""
     replies      = []
-    publisher    = node.create_publisher(String, topic, COMMAND)
-    subscription = node.create_subscription(String, reply_topic, lambda reply: replies.append(json.loads(reply.data)), COMMAND)
+    publisher    = node.create_publisher(String, topic, COMMAND_QOS)
+    subscription = node.create_subscription(String, reply_topic, lambda reply: replies.append(json.loads(reply.data)), COMMAND_QOS)
 
     # the reply is volatile: it is lost if it comes before this node is matched to the reply publisher
     if not _spin_until(node, lambda: publisher.get_subscription_count() > 0 and subscription.get_publisher_count() > 0, 3.0):
@@ -120,7 +118,7 @@ def _say(node, text: str) -> int:
         print(f'say needs 1 to {MAX_SPEECH} characters, not {len(text)}', file=sys.stderr)
         return 1
 
-    publisher = node.create_publisher(String, SPEAK_TOPIC, COMMAND)
+    publisher = node.create_publisher(String, SPEAK_TOPIC, COMMAND_QOS)
 
     if not _spin_until(node, lambda: publisher.get_subscription_count() > 0, 3.0):
         print(f'nobody subscribes to {SPEAK_TOPIC}', file=sys.stderr)
@@ -150,7 +148,7 @@ def _task_command(node, command: dict, timeout_s: float,
         return 1
 
     command = {'id': uuid.uuid4().hex[:8], 'run_id': task['run_id'], **command}
-    reply   = _request_reply(node, COMMAND_TOPIC, TASK_REPLY_TOPIC, command, timeout_s)
+    reply   = _request_reply(node, COMMAND_TOPIC, REPLY_TOPIC, command, timeout_s)
 
     if reply is None:
         return 1

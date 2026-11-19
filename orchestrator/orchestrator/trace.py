@@ -5,13 +5,13 @@ from typing import Callable
 from contextlib import contextmanager
 
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 from rcl_interfaces.msg import Log
 
+from .qos import TRACE_QOS
+from .topics import LOG_TOPIC, TRACE_TOPIC
 
-TRACE_TOPIC = '/orchestrator/trace'
-TRACE_QOS   = QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE)
+
 LEVELS    = {'debug': Log.DEBUG, 'info': Log.INFO, 'warn': Log.WARN, 'error': Log.ERROR}
 
 
@@ -25,7 +25,7 @@ class Tracer:
         self.listeners = []         # a tap reads the events while it is open; see tap()
 
         self._json_publisher = node.create_publisher(String, TRACE_TOPIC, TRACE_QOS)
-        self._log_publisher  = node.create_publisher(Log, '/orchestrator/log', TRACE_QOS)
+        self._log_publisher  = node.create_publisher(Log, LOG_TOPIC, TRACE_QOS)
 
     @contextmanager
     def tap(self, listener: Callable[[dict], None]):

@@ -8,6 +8,7 @@ import io
 import math
 import zlib
 import struct
+import time
 import threading
 
 import numpy as np
@@ -123,3 +124,56 @@ class FrameBuffer:
         """The frame with exactly this stamp, e.g. the one track_3d outlined"""
         with self._lock:
             return next((data for stamp, data in self._frames if stamp == t), None)
+
+
+class Camera:
+    """The latest camera frame, encoded only when someone asks for one: the robot publishes faster than a person
+    looks or a VLM asks. Any message with height, width, step, encoding and data; max_side None keeps the full size"""
+
+    def __init__(self, topic: str = '', max_side: int | None = None, quality: int = 90):
+        self.topic     = topic
+        self.max_side  = max_side
+        self.quality   = quality
+        self._lock     = threading.Lock()
+        self._message  = None
+        self._at       = 0.0
+        self._encoded  = None                        # (the message it came from, bytes, media type)
+        self.error     = ''                          # why the last frame could not be encoded
+
+    def put(self, message):
+        with self._lock:
+            self._message, self._at, self._encoded = message, time.time(), None
+
+    def state(self) -> dict:
+        """What the page shows next to the frame"""
+        with self._lock:
+            message = self._message
+
+            if message is None:
+                return {'have': False, 'topic': self.topic}
+
+            return {'have': True, 'topic': self.topic, 'stamp': self._at, 'age_s': round(time.time() - self._at, 1),
+                    'width': message.width, 'height': message.height}
+
+    def frame(self) -> tuple[bytes, str] | None:
+        """The latest frame as JPEG, or None; the encoding runs on the reader's thread, not on the spin thread"""
+        with self._lock:
+            message, encoded = self._message, self._encoded
+
+        if message is None:
+            return None
+
+        if encoded is not None and encoded[0] is message:
+            return encoded[1], encoded[2]
+
+        try:
+            body, media_type = encode_rgb(image_to_rgb(message), max_side=self.max_side, quality=self.quality)
+        except ImageError as error:
+            self.error = str(error)
+            return None
+
+        with self._lock:
+            if self._message is message:
+                self._encoded = (message, body, media_type)
+
+        return body, media_type

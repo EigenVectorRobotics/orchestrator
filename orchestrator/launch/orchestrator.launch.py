@@ -6,7 +6,7 @@ from launch_ros.substitutions import FindPackageShare
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.actions import Node
 
-from skill_registry import agent_dir
+from skill_registry import KNOWLEDGE, RUNBOOK, SKILLS, STAMPS, agent_dir
 
 
 def generate_launch_description():
@@ -22,9 +22,9 @@ def generate_launch_description():
     shared = [
         params_file,
         {
-            'contracts_directory': LaunchConfiguration('contracts_directory'),
-            'code_dir':            PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'code']),
-            'knowledge_dir':       PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'knowledge']),
+            'skills_dir':          LaunchConfiguration('skills_dir'),
+            'knowledge_dir':       PathJoinSubstitution([LaunchConfiguration('agent_dir'), KNOWLEDGE]),
+            'stamps_file':         PathJoinSubstitution([LaunchConfiguration('agent_dir'), STAMPS]),
             'places_file':         LaunchConfiguration('places_file'),
             'map_info':            LaunchConfiguration('map_info'),
             'vlm_base_url':        vlm_url,
@@ -42,24 +42,25 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'agent_dir',
             default_value=str(agent_dir()),
-            description="the agent's own folder in the workspace: contracts/ (write_skill), code/, knowledge/, runbook.md"
+            description="the agent's folder in the workspace: links to skills/, runbook.md and docs/ in git "
+                        "(scripts/link_agent_dir.sh), and knowledge/ and stamps.yaml, which change on each run"
         ),
         DeclareLaunchArgument('task_agent', default_value='session',
                               description='session (a session outside uses agent_cli) or codex (the executor asks codex exec for each step)'),
         DeclareLaunchArgument('codex_model', default_value='gpt-6-astra', description='task_agent codex: the model, with the codex login'),
         DeclareLaunchArgument('write_skill', default_value='true',
-                              description='the agent may save contracts with write_skill; false refuses that command '
-                                          '(a file put in contracts_directory by hand still loads)'),
+                              description='the agent may save skills with write_skill; false refuses that command '
+                                          '(a skill folder put in skills_dir by hand still loads)'),
         DeclareLaunchArgument(
-            'contracts_directory',
-            default_value=PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'contracts']),
-            description='the skill contracts that load; the package has none, the agent writes or seeds them'
+            'skills_dir',
+            default_value=PathJoinSubstitution([LaunchConfiguration('agent_dir'), SKILLS]),
+            description='the skill library, one folder per skill; a link to skill_registry/skills in git'
         ),
         DeclareLaunchArgument(
             'runbook',
-            default_value=PathJoinSubstitution([LaunchConfiguration('agent_dir'), 'runbook.md']),
+            default_value=PathJoinSubstitution([LaunchConfiguration('agent_dir'), RUNBOOK]),
             description="what the robot is, in every task the agent opens. Default: the agent folder's runbook.md, "
-                        "else the one the package installs (orchestrator/agent/runbook.md)"
+                        "a link to orchestrator/agent/runbook.md in git"
         ),
         DeclareLaunchArgument(
             'places_file',

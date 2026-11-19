@@ -57,7 +57,7 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 
 ### bag/
 
-- `ros2 bag record -s mcap` of: `/orchestrator/trace`, `/orchestrator/task/*`, `/orchestrator/step_*`, `/speak`, `/route_goal`, `/route_planner/status`, `/nav_state`, `/state_estimation`, `/odom_base_link`, `/right_ee_pose`, `/left_ee_pose`, `/track_3d/*`, `/slam_elevatorlio/status`, `/terrain_map` (low rate), the camera at 1 fps.
+- `ros2 bag record -s mcap` of the orchestrator's own topics (`/orchestrator/trace`, `/orchestrator/task/*`, `/orchestrator/step_*`; `BAG_TOPICS` in `run_recorder.py`) and the robot stack's topics in the parameter `stack_topics` (`config/orchestrator.yaml`). Not yet: `/terrain_map` (low rate), the camera at 1 fps.
 - The camera at full rate is about 17 MB/s raw on the NUC, so it is not in the bag.
 - **One bag per task, not per session.** A task is one full rollout: from `task_started` to `task_finished`. The recorder starts the bag when the task starts and stops it when the task ends. A bring-up with no task makes no bag, so testing the orchestrator does not fill the disk.
 

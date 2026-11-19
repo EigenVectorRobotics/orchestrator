@@ -12,8 +12,6 @@ import json
 import time
 import uuid
 import shutil
-import hashlib
-import subprocess
 
 from pathlib import Path
 from datetime import UTC, datetime
@@ -22,7 +20,6 @@ from dataclasses import dataclass
 
 
 STEP_END_KINDS   = ('finished', 'halted', 'error')
-MAX_HASHED_BYTES = 5_000_000                   # an untracked file bigger than this is hashed by name and size
 
 
 def write_json(path: Path, value):
@@ -30,81 +27,6 @@ def write_json(path: Path, value):
     temporary = path.with_name(path.name + '.tmp')
     temporary.write_text(json.dumps(value, indent=2, default=str) + '\n')
     temporary.replace(path)
-
-
-def file_digest(path: Path) -> str | None:
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16] if path.is_file() else None
-
-
-def directory_digests(directory: Path, pattern: str) -> dict:
-    """File name -> hash of its bytes, for the contracts and code skills that were loaded"""
-    return {path.name: file_digest(path) for path in sorted(Path(directory).glob(pattern))}
-
-
-def git_state(repo: Path) -> dict:
-    """Revision, branch, and a hash of the local edits (tracked diff and untracked files), so a run with
-    uncommitted changes is not mistaken for its commit"""
-    def git(*arguments):
-        result = subprocess.run(['git', '-C', str(repo), *arguments], capture_output=True, check=False)
-        return result.stdout if result.returncode == 0 else None
-
-    names = git('rev-parse', 'HEAD', '--abbrev-ref', 'HEAD')
-
-    if names is None:
-        return {'path': str(repo), 'error': 'not a git checkout'}
-
-    revision, branch = names.decode().split()
-    edits            = git('diff', 'HEAD') or b''
-
-    for name in filter(None, (git('ls-files', '--others', '--exclude-standard', '-z') or b'').split(b'\0')):
-        path   = repo / name.decode()
-        if not path.is_file():                      # git lists an untracked DIRECTORY as one entry; it is not readable
-            edits += name
-            continue
-
-        size   = path.stat().st_size
-        edits += name + (path.read_bytes() if size <= MAX_HASHED_BYTES else str(size).encode())
-
-    return {
-        'path':     str(repo),
-        'revision': revision,
-        'branch':   branch,
-        'dirty':    bool(edits),
-        'edits':    hashlib.sha256(edits).hexdigest()[:16] if edits else None,
-    }
-
-
-def repo_states(roots: list[str]) -> dict[str, str]:
-    """Each repo under roots as one short string: its revision, and its local edits when it has any (git_state).
-    It answers one question for a skill: is the code still the one it was proved against? The run bundle keeps the
-    full git_state per repo, so a stamp is the short form of what provenance.json already records"""
-    states = {}
-
-    for repo in find_repos(roots):
-        state = git_state(repo)
-
-        if state.get('revision'):
-            states[str(repo)] = state['revision'][:12] + (f'+{state["edits"][:8]}' if state.get('edits') else '')
-
-    return states
-
-
-DEFAULT_REPO_ROOTS = ['/home/vector/orchestrator_ws/src', '/home/vector/eigen_vector_ws/src']   # the recorder's and the stamps'
-
-
-def find_repos(roots: list[str]) -> list[Path]:
-    """Each root that is a git checkout, and each checkout directly inside a root (a colcon src/)"""
-    repos = []
-
-    for root in roots:
-        root = Path(root).expanduser()
-
-        if (root / '.git').exists():
-            repos.append(root)
-        elif root.is_dir():
-            repos += sorted(child for child in root.iterdir() if (child / '.git').exists())
-
-    return repos
 
 
 def free_gb(path: Path) -> float:

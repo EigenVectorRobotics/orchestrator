@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from skill_registry import ContractError, Registry, TreeValidator, ValidatorConfig, parse_contract
+from skill_registry import ContractError, Registry, TreeValidator, ValidatorConfig, missing_folder, parse_contract
 
 
-CONTRACTS = Path(__file__).resolve().parent / 'contracts'      # a made-up robot
+SKILLS = Path(__file__).resolve().parent / 'skills'      # a made-up robot
 
 
 def _tree(body: str) -> str:
@@ -13,16 +13,16 @@ def _tree(body: str) -> str:
 
 
 def _errors(body: str, **config) -> list[str]:
-    validator = TreeValidator(Registry.from_directory(CONTRACTS), ValidatorConfig(**config))
+    validator = TreeValidator(Registry.from_directory(SKILLS), ValidatorConfig(**config))
 
     return [issue.message for issue in validator.validate(_tree(body)) if issue.level == 'error']
 
 
 def test_seed_contracts_load():
-    registry = Registry.from_directory(CONTRACTS)
+    registry = Registry.from_directory(SKILLS)
 
     assert 'navigate_to' in registry
-    assert len(registry) + len(registry.denied) == len(list(CONTRACTS.glob('*.yaml')))
+    assert len(registry) + len(registry.denied) == len(list(SKILLS.glob('*/contract.yaml')))
     assert 'ready_walk' in registry.denied
 
 
@@ -67,7 +67,7 @@ def test_parallel_resource_conflict():
 
 
 def test_blind_rejects_cloud_skill():
-    registry = Registry.from_directory(CONTRACTS)
+    registry = Registry.from_directory(SKILLS)
     registry.add(
         parse_contract({
             'name':        'plan_with_claude',
@@ -106,22 +106,6 @@ def test_enum_choices_come_from_values():
     assert contract.input('mode').choices == ['slow', 'fast']
 
 
-def test_announce_adds_new_skill_and_expires():
-    registry = Registry.from_directory(CONTRACTS)
-    raw      = {
-        'name':      'open_door',
-        'kind':      'composite',
-        'device':    'nuc',
-        'interface': {'transport': 'tree', 'name': 'open_door'},
-    }
-
-    registry.announce(raw, now=100.0)
-
-    assert 'open_door' in registry
-    assert [contract.name for contract in registry.live(max_age_s=5, now=103.0)] == ['open_door']
-    assert registry.live(max_age_s=5, now=110.0) == []
-
-
 def test_subtree_is_judged_where_it_is_called():
     called_in_fallback = (
         '<root BTCPP_format="4">'
@@ -130,16 +114,19 @@ def test_subtree_is_judged_where_it_is_called():
         '</root>'
     )
     called_bare = called_in_fallback.replace('<Fallback><SubTree ID="check"/><say text="help"/></Fallback>', '<SubTree ID="check"/>')
-    validator   = TreeValidator(Registry.from_directory(CONTRACTS))
+    validator   = TreeValidator(Registry.from_directory(SKILLS))
 
     assert validator.is_valid(called_in_fallback)
     assert not validator.is_valid(called_bare)
     assert not validator.is_valid(called_in_fallback.replace('<door_open/>', '<SubTree ID="check"/>'))
 
 
-def test_an_empty_or_missing_contracts_directory_is_an_empty_library(tmp_path):
+def test_an_empty_or_missing_skills_folder_is_an_empty_library_and_a_broken_link_says_so(tmp_path):
     assert len(Registry.from_directory(tmp_path)) == 0
     assert len(Registry.from_directory(tmp_path / 'not_yet')) == 0
+
+    (tmp_path / 'skills').symlink_to(tmp_path / 'moved_away')
+    assert 'broken link' in missing_folder(tmp_path / 'skills') and missing_folder(tmp_path) == ''
 
 
 def test_vlm_question_fields_must_be_inputs():
@@ -182,6 +169,6 @@ def test_failure_when_reads_action_feedback_only():
     with pytest.raises(ContractError, match='failure_when'):
         parse_contract(raw)
 
-    held = Registry.from_directory(CONTRACTS).get('navigate_to').interface.failure_when
+    held = Registry.from_directory(SKILLS).get('navigate_to').interface.failure_when
 
     assert held is not None

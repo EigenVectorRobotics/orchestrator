@@ -2,7 +2,7 @@
 
 The loop is a session inside the executor: it reads the open task, asks the decider for the next command (plan, run a
 skill, done, give_up), gives it to the task desk, and puts the reply in the history of the next prompt. The desk
-applies the same limits, step gate and recording as for a session outside (task_agent.py). The model only decides;
+applies the same limits, step gate and recording as for a session outside (task_desk.py). The model only decides;
 it has no tools of its own.
 
 CodexDecider runs `codex exec` once per decision with the operator's ChatGPT login (no API key), read-only, with a
@@ -19,7 +19,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Protocol
 
-from .task_agent import task_summary
+from .task_desk import task_summary
 
 
 OPS = ('plan', 'run', 'write_skill', 'done', 'give_up')          # the desk's ops that the model may use

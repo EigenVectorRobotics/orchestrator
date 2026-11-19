@@ -27,7 +27,7 @@ from dataclasses import asdict
 from skill_registry import agent_knowledge_dir
 
 from .knowledge import OPERATOR, TIERS, KnowledgeError, KnowledgeStore, Sighting, about_of
-from .skill_stamps import SkillClock
+from skill_registry.skill_stamps import SkillClock
 
 
 def _value(text: str | None):

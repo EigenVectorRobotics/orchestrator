@@ -1,4 +1,4 @@
-"""The task agent's desk in the executor: a session outside it (Claude Code over ssh, with agent_cli) does a task
+"""The task desk in the executor: the task agent, a session outside it (Claude Code over ssh, with agent_cli) does a task
 step by step (docs/task-mode.md).
 
 A task sentence opens a task. The executor publishes it (latched JSON on OPEN_TOPIC: run_id, the sentence, blind,
@@ -20,18 +20,13 @@ Each command gets one reply on REPLY_TOPIC with its id. Limits: max_steps and ma
 When no command comes for idle_s between steps (the session or its cloud link is gone), the robot says so once on
 /speak and waits.
 
-With the step gate on (the real robot, at first), a run waits for a person: the request goes out latched on
-STEP_REQUEST_TOPIC, and a decision comes back on STEP_DECISION_TOPIC (reply on STEP_REPLY_TOPIC). The gate takes
-the decision from any client on that topic, and keeps the client's name (`by`) in the trace. Two clients exist: agent_cli step
-approve|refuse, which answers only at a terminal (a tty), so the session that asked cannot answer itself by
-mistake; and Mission Control, where a person clicks in a browser. A refused step does not run.
+With the step gate on (step_gate.py), a run waits for a person's approval. A refused step does not run.
 
 This module needs no ROS: the executor wires the topics, calls command() from a worker thread (a run blocks until
 its step ends) and check() from its timer.
 """
 
 import time
-import uuid
 import threading
 import contextlib
 
@@ -46,16 +41,11 @@ from .places import PLACE_INFO
 from .knowledge import OUTCOME, KnowledgeError, KnowledgeStore, Sighting
 from .tasks import Task, Tasks
 from .tasks import describe_catalog
-from .skill_writer import SkillWriter
+from skill_registry.skill_writer import SkillWriter
+from .step_gate import StepGate
 from .behavior_tree import Context
 
 
-OPEN_TOPIC    = '/orchestrator/task/open'
-COMMAND_TOPIC = '/orchestrator/task/command'
-REPLY_TOPIC   = '/orchestrator/task/reply'
-STEP_REQUEST_TOPIC  = '/orchestrator/step_request'
-STEP_DECISION_TOPIC = '/orchestrator/step_decision'
-STEP_REPLY_TOPIC    = '/orchestrator/step_decision/reply'
 LOST_SPEECH   = 'I lost the connection to my planner. I will wait here. Please help me if you can.'
 
 TRACE_LEVELS     = ('warn', 'error')   # the events a reply carries: what went wrong, not what went well
@@ -97,7 +87,7 @@ def place_text(info: dict) -> str:
 
 
 def task_summary(task: dict) -> str:
-    """The open message as text: what a session (agent_cli) and the task loop (task_loop.py) read. It carries the
+    """The open message as text: what a session (agent_cli) and the task loop (codex_agent.py) read. It carries the
     runbook (what the robot is) and the contract grammar (what write_skill takes), so both agents get them"""
     if task['state'] != 'open':
         return f'no open task; the last one ({task["run_id"]}) ended: {task.get("end")}'
@@ -112,65 +102,6 @@ def task_summary(task: dict) -> str:
     ]
 
     return '\n'.join(lines + [text for text in (task.get('known'), task.get('grammar')) if text])
-
-
-class StepGate:
-    """A person approves or refuses each step before it runs"""
-
-    def __init__(self, publish: Callable[[dict], None]):
-        self.publish  = publish
-        self.request  = None                    # the open request
-        self.decision = None
-        self.answered = threading.Event()
-        self._lock    = threading.Lock()
-
-    def ask(self, request: dict, still_open: Callable[[], bool]) -> dict:
-        """Block until a person decides, or the task ends (cancel); returns {approve, state, reason}"""
-        with self._lock:
-            if self.request is not None:
-                return {'approve': False, 'state': 'refused', 'reason': 'another step already waits for approval'}
-
-            self.request  = {'id': uuid.uuid4().hex[:8], 'state': 'open', 'opened': time.time(), **request}
-            self.decision = None
-            self.answered.clear()
-
-        self.publish(self.request)
-
-        if not still_open():                    # it closed before the request was out: no cancel will come
-            self.cancel('the task ended')
-
-        self.answered.wait()
-
-        with self._lock:
-            request, decision, self.request = self.request, self.decision, None
-
-        self.publish({**request, 'state': decision['state'], 'reason': decision['reason'], 'by': decision['by']})
-
-        return decision
-
-    def decide(self, message: dict) -> dict:
-        """A decision for the open request; the reply says whether it was taken"""
-        with self._lock:
-            if self.request is not None and message.get('id') == self.request['id'] and self.answered.is_set():
-                return {'id': message.get('id'), 'accepted': False, 'message': 'this step was decided already'}
-
-            if self.request is None or message.get('id') != self.request['id']:
-                return {'id': message.get('id'), 'accepted': False, 'message': 'no step with this id waits'}
-
-            approve       = bool(message.get('approve'))
-            self.decision = {'approve': approve, 'state': 'approved' if approve else 'refused',
-                             'reason': str(message.get('reason', '')), 'by': str(message.get('by') or 'unknown')}
-            self.answered.set()
-
-        return {'id': message['id'], 'accepted': True, 'message': self.decision['state']}
-
-    def cancel(self, reason: str):
-        """Refuse the open request, if any: its task ended"""
-        with self._lock:
-            request = self.request
-
-        if request is not None:
-            self.decide({'id': request['id'], 'approve': False, 'reason': reason, 'by': 'the executor'})
 
 
 class TaskDesk:

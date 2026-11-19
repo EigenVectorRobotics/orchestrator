@@ -1,6 +1,6 @@
 """Fakes and builders that several test modules share.
 
-Keep this module free of ROS imports: test_tasks, test_task_agent and test_task_loop import it, and they must
+Keep this module free of ROS imports: test_tasks, test_task_desk and test_codex_agent import it, and they must
 collect with no rclpy on the path"""
 
 import time
@@ -11,11 +11,11 @@ from types import SimpleNamespace
 from skill_registry import Registry
 
 from orchestrator.tasks import Tasks
-from orchestrator.task_agent import TaskDesk
+from orchestrator.task_desk import TaskDesk
 from orchestrator.skill_leaf import make_leaf_factory
 from orchestrator.behavior_tree import Context, Status
 
-from data_paths import CONTRACTS
+from data_paths import SKILLS
 
 
 PANEL = {'x': 1.0, 'y': 2.0, 'yaw': 0.0, 'frame': 'map'}
@@ -99,7 +99,7 @@ class FakeTracer:
 
 
 def _tasks(runner: FakeRunner):
-    registry = Registry.from_directory(CONTRACTS)
+    registry = Registry.from_directory(SKILLS)
     tracer   = FakeTracer()
     statuses = []
     tasks    = Tasks(registry, make_leaf_factory(registry, runner), tracer, lambda state, tree: statuses.append(state),

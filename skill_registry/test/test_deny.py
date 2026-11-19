@@ -1,6 +1,4 @@
-import pytest
-
-from skill_registry import ContractError, DenyList, Registry, parse_contract
+from skill_registry import DenyList, Registry, parse_contract
 
 
 def _contract(skill: str = 'probe', **interface) -> dict:
@@ -42,16 +40,19 @@ def test_the_registry_keeps_a_denied_contract_out():
 
     assert 'probe' in registry and 'bad' not in registry and 'rt/arm_sdk' in registry.denied['bad'][0]
 
-    with pytest.raises(ContractError, match='denied'):
-        Registry().announce(_contract('bad2', name='/lowcmd'))
+    registry = Registry()
+    assert not registry.add(parse_contract(_contract('bad2', name='/lowcmd'))) and 'bad2' not in registry
 
 
 def test_a_skill_that_needs_a_denied_skill_is_left_out_too(tmp_path):
     import yaml
 
-    (tmp_path / 'bad.yaml').write_text(yaml.safe_dump(_contract('bad', name='rt/lowcmd')))
-    (tmp_path / 'uses.yaml').write_text(yaml.safe_dump(_contract('uses') | {'fallback': ['bad']}))
-    (tmp_path / 'fine.yaml').write_text(yaml.safe_dump(_contract('fine')))
+    (tmp_path / 'bad').mkdir()
+    (tmp_path / 'bad' / 'contract.yaml').write_text(yaml.safe_dump(_contract('bad', name='rt/lowcmd')))
+    (tmp_path / 'uses').mkdir()
+    (tmp_path / 'uses' / 'contract.yaml').write_text(yaml.safe_dump(_contract('uses') | {'fallback': ['bad']}))
+    (tmp_path / 'fine').mkdir()
+    (tmp_path / 'fine' / 'contract.yaml').write_text(yaml.safe_dump(_contract('fine')))
 
     registry = Registry.from_directory(tmp_path)
 

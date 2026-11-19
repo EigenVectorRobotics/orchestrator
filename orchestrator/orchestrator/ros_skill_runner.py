@@ -1,126 +1,28 @@
 """Run any skill from its contract over ROS 2: actions, services, topics, topic watches, and the local VLM"""
 
-import copy
 import json
-import math
 import time
 
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.action import ActionClient
 from action_msgs.msg import GoalStatus
-from sensor_msgs.msg import Image
-from geometry_msgs.msg import PoseStamped
-from rosidl_runtime_py import message_to_ordereddict, set_message_fields
+from rosidl_runtime_py import message_to_ordereddict
 from rosidl_runtime_py.utilities import get_action, get_message, get_service
 
 from skill_registry import Contract, Registry
-from skill_registry.contract import WHOLE_MESSAGE, HeldValue, Watch
+from skill_registry.contract import HeldValue, Watch
+from skill_registry.ros_messages import build_message, extract_outputs, port_output, read_field
 
-from .images import ImageError, image_to_jpeg
+from .qos import COMMAND_QOS, LATCHED_QOS
+from .sensing import CameraStream
 from .vlm_client import VlmClient, VlmClientError
 from .behavior_tree import Status
 
 
 MAX_FEEDBACK = 1200                 # samples kept per action call; beyond it every other one is dropped
-
-# The fake robot and the elevator_sim bridge use the same profiles; keep them in step.
-COMMAND_QOS = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
-LATCHED_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-SENSOR_QOS  = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE)
-
-
-# ========== Messages ==========
-
-def yaw_of(orientation) -> float:
-    return math.atan2(2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
-                      1.0 - 2.0 * (orientation.y ** 2 + orientation.z ** 2))
-
-
-def frame_of(message, default: str = 'map') -> str:
-    """The frame of a message that has a header; the default for one that has none"""
-    return getattr(getattr(message, 'header', None), 'frame_id', '') or default
-
-
-def pose_dict(pose, frame: str = 'map') -> dict:
-    """Any pose message as the pose this package holds ({x, y, z, yaw, frame}), the inverse of to_pose_stamped: a
-    place, a goal input and a pose output all have the one shape. It unwraps whatever wraps a Pose (PoseStamped,
-    PoseWithCovariance, PoseWithCovarianceStamped), and a header on the way names the frame"""
-    while hasattr(pose, 'pose'):
-        frame = frame_of(pose, frame)
-        pose  = pose.pose
-
-    return {'x': pose.position.x, 'y': pose.position.y, 'z': pose.position.z,
-            'yaw': yaw_of(pose.orientation), 'frame': frame}
-
-
-def to_pose_stamped(pose: dict, node: Node) -> PoseStamped:
-    message = PoseStamped()
-    yaw     = float(pose.get('yaw', 0.0))
-
-    message.header.frame_id     = pose.get('frame', 'map')
-    message.header.stamp        = node.get_clock().now().to_msg()
-    message.pose.position.x     = float(pose['x'])
-    message.pose.position.y     = float(pose['y'])
-    message.pose.position.z     = float(pose.get('z', 0.0))     # the storey on a multi-storey map; 0 = the lowest
-    message.pose.orientation.z  = math.sin(yaw / 2)
-    message.pose.orientation.w  = math.cos(yaw / 2)
-
-    return message
-
-
-def build_message(message_type, contract: Contract, inputs: dict, node: Node):
-    """A goal, request or topic message with the fixed fields, then the input ports"""
-    message = message_type()
-
-    if contract.interface.fixed:      # a copy: set_message_fields turns a list of dicts into messages in place
-        set_message_fields(message, copy.deepcopy(contract.interface.fixed))
-
-    for port in contract.inputs:
-        if port.name not in inputs:
-            continue
-
-        value = inputs[port.name]
-
-        if port.type == 'pose':
-            value = to_pose_stamped(value, node)
-        elif port.type == 'enum' and port.values:
-            value = port.values[value]
-        elif port.type == 'float':
-            value = float(value)
-
-        if port.message_field == WHOLE_MESSAGE:
-            message = value
-            continue
-
-        *parents, leaf = port.message_field.split('.')
-        target          = message
-
-        for parent in parents:             # a number is an index into a sequence, e.g. parameters.0.value
-            target = target[int(parent)] if parent.isdigit() else getattr(target, parent)
-
-        setattr(target, leaf, value)
-
-    return message
-
-
-def port_output(value, port, message):
-    """What a port hands over, for EVERY transport: a pose port gives the pose shape, never the ROS message, so the
-    blackboard, a {key} input, the trace and the code sandbox all read {x, y, z, yaw, frame}. Another port keeps
-    what the field holds (ground's detections are a message that the next skill reads by its key). The frame comes
-    from the message the field was read from"""
-    if port.type == 'pose' and hasattr(value, 'get_fields_and_field_types'):
-        return pose_dict(value, frame_of(message))
-
-    return value
-
-
-def extract_outputs(contract: Contract, result) -> dict:
-    return {port.name: port_output(getattr(result, port.message_field, None), port, result)
-            for port in contract.outputs}
 
 
 # ========== Topic watches ==========
@@ -155,10 +57,7 @@ class TopicWatch:
         else:
             value = self.latest
 
-        for key in spec.field.split('.'):
-            value = value.get(key) if isinstance(value, dict) else getattr(value, key, None)
-
-        return value
+        return read_field(value, spec.field)
 
     def matches(self, spec: Watch, after: float = 0.0) -> bool:
         return self.latest is not None and self.receive_time > after and self.read(spec) == spec.equals
@@ -168,13 +67,6 @@ class TopicWatch:
 
 
 # ========== Held values ==========
-
-def read_field(message, dotted: str):
-    for name in dotted.split('.'):
-        message = message.get(name) if isinstance(message, dict) else getattr(message, name, None)
-
-    return message
-
 
 class HoldTimer:
     """How long a value has equalled spec.equals without a break; expired once that reaches spec.hold_s"""
@@ -418,8 +310,8 @@ class RosSkillRunner:
         self,
         node: Node,
         registry: Registry,
+        camera: CameraStream,
         vlm_client: VlmClient | None = None,
-        image_topic: str = '/camera/camera/color/image_raw',
         server_wait_s: float = 3.0
     ):
         self.node          = node
@@ -431,13 +323,10 @@ class RosSkillRunner:
         self._publishers:      dict[str, object]       = {}
         self._watches:         dict[tuple, TopicWatch] = {}
         self._vlm_pool    = ThreadPoolExecutor(max_workers=2)
-        self._image       = None             # the last camera frame, as JPEG
-        self._image_topic = image_topic
+        self.camera       = camera           # what the VLM sees
 
         for contract in registry:
             self.prepare(contract)
-
-        node.create_subscription(Image, image_topic, self._on_image, SENSOR_QOS)
 
     def prepare(self, contract: Contract):
         """Make clients and subscriptions early: discovery is done, and watches have a value, when a tree first asks"""
@@ -512,10 +401,6 @@ class RosSkillRunner:
     def shutdown(self):
         self._vlm_pool.shutdown(wait=False, cancel_futures=True)
 
-    def latest_image(self) -> bytes | None:
-        """The last camera frame, as JPEG: what the VLM sees"""
-        return self._image
-
     def _check_watch(self, spec: Watch, contract: Contract):
         """A condition on a topic. Its outputs are fields of the same message, so the agent can report a value
         that no action or service gives back (the robot's pose, for one)"""
@@ -532,8 +417,8 @@ class RosSkillRunner:
     def _ask_vlm(self, contract: Contract, inputs: dict):
         interface = contract.interface
 
-        if self._image is None:
-            return _DoneHandle(False, f'no camera image on {self._image_topic}')
+        if not self.camera.has_frame():
+            return _DoneHandle(False, f'no camera image on {self.camera.topic}')
 
         choices  = interface.choices or [choice.strip() for choice in inputs.get('choices', '').split(';') if choice.strip()]
         question = interface.question.format(**inputs)
@@ -541,19 +426,17 @@ class RosSkillRunner:
         if not choices:
             return _DoneHandle(False, 'a VLM question needs choices')
 
-        future = self._vlm_pool.submit(self.vlm_client.ask, self._image, question, choices)
+        future = self._vlm_pool.submit(self._ask_about_frame, question, choices)    # the encoding too: not on the tick
 
         return _VlmHandle(future, question, interface.success_answer)
 
-    def _on_image(self, message: Image):
-        """Raw frames from the RealSense, encoded here: the Orin publishes no compressed transport"""
-        try:
-            jpeg = image_to_jpeg(message)
-        except ImageError as error:
-            self.node.get_logger().warn(f'camera frame dropped: {error}', throttle_duration_sec=10.0)
-            return
+    def _ask_about_frame(self, question: str, choices: list[str]) -> str:
+        image = self.camera.latest()
 
-        self._image = jpeg
+        if image is None:
+            raise VlmClientError(f'the frame on {self.camera.topic} cannot be encoded: {self.camera.error}')
+
+        return self.vlm_client.ask(image, question, choices)
 
     def _watch(self, spec: Watch) -> TopicWatch:
         key = (spec.topic, spec.latched)

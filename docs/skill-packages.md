@@ -18,7 +18,7 @@ Status: draft for review, 2026-11-05. Nothing in this note is built yet. Changed
 - No new protocol. The registry does as now: it loads the contracts from the package, checks the ROS graph each second (services, topic publishers and subscribers, actions) and the VLM `/models` URL, and publishes `/skills/live`.
 - A skill is live when its interface is on the graph. A device that goes down takes its interfaces off the graph, so its skills go off `/skills/live`.
 - New skills load while the registry runs (no restart): the registry reloads a contract when its file changes.
-- **Contract changes:** use the new contract, and log the change. (Now `Registry.announce` keeps the first contract and ignores changes.)
+- **Contract changes:** use the new contract, and log the change. (There is no announcement: the registry reads the contracts from the library folder.)
 - **Bad contract:** refuse that skill only, and log it. The other skills stay live.
 
 ## Agent-written skills

@@ -7,7 +7,8 @@ from types import SimpleNamespace
 from skill_registry import contract_grammar
 
 from orchestrator.knowledge import KnowledgeStore, Sighting
-from orchestrator.task_agent import LOST_SPEECH, StepGate, task_summary
+from orchestrator.task_desk import LOST_SPEECH, task_summary
+from orchestrator.step_gate import StepGate
 from orchestrator.behavior_tree import Status
 
 from fakes import FakeRunner, _context, _desk, _tick_until

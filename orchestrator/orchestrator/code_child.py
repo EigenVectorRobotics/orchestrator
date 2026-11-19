@@ -1,6 +1,6 @@
-"""The child side of a code skill: run <agent_dir>/code/<module>.py and send every skill call to the executor.
+"""The child side of a code skill: run a skill's code.py and send every skill call to the executor.
 
-agent_guard runs this file, so the rules of the agent sandbox hold: no ROS, no network, no new processes, and writes
+sandbox_guard runs this file, so the rules of the agent sandbox hold: no ROS, no network, no new processes, and writes
 only in the scratch directory. The code reaches the robot only through `skills`, which the executor answers.
 
 Protocol, one JSON object per line: this file writes {"call": ...}, {"done": ...} or {"failed": ...} on the fd in
