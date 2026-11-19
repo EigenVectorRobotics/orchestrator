@@ -6,8 +6,7 @@ import pytest
 
 pytest.importorskip('rclpy')
 
-from orchestrator.execution.node import tree_message
-from orchestrator.execution.tree_runner import PREFLIGHT_TREE, preflight_gate
+from orchestrator.execution.node import PREFLIGHT_TREE, preflight_gate, recorder_refusal, tree_message
 
 
 def test_a_task_tree_waits_for_a_passed_preflight():
@@ -37,3 +36,13 @@ def test_a_tree_message_is_xml_or_json_with_the_skip():
     assert tree_message(xml) == (xml, False)
     assert tree_message(json.dumps({'tree': xml, 'skip_preflight': True})) == (xml, True)
     assert tree_message(json.dumps({'tree': xml})) == (xml, False)
+
+
+def test_the_recorder_gate_holds_only_when_required():
+    assert recorder_refusal(False, False, {}) == ''
+    assert recorder_refusal(True, True, {'ready': True}) == ''
+
+
+def test_the_recorder_gate_gives_the_recorder_reason_or_that_it_is_down():
+    assert 'disk full' in recorder_refusal(True, True, {'ready': False, 'reason': 'disk full'})
+    assert 'run_recorder is not running' in recorder_refusal(True, False, {'ready': True})     # a stale latched ready

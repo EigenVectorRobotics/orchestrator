@@ -1,9 +1,12 @@
-"""TreeRunner runs one tree at a time behind the recorder and preflight gates, with no ROS."""
+"""TreeRunner runs one tree at a time and traces it; which trees may run is not its decision."""
+
+import pytest
 
 from skill_registry import Registry
 
-from orchestrator.execution.tree_runner import PREFLIGHT_TREE, TreeRunner
-from orchestrator.tree.engine import Status
+from orchestrator.tree.engine import Status, TreeError
+from orchestrator.tree.leaf import make_leaf_factory
+from orchestrator.tree.runner import TreeRunner
 
 from test_behavior_tree import CONTRACTS, FakeRunner
 
@@ -39,10 +42,14 @@ def _xml(tree_id: str, body: str = '<say text="hello"/>') -> str:
 
 def _runner(skill_runner=None, **options) -> tuple[TreeRunner, FakeTrace, list]:
     trace, statuses = FakeTrace(), []
-    runner = TreeRunner(Registry.from_directory(CONTRACTS), {}, {'nuc', 'orin'}, skill_runner or FakeRunner(), trace,
-                        lambda state, tree_id: statuses.append((state, tree_id)), FakeLogger(), **options)
+    factory = make_leaf_factory(Registry.from_directory(CONTRACTS), skill_runner or FakeRunner())
+    runner  = TreeRunner(factory, trace, lambda state, tree_id: statuses.append((state, tree_id)), FakeLogger(), **options)
 
     return runner, trace, statuses
+
+
+def _start(runner: TreeRunner, tree_id: str, body: str = '<say text="hello"/>'):
+    runner.start(runner.build(_xml(tree_id, body)))
 
 
 def _finish(runner: TreeRunner, max_ticks: int = 20):
@@ -53,80 +60,80 @@ def _finish(runner: TreeRunner, max_ticks: int = 20):
         runner.tick()
 
 
-def test_a_task_tree_runs_only_after_a_passed_preflight():
-    runner, trace, statuses = _runner(require_preflight=True)
+def test_a_tree_runs_to_its_end_and_reports_it():
+    finished = []
+    runner, trace, statuses = _runner(on_finished=lambda tree_id, status: finished.append((tree_id, status)))
 
-    assert not runner.run(_xml('task'))
-    assert statuses[-1] == ('rejected', None)
-
-    assert runner.run(_xml(PREFLIGHT_TREE))
-    _finish(runner)
-    assert runner.preflight_passed and statuses[-1] == ('success', PREFLIGHT_TREE)     # the status names the tree that ended
-
-    assert runner.run(_xml('task'))
-    assert statuses[-1] == ('running', 'task')
-
-
-def test_a_failed_preflight_closes_the_gate_again():
-    runner, _, _ = _runner(FakeRunner({'say': [Status.FAILURE]}), require_preflight=True)
-    runner.preflight_passed = True
-
-    runner.run(_xml(PREFLIGHT_TREE))
+    _start(runner, 'task')
     _finish(runner)
 
-    assert not runner.preflight_passed
-    assert not runner.run(_xml('task'))
+    assert finished == [('task', Status.SUCCESS)]
+    assert statuses == [('running', 'task'), ('success', 'task')]      # the final status still names the tree
+    assert trace.kinds() == ['started', 'record', 'finished'] and trace.fields == {}
 
 
-def test_skip_runs_a_task_tree_without_preflight_and_traces_it():
-    runner, trace, _ = _runner(require_preflight=True)
-
-    assert runner.run(_xml('task'), skip=True)
-    assert 'preflight_skipped' in trace.kinds()
-
-
-def test_the_recorder_gate_refuses_with_its_reason():
-    runner, trace, statuses = _runner(require_recorder=True, recorder_ready=lambda: (False, 'disk full'))
-
-    assert not runner.run(_xml('task'))
-    assert trace.events[-1]['kind'] == 'rejected' and 'disk full' in trace.events[-1]['text']
-    assert statuses == [('rejected', None)]
-
-
-def test_an_invalid_tree_is_rejected_after_its_issues_are_traced():
+def test_every_event_of_a_run_carries_its_run_id():
     runner, trace, _ = _runner()
 
-    assert not runner.run(_xml('task', '<no_such_skill/>'))
-    assert trace.kinds()[-2:] == ['validation', 'rejected']
+    _start(runner, 'task')
+    run_id = runner.tree.context.run_id
+    _finish(runner)
+
+    assert run_id and all(event['run_id'] == run_id for event in trace.events)
+
+
+def test_the_blackboard_is_copied_into_each_tree():
+    places = {'call_panel': {'x': 1.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'}}
+    runner, _, _ = _runner(blackboard=places)
+
+    tree = runner.build(_xml('task'))
+    tree.context.blackboard['call_panel'] = None
+
+    assert places['call_panel'] is not None
+
+
+def test_a_tree_that_does_not_build_raises():
+    runner, _, _ = _runner()
+
+    with pytest.raises((TreeError, ValueError)):
+        runner.build('<root BTCPP_format="4"><BehaviorTree ID="t"><no_such_skill/></BehaviorTree></root>')
 
 
 def test_a_new_tree_halts_the_running_one():
     runner, trace, _ = _runner(FakeRunner({'say': [Status.RUNNING]}))
 
-    runner.run(_xml('first'))
-    runner.run(_xml('second'))
+    _start(runner, 'first')
+    _start(runner, 'second')
 
     assert runner.tree.id == 'second'
-    assert any(event['kind'] == 'halted' and 'first' in event['text'] for event in trace.events)
+    assert trace.kinds() == ['started', 'halted', 'started']
 
 
 def test_cancel_halts_the_tree_and_clears_the_run_fields():
-    runner, trace, statuses = _runner(FakeRunner({'say': [Status.RUNNING]}))
+    finished = []
+    runner, trace, statuses = _runner(FakeRunner({'say': [Status.RUNNING]}),
+                                      on_finished=lambda tree_id, status: finished.append(tree_id))
 
-    runner.run(_xml('task'))
-    assert trace.fields['tree_id'] == 'task'
-
+    _start(runner, 'task')
     runner.cancel()
 
     assert runner.tree is None and trace.fields == {}
-    assert statuses[-1] == ('cancelled', None)
+    assert statuses[-1] == ('cancelled', None) and finished == []
 
 
 def test_a_crash_in_a_tick_stops_the_tree_but_not_the_runner():
     runner, trace, statuses = _runner(CrashingRunner())
 
-    runner.run(_xml('task'))
+    _start(runner, 'task')
     runner.tick()
 
     assert runner.tree is None and statuses[-1] == ('error', 'task')
     assert runner.logger.errors and trace.kinds()[-1] == 'error'
+
+
+def test_the_started_event_takes_any_field_even_tree():
+    runner, trace, _ = _runner()
+
+    runner.start(runner.build(_xml('task')), ' (blind)', tree='<root/>', blind=True)
+
+    assert trace.events[0]['text'] == 'running task (blind)' and trace.events[0]['tree'] == '<root/>'
