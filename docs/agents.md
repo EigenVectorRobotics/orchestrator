@@ -208,59 +208,60 @@ The arm planner's own messages (`Planning failed: ...` and the like) come from m
 
 ## Robot facts the evidence depends on
 
-What the arm, the camera and the walk do underneath the skills: read it to interpret a call's failure, feedback and stance. These facts come from other repositories (versions at the end), not from this one. The topics each skill uses are in its contract's `interface` and `config`; the robot-side services the press needs are in `docs/machines.md`.
+What the arm, the camera and the walk do underneath the skills: read it to interpret a call's failure, feedback and stance. These facts come from other repositories (versions at the end), not from this one. The topics each skill uses are in its contract's `interface` and `config`; the robot-side services the press needs are in `docs/machines.md`. Numbers are the code defaults; the launch files named below do not override them unless said.
 
 ### The press action
 
-`press_button` calls the action `humanoid_arm_visual_servoing`:
+`press_button` calls the action `humanoid_arm_visual_servoing` (`humanoid_arm_visual_servoing.py`), which sends one goal to move_to_pose and lets it follow the target topic:
 
-1. **Seed.** Reset track_anything, then send the button text. The VLM gives a box; the tracker follows it. Each seed request waits 30 s, up to 2 requests.
-2. **Target.** `arm_pose_filter` moves the pose into `foot_world`, filters it and publishes the upright goal.
-3. **Plan.** move_to_pose plans in `pelvis`: IK for the pre-grasp, a joint-space path to it, a straight final leg to the press pose, then a retreat.
-4. **Replan.** It replans when the target moves 0.01 m or 0.05 rad. The final leg freezes the goal in `left_ankle_roll_link` and runs in 4 steps, each re-mapped to the leaning pelvis.
-5. **Done.** `Target reached`, then `Controller reached target`. This does not prove the button was pressed: `press_judge` decides that.
+1. **Seed.** Reset track_anything, then send the button text. The VLM gives a box; the tracker follows it. A seed request waits `seed_timeout` (30 s), up to `seed_max_requests` (2). Once tracking, a filtered pose must come within `first_pose_timeout` (10 s).
+2. **Target.** `arm_pose_filter` moves the pose into `foot_world`, filters it (Kalman by launch default) and publishes the upright goal.
+3. **Plan.** move_to_pose solves in `pelvis`: a joint-space path to the pre-grasp, a 1 s pause (`PREGRASP_DELAY`), then a straight final leg to the press pose.
+4. **Replan.** Until the final leg starts, it replans when the target moves `replan_position_delta` (0.01 m) or `replan_orientation_delta` (0.05 rad). When the final leg starts, it takes the latest target once, freezes it in `final_leg_anchor_frame` (`left_ankle_roll_link`) and ignores later targets. It then runs the final leg in `final_leg_steps` (10) steps. Each step is re-mapped to the current pelvis and starts `final_leg_settle_time` (0.5 s) after the previous one ends. The last step holds the press pose 1 s, then retreats along the final leg.
+5. **Gripper fit.** Each final-leg step also corrects the aim by the gripper's depth fit (TF `*_dex1_base_link_estimate`, from `gripper_pose_estimator` on the Orin) minus the encoder gripper, and then aims 8 mm deeper (`LEAD_TOWARD_GOAL` in `planning.cpp`). Without a fit younger than `gripper_estimate_max_age` (0.5 s) and smaller than `gripper_estimate_max_error` (0.03 m), there is no correction and no extra depth. `check_reach` does not apply it.
+6. **Done.** move_to_pose ends with `Target reached`, then the servo node with `Controller reached target`. This does not prove the button was pressed: `press_judge` decides that. `final_distance` is the closest the `*_ee` frame came to the goal during the call, not where it ended.
 
-The live target is often gone by the time of a call. The servo node resets track_anything after a cancel, a timeout, a failed seed or a success. After `Planning failed` the tracker may still publish. So the executor takes the press target from the last `current_goal` in the failure record, not from the live topic.
+move_to_pose's own failures: `Planning failed: target out of reach: the arm ends X mm and Y deg from it` (the path misses the goal by more than `goal_position_tolerance` 5 mm or `goal_orientation_tolerance` 0.1 rad); `Replan failed` or `Final-leg step N failed`, which end the goal after `max_plan_failures` (3) in a row; `Arm is not following the trajectory` (a joint more than `max_tracking_error` 0.2 rad off for `tracking_error_timeout` 1 s, except within `near_target_distance` 0.02 m of the target, where a press looks the same).
+
+The servo node resets track_anything whenever a goal ends: success, cancel, timeout or any failure. So the live target is gone by the time of a call, and the executor takes the press target from the last `current_goal` in the failure record.
 
 ### Poses and frames
 
-- **Normal pose** (track_anything, `button_in_view`'s `pose_topic`): plane centroid, +X out of the panel toward the camera.
-- **Upright goal** (`check_reach`'s `pose_topic`, in `foot_world`): same position, yaw-only, +X into the panel. This is `current_goal` and the press pose.
-- **Pre-grasp**: the upright goal moved `approach_offset_m` along its own −X. Both poses must be reachable; the pre-grasp can hit the torso when the panel is near.
-- **Press offset**: `arm_safety_distance_{x,y,z}` on move_to_pose, set by `set_press_offset` (its contract says the frame and that a relaunch resets it). `check_reach` adds the offset itself, since ik_server keeps its launch offset (its contract's `notes`).
-- **TF**: `pelvis`, `torso_link`, `foot_world` (published by `body_ekf`); `left_ee`, `right_ee`, end-effector points on `*_wrist_yaw_link` (the end-effector `offset` in `g1.yaml`); `camera_link`, fixed on `torso_link`, with the RealSense frames below it; `base_link`, the navigation base: `sensor` (the lidar on the torso) moved down, with the lidar's yaw. `navigate_to` puts `base_link` on the goal; `stance` measures `pelvis`, 1 to 2 cm and about 2° plus the waist yaw away.
+- **Normal pose** (track_anything, `button_in_view`'s `pose_topic`): the centroid of the fitted plane, +X out of the panel toward the camera.
+- **Upright goal** (`check_reach`'s `pose_topic`, in `foot_world`): same position, yaw only, +X into the panel. This is `current_goal` and the press pose.
+- **Pre-grasp**: the upright goal moved back along its own −X by the planner's `approach_offset` (0.10 m, `visual_servo_planner.h`; `press_button`'s `approach_offset_m` repeats it). The path to the pre-grasp and every final-leg point must be solvable, or the plan fails as out of reach. Not checked in code: with the panel near, the pre-grasp comes close to the torso.
+- **Press offset**: `arm_safety_distance_{x,y,z}` on move_to_pose, added in the target's own frame after the move into `pelvis` (`to_pelvis_frame_`). `set_press_offset` sets it; its contract says the frame and that a relaunch resets it. `check_reach` adds the offset itself, since ik_server keeps its launch offset (its contract's `notes`).
+- **TF**: `foot_world` is published by `body_ekf`. `left_ee` and `right_ee` sit on the `*_wrist_yaw_link` at the end-effector `offset` in `g1.yaml`; move_to_pose publishes them. `camera_link` is fixed on `torso_link` (`d435_joint` in the `_ros.urdf`). `base_link`, the navigation base, is `sensor` (the lidar on the torso) moved 0.35 m down, with the lidar's orientation (bringup `nuc.launch.py`). `navigate_to` puts `base_link` on the goal. Not checked in code: `stance` measures `pelvis` 1 to 2 cm and about 2° plus the waist yaw away from it.
 
 ### Arm
 
-- Profile `arms_with_waist` locks the waist. The torso cannot lean.
-- `g1.yaml` `joint_limit_overrides` tightens the shoulder limits. Use them over the URDF's.
-- The planner solves IK with CasADi in C++. `check_reach` asks the same IK (ik_server, from the live joint state), so its verdict matches the press planner's.
-- Joints move at most 0.5 rad/s, 0.25 rad/s on the final leg.
+- The profile in use (`active_config`) is `arms_with_waist`. Its `joint_limit_overrides` hold the three waist joints within ±0.0001 rad, so the torso cannot lean, and tighten the shoulder limits. Use them over the URDF's.
+- IK is C++ (`HumanoidIK`, CasADi; damped least squares on the final leg). `check_reach` asks ik_server, which runs the same plan from the live joint state with the same tolerances, so its verdict matches the first plan of a press.
+- Joints move at most `max_joint_vel` (0.5 rad/s); the final leg and the retreat at half that, 0.25 rad/s.
 
 ### Perception
 
-- `/track_3d/is_tracking` true means a 2D mask. The 3D pose can still be dropped (too few depth points, failed fit) with no message.
-- A lost object shows `Lost (Ns)` in `/track_3d/tracked_overlay`. After 20 s the tracker stops and does not re-query.
+- `/track_3d/is_tracking` true means a 2D mask in that frame. The 3D pose can still be missing: an object with fewer than 4 depth points, before or after outlier filtering, is dropped with only a log line.
+- After a loss, `is_tracking` is false. After `tracking_timeout` (20 s) the tracker stops and does not ask the VLM again.
 - How close the D435 sees depth is in `docs/troubleshooting.md` (Pressing).
 
 ### Navigation
 
 - When `navigate_to` ends is in its contract's `notes`; walking's preconditions and a goal's storey in z are in `docs/troubleshooting.md` (Walking).
-- Side and back steps are slower: 0.15 m/s.
+- Side and back steps are capped at `max_lateral_speed` and `max_backward_speed` (0.15 m/s), but `min_speed` (0.2 m/s) is higher and wins: the G1 does not step slower (`local_planner/config/unitree_g1.yaml`).
 
 ### Where to check these facts on the NUC
 
-Under `~/eigen_vector_ws`. Which branch each machine runs is in `docs/machines.md`.
+Under `~/eigen_vector_ws`. Which branch the NUC runs is not checked here; `docs/machines.md` owns it.
 
 | What | Path |
 |---|---|
 | Arm planner's robot model | `install/g1_description/share/g1_description/assets/g1/g1_29dof_with_hand_rev_1_0.urdf`; pass its directory as the package directory for meshes |
 | Model with `camera_link` | `g1_29dof_with_hand_rev_1_0_ros.urdf`, same directory |
-| IK profiles, joint limits, end effectors | `install/g1_pilot/share/g1_pilot/config/g1.yaml`; `active_config` names the profile |
-| Visual servo node | `src/manipulation_stack/humanoid_arm_skills/humanoid_arm_skills/humanoid_arm_visual_servoing.py` |
-| Target filter, upright and approach poses | same package: `pose_filtering.py`, `utils.py` |
-| Arm planner and IK | `src/manipulation_stack/g1_pilot/src/move_to_pose/`, `src/manipulation_stack/g1_pilot/src/core/arm_mp/` |
-| Launch defaults | `src/bringup/launch/nuc.launch.py`, `humanoid_arm_skills/launch/humanoid_arm_visual_servoing.launch.py` |
-| Navigation config | `src/navigation_stack/{local_planner,route_planner}/config/unitree_g1.yaml` |
+| IK profiles, joint limits, end effectors | `install/g1_pilot/share/g1_pilot/config/g1.yaml` |
+| Visual servo node, target filter, upright pose | `src/manipulation_stack/humanoid_arm_skills/humanoid_arm_skills/`: `humanoid_arm_visual_servoing.py`, `pose_filtering.py`, `utils.py` |
+| move_to_pose, ik_server, planner | `src/manipulation_stack/g1_pilot/src/move_to_pose/`, `g1_pilot/src/ik_server.cpp`, `g1_pilot/src/core/arm_mp/` |
+| Launch defaults | `src/bringup/launch/nuc.launch.py`, `humanoid_arm_skills/launch/humanoid_arm_visual_servoing.launch.py`, `g1_pilot/launch/move_to_pose.launch.py` |
+| Navigation config | `src/navigation_stack/local_planner/config/unitree_g1.yaml` |
 
-track_anything runs on the Orin and its VLM on the Thor. The facts above were read from manipulation_stack `pelvis-correction` @ `d70b9d1` (the NUC then ran `test/pelvis-correction` @ `0554dd4`), track_anything `main` @ `f5a1f47` and navigation_stack `main` @ `6242b3e`. Check them again when those change.
+track_anything runs on the Orin and its VLM on the Thor. Sources: manipulation_stack `main` @ `f8d28b3`, track_anything `main` @ `4d1c755`, navigation_stack `main` @ `4cf9d87` (the same here as `jean/elevator-side`), and the bringup in eigen_vector `main` @ `dfabc71`. Check them again when those change.

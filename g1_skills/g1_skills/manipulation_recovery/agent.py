@@ -68,8 +68,8 @@ class ManipulationRecovery(AgentSkill):
     def task_lines(self, call: AgentCall) -> list[str]:
         if call.phase == 'diagnose':
             lines = ['The press did not work: press_button failed, or it succeeded and press_judge said not_pressed; '
-                     'the failure says which. The press ran only after button_in_view and check_reach passed: the stance '
-                     'reach. Decide why it failed and what the tree does next.']
+                     'the failure says which. The press ran only after button_in_view and check_reach passed: from this '
+                     'stance the arm reached the button at the check. Decide why it failed and what the tree does next.']
         else:
             lines = ['The walk to the panel has arrived and nothing has been pressed yet. button_in_view or check_reach '
                      'failed: the failure says which and what it measured; the stance reach_move is the reposition the IK '
