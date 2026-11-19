@@ -64,7 +64,8 @@ def on_config(config):
 def on_files(files, config):
     """Every Markdown file of the repository at its own path, so relative links work here as on GitHub; README.md is
     its folder's index page"""
-    served = Files([])
+    docs_dir = Path(config['docs_dir']).resolve()
+    served   = Files([file for file in files if docs_dir not in Path(file.abs_src_path).resolve().parents])  # the theme's
 
     for path in sorted(ROOT.rglob('*')):
         if path.is_file() and not _skipped(path) and (path.suffix == '.md' or path.suffix.lower() in ASSETS):
