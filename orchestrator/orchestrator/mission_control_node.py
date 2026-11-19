@@ -27,11 +27,12 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
 from sensor_msgs.msg import Image
+from visualization_msgs.msg import ImageMarker
 
 from .qos import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS, TRACE_QOS
-from .topics import (CANCEL_TOPIC, OPEN_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
+from .topics import (CANCEL_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
                      STEP_REQUEST_TOPIC, TASK_TOPIC, TRACE_TOPIC)
-from .images import Camera
+from .images import Camera, Outlines
 from .mission_control import DECISION_WAIT, Commands, MissionApi, MissionState, token_ok
 
 
@@ -71,6 +72,8 @@ class MissionControlNode(Node):
         image_topic   = self.declare_parameter('image_topic', '/camera/camera/color/image_raw').value
         self.state    = MissionState(keep=self.declare_parameter('trace_keep', 400).value)
         self.camera   = Camera(image_topic, max_side=self.declare_parameter('camera_max_side', 960).value, quality=80)
+        self.outlines = Outlines()
+        self._outline_subscription = None            # only while the page shows the masks
         self._waiting = {}                           # step id -> (Event, [reply]) for each decision in flight
         self._lock    = threading.Lock()
 
@@ -88,7 +91,8 @@ class MissionControlNode(Node):
         ]
 
         self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel),
-                                       self.camera, token_needed=not off)
+                                       self.camera, token_needed=not off, outlines=self.outlines)
+        self.create_timer(1.0, self._follow_outlines)
         files              = read_web(web_dir)       # before the port is bound: a missing page is not half a server
         self.server        = ThreadingHTTPServer((host, port), Handler)
         self.server.api    = self.api
@@ -106,6 +110,17 @@ class MissionControlNode(Node):
             self.get_logger().info('open that link, with its token: a command without the token is refused')
 
     # ========== State in ==========
+
+    def _follow_outlines(self):
+        """Subscribe to the mask outlines while a page asks for them, and stop when no page has asked for a while"""
+        wanted = self.outlines.wanted()
+
+        if wanted and self._outline_subscription is None:
+            self._outline_subscription = self.create_subscription(ImageMarker, OUTLINE_TOPIC, self.outlines.put, SENSOR_QOS)
+        elif not wanted and self._outline_subscription is not None:
+            self.destroy_subscription(self._outline_subscription)
+            self._outline_subscription = None
+            self.outlines.clear()
 
     def _reader(self, part: str):
         """One JSON callback per topic: the trace keeps every event, a step reply goes to the thread that waits"""

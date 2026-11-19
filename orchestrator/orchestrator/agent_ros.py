@@ -19,6 +19,7 @@ from rosidl_runtime_py.utilities import get_message
 from visualization_msgs.msg import ImageMarker
 
 from .images import draw_outlines, stamp_seconds
+from .topics import OUTLINE_TOPIC
 
 
 # Topics too big to read whole into the conversation; images go through image()
@@ -26,7 +27,6 @@ HEAVY_TYPES = {
     'sensor_msgs/msg/Image', 'sensor_msgs/msg/CompressedImage', 'sensor_msgs/msg/PointCloud2',
     'sensor_msgs/msg/LaserScan', 'nav_msgs/msg/OccupancyGrid', 'livox_ros_driver2/msg/CustomMsg',
 }
-OUTLINE_TOPIC    = '/track_3d/mask_outlines'    # track_anything: the mask outlines of a frame, only while subscribed
 PENDING_OUTLINES = 10                            # outlines that wait for their frame: more than 1 s at 6 fps
 MAX_LIST       = 32                 # longer sequences in a message are cut to their first items
 

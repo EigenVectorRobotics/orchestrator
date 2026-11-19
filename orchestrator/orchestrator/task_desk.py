@@ -436,7 +436,8 @@ class TaskDesk:
         full     = {'run_id': task.run_id if task else None, 'step': step or (task.steps + 1 if task else 0)} | request
         decision = self.gate.ask(full, still_open or (lambda: self.task is task))
         self.tasks.tracer.emit('step_gate', f'{request.get("skill")}: {decision["state"]} {decision["reason"]}'.strip(),
-                               skill=request.get('skill'), **decision)
+                               skill=request.get('skill'), subgoal=request.get('subgoal', ''), step=full['step'],
+                               run_id=full['run_id'], **decision)   # its own run: a late refusal of a closed task
 
         return decision
 

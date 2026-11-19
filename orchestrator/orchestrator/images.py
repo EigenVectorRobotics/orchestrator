@@ -126,6 +126,52 @@ class FrameBuffer:
             return next((data for stamp, data in self._frames if stamp == t), None)
 
 
+class Outlines:
+    """The latest mask outlines of track_3d (an ImageMarker LINE_LIST in the camera's pixels), as segments a page
+    draws on the frame. track_3d works on the outlines only while something subscribes, so the owner subscribes only
+    while a page asks (wanted)"""
+
+    def __init__(self, keep_s: float = 3.0, ask_s: float = 5.0):
+        self.keep_s   = keep_s                      # older outlines are not shown: the tracked thing moved
+        self.ask_s    = ask_s                       # a page that stopped asking this long ago does not want them
+        self._lock    = threading.Lock()
+        self._latest  = None                        # (time, segments, colors)
+        self._asked   = -math.inf
+
+    def put(self, marker):
+        """Any message with points (x, y) and outline_colors or outline_color (r, g, b in 0..1)"""
+        points   = marker.points
+        colors   = list(marker.outline_colors) or [marker.outline_color] * len(points)
+        segments = [[round(a.x, 1), round(a.y, 1), round(b.x, 1), round(b.y, 1)] for a, b in zip(points[0::2], points[1::2])]
+        hexes    = ['#%02x%02x%02x' % tuple(round(255 * min(1.0, max(0.0, channel))) for channel in (c.r, c.g, c.b))
+                    for c in colors[0::2]]
+
+        with self._lock:
+            self._latest = (time.time(), segments, hexes[:len(segments)])
+
+    def ask(self):
+        with self._lock:
+            self._asked = time.monotonic()
+
+    def wanted(self) -> bool:
+        with self._lock:
+            return time.monotonic() - self._asked < self.ask_s
+
+    def clear(self):
+        with self._lock:
+            self._latest = None
+
+    def state(self) -> dict:
+        """The segments and one colour per segment; nothing when they are too old"""
+        with self._lock:
+            if self._latest is None or time.time() - self._latest[0] > self.keep_s:
+                return {}
+
+            at, segments, colors = self._latest
+
+            return {'segments': segments, 'colors': colors, 'age_s': round(time.time() - at, 1)}
+
+
 class Camera:
     """The latest camera frame, encoded only when someone asks for one: the robot publishes faster than a person
     looks or a VLM asks. Any message with height, width, step, encoding and data; max_side None keeps the full size"""

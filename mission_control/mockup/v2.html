@@ -77,7 +77,6 @@ main.wrap { padding-block: 16px 40px; display: grid; gap: 16px; }
 .approve { background: var(--on-lime); color: var(--lime); flex: 1; }
 .refuse { background: transparent; color: var(--bad); border-color: var(--bad); }
 .decide input { border: 1px solid var(--on-lime); background: var(--bg); color: var(--ink); padding: 8px 10px; width: 100%; }
-kbd { font: 500 11px var(--mono); border: 1px solid currentColor; padding: 0 4px; margin-left: 6px; opacity: .7; }
 .wait { font: 500 12px var(--mono); }
 
 .run-row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
@@ -293,8 +292,8 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
         </div>
         <div class="decide">
           <div class="pair">
-            <button class="big approve" id="approve">Approve<kbd>A</kbd></button>
-            <button class="big refuse" id="refuse">Refuse<kbd>R</kbd></button>
+            <button class="big approve" id="approve">Approve</button>
+            <button class="big refuse" id="refuse">Refuse</button>
           </div>
           <input id="why" type="text" placeholder="Reason for refusal (the agent gets it)" aria-label="Reason for refusal">
         </div>
@@ -377,7 +376,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
         <button data-f="all" aria-pressed="false">All<span class="n" id="n-all"></span></button>
       </div>
       <input class="search" id="sfind" type="search" placeholder="Find a skill or a ROS name" aria-label="Find a skill">
-      <span class="sample">sample skills · keys: ↑ ↓ move, K keep, X remove</span>
+      <span class="sample">sample skills</span>
     </div>
     <div class="skills-grid">
       <ul class="slist" id="slist" aria-label="Skills"></ul>
@@ -560,7 +559,7 @@ function toggle(id, apply) {
 toggle('t-masks', on => { showMasks = on; drawCamera(); });
 toggle('t-map', on => document.getElementById('minimap').hidden = !on);
 
-// Decisions: buttons and the A / R keys (not while typing)
+// Decisions: a click on a button only; no keyboard shortcuts
 function decide(approve) {
   if (state !== 'gate') return;
   state = 'deciding';                                   // one decision per step: a second key or click does nothing
@@ -570,12 +569,6 @@ function decide(approve) {
 }
 document.getElementById('approve').addEventListener('click', () => decide(true));
 document.getElementById('refuse').addEventListener('click', () => decide(false));
-document.addEventListener('keydown', e => {
-  if (document.getElementById('mission').hidden || e.target.closest('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === 'a' || e.key === 'A') decide(true);
-  if (e.key === 'r' || e.key === 'R') document.getElementById('why').focus(), e.preventDefault();
-});
-document.getElementById('why').addEventListener('keydown', e => { if (e.key === 'Enter') decide(false); });
 
 let waited = 12;
 setInterval(() => { if (state !== 'gate') return; waited++; $('waited').textContent = `${Math.floor(waited / 60)}:${String(waited % 60).padStart(2, '0')}`; }, 1000);
@@ -662,7 +655,7 @@ function renderDetail() {
     <div class="dhead">
       <div><h3>${sk.name}</h3><p>${sk.description}</p>${pills(sk)}</div>
       <div class="actions">${toReview(sk)
-        ? '<button class="btn" id="keep">Keep<kbd>K</kbd></button><button class="btn ghost" id="edit">Edit</button><button class="btn bad" id="remove">Remove<kbd>X</kbd></button>'
+        ? '<button class="btn" id="keep">Keep</button><button class="btn ghost" id="edit">Edit</button><button class="btn bad" id="remove">Remove</button>'
         : '<button class="btn ghost" id="edit">Edit</button>'}</div>
     </div>
     ${sk.stale ? `<p class="pill stale" style="padding:8px 10px;font-size:12px">Stale: ${sk.stale}. A new discovery does this repo first.</p>` : ''}
@@ -703,16 +696,6 @@ $('sdetail').addEventListener('click', e => {
   if (SKILLS.find(sk => sk.name === a.dataset.go)?.gone) { a.textContent += ' (removed)'; a.disabled = true; return; }
   sFilter = 'all'; sFind = ''; $('sfind').value = ''; setSeg('sfilter', 'f', 'all');
   selected = a.dataset.go; renderList();
-});
-document.addEventListener('keydown', e => {
-  if ($('skills').hidden || e.target.closest('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
-  const items = shown(), at = items.findIndex(sk => sk.name === selected);
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    const next = items[Math.min(items.length - 1, Math.max(0, at + (e.key === 'ArrowDown' ? 1 : -1)))];
-    if (next) { selected = next.name; renderList(); e.preventDefault(); }
-  }
-  if (e.key === 'k' || e.key === 'K') review(true);
-  if (e.key === 'x' || e.key === 'X') review(false);
 });
 counts(); renderList();
 // ---------- Knowledge (sample data in the shape of claims.yaml and staged/<run_id>.json) ----------

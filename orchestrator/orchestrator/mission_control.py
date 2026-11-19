@@ -16,7 +16,7 @@ import threading
 from collections import deque
 from typing import Callable
 
-from .images import Camera
+from .images import Camera, Outlines
 from .topics import TASK_OPTIONS
 
 
@@ -24,6 +24,8 @@ MAX_TASK_CHARS = 400                    # a task sentence; longer is a plan, not
 TRACE_KEEP     = 400                    # trace events the page can scroll back through
 DECISION_WAIT  = 5.0                    # seconds to wait for the executor's reply to a decision
 TASK_FIELDS    = ('state', 'run_id', 'task', 'blind', 'discovery', 'end', 'limits')   # of the open message; not places, known or scratch
+STEPS_KEEP     = 200                    # steps of one task the page shows in the plan
+STEP_ENDS      = ('finished', 'halted', 'error')
 
 
 class MissionState:
@@ -36,26 +38,54 @@ class MissionState:
         self._lock   = threading.Lock()
         self._parts  = {}                            # status, task, step, recorder: the latest message of each
         self._plan   = {}                            # the newest plan of the open task, from the trace
+        self._steps  = deque(maxlen=STEPS_KEEP)      # the steps of the open task, from the trace: run, ended or refused
+        self._began  = None                          # when the open task started, from the trace
+        self._run    = None                          # the run that the plan, the steps and began belong to
         self._events = deque(maxlen=keep)
         self._seq    = 0
 
     def put(self, part: str, message: dict):
-        """The latest message of one part; a new task forgets the plan of the last one"""
+        """The latest message of one part; a new task forgets the plan and the steps of the last one"""
         with self._lock:
-            if part == 'task' and message.get('run_id') != self._parts.get('task', {}).get('run_id'):
-                self._plan = {}
+            if part == 'task':
+                self._new_run(message.get('run_id'))
 
             self._parts[part] = message
 
+    def _new_run(self, run_id):
+        """The open message and task_started come on two topics, in either order: the first of them starts the run"""
+        if run_id != self._run:
+            self._run, self._plan, self._began = run_id, {}, None
+            self._steps.clear()
+
     def trace(self, event: dict):
-        """One /orchestrator/trace event; a plan event is also kept as the plan"""
+        """One /orchestrator/trace event; a plan event is also kept as the plan, and a step event as a step"""
         with self._lock:
             self._seq   += 1
             event['seq'] = self._seq
             self._events.append(event)
+            kind         = event.get('kind')
 
-            if event.get('kind') == 'plan' and event.get('subgoals'):
+            if kind == 'task_started':
+                self._new_run(event.get('run_id'))
+                self._began = event.get('time')
+                return
+
+            if event.get('run_id') != self._run:     # a late event of a closed task
+                return
+
+            if kind == 'plan' and event.get('subgoals'):
                 self._plan = {'version': event.get('version'), 'subgoals': list(event['subgoals'])}
+            elif kind == 'started':
+                self._steps.append({'step': event.get('step'), 'skill': event.get('tree_id'), 'subgoal': event.get('subgoal') or '',
+                                    'status': 'running', 'start': event.get('time')})
+            elif kind in STEP_ENDS and self._steps and self._steps[-1]['status'] == 'running':
+                self._steps[-1].update(status=event.get('status') if kind == 'finished' else kind, end=event.get('time'))
+            elif kind == 'step_gate' and event.get('state') == 'refused' and isinstance(event.get('step'), int):
+                # not a refusal inside a code skill (step 'inside the code'): that one comes while its step runs
+                self._steps.append({'step': event.get('step'), 'skill': event.get('skill'), 'subgoal': event.get('subgoal') or '',
+                                    'status': 'refused', 'reason': event.get('reason', ''), 'start': event.get('time'),
+                                    'end': event.get('time')})
 
     def snapshot(self, after: int = 0) -> dict:
         """Everything the page shows; only the trace events newer than after. The task's open message is cut down
@@ -68,6 +98,8 @@ class MissionState:
                 'seq':    self._seq,
                 'keep':   self._events.maxlen,
                 'plan':   self._plan,
+                'steps':  [dict(step) for step in self._steps],
+                'began':  self._began,
                 'trace':  [] if after >= self._seq else [event for event in self._events if event['seq'] > after],
                 'task':   {field: task[field] for field in TASK_FIELDS if field in task},
                 **{part: self._parts.get(part, {}) for part in ('status', 'step', 'recorder')},
@@ -136,9 +168,10 @@ class MissionApi:
     """The paths under /api; the node's web server does the HTTP and the files"""
 
     def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None,
-                 token_needed: bool = True):
+                 token_needed: bool = True, outlines: Outlines | None = None):
         self.state        = state
         self.camera       = camera or Camera()
+        self.outlines     = outlines or Outlines()
         self.token_needed = token_needed     # the page says so when it holds no token; it cannot see the parameter
         self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel}
 
@@ -151,7 +184,11 @@ class MissionApi:
         except (TypeError, ValueError):
             after = 0
 
-        return 200, {**self.state.snapshot(after), 'camera': self.camera.state(), 'token_needed': self.token_needed}
+        if query.get('outlines') == '1':            # the page shows the masks: keep the outlines coming
+            self.outlines.ask()
+
+        return 200, {**self.state.snapshot(after), 'camera': self.camera.state(), 'outlines': self.outlines.state(),
+                     'token_needed': self.token_needed}
 
     def post(self, path: str, body: dict) -> tuple[int, dict]:
         command = self.posts.get(path)

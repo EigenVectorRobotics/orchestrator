@@ -17,3 +17,5 @@ STEP_DECISION_TOPIC = '/orchestrator/step_decision'         # the person's decis
 STEP_REPLY_TOPIC    = '/orchestrator/step_decision/reply'   # whether the gate took it
 
 RECORDER_TOPIC = '/orchestrator/recorder/status'    # the recorder's state, latched (run_recorder.py)
+
+OUTLINE_TOPIC = '/track_3d/mask_outlines'           # track_anything: the mask outlines of a frame, only while subscribed

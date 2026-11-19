@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from orchestrator.images import Camera
+from orchestrator.images import Camera, Outlines
 from orchestrator.mission_control import Commands, MissionApi, MissionState, token_ok
 
 
@@ -127,3 +127,98 @@ def test_a_command_needs_the_node_token():
     assert not token_ok('', '') and not token_ok('', 'anything')   # no token set is not an open door
     assert token_ok('off', '') and token_ok('off', 'anything')     # off is the one way to take the check away
     assert not token_ok('s3cret', 'café')                           # a header byte over 0x7F is refused, not a crash
+
+
+def test_the_steps_of_the_open_task_come_from_the_trace():
+    api, state, _ = _api()
+
+    state.trace({'kind': 'task_started', 'time': 10.0})
+    state.trace({'kind': 'started', 'time': 11.0, 'step': 1, 'tree_id': 'navigate_to', 'subgoal': 'walk there'})
+    state.trace({'kind': 'finished', 'time': 20.0, 'status': 'failure'})
+    state.trace({'kind': 'step_gate', 'time': 21.0, 'state': 'refused', 'skill': 'cancel_navigation', 'subgoal': 'walk there',
+                 'step': 2, 'reason': 'clear the map'})
+    state.trace({'kind': 'step_gate', 'time': 22.0, 'state': 'approved', 'skill': 'clear_terrain_map', 'step': 2})
+    state.trace({'kind': 'started', 'time': 22.0, 'step': 2, 'tree_id': 'clear_terrain_map', 'subgoal': 'clear the map'})
+
+    snapshot = api.get('/api/state', {})[1]
+
+    assert snapshot['began'] == 10.0
+    assert [(step['skill'], step['status']) for step in snapshot['steps']] == [
+        ('navigate_to', 'failure'), ('cancel_navigation', 'refused'), ('clear_terrain_map', 'running')]
+    assert snapshot['steps'][0]['end'] == 20.0 and snapshot['steps'][1]['reason'] == 'clear the map'
+
+    state.trace({'kind': 'halted', 'time': 23.0})
+    state.trace({'kind': 'finished', 'time': 24.0, 'status': 'success'})          # no step runs: nothing to end
+
+    assert [step['status'] for step in api.get('/api/state', {})[1]['steps']] == ['failure', 'refused', 'halted']
+
+    state.trace({'kind': 'task_started', 'time': 30.0, 'run_id': 'r2'})            # a new task starts with no steps
+
+    assert api.get('/api/state', {})[1]['steps'] == []
+
+
+def test_a_late_event_of_a_closed_task_and_a_refusal_inside_a_code_skill_stay_out_of_the_steps():
+    api, state, _ = _api()
+
+    state.put('task', {'state': 'open', 'run_id': 'r1'})                           # the open message may come first
+    state.trace({'kind': 'task_started', 'time': 10.0, 'run_id': 'r1'})
+    state.trace({'kind': 'plan', 'run_id': 'r1', 'version': 1, 'subgoals': ['walk there']})
+    state.trace({'kind': 'started', 'time': 11.0, 'run_id': 'r1', 'step': 1, 'tree_id': 'code_skill', 'subgoal': 'walk there'})
+    state.trace({'kind': 'step_gate', 'time': 12.0, 'run_id': 'r1', 'state': 'refused', 'skill': 'navigate_to',
+                 'step': 'inside the code'})
+    state.trace({'kind': 'finished', 'time': 13.0, 'run_id': 'r1', 'status': 'failure'})
+
+    snapshot = api.get('/api/state', {})[1]
+
+    assert snapshot['began'] == 10.0 and snapshot['plan']['subgoals'] == ['walk there']
+    assert [(step['skill'], step['status']) for step in snapshot['steps']] == [('code_skill', 'failure')]
+
+    state.trace({'kind': 'task_started', 'time': 20.0, 'run_id': 'r2'})
+    state.trace({'kind': 'step_gate', 'time': 21.0, 'run_id': 'r1', 'state': 'refused', 'skill': 'say', 'step': 2,
+                 'reason': 'the task ended'})                                     # r1 closed; its gate answers late
+    state.put('task', {'state': 'open', 'run_id': 'r2'})
+
+    snapshot = api.get('/api/state', {})[1]
+
+    assert snapshot['steps'] == [] and snapshot['began'] == 20.0
+
+    state.put('task', {'state': 'open', 'run_id': 'r3'})                           # its task_started is not here yet
+
+    assert api.get('/api/state', {})[1]['began'] is None
+
+
+def _marker(points, colors=(), color=(0.0, 1.0, 0.0)):
+    point = lambda x, y: SimpleNamespace(x=x, y=y)
+    rgb   = lambda r, g, b: SimpleNamespace(r=r, g=g, b=b)
+
+    return SimpleNamespace(points=[point(*p) for p in points], outline_colors=[rgb(*c) for c in colors], outline_color=rgb(*color))
+
+
+def test_the_mask_outlines_are_segments_with_a_colour_each_and_only_while_a_page_asks():
+    outlines = Outlines(keep_s=60.0)
+    api      = MissionApi(MissionState(), Commands(None, None, None), outlines=outlines)
+
+    assert not outlines.wanted() and api.get('/api/state', {})[1]['outlines'] == {}
+
+    outlines.put(_marker([(1, 2), (3, 4), (5, 6), (7, 8)], colors=[(1, 0, 0), (1, 0, 0), (0, 0, 1), (0, 0, 1)]))
+    shown = api.get('/api/state', {'outlines': '1'})[1]['outlines']
+
+    assert outlines.wanted()
+    assert shown['segments'] == [[1, 2, 3, 4], [5, 6, 7, 8]] and shown['colors'] == ['#ff0000', '#0000ff']
+
+    outlines.put(_marker([(0, 0), (9, 9)]))                                        # no colour per point: the one colour
+
+    assert outlines.state()['colors'] == ['#00ff00']
+
+    outlines.clear()
+
+    assert outlines.state() == {}
+
+
+def test_old_outlines_and_an_old_ask_count_for_nothing():
+    outlines = Outlines(keep_s=0.0, ask_s=0.0)
+
+    outlines.put(_marker([(0, 0), (9, 9)]))
+    outlines.ask()
+
+    assert outlines.state() == {} and not outlines.wanted()

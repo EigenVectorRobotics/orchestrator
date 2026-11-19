@@ -129,6 +129,8 @@ def test_the_step_gate_runs_an_approved_step_and_not_a_refused_one(tmp_path):
     assert len(runner.calls) == 1 and 'too close' in d.replies[1]['message']
     assert [request['state'] for request in requests] == ['open', 'approved', 'open', 'refused']
     assert requests[0]['skill'] == 'say' and requests[0]['step'] == 1
+    refused = [event for event in d.tracer.events if event['kind'] == 'step_gate'][-1]  # the page puts it in the plan
+    assert (refused['state'], refused['subgoal'], refused['step']) == ('refused', 'greet', 2)
 
 
 def test_a_step_waiting_at_the_gate_is_refused_when_the_task_ends(tmp_path):

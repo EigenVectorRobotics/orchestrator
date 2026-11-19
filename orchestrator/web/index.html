@@ -7,142 +7,234 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Neuton:wght@400;700&family=Open+Sans:wght@400;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-/* Theme: "Standards and Regulations" deck. Forest, lime, ink, Neuton titles, Open Sans body, Roboto Mono labels */
+/* The design is mission_control/mockup/v2.html. One "Now" band says what needs the operator; below it,
+   plan | camera | agent feed. Team colours (forest and lime), IBM Plex Sans and Mono. Light only. */
 :root {
-  --forest: #003310; --leaf: #085420; --lime: #E0F0B0; --paper: #FFFFFF; --mist: #ECECE8;
-  --rule: #D0D0D0; --ink: #1A1A1A; --grey: #737373; --warn: #FFDCB4; --bad: #FFBBBB;
-  --serif: 'Neuton', Georgia, serif; --sans: 'Open Sans', Arial, sans-serif; --mono: 'Roboto Mono', ui-monospace, monospace;
+  --bg:        #FAFBF6;
+  --surface:   #F0F3E8;
+  --ink:       #16201A;
+  --muted:     #646E5F;
+  --rule:      #D8DDCE;
+  --head-bg:   #003310;
+  --head-fg:   #E0F0B0;
+  --lime:      #E0F0B0;
+  --on-lime:   #003310;
+  --accent:    #085420;
+  --on-accent: #E0F0B0;
+  --frame:     #121A14;
+  --good:      #1E7A3A;
+  --warn:      #9A5200;
+  --warn-bg:   #FCEBD5;
+  --bad:       #A32020;
+  --bad-bg:    #FBE1E1;
+  --sans: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--paper); color: var(--ink); font: 14px/1.45 var(--sans); }
-button, input, select, textarea { font: inherit; color: inherit; }
-.top { background: var(--forest); color: var(--lime); display: flex; align-items: center; gap: 24px; padding: 12px 24px; flex-wrap: wrap; }
-.brand { font: 700 26px/1 var(--serif); letter-spacing: .2px; }
-.brand small { font: 400 12px var(--mono); color: #FFFFFF; margin-left: 10px; opacity: .8; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
-.chip { font: 500 11px var(--mono); border: 1px solid rgba(224,240,176,.45); padding: 4px 8px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
-.chip i { width: 8px; height: 8px; display: inline-block; background: var(--lime); }
-.chip.off i { background: transparent; border: 1px solid var(--lime); }
-.chip.warn i { background: var(--warn); }
-.stop { background: var(--lime); color: var(--forest); border: 0; padding: 8px 16px; font-weight: 700; cursor: pointer; }
-main { padding: 20px 24px 40px; max-width: 1600px; margin: 0 auto; }
-.grid { display: grid; gap: 20px; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1.1fr) minmax(300px, 1fr); }
-@media (max-width: 1180px) { .grid { grid-template-columns: 1fr 1fr; } .grid .trace { grid-column: 1 / -1; } }
-@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .top, main { padding-left: 16px; padding-right: 16px; } }
-.frame { position: relative; background: #0F1A12; aspect-ratio: 4 / 3; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-.frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.frame .cap { position: absolute; left: 10px; bottom: 8px; right: 10px; font: 400 11px var(--mono); color: var(--lime); }
-.frame .none { font: 400 12px var(--mono); color: var(--lime); opacity: .7; padding: 12px; text-align: center; }
-.panel { border-top: 1px solid var(--ink); padding-top: 10px; min-width: 0; }
-.panel + .panel { margin-top: 24px; }
-.ph { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; min-width: 0; }
-.ph h2 { font: 400 26px/1.1 var(--serif); }
-.tag { font: 400 11px var(--mono); color: var(--grey); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.label { font: 500 11px var(--mono); color: var(--grey); text-transform: uppercase; letter-spacing: .6px; }
-.note { font-size: 12px; color: var(--grey); margin-top: 6px; }
-.compose textarea { width: 100%; min-height: 70px; border: 1px solid var(--ink); padding: 10px; resize: vertical; background: var(--paper); }
-.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-.btn { border: 1px solid var(--forest); background: var(--forest); color: var(--lime); padding: 7px 14px; cursor: pointer; font-weight: 600; }
-.btn.ghost { background: transparent; color: var(--forest); }
-.btn.bad { background: var(--paper); border-color: #8A1F1F; color: #8A1F1F; }
-.btn[disabled] { opacity: .45; cursor: not-allowed; }
-.check { display: flex; gap: 6px; align-items: center; font-size: 13px; }
-.said { font: 400 12px var(--mono); color: var(--leaf); }
-.said.bad { color: #8A1F1F; }
-.plan { list-style: none; counter-reset: s; }
-.plan li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
-.plan li::before { content: counter(s, decimal-leading-zero); font: 400 12px var(--mono); color: var(--grey); }
-.plan li.now { font-weight: 700; color: var(--forest); }
-.st { font: 500 11px var(--mono); padding: 2px 6px; }
-.st.run { background: var(--forest); color: var(--lime); }
-.st.wait { background: var(--mist); color: var(--grey); }
-.gate { background: var(--lime); padding: 16px; margin-top: 12px; }
-.gate.quiet { background: var(--mist); }
-.gate h3 { font: 700 20px/1.2 var(--serif); color: var(--forest); }
-.kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; margin: 10px 0; font-size: 13px; }
-.kv dt { font: 500 11px/1.9 var(--mono); color: var(--grey); text-transform: uppercase; }
-.kv dd { font-family: var(--mono); font-size: 12.5px; word-break: break-word; }
-.gate input[type=text] { flex: 1; min-width: 160px; border: 1px solid var(--ink); padding: 7px 10px; background: var(--paper); }
-.timer { font: 500 12px var(--mono); color: var(--forest); }
-.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-.pill { border: 1px solid var(--ink); background: var(--paper); padding: 3px 8px; cursor: pointer; font: 500 11px var(--mono); }
-.pill[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-.log { height: 70vh; overflow-y: auto; border-top: 1px solid var(--rule); font: 400 12px/1.5 var(--mono); }
-.ev { display: grid; grid-template-columns: 62px 96px 1fr; gap: 8px; padding: 6px 2px; border-bottom: 1px solid var(--mist); }
-.ev time { color: var(--grey); }
-.ev b { font-weight: 500; color: var(--leaf); }
-.ev span { white-space: pre-wrap; word-break: break-word; }
-.ev.warn { background: #FFF4E8; } .ev.warn b { color: #8A5A10; }
-.ev.error { background: #FFEDED; } .ev.error b { color: #8A1F1F; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); margin: 0; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .5; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1500px; margin: 0 auto; }
+
+/* Header: one quiet line; colour only on a problem */
+header { background: var(--head-bg); color: var(--head-fg); }
+header .wrap { display: flex; align-items: center; gap: 20px; padding-block: 10px; flex-wrap: wrap; }
+.brand { font: 600 18px/1 var(--sans); letter-spacing: .2px; white-space: nowrap; }
+.brand small { font: 400 11px var(--mono); opacity: .7; margin-left: 8px; }
+.health { display: flex; gap: 8px; align-items: center; flex: 1; flex-wrap: wrap; font: 500 12px var(--mono); }
+.health .ok { opacity: .75; }
+.health .ok::before { content: ""; display: inline-block; width: 7px; height: 7px; background: var(--head-fg); margin-right: 6px; }
+.health .issue { background: var(--warn-bg); color: var(--warn); padding: 3px 8px; }
+.health .issue::before { content: "! "; font-weight: 700; }
+.cancel { background: transparent; border: 1px solid var(--head-fg); color: var(--head-fg); padding: 6px 12px; font-weight: 600; }
+.cancel:hover { background: var(--head-fg); color: var(--head-bg); }
+
+main.wrap { padding-block: 16px 40px; display: grid; gap: 16px; }
+
+/* The Now band */
+.now { padding: 18px 20px; display: grid; gap: 14px; }
+.now.gate { background: var(--lime); color: var(--on-lime); }
+.now.soft { background: var(--surface); }
+.eyebrow { font: 500 11px var(--mono); letter-spacing: .7px; text-transform: uppercase; opacity: .75; }
+.now h1 { font: 600 26px/1.2 var(--sans); letter-spacing: -.2px; margin: 2px 0 0; text-wrap: balance; }
+.now h1 code { font: 500 .7em var(--mono); }
+.gate-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: end; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 400 12px var(--mono); opacity: .85; margin-top: 8px; }
+.decide { display: grid; gap: 8px; min-width: 300px; }
+.decide .pair { display: flex; gap: 8px; }
+.big { padding: 10px 18px; font-weight: 700; border: 2px solid var(--on-lime); }
+.approve { background: var(--on-lime); color: var(--lime); flex: 1; }
+.refuse { background: transparent; color: var(--bad); border-color: var(--bad); }
+.decide input { border: 1px solid var(--on-lime); background: var(--bg); color: var(--ink); padding: 8px 10px; width: 100%; }
+.run-row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.bar { height: 6px; background: var(--rule); flex: 1; min-width: 160px; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.wait { font: 500 12px var(--mono); }
+.compose { display: grid; gap: 10px; }
+.compose textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--rule); background: var(--bg); padding: 10px; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.btn { background: var(--accent); color: var(--on-accent); border: 0; padding: 8px 16px; font-weight: 600; }
+.check { display: flex; gap: 6px; align-items: center; }
+.hint { color: var(--muted); font-size: 12px; }
+.said { font: 500 12px var(--mono); color: var(--accent); }
+.said.bad { color: var(--bad); }
+
+/* Body grid */
+.grid { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 380px); gap: 24px; align-items: start; }
+@media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .grid .camera { grid-column: 1 / -1; order: -1; } }
+@media (max-width: 700px)  { .grid { grid-template-columns: minmax(0, 1fr); } .gate-body { grid-template-columns: 1fr; } .decide { min-width: 0; } }
+section h2 { font: 600 15px/1.2 var(--sans); text-transform: uppercase; letter-spacing: .6px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+section h2 small { font: 400 11px var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; }
+
+/* Plan timeline */
+.plan { list-style: none; margin: 0; padding: 0; }
+.plan li { position: relative; padding: 0 0 14px 26px; }
+.plan li::before { content: ""; position: absolute; left: 5px; top: 18px; bottom: 0; width: 1px; background: var(--rule); }
+.plan li:last-child::before { display: none; }
+.plan .mark { position: absolute; left: 0; top: 4px; width: 11px; height: 11px; border: 1.5px solid var(--muted); background: var(--bg); }
+.plan .done { color: var(--muted); }
+.plan .done .mark { background: var(--good); border-color: var(--good); }
+.plan .now-step { font-weight: 700; }
+.plan .now-step .mark { background: var(--lime); border: 2px solid var(--accent); }
+.plan .failed .mark { background: var(--bad); border-color: var(--bad); }
+.plan .refused .mark { border: 2px solid var(--warn); }
+.plan .meta { display: block; font: 400 11px var(--mono); color: var(--muted); font-weight: 400; }
+
+/* Camera: the JPEG fitted in a 16:9 canvas, the EdgeTAM mask outlines on top */
+.frame { position: relative; background: var(--frame); aspect-ratio: 16 / 9; max-width: 100%; overflow: hidden; }
+.frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.frame .none { position: absolute; inset: 0; display: grid; place-items: center; color: var(--lime); opacity: .7; font: 400 12px var(--mono); padding: 20px; text-align: center; }
+.cap { font: 400 11px var(--mono); color: var(--muted); margin-top: 6px; }
+.cap .stale { color: var(--warn); font-weight: 500; }
+.cap .track { display: inline-block; width: 9px; height: 9px; margin: 0 4px 0 10px; vertical-align: -1px; }
+.toggle { background: transparent; border: 1px solid var(--rule); padding: 3px 9px; font: 500 11px var(--mono); color: var(--muted); }
+.toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* Agent feed */
+.feed { list-style: none; margin: 0; padding: 0; max-height: 620px; overflow-y: auto; border-top: 1px solid var(--rule); }
+.feed li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+.feed time { font: 400 11px/1.9 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.feed .what { font-weight: 600; word-break: break-word; }
+.feed .detail { display: block; color: var(--muted); font-size: 13px; word-break: break-word; }
+.feed .ok .what::before   { content: "✓ "; color: var(--good); }
+.feed .fail .what::before { content: "✗ "; color: var(--bad); }
+.feed .run .what::before  { content: "● "; color: var(--accent); }
+.feed .warn .what::before { content: "! "; color: var(--warn); }
+.feed .fail { background: var(--bad-bg); }
+.feed li.empty { display: block; color: var(--muted); padding: 20px 0; }
+details.raw { margin-top: 10px; }
+details.raw summary { cursor: pointer; font: 500 12px var(--mono); color: var(--muted); }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.pill { border: 1px solid var(--rule); background: var(--bg); padding: 3px 8px; font: 500 11px var(--mono); }
+.pill[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.rawlog { font: 400 11px/1.6 var(--mono); max-height: 300px; overflow: auto; color: var(--muted); }
+.rawlog div { display: grid; grid-template-columns: 52px 86px minmax(0, 1fr); gap: 8px; word-break: break-word; }
+.rawlog .warn { color: var(--warn); }
+.rawlog .error { color: var(--bad); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
 
-<header class="top">
-  <div class="brand">Mission Control<small id="where">Vector · G1</small></div>
-  <div class="chips" id="chips" aria-label="State"></div>
-  <button class="stop" id="cancel" title="/orchestrator/cancel">Cancel task</button>
+<header>
+  <div class="wrap">
+    <div class="brand">Mission Control<small id="where"></small></div>
+    <div class="health" id="health" aria-label="Health"></div>
+    <button class="cancel" id="cancel" title="Cancel the open mission (/orchestrator/cancel)" hidden>Cancel mission</button>
+  </div>
 </header>
 
-<main>
-<div class="grid">
+<main class="wrap">
 
-  <div>
-    <div class="panel compose">
-      <div class="ph"><h2>Task</h2><span class="tag">/orchestrator/task</span></div>
-      <textarea id="task" aria-label="Task" placeholder="Walk to the freight elevator call panel and press the down button"></textarea>
+  <!-- The Now band: one of four states -->
+  <div class="now gate" id="now-gate" hidden>
+    <div class="gate-body">
+      <div>
+        <div class="eyebrow" id="gate-eyebrow"></div>
+        <h1 id="gate-title"></h1>
+        <div class="facts" id="gate-facts"></div>
+      </div>
+      <div class="decide">
+        <div class="pair">
+          <button class="big approve" id="approve">Approve</button>
+          <button class="big refuse" id="refuse">Refuse</button>
+        </div>
+        <input id="why" type="text" placeholder="Reason for refusal (the agent gets it)" aria-label="Reason for refusal">
+      </div>
+    </div>
+  </div>
+
+  <div class="now soft" id="now-open" hidden>
+    <div class="eyebrow" id="open-eyebrow"></div>
+    <h1 id="open-title"></h1>
+    <div class="run-row"><div class="bar" id="open-bar" aria-label="Time used"><i></i></div><span class="wait" id="open-text"></span></div>
+  </div>
+
+  <div class="now soft" id="now-idle" hidden>
+    <div class="eyebrow">No mission</div>
+    <div class="compose">
+      <textarea id="task" aria-label="Mission" placeholder="Walk to the freight elevator call panel and press the down button"></textarea>
       <div class="row">
+        <button class="btn" id="send">Send mission</button>
         <label class="check"><input type="checkbox" id="blind"> blind</label>
-        <button class="btn" id="send">Send task</button>
-        <button class="btn" id="discover" title="A discovery task: the discovery session reads the stack's code and writes skills. No step runs, no time limit">Start discovery</button>
-        <span class="said" id="said"></span>
+        <label class="check" title="The discovery session reads the stack's code and writes skills. It never moves the robot. An empty box sends &quot;Learn the stack&quot;"><input type="checkbox" id="discovery"> discovery</label>
+        <span class="hint">An agent session in the agent folder picks it up.</span>
       </div>
-      <p class="note">The task opens a run. The task session decides each step.</p>
     </div>
+  </div>
 
-    <div class="panel">
-      <div class="ph"><h2>Plan</h2><span class="tag" id="plantag">no plan yet</span></div>
+  <div class="row"><span class="said" id="said"></span></div>
+
+  <div class="grid">
+    <section aria-labelledby="h-plan">
+      <h2 id="h-plan">Plan <small id="plantag"></small></h2>
       <ol class="plan" id="plan"></ol>
-    </div>
+    </section>
 
-    <div class="panel">
-      <div class="ph"><h2>Step gate</h2><span class="tag">/orchestrator/step_request</span></div>
-      <div id="gate"></div>
-    </div>
-  </div>
-
-  <div>
-    <div class="panel">
-      <div class="ph"><h2>Camera</h2><span class="tag" id="camtag">camera</span></div>
+    <section class="camera" aria-labelledby="h-cam">
+      <h2 id="h-cam">Head camera <button class="toggle" id="t-masks" aria-pressed="true" title="EdgeTAM mask outlines (/track_3d/mask_outlines)">masks</button></h2>
       <div class="frame">
-        <img id="cam" alt="The latest camera frame" hidden>
+        <canvas id="cam" aria-label="Head camera frame with the EdgeTAM mask outlines"></canvas>
         <span class="none" id="camnone">No camera frame yet. The Orin publishes the colour image; with the fake robot there is none.</span>
-        <span class="cap" id="camcap"></span>
       </div>
-      <p class="note">The adapter encodes a frame only when this page asks for one.</p>
-    </div>
-  </div>
+      <div class="cap" id="camcap"></div>
+    </section>
 
-  <div class="panel trace">
-    <div class="ph"><h2>Trace</h2><span class="tag">/orchestrator/trace</span></div>
-    <div class="filters" id="filters" role="group" aria-label="Filter">
-      <button class="pill" aria-pressed="true" data-filter="all">all</button>
-      <button class="pill" aria-pressed="false" data-filter="plan">plan</button>
-      <button class="pill" aria-pressed="false" data-filter="step">step</button>
-      <button class="pill" aria-pressed="false" data-filter="record">record</button>
-      <button class="pill" aria-pressed="false" data-filter="skill">skill</button>
-      <button class="pill" aria-pressed="false" data-filter="warn">warn+</button>
-    </div>
-    <div class="log" id="log"></div>
+    <section aria-labelledby="h-feed">
+      <h2 id="h-feed">Agent <small>newest first</small></h2>
+      <ul class="feed" id="feed"></ul>
+      <details class="raw" id="raw">
+        <summary>Raw trace (/orchestrator/trace)</summary>
+        <div class="filters" id="filters" role="group" aria-label="Filter">
+          <button class="pill" aria-pressed="true" data-filter="all">all</button>
+          <button class="pill" aria-pressed="false" data-filter="plan">plan</button>
+          <button class="pill" aria-pressed="false" data-filter="step">step</button>
+          <button class="pill" aria-pressed="false" data-filter="record">record</button>
+          <button class="pill" aria-pressed="false" data-filter="skill">skill</button>
+          <button class="pill" aria-pressed="false" data-filter="warn">warn+</button>
+        </div>
+        <div class="rawlog" id="log"></div>
+      </details>
+    </section>
   </div>
-
-</div>
 </main>
 
 <script>
-let events = [], seq = 0, keep = 400, filter = 'all', state = {}, drawn = {}, polling = false;
+const $ = id => document.getElementById(id);
+let events = [], seq = 0, keep = 400, filter = 'all', state = {}, drawn = {}, polling = false, masks = true, deciding = null;
+
+// Every value from the adapter is escaped once, where it comes in: the agent writes much of it, and this page
+// holds the operator's token. After this, a value can go into innerHTML as it is
+const escapeText = value => String(value).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const safe = value => typeof value === 'string' ? escapeText(value) : Array.isArray(value) ? value.map(safe)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [escapeText(k), safe(v)])) : value;
+
+const plain = html => { const box = document.createElement('textarea'); box.innerHTML = html; return box.value; };
 
 // The node's token, from the link it logs. It is kept for this tab, so a reload without the query still works
 const token = (() => {
@@ -155,10 +247,9 @@ const token = (() => {
   }
 })();
 
-const escaped = value => String(value ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const clock = seconds => new Date((seconds || 0) * 1000).toTimeString().slice(3, 8);
-const said = document.getElementById('said');
-const say = (message, bad) => { said.textContent = message; said.className = 'said' + (bad ? ' bad' : ''); };
+const clock = seconds => new Date((seconds || 0) * 1000).toTimeString().slice(0, 5);
+const mmss  = sec => { const t = Math.max(0, Math.round(sec)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+const say   = (message, bad) => { $('said').textContent = message; $('said').className = 'said' + (bad ? ' bad' : ''); };
 
 async function send(path, body) {
   try {
@@ -166,103 +257,193 @@ async function send(path, body) {
                                        headers: { 'Content-Type': 'application/json', 'X-Mission-Token': token } });
     const reply = await answer.json();
     say(reply.message || (answer.ok ? 'sent' : 'refused'), !reply.ok);
+    return reply.ok;
   } catch (error) {
     say('the adapter did not answer: ' + error, true);
+    return false;
   }
 }
 
-const DISCOVERY_TASK = 'Learn the stack: write a skill for each interface that a task could use';
-
-document.getElementById('send').addEventListener('click', () =>
-  send('/api/task', { task: document.getElementById('task').value, blind: document.getElementById('blind').checked }));
-document.getElementById('discover').addEventListener('click', () =>
-  send('/api/task', { task: DISCOVERY_TASK, discovery: true }));
-document.getElementById('cancel').addEventListener('click', () => send('/api/cancel', {}));
-document.getElementById('filters').addEventListener('click', event => {
-  const button = event.target.closest('button');
-  if (!button) return;
-  document.querySelectorAll('#filters .pill').forEach(pill => pill.setAttribute('aria-pressed', pill === button));
-  filter = button.dataset.filter;
-  renderLog();
-});
-
-// A panel is drawn again only when its own data changed: the typed refusal reason then survives the next poll
-function once(panel, signature, draw) {
-  if (drawn[panel] === signature) return;
-  drawn[panel] = signature;
+// A part is drawn again only when its own data changed: the typed text then survives the next poll
+function once(part, signature, draw) {
+  if (drawn[part] === signature) return;
+  drawn[part] = signature;
   draw();
 }
 
-function chips() {
-  const status = state.status || {}, task = state.task || {}, recorder = state.recorder || {}, step = state.step || {};
-  const open = task.state === 'open';
-  const rows = [
-    ['executor ' + (status.state || 'no status'), status.state ? '' : 'off'],
-    [open ? 'task ' + task.run_id : 'no task', open ? '' : 'off'],
-    ['recorder ' + (recorder.ready ? 'ready' : (recorder.reason || 'no status')), recorder.ready ? '' : 'off'],
-    [step.state ? 'step gate on' : 'step gate: no request yet', step.state === 'open' ? 'warn' : ''],
+// ---------- Header ----------
+
+function health() {
+  const status = state.status || {}, recorder = state.recorder || {}, camera = state.camera || {};
+  const checks = [
+    [!!status.state, 'executor', 'executor: no status'],
+    [!!recorder.ready, 'recorder', 'recorder: ' + (recorder.reason || 'no status')],
+    [camera.have && camera.age_s <= 3, 'camera', camera.have ? `camera ${camera.age_s} s old` : 'no camera frame'],
+    [!state.token_needed || !!token, 'token', 'no token in this link: commands are refused'],
   ];
-  once('chips', JSON.stringify(rows), () => document.getElementById('chips').innerHTML = rows.map(([label, kind]) =>
-    `<span class="chip ${kind}"><i></i>${escaped(label)}</span>`).join(''));
+  const issues = checks.filter(([ok]) => !ok).map(([, , bad]) => bad), good = checks.filter(([ok]) => ok).map(([, name]) => name);
+  once('health', JSON.stringify([issues, good]), () => $('health').innerHTML =
+    issues.map(text => `<span class="issue">${text}</span>`).join('')
+    + (good.length ? `<span class="ok" title="${good.join(', ')}">${good.length} ${issues.length ? 'more ' : ''}OK</span>` : ''));
+  $('cancel').hidden = (state.task || {}).state !== 'open';
 }
+
+// ---------- The Now band ----------
+
+function nowBand() {
+  const task = state.task || {}, step = state.step || {}, steps = state.steps || [];
+  const open = task.state === 'open', gate = step.state === 'open';
+  const mode = gate ? 'gate' : open ? 'open' : 'idle';
+
+  ['gate', 'open', 'idle'].forEach(name => $('now-' + name).hidden = name !== mode);
+
+  if (gate) {
+    once('gate', JSON.stringify(step), () => {
+      deciding = null;
+      $('gate-title').innerHTML = `${step.subgoal || step.skill} <code>${step.skill}</code>`;
+      $('gate-facts').innerHTML = [
+        ...Object.entries(step.inputs || {}).map(([key, value]) => `<span>${key} = ${typeof value === 'string' ? value : JSON.stringify(value)}</span>`),
+        `<span>run ${step.run_id}</span>`,
+        step.in_code ? '<span>inside a code skill that you approved</span>' : '',
+      ].join('');
+      $('why').value = '';
+      ['approve', 'refuse'].forEach(name => $(name).disabled = false);
+    });
+    $('gate-eyebrow').innerHTML = deciding ? 'Sending your decision…'
+      : `Step ${step.step} needs your decision · waiting ${mmss((state.time || 0) - (step.opened || 0))}`;
+    return;
+  }
+
+  if (open) {
+    const running = (state.status || {}).state === 'running' && steps.length && steps[steps.length - 1].status === 'running' ? steps[steps.length - 1] : null;
+    const used = state.began ? (state.time || 0) - state.began : null, limit = (task.limits || {}).max_task_s;
+    const refused = steps.filter(s => s.status === 'refused').length, ran = steps.length - refused;
+    $('open-eyebrow').innerHTML = `${task.discovery ? 'Discovery · never moves the robot' : running ? 'Mission running' : 'Mission open · waiting for the agent'} · run ${task.run_id}`;
+    once('open-title', JSON.stringify([running, task.task]), () =>
+      $('open-title').innerHTML = running ? `Step ${running.step}: ${running.subgoal || running.skill}` : task.task);
+    $('open-bar').hidden = !(used !== null && limit);
+    if (used !== null && limit) $('open-bar').firstElementChild.style.width = Math.min(100, used / limit * 100).toFixed(1) + '%';
+    $('open-text').textContent = [used !== null ? (limit ? `${mmss(used)} of ${mmss(limit)}` : mmss(used)) : '',
+                                  `${ran} step${ran === 1 ? '' : 's'}`, refused ? `${refused} refused` : ''].filter(Boolean).join(' · ');
+  }
+}
+
+function decide(approve) {
+  const step = state.step || {};
+  if (step.state !== 'open' || deciding) return;          // one click, one decision
+  deciding = step.id;
+  ['approve', 'refuse'].forEach(name => $(name).disabled = true);
+  send('/api/step', { id: step.id, approve, reason: $('why').value }).then(ok => {
+    if (!ok && deciding === step.id) { deciding = null; ['approve', 'refuse'].forEach(name => $(name).disabled = false); }
+  });
+}
+$('approve').addEventListener('click', () => decide(true));
+$('refuse').addEventListener('click', () => decide(false));
+// No keyboard shortcuts: each decision is a click on its button
+
+const DISCOVERY_TASK = 'Learn the stack: write a skill for each interface that a task could use';
+
+$('send').addEventListener('click', () => {
+  const discovery = $('discovery').checked, text = $('task').value.trim();
+  send('/api/task', { task: text || (discovery ? DISCOVERY_TASK : ''), blind: $('blind').checked, discovery });
+});
+$('cancel').addEventListener('click', () => send('/api/cancel', {}));
+
+// ---------- Plan ----------
+
+const PLAN_CLASS = {success: 'done', failure: 'failed', error: 'failed', halted: 'failed', running: 'now-step', refused: 'refused'};
 
 function renderPlan() {
-  const plan = state.plan || {}, subgoals = plan.subgoals || [], now = (state.step || {}).subgoal;
-  once('plan', JSON.stringify([plan, now]), () => {
-    document.getElementById('plantag').textContent = subgoals.length ? `revision ${plan.version} · ${subgoals.length} subgoals` : 'no plan yet';
-    document.getElementById('plan').innerHTML = subgoals.length
-      ? subgoals.map(subgoal => `<li class="${subgoal === now ? 'now' : ''}"><span>${escaped(subgoal)}</span>`
-          + (subgoal === now ? '<span class="st run">now</span>' : '<span class="st wait">open</span>') + '</li>').join('')
-      : '<li><span>The agent has not sent a plan for this task.</span><span class="st wait">waiting</span></li>';
+  const plan = state.plan || {}, subgoals = plan.subgoals || [], steps = state.steps || [], step = state.step || {};
+  const waiting = step.state === 'open' ? step.subgoal : null;
+  once('plan', JSON.stringify([plan, steps, waiting, (state.task || {}).state]), () => {
+    $('plantag').innerHTML = subgoals.length ? `revision ${plan.version}` : '';
+    $('plan').innerHTML = subgoals.length ? subgoals.map(subgoal => {
+      const last = steps.filter(s => s.subgoal === subgoal).pop();
+      const kind = subgoal === waiting ? 'now-step' : last ? PLAN_CLASS[last.status] || '' : '';
+      const meta = subgoal === waiting ? `${step.skill} · waiting for you`
+        : last ? [last.skill, last.status, last.end && last.start ? `${Math.round(last.end - last.start)} s` : '', last.reason || ''].filter(Boolean).join(' · ') : '';
+      return `<li class="${kind}"><span class="mark"></span>${subgoal}${meta ? `<span class="meta">${meta}</span>` : ''}</li>`;
+    }).join('') : `<li><span class="mark"></span>${(state.task || {}).state === 'open' ? 'The agent has not sent a plan for this mission.' : 'No mission is open.'}</li>`;
   });
 }
 
-function renderGate() {
-  const step = state.step || {}, open = step.state === 'open';
-  once('gate', JSON.stringify(step), () => {
-    if (!step.state) {
-      document.getElementById('gate').innerHTML = '<div class="gate quiet"><h3>No step has asked yet</h3>'
-        + '<p class="note">With the gate off (sim, fake robot), steps run without asking.</p></div>';
-      return;
-    }
-    document.getElementById('gate').innerHTML = `<div class="gate${open ? '' : ' quiet'}">
-      <h3>${open ? 'Step' : 'Last step'} ${escaped(step.step)} · ${escaped(step.skill)}</h3>
-      <dl class="kv">
-        <dt>state</dt><dd>${escaped(step.state)}${escaped(step.reason ? ': ' + step.reason : '')}${escaped(step.by ? ' (by ' + step.by + ')' : '')}</dd>
-        <dt>subgoal</dt><dd>${escaped(step.subgoal) || '(none)'}</dd>
-        <dt>inputs</dt><dd>${escaped(JSON.stringify(step.inputs || {}))}</dd>
-        <dt>task</dt><dd>${escaped(step.run_id)}${step.in_code ? ' · inside a code skill, which was approved already' : ''}</dd>
-      </dl>
-      ${open ? `<div class="row">
-        <button class="btn" id="approve">Approve</button>
-        <input type="text" id="why" placeholder="Reason for refusal (the agent gets it as a hint)" aria-label="Reason">
-        <button class="btn bad" id="refuse">Refuse</button>
-      </div>
-      <div class="row"><span class="timer" id="waited"></span><span class="note">Your click goes to the step gate, which takes one decision per step.</span></div>` : ''}
-    </div>`;
-    if (!open) return;
-    const decide = approve => {
-      ['approve', 'refuse'].forEach(name => document.getElementById(name).disabled = true);   // one click, one decision
-      send('/api/step', { id: step.id, approve, reason: document.getElementById('why').value });
-    };
-    document.getElementById('approve').addEventListener('click', () => decide(true));
-    document.getElementById('refuse').addEventListener('click', () => decide(false));
-  });
+// ---------- Camera ----------
 
-  const waited = document.getElementById('waited');
+let shown = null;                       // the last decoded frame; a new one replaces it only when it has loaded
 
-  if (waited && open) waited.textContent = `step ${step.id} · waiting ${Math.max(0, Math.round((state.time || 0) - (step.opened || 0)))} s`;
+function loadFrame(stamp) {
+  const next = new Image();
+  next.onload = () => { shown = next; drawCamera(); };
+  next.src = '/api/camera.jpg?t=' + stamp;
 }
+
+function fitCanvas(canvas) {
+  const ratio = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  return {ctx, W, H};
+}
+
+function drawCamera() {
+  const camera = state.camera || {}, outlines = (masks && state.outlines) || {};
+  const {ctx, W, H} = fitCanvas($('cam'));
+  if (!camera.have || !shown) return;
+  const s = Math.min(W / camera.width, H / camera.height), ox = (W - camera.width * s) / 2, oy = (H - camera.height * s) / 2;
+  ctx.drawImage(shown, ox, oy, camera.width * s, camera.height * s);       // a smaller JPEG, in the frame's pixels
+  ctx.lineWidth = 2; ctx.lineCap = 'round';
+  (outlines.segments || []).forEach(([x1, y1, x2, y2], i) => {
+    ctx.strokeStyle = outlines.colors[i] || '#E0F0B0';
+    ctx.beginPath(); ctx.moveTo(ox + x1 * s, oy + y1 * s); ctx.lineTo(ox + x2 * s, oy + y2 * s); ctx.stroke();
+  });
+}
+new ResizeObserver(drawCamera).observe($('cam').parentElement);
 
 function renderCamera() {
-  const camera = state.camera || {}, image = document.getElementById('cam');
-  once('camtag', camera.topic || '', () => document.getElementById('camtag').textContent = camera.topic || 'camera');
-  document.getElementById('camnone').hidden = !!camera.have;
-  image.hidden = !camera.have;
-  if (!camera.have) return;
-  once('cam', String(camera.stamp), () => image.src = '/api/camera.jpg?t=' + camera.stamp);
-  document.getElementById('camcap').textContent = `${camera.width}x${camera.height} · ${camera.age_s} s old`;
+  const camera = state.camera || {}, outlines = (masks && state.outlines) || {};
+  $('camnone').hidden = !!camera.have;
+  if (camera.have) once('cam', String(camera.stamp), () => loadFrame(camera.stamp));
+  const tracks = [...new Set(outlines.colors || [])];
+  $('camcap').title = plain(camera.topic || '');
+  $('camcap').innerHTML = !camera.have ? '' : (camera.age_s > 3 ? `<span class="stale">frame ${camera.age_s} s old</span>` : `frame ${camera.age_s} s old`)
+    + (masks ? (tracks.length ? tracks.map(color => `<span class="track" style="background:${color}"></span>`).join('') + ` ${tracks.length} track${tracks.length === 1 ? '' : 's'}` : ' · no mask outlines') : '');
+  once('outlines', JSON.stringify([masks, outlines.segments ? outlines.age_s : null]), drawCamera);
 }
+
+$('t-masks').addEventListener('click', () => {
+  masks = !masks;
+  $('t-masks').setAttribute('aria-pressed', masks);
+  renderCamera(); drawCamera();
+});
+
+// ---------- Agent feed ----------
+
+const FEED = {
+  task_started:  e => ['run', 'Mission opened', `run ${e.run_id}`],
+  task_finished: e => [e.level === 'info' ? 'ok' : 'fail', `Mission ended: ${e.end}`, e.reason],
+  plan:          e => ['', `Plan revision ${e.version}`, (e.subgoals || []).join(' · ')],
+  started:       e => ['run', `Step ${e.step}: ${e.tree_id}`, e.subgoal],
+  finished:      e => [e.status === 'success' ? 'ok' : 'fail', `${e.tree_id}: ${e.status}`, ''],
+  halted:        e => ['fail', `${e.tree_id || 'step'}: halted`, e.text],
+  error:         e => ['fail', `${e.tree_id || 'step'}: error`, e.text],
+  step_gate:     e => e.state === 'open' ? null : [e.state === 'approved' ? 'ok' : 'fail', `${e.state === 'approved' ? 'Approved' : 'Refused'} ${e.skill}`, [e.reason, e.by && `by ${e.by}`].filter(Boolean).join(' · ')],
+  write_skill:   e => [e.ok ? 'ok' : 'warn', e.ok ? 'Skill written' : 'Skill refused', e.text],
+  knowledge:     e => [e.level === 'info' ? '' : 'warn', 'Knowledge', e.text],
+  agent_lost:    e => ['warn', 'The agent is quiet', e.text],
+  stale_skill:   e => ['warn', 'Stale skill', e.text],
+  validation:    e => ['warn', 'Validation', e.text],
+  rejected:      e => ['fail', 'Rejected', e.text],
+};
+
+function renderFeed() {
+  const items = events.map(e => [e.time, FEED[e.kind] && FEED[e.kind](e)]).filter(([, item]) => item).slice(-150).reverse();
+  $('feed').innerHTML = items.length ? items.map(([time, [kind, what, detail]]) =>
+    `<li class="${kind}"><time>${clock(time)}</time><div><span class="what">${what}</span>${detail ? `<span class="detail">${detail}</span>` : ''}</div></li>`).join('')
+    : '<li class="empty">Nothing yet. The agent writes here when a mission opens.</li>';
+}
+
+// ---------- Raw trace ----------
 
 const KEEPERS = {
   all: () => true,
@@ -274,39 +455,45 @@ const KEEPERS = {
 };
 
 function renderLog() {
-  document.getElementById('log').innerHTML = events.filter(KEEPERS[filter]).reverse().map(event =>
-    `<div class="ev ${escaped(event.level || 'info')}"><time>${clock(event.time)}</time>`
-    + `<b>${escaped(event.kind)}</b><span>${escaped(event.text)}</span></div>`).join('');
+  if (!$('raw').open) return;
+  $('log').innerHTML = events.filter(KEEPERS[filter]).reverse().map(event =>
+    `<div class="${event.level || 'info'}"><time>${new Date((event.time || 0) * 1000).toTimeString().slice(0, 8)}</time><b>${event.kind}</b><span>${event.text}</span></div>`).join('');
 }
+$('raw').addEventListener('toggle', renderLog);
+$('filters').addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  document.querySelectorAll('#filters .pill').forEach(pill => pill.setAttribute('aria-pressed', pill === button));
+  filter = button.dataset.filter;
+  renderLog();
+});
+
+// ---------- Poll ----------
 
 async function poll() {
   if (polling) return;          // a slow answer must not let the next poll ask with the same cursor, twice
   polling = true;
   try {
-    const answer = await fetch('/api/state?after=' + seq);
-    state = await answer.json();
-    if (state.seq < seq) { events = []; seq = 0; return; }   // the adapter restarted: read the trace again
+    const answer = await fetch('/api/state?after=' + seq + (masks ? '&outlines=1' : ''));
+    state = safe(await answer.json());
+    if (state.seq < seq) { events = []; seq = 0; drawn = {}; renderFeed(); renderLog(); return; }   // the adapter restarted: read the trace again
     seq = state.seq || seq;
     keep = state.keep || keep;
-    // a page opened without the link's token can read, but every command is refused. The node says when it needs one
-    once('token', String(state.token_needed), () => {
-      if (!token && state.token_needed) say('no token in this link: open the link the node logs, or a command is refused', true);
-    });
     if (state.trace && state.trace.length) {
       events = events.concat(state.trace).slice(-keep);
-      renderLog();
+      renderFeed(); renderLog();
     }
-    chips(); renderPlan(); renderGate(); renderCamera();
+    health(); nowBand(); renderPlan(); renderCamera();
   } catch (error) {
-    document.getElementById('chips').innerHTML = '<span class="chip off"><i></i>the adapter does not answer</span>';
+    $('health').innerHTML = '<span class="issue">the adapter does not answer</span>';
     drawn = {};
   } finally {
     polling = false;
   }
 }
 
-document.getElementById('where').textContent = 'Vector · G1 · ' + location.host;
-
+$('where').textContent = location.host;
+renderFeed();
 poll();
 setInterval(poll, 1000);
 </script>
