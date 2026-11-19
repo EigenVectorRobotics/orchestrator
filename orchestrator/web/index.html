@@ -189,6 +189,39 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
 .done-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--surface); padding: 10px 14px; font-size: 13px; }
 .done-bar code { font: 400 12px var(--mono); }
 .problem { background: var(--warn-bg); color: var(--warn); padding: 10px 14px; font: 500 12px var(--mono); }
+/* Knowledge: "Needs you" first (grades, ready facts, contradictions), then all claims */
+.kblock { display: grid; gap: 10px; }
+.kblock > h3 { font: 600 15px var(--sans); text-transform: uppercase; letter-spacing: .6px; margin: 0; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.kblock > h3 small { font: 400 12px var(--sans); text-transform: none; letter-spacing: 0; color: var(--muted); }
+.kblock > h3 .push { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.tablebox { overflow-x: auto; }
+.grades { width: 100%; border-collapse: collapse; font-size: 13px; }
+.grades th { text-align: left; font: 500 11px var(--mono); color: var(--muted); padding: 6px 10px 6px 0; border-bottom: 1px solid var(--rule); }
+.grades td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.grades td.m { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.g { font: 500 11px var(--mono); padding: 2px 7px; white-space: nowrap; }
+.g.useful, .g.confirm { background: var(--lime); color: var(--on-lime); }
+.g.wrong, .g.contradict { background: var(--bad-bg); color: var(--bad); }
+.g.misleading, .g.not-applicable, .g.grade { background: var(--warn-bg); color: var(--warn); }
+.g.none { border: 1px dashed var(--muted); color: var(--muted); }
+.kcard { border: 1px solid var(--rule); padding: 14px 16px; display: grid; gap: 10px; background: var(--bg); }
+.kcard.hot { border-left: 4px solid var(--bad); }
+.kcard textarea { width: 100%; border: 1px solid var(--rule); padding: 8px 10px; font: 600 15px/1.4 var(--sans); resize: vertical; min-height: 44px; background: var(--bg); }
+.claimtext { font: 600 15px/1.4 var(--sans); margin: 0; }
+.kmeta { display: flex; gap: 6px 16px; flex-wrap: wrap; font: 400 12px var(--mono); color: var(--muted); }
+.meter { display: flex; gap: 10px; align-items: center; font: 400 12px var(--mono); flex-wrap: wrap; }
+.meter .track { position: relative; width: 160px; height: 6px; background: var(--rule); }
+.meter .track i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.meter .track b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); left: 80%; }
+.tier { font: 500 10.5px var(--mono); padding: 1px 6px; }
+.tier.observation { background: var(--surface); color: var(--muted); }
+.tier.belief { background: var(--lime); color: var(--on-lime); }
+.tier.fact { background: var(--accent); color: var(--on-accent); }
+.tier.retired { border: 1px dashed var(--muted); color: var(--muted); }
+.tagk { font: 400 11px var(--mono); color: var(--muted); }
+.sightings { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.sightings li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+.sightings small { display: block; font: 400 11px var(--mono); color: var(--muted); word-break: break-word; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -206,6 +239,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
   <div class="wrap" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-view="mission">Mission</button>
     <button class="tab" role="tab" aria-selected="false" data-view="skills">Skills<span class="count" id="n-tab" title="Skills the agent wrote, to review" hidden></span></button>
+    <button class="tab" role="tab" aria-selected="false" data-view="knowledge">Knowledge<span class="count" id="n-ktab" title="Items that need you" hidden></span></button>
   </div>
 </nav>
 
@@ -307,6 +341,34 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
     <summary>Deny list (skill_registry/deny.yaml, read only): no skill may use these</summary>
     <pre id="deny"></pre>
   </details>
+ </div>
+
+ <div class="view" id="view-knowledge" hidden>
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="Show" id="kmode">
+      <button data-m="needs" aria-pressed="true">Needs you<span class="n" id="n-needs"></span></button>
+      <button data-m="claims" aria-pressed="false">Claims<span class="n" id="n-claims"></span></button>
+    </div>
+    <div class="seg" role="group" aria-label="Tier" id="ktier" hidden>
+      <button data-t="all" aria-pressed="true">all</button>
+      <button data-t="observation" aria-pressed="false">observation</button>
+      <button data-t="belief" aria-pressed="false">belief</button>
+      <button data-t="fact" aria-pressed="false">fact</button>
+      <button data-t="retired" aria-pressed="false">retired</button>
+    </div>
+    <input class="search" id="kfind" type="search" placeholder="Find text, a place or a skill" aria-label="Find a claim" hidden>
+    <span class="where" id="kdir"></span>
+  </div>
+  <div class="problem" id="kproblem" hidden></div>
+  <div id="kneeds" style="display:grid;gap:28px">
+    <div class="kblock" id="kgrades"></div>
+    <div class="kblock" id="kready"></div>
+    <div class="kblock" id="kcontra"></div>
+  </div>
+  <div class="skills-grid" id="kclaims" hidden>
+    <ul class="slist" id="klist" aria-label="Claims"></ul>
+    <div class="detail" id="kdetail"></div>
+  </div>
  </div>
 </main>
 
@@ -710,6 +772,136 @@ $('sdetail').addEventListener('click', event => {
 
 loadSkills();
 setInterval(loadSkills, 5000);
+
+// ---------- Knowledge ----------
+
+let know = {claims: [], staged: [], contradicted: []}, kMode = 'needs', kTier = 'all', kFind = '', kSel = null, kConfirm = null, kLoaded = 0;
+const drafts = {};                      // a fact text being edited, by claim id: it survives a redraw
+const claimOf = id => know.claims.find(claim => claim.id === id);
+const tagsOf  = about => Object.entries(about || {}).map(([kind, name]) => `${kind}=${name}`).join(' · ') || 'general';
+const ready = () => know.claims.filter(claim => claim.ready);
+const needCount = () => ready().length + know.contradicted.length;
+
+async function loadKnowledge(now) {
+  if (!now && $('view-knowledge').hidden && Date.now() - kLoaded < 30000) return;   // hidden: for the badge only
+  kLoaded = Date.now();
+  try {
+    const answer = await fetch('/api/knowledge'), body = safe(await answer.json());
+    if (!answer.ok) { $('kproblem').hidden = false; $('kproblem').innerHTML = body.message || 'cannot read the knowledge store'; return; }
+    know = body; $('kproblem').hidden = true;
+  } catch (error) {
+    $('kproblem').hidden = false; $('kproblem').textContent = 'the adapter does not answer';
+    return;
+  }
+  $('n-needs').textContent = needCount(); $('n-claims').textContent = know.claims.length;
+  $('n-ktab').textContent = needCount(); $('n-ktab').hidden = !needCount();
+  $('kdir').innerHTML = know.folder || '';
+  // a typed fact text survives the poll: the cards are drawn again only when the data changed
+  once('knowledge', JSON.stringify([know, kMode, kTier, kFind, kSel, kConfirm]), renderKnowledge);
+}
+
+function meter(claim) {
+  return `<div class="meter"><span class="track" title="the lower bound of the reliability; the mark is 0.80, the bar for a fact"><i style="width:${Math.round(claim.reliability * 100)}%"></i><b></b></span>`
+    + `<span>${claim.confirmed} confirmed · ${claim.contradicted} contradicted · ${claim.reliability.toFixed(2)} of 0.80</span></div>`;
+}
+
+function retireButton(id) {
+  return kConfirm === id
+    ? `<span class="hint">Retire ${id}? It stops counting for good.</span><button class="btn bad" data-retire="${id}">Retire</button><button class="btn ghost" data-noretire="1">No</button>`
+    : `<button class="btn bad" data-askretire="${id}">Retire</button>`;
+}
+
+function renderNeeds() {
+  $('kgrades').innerHTML = `<h3>Grades not committed yet <small>${know.staged.length ? 'The agent commits them (agent_cli commit), or the next mission does: until then the agent may still grade.' : 'none'}</small></h3>`
+    + know.staged.map(run => `<div class="kblock"><h3><small>run ${run.run}</small></h3>
+      <div class="tablebox"><table class="grades"><tr><th>claim</th><th>grade</th><th>step</th><th>the agent's reason</th></tr>
+      ${run.grades.map(grade => `<tr><td><button class="linkbtn" data-claim="${grade.claim}">${grade.claim}</button> ${(claimOf(grade.claim) || {}).text || ''}</td>
+        <td class="m"><span class="g ${grade.grade || 'none'}">${grade.grade || 'no grade'}</span></td>
+        <td class="m">${(grade.evidence || []).join(' ')}</td><td>${grade.reason || ''}</td></tr>`).join('')}
+      </table></div></div>`).join('')
+    + (know.staged.length ? '<p class="hint">useful and wrong count as weak evidence. misleading and not-applicable say that the text or the tags are too wide. A grade made on code that changed later does not count.</p>' : '');
+
+  const r = ready();
+  $('kready').innerHTML = `<h3>Ready to become facts <small>${r.length ? 'A fact needs your approval of the exact text.' : 'none'}</small></h3>`
+    + r.map(claim => `<div class="kcard">
+        <textarea id="txt-${claim.id}" data-draft="${claim.id}" aria-label="The text of ${claim.id}">${claim.text}</textarea>
+        <div class="kmeta"><span>${claim.id}</span><span>${tagsOf(claim.about)}</span>${claim.key ? `<span>${claim.key} = ${JSON.stringify(claim.value)}</span>` : ''}</div>
+        ${meter(claim)}
+        <div class="row"><button class="btn" data-approve="${claim.id}">Approve as fact</button><button class="btn ghost" data-claim="${claim.id}">Open evidence</button>${retireButton(claim.id)}</div>
+      </div>`).join('');
+
+  $('kcontra').innerHTML = `<h3>Contradicted lately <small>${know.contradicted.length ? 'A contradiction moved these down one tier.' : 'none'}</small></h3>`
+    + know.contradicted.map(entry => { const claim = claimOf(entry.claim) || {};
+      return `<div class="kcard hot">
+        <p class="claimtext">${claim.text || entry.claim}</p>
+        <div class="kmeta"><span>${entry.claim}</span><span>${tagsOf(claim.about)}</span><span>${entry.tier_before} → ${entry.tier}</span></div>
+        <div>By <b>${entry.by}</b>${entry.run ? ` in run ${entry.run}` : ''}${entry.value !== null && entry.value !== undefined ? `, value ${JSON.stringify(entry.value)}` : ''}${entry.reason ? `: ${entry.reason}` : ''}</div>
+        <div class="row"><button class="btn ghost" data-claim="${entry.claim}">Open evidence</button><button class="btn ghost" data-seen="${entry.claim}">Seen</button>${retireButton(entry.claim)}</div>
+      </div>`; }).join('');
+}
+
+function restoreDrafts() {
+  document.querySelectorAll('[data-draft]').forEach(box => { if (box.dataset.draft in drafts) box.value = drafts[box.dataset.draft]; });
+}
+$('kready').addEventListener('input', event => { const box = event.target.closest('[data-draft]'); if (box) drafts[box.dataset.draft] = box.value; });
+
+function renderClaims() {
+  const items = know.claims.filter(claim => kTier === 'all' || claim.tier === kTier)
+    .filter(claim => !kFind || (claim.text + ' ' + tagsOf(claim.about)).toLowerCase().includes(kFind));
+  if (!items.find(claim => claim.id === kSel)) kSel = items[0]?.id ?? null;
+  $('klist').innerHTML = items.length ? items.map(claim => `<li><button data-id="${claim.id}" aria-current="${claim.id === kSel}">
+      <span class="sub" style="color:inherit">${claim.text}</span><span><span class="tier ${claim.tier}">${claim.tier}</span> <span class="tagk">${claim.id} · ${tagsOf(claim.about)}</span></span></button></li>`).join('')
+    : '<li class="empty">No claim matches.</li>';
+  const claim = claimOf(kSel);
+  if (!claim) { $('kdetail').innerHTML = ''; return; }
+  const stats = claim.stats ? `mean ${JSON.stringify(claim.stats.mean)} · spread ${JSON.stringify(claim.stats.std)} · ${claim.stats.n} values` : '';
+  $('kdetail').innerHTML = `
+    <div class="dhead"><div><p class="claimtext" style="font-size:20px">${claim.text}</p>
+      <span class="tier ${claim.tier}">${claim.tier}</span> <span class="tagk">${claim.id}</span></div>
+      <div class="actions">${claim.tier !== 'retired' ? retireButton(claim.id) : ''}</div></div>
+    <dl class="dl">
+      <dt>about</dt><dd>${tagsOf(claim.about)}</dd>
+      ${claim.key ? `<dt>value</dt><dd>${claim.key} = ${JSON.stringify(claim.value)}${stats ? `<br><span class="hint">${stats}</span>` : ''}</dd>` : ''}
+      <dt>evidence</dt><dd>${meter(claim)}</dd>
+      ${claim.approved_by ? `<dt>approved</dt><dd>by ${claim.approved_by}</dd>` : ''}
+      ${claim.valid_for_s ? `<dt>valid for</dt><dd>${claim.valid_for_s} s after it was last seen</dd>` : ''}
+    </dl>
+    <div><h4>Sightings, newest first</h4><ul class="sightings">
+      ${claim.sightings.map(s => `<li><span class="g ${s.grade && s.kind === 'grade' ? s.grade : s.kind}">${s.kind === 'grade' ? s.grade : s.kind === 'confirm' ? 'confirms' : 'contradicts'}</span>
+        <span>${s.by}${s.reason ? `: ${s.reason}` : ''}<small>${clock(s.time)}${s.run ? ` · run ${s.run}` : ''}${(s.evidence || []).length ? ` · ${s.evidence.join(' ')}` : ''}${s.value !== null && s.value !== undefined ? ` · value ${JSON.stringify(s.value)}` : ''}${s.moved ? ` · not counted: ${s.moved}` : ''}</small></span></li>`).join('')}
+    </ul></div>
+    <p class="hint">A step up needs 2 runs and 2 sources (observation → belief), then a lower bound of 0.80 and your approval (belief → fact). One contradiction moves a claim down one tier.</p>`;
+}
+
+function renderKnowledge() {
+  $('kneeds').hidden = kMode !== 'needs';
+  $('kclaims').hidden = $('ktier').hidden = $('kfind').hidden = kMode !== 'claims';
+  if (kMode === 'needs') { renderNeeds(); restoreDrafts(); } else renderClaims();
+}
+
+function setSeg(id, attr, value) { $(id).querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset[attr] === value)); }
+function redrawKnowledge() { drawn.knowledge = null; loadKnowledge(true); }
+
+$('kmode').addEventListener('click', event => { const b = event.target.closest('button'); if (b) { kMode = b.dataset.m; setSeg('kmode', 'm', kMode); redrawKnowledge(); } });
+$('ktier').addEventListener('click', event => { const b = event.target.closest('button'); if (b) { kTier = b.dataset.t; setSeg('ktier', 't', kTier); redrawKnowledge(); } });
+$('kfind').addEventListener('input', event => { kFind = event.target.value.trim().toLowerCase(); renderClaims(); });
+$('klist').addEventListener('click', event => { const b = event.target.closest('button'); if (b) { kSel = b.dataset.id; kConfirm = null; renderClaims(); } });
+$('view-knowledge').addEventListener('click', async event => {
+  const t = event.target.closest('[data-claim], [data-approve], [data-askretire], [data-retire], [data-noretire], [data-seen]');
+  if (!t) return;
+  const d = t.dataset;
+  if (d.claim) { kSel = d.claim; kMode = 'claims'; kTier = 'all'; kFind = ''; $('kfind').value = ''; setSeg('kmode', 'm', 'claims'); setSeg('ktier', 't', 'all'); }
+  if (d.askretire) kConfirm = d.askretire;
+  if (d.noretire) kConfirm = null;
+  if (d.retire) { kConfirm = null; await send('/api/knowledge/retire', { id: plain(d.retire) }); }
+  if (d.seen) await send('/api/knowledge/seen', { id: plain(d.seen) });
+  if (d.approve && await send('/api/knowledge/approve', { id: plain(d.approve), text: $('txt-' + d.approve).value })) delete drafts[d.approve];
+  redrawKnowledge();
+});
+
+loadKnowledge(true);
+setInterval(() => loadKnowledge(false), 5000);
+window.addEventListener('hashchange', () => { if (location.hash === '#knowledge') loadKnowledge(true); });
 
 $('where').textContent = location.host;
 renderFeed();

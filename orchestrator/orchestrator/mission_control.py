@@ -10,6 +10,7 @@ checks the HTTP body, sends the decision and relays the gate's answer.
 """
 
 import hmac
+import math
 import time
 import threading
 
@@ -17,11 +18,15 @@ from collections import deque
 from pathlib import Path
 from typing import Callable
 
+import yaml
+
 from skill_registry import missing_folder
 from skill_registry.deny import DEFAULT_PATH as DENY_FILE
 from skill_registry.skill_review import ReviewError, keep, library, remove
+from skill_registry.skill_stamps import SkillClock
 
 from .images import Camera, Outlines
+from .knowledge import OPERATOR, Claim, KnowledgeError, KnowledgeStore, Sighting
 from .topics import TASK_OPTIONS
 
 
@@ -214,22 +219,128 @@ class SkillShelf:
             return 500, {'ok': False, 'message': f'the file change failed: {error}'}
 
 
+VIA = 'mission_control'                 # in the knowledge log: the operator acted on this page, not at a terminal
+
+
+def _sighting(sighting: Sighting, kind: str) -> dict:
+    return {'kind': kind, 'by': sighting.by, 'time': sighting.time, 'run': sighting.run, 'evidence': sighting.evidence,
+            'value': sighting.value, 'moved': sighting.moved, 'grade': sighting.grade, 'reason': sighting.reason}
+
+
+def _claim(claim: Claim) -> dict:
+    """What the page shows of a claim; the counts are over the sightings on the code that is here now"""
+    counted = claim.counted
+
+    return {'id': claim.id, 'text': claim.text, 'tier': claim.tier, 'about': claim.about, 'key': claim.key,
+            'value': claim.value, 'approved_by': claim.approved_by, 'valid_for_s': claim.valid_for_s,
+            'reliability': round(claim.reliability(), 3), 'ready': claim.ready_for_fact(),
+            'confirmed': len(counted.confirmations), 'contradicted': len(counted.contradictions),
+            'last_seen': claim.last_seen if claim.sightings else None, 'stats': claim.value_stats(),
+            'sightings': sorted([*map(lambda s: _sighting(s, 'confirm'), claim.confirmations),
+                                 *map(lambda s: _sighting(s, 'contradict'), claim.contradictions),
+                                 *map(lambda s: _sighting(s, 'grade'), claim.grades)], key=lambda s: -s['time'])}
+
+
+class KnowledgeShelf:
+    """The Knowledge tab: the claims, the staged grades of the runs (to read: the agent commits them, or the next
+    task open does), and the contradictions not seen yet; the operator's approve, retire and seen. The store's file
+    lock is shared with the executor and the CLI; the executor's code clock comes from the file it saves, as for the
+    knowledge CLI"""
+
+    EXPIRE_S = 30.0                                 # expiry and code moves are applied before a read, this often
+    RECENT_S = 14 * 24 * 3600.0                     # "contradicted lately": this far back
+
+    def __init__(self, folder, clock=time.time):
+        self.folder   = Path(folder)
+        self.clock    = clock
+        self._expired = -math.inf                   # when expiry and code moves were last applied
+        self._contra  = (None, [])                  # (the log's size and time, what contradicted() said)
+
+    def _store(self, code: bool = True) -> KnowledgeStore:
+        return KnowledgeStore(self.folder, code=SkillClock.load(self.folder) if code else None)
+
+    def get(self) -> tuple[int, dict]:
+        try:
+            if self.clock() - self._expired > self.EXPIRE_S:       # as the CLI does before a read: the tiers are now
+                self._store().expire()
+                self._expired = self.clock()
+
+            store  = self._store(code=False)
+            staged = [{'run': run, 'grades': [{'claim': claim_id, **entry} for claim_id, entry in store.staged(run).items()]}
+                      for run in store.staged_runs()]
+
+            return 200, {'claims': [_claim(claim) for claim in store.claims()], 'staged': staged,
+                         'contradicted': self._contradicted(store), 'folder': str(self.folder)}
+        except (KnowledgeError, OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError) as error:
+            return 500, {'ok': False, 'message': f'cannot read the knowledge store: {error!r}'}
+
+    def _contradicted(self, store: KnowledgeStore) -> list[dict]:
+        """Read the log again only when it changed: it grows with every sighting"""
+        try:
+            stat = store.log_path.stat()
+            key  = (stat.st_size, stat.st_mtime_ns, store.claims_path.stat().st_mtime_ns if store.claims_path.exists() else 0)
+        except FileNotFoundError:
+            return []
+
+        if self._contra[0] != key:
+            self._contra = (key, store.contradicted(since=self.clock() - self.RECENT_S))
+
+        return self._contra[1]
+
+    def approve(self, body: dict) -> tuple[int, dict]:
+        text = body.get('text')
+
+        if text is not None and (not isinstance(text, str) or not text.strip()):
+            return 400, {'ok': False, 'message': 'a fact needs its text'}
+
+        return self._act(body, lambda store, claim_id: store.approve(claim_id, OPERATOR, text, via=VIA).id, 'approved ')
+
+    def retire(self, body: dict) -> tuple[int, dict]:
+        reason = str(body.get('reason') or 'retired on Mission Control')
+
+        return self._act(body, lambda store, claim_id: store.retire(claim_id, OPERATOR, reason, via=VIA) or claim_id,
+                         'retired ')
+
+    def seen(self, body: dict) -> tuple[int, dict]:
+        return self._act(body, lambda store, claim_id: store.seen(claim_id, OPERATOR, via=VIA) or claim_id, 'seen ')
+
+    def _act(self, body: dict, action, said: str) -> tuple[int, dict]:
+        claim_id = body.get('id')
+
+        if not isinstance(claim_id, str) or not claim_id:
+            return 400, {'ok': False, 'message': 'name the claim'}
+
+        try:
+            return 200, {'ok': True, 'message': said + action(self._store(), claim_id)}
+        except KnowledgeError as error:
+            return 409, {'ok': False, 'message': str(error)}
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError) as error:
+            return 500, {'ok': False, 'message': f'the knowledge store could not be changed: {error!r}'}
+
+
 class MissionApi:
     """The paths under /api; the node's web server does the HTTP and the files"""
 
     def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None,
-                 token_needed: bool = True, outlines: Outlines | None = None, skills: SkillShelf | None = None):
+                 token_needed: bool = True, outlines: Outlines | None = None, skills: SkillShelf | None = None,
+                 knowledge: KnowledgeShelf | None = None):
         self.state        = state
         self.camera       = camera or Camera()
         self.outlines     = outlines or Outlines()
         self.token_needed = token_needed     # the page says so when it holds no token; it cannot see the parameter
         self.skills       = skills
+        self.knowledge    = knowledge
         self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel,
-                             **({'/api/skill/keep': skills.keep, '/api/skill/remove': skills.remove} if skills else {})}
+                             **({'/api/skill/keep': skills.keep, '/api/skill/remove': skills.remove} if skills else {}),
+                             **({'/api/knowledge/approve': knowledge.approve, '/api/knowledge/retire': knowledge.retire,
+                                 '/api/knowledge/seen': knowledge.seen} if knowledge else {})}
 
     def get(self, path: str, query: dict) -> tuple[int, dict]:
         if path == '/api/skills' and self.skills:
             return self.skills.get()
+
+        if path == '/api/knowledge' and self.knowledge:
+            return self.knowledge.get()
 
         if path != '/api/state':
             return 404, {'ok': False, 'message': f'no such path {path}'}
@@ -253,5 +364,9 @@ class MissionApi:
 
         if not isinstance(body, dict):
             return 400, {'ok': False, 'message': 'the body is a JSON object'}
+
+        if path.startswith('/api/knowledge/') and not self.token_needed:
+            # an act as the operator: with the token off, any process on this host (the agent's too) could do it
+            return 403, {'ok': False, 'message': 'approve, retire and seen need the page token, and it is off'}
 
         return command(body)

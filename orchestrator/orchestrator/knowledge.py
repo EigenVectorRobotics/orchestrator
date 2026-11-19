@@ -33,6 +33,7 @@ This module needs no ROS.
 """
 
 import re
+import os
 import json
 import math
 import time
@@ -395,8 +396,9 @@ class KnowledgeStore:
         self.staged_dir.mkdir(exist_ok=True)
         write_json(self._staged_path(run_id), staged)
 
-    def approve(self, claim_id: str, by: str, text: str | None = None) -> Claim:
-        """The operator makes a ready belief a fact, with the exact text (edited or not)"""
+    def approve(self, claim_id: str, by: str, text: str | None = None, via: str | None = None) -> Claim:
+        """The operator makes a ready belief a fact, with the exact text (edited or not). via: the tool the operator
+        used, when it is not a terminal (e.g. mission_control), for the log"""
         if by != OPERATOR:
             raise KnowledgeError('only the operator approves a fact')
 
@@ -408,7 +410,7 @@ class KnowledgeStore:
             claim.text       = text.strip() if text else claim.text
             claim.tier       = 'fact'
             claim.approved_by = by
-            self._log('approve', claim, by, edited=edited, text=claim.text, reliability=claim.reliability())
+            self._log('approve', claim, by, edited=edited, text=claim.text, reliability=claim.reliability(), via=via)
 
             return claim
 
@@ -417,11 +419,52 @@ class KnowledgeStore:
         with self._locked(save=False) as claims:
             self._log('refuse', _lookup(claims, claim_id, live=True), by, reason=reason)
 
-    def retire(self, claim_id: str, by: str, reason: str):
+    def retire(self, claim_id: str, by: str, reason: str, via: str | None = None):
         with self._locked() as claims:
             claim      = _lookup(claims, claim_id, live=True)
             claim.tier = 'retired'
-            self._log('retire', claim, by, reason=reason)
+            self._log('retire', claim, by, reason=reason, via=via)
+
+    def seen(self, claim_id: str, by: str, via: str | None = None):
+        """The operator has seen that a contradiction moved this claim down: contradicted() no longer lists it"""
+        with self._locked(save=False) as claims:
+            self._log('seen', _lookup(claims, claim_id, live=True), by, via=via)
+
+    def contradicted(self, since: float = 0.0) -> list[dict]:
+        """The live claims that a contradiction moved down a tier after since, with that log entry, that no one has
+        marked seen since"""
+        drops = {}
+
+        for entry in self._log_entries():
+            if entry.get('time', 0) < since:
+                continue
+
+            if entry.get('action') == 'contradict' and entry.get('tier_before') != entry.get('tier'):
+                drops[entry.get('claim')] = entry
+            elif entry.get('action') in ('seen', 'retire', 'expire'):
+                drops.pop(entry.get('claim'), None)
+
+        live = {claim.id for claim in self.claims(LIVE)}     # also a claim retired or removed by hand in claims.yaml
+
+        return [entry for claim_id, entry in drops.items() if claim_id in live]
+
+    def _log_entries(self) -> list[dict]:
+        """The log, a line that is not JSON left out (a half-written last line)"""
+        if not self.log_path.exists():
+            return []
+
+        entries = []
+
+        for line in self.log_path.read_text().splitlines():
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if isinstance(entry, dict):
+                entries.append(entry)
+
+        return entries
 
     def expire(self) -> list[str]:
         """Retire the claims whose valid_for_s has passed since they were last seen, and stop counting the evidence
@@ -538,11 +581,14 @@ class KnowledgeStore:
             temporary.write_text(yaml.safe_dump([asdict(claim) for claim in claims.values()], sort_keys=False, allow_unicode=True))
             temporary.replace(self.claims_path)
 
-    def _log(self, action: str, claim: Claim, by: str, **data):
-        entry = {'time': self.clock(), 'action': action, 'claim': claim.id, 'tier': claim.tier, 'by': by, **data}
+    def _log(self, action: str, claim: Claim, by: str, via: str | None = None, **data):
+        entry = {'time': self.clock(), 'action': action, 'claim': claim.id, 'tier': claim.tier, 'by': by,
+                 **({'via': via} if via else {}), **data}
 
-        with self.log_path.open('a') as file:
-            file.write(json.dumps(entry, default=str) + '\n')
+        with self.log_path.open('a+b') as file:              # after a torn last line, start a new one
+            file.seek(0, os.SEEK_END)
+            torn = file.tell() > 0 and (file.seek(-1, os.SEEK_END), file.read(1))[1] != b'\n'
+            file.write((b'\n' if torn else b'') + json.dumps(entry, default=str).encode() + b'\n')
 
 
 def _lookup(claims: dict, claim_id: str, live: bool = False) -> Claim:

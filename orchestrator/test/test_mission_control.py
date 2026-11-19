@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import yaml
@@ -5,7 +6,8 @@ import yaml
 from skill_registry.contract import AGENT_MARK
 
 from orchestrator.images import Camera, Outlines
-from orchestrator.mission_control import Commands, MissionApi, MissionState, SkillShelf, token_ok
+from orchestrator.knowledge import KnowledgeStore, Sighting
+from orchestrator.mission_control import Commands, KnowledgeShelf, MissionApi, MissionState, SkillShelf, token_ok
 
 
 def _api(reply: dict | None = {'accepted': True, 'message': 'approved'}, listening: bool = True):
@@ -254,3 +256,59 @@ def test_the_skills_tab_lists_the_library_and_keeps_or_removes_an_agent_skill(tm
                       skills=SkillShelf(tmp_path / 'nowhere', None, tmp_path / 'removed'))
 
     assert gone.get('/api/skills', {})[1]['skills'] == [] and 'no folder' in gone.get('/api/skills', {})[1]['problem']
+
+
+def test_the_knowledge_tab_shows_the_store_and_the_operator_acts_on_it(tmp_path):
+    store    = KnowledgeStore(tmp_path)
+    claim, _ = store.note('The call panel does not light.', Sighting(by='agent:task', time=1.0, run='r1', value=False),
+                          {'place': 'call_panel'}, 'lights_when_pressed')
+
+    for index in range(10):
+        store.confirm(claim.id, Sighting(by='operator' if index % 2 else 'check:door', time=2.0 + index, run=f'r{index + 2}'))
+
+    store.stage_applied('done1', [claim.id], 'press_button', 3)
+    store.stage('done1', claim.id, 'useful', 'it did not light, as said')
+    api = MissionApi(MissionState(), Commands(None, None, None), knowledge=KnowledgeShelf(tmp_path))
+
+    code, shown = api.get('/api/knowledge', {})
+
+    assert code == 200 and shown['claims'][0]['ready'] and shown['claims'][0]['confirmed'] == 11
+    assert shown['staged'][0]['run'] == 'done1' and shown['staged'][0]['grades'][0]['grade'] == 'useful'
+    assert api.post('/api/knowledge/commit', {'run': 'done1'})[0] == 404           # the agent commits, not the page
+
+    assert api.post('/api/knowledge/approve', {'id': claim.id, 'text': '  '})[0] == 400
+    assert api.post('/api/knowledge/approve', {'id': 'C-9999'})[0] == 409
+    assert api.post('/api/knowledge/approve', {'id': claim.id, 'text': 'The call panel never lights.'})[0] == 200
+
+    fact = store.get(claim.id)
+    log  = [json.loads(line) for line in store.log_path.read_text().splitlines()]
+
+    assert fact.tier == 'fact' and fact.text == 'The call panel never lights.'
+    assert log[-1]['action'] == 'approve' and log[-1]['by'] == 'operator' and log[-1]['via'] == 'mission_control'
+
+    assert api.post('/api/knowledge/seen', {'id': claim.id})[0] == 200
+    assert api.post('/api/knowledge/retire', {'id': claim.id})[0] == 200 and store.get(claim.id).tier == 'retired'
+    assert api.post('/api/knowledge/retire', {'id': claim.id})[0] == 409            # retired already
+
+    off = MissionApi(MissionState(), Commands(None, None, None), knowledge=KnowledgeShelf(tmp_path), token_needed=False)
+
+    assert off.post('/api/knowledge/seen', {'id': claim.id})[0] == 403               # no token: no act as the operator
+    assert off.get('/api/knowledge', {})[0] == 200                                   # reading needs none
+
+
+def test_the_knowledge_tab_applies_expiry_before_it_shows_a_tier_and_says_a_broken_store(tmp_path):
+    now      = [1000.0]
+    store    = KnowledgeStore(tmp_path, clock=lambda: now[0])
+    claim, _ = store.note('A person stands at the door.', Sighting(by='agent:task', time=1000.0, run='r1'), valid_for_s=60)
+    shelf    = KnowledgeShelf(tmp_path, clock=lambda: now[0])
+
+    now[0] = 2000.0                                                                 # it expired; nothing wrote since
+
+    assert shelf.get()[1]['claims'][0]['tier'] == 'retired'
+
+    (tmp_path / 'claims.yaml').write_text('- id: [')
+    shelf._expired = -1e9
+
+    code, said = shelf.get()
+
+    assert code == 500 and 'cannot read the knowledge store' in said['message']

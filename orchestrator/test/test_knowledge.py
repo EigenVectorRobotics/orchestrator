@@ -315,3 +315,45 @@ def test_a_commit_that_runs_again_adds_nothing(tmp_path):
     said, _ = store.commit('r2')
 
     assert len(store.get(claim.id).confirmations) == 2 and 'committed already' in said[0]
+
+
+def test_a_contradiction_that_moves_a_claim_down_is_listed_until_it_is_seen(tmp_path):
+    store    = KnowledgeStore(tmp_path)
+    ready    = ready_belief(store)
+    other, _ = store.note('The door stays open 8 s.', seen(), {'object': 'door'})
+    store.confirm(other.id, seen(by='operator', run='r2'))
+
+    store.contradict(ready.id, seen(by='operator', run='r20', value=True))     # belief -> observation
+    store.contradict(other.id, seen(by='outcome:wait_door', run='r21'))         # weak: the belief stays a belief
+
+    assert store.get(other.id).tier == 'belief'
+
+    assert [entry['claim'] for entry in store.contradicted()] == [ready.id]
+
+    store.log_path.write_text(store.log_path.read_text() + '[1]\n{"half a line')   # not an entry, and a torn line
+    store.seen(ready.id, 'operator', via='mission_control')
+
+    assert store.contradicted() == []
+    log = [json.loads(line) for line in store.log_path.read_text().splitlines() if line.startswith('{"time')]
+    assert log[-1]['action'] == 'seen' and log[-1]['via'] == 'mission_control'
+    assert 'via' not in log[0]                                                   # no via: not written
+
+    store.contradict(other.id, seen(by='operator', run='r22'))                   # now it moves down
+    assert [entry['claim'] for entry in store.contradicted()] == [other.id]
+
+    store.retire(other.id, 'operator', 'wrong door', via='mission_control')
+
+    assert store.contradicted() == []
+    assert store.get(other.id).tier == 'retired' and json.loads(store.log_path.read_text().splitlines()[-1])['via'] == 'mission_control'
+
+    third, _ = store.note('The cabin light is on.', seen(), {'object': 'cabin'})
+    store.confirm(third.id, seen(by='operator', run='r2'))
+    store.contradict(third.id, seen(by='operator', run='r3', t=500.0))
+
+    assert [entry['claim'] for entry in store.contradicted()] == [third.id]
+    assert store.contradicted(since=1e12) == []                                  # older than since: not lately
+
+    claims = store.claims_path.read_text().replace('tier: observation', 'tier: retired')   # retired by hand
+    store.claims_path.write_text(claims)
+
+    assert store.contradicted() == []

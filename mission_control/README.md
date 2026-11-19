@@ -21,7 +21,10 @@ What the live Mission tab gets from the adapter:
 
 - **Skills tab:** the adapter reads the library files (`skill_registry/skill_review.py`). Keep and Remove need the page token, and they work only on a skill that the agent wrote. Keep takes the mark lines away; the skill stays untested, and the agent may no longer replace it. Remove moves the folder to `$EIGEN_VECTOR_WS/agent/removed_skills/`; it refuses a skill that another skill names. The executor's registry sees each change at its next refresh (5 s). A removed skill unloads when its folder is missing at two refreshes in a row, and not while the whole library is missing or empty (a git checkout, a link made again). Git is the operator's own step. Not shown yet: whether a skill is stale or live (only the executor knows).
 
-Still to build in the live page: the small map, and the Knowledge and Runs tabs. Those tabs need the adapter to read the knowledge store and the run folders.
+- **Knowledge tab:** the adapter reads the store (`orchestrator/knowledge.py`) with its file lock, and applies expiry and code moves before it shows a tier (at most every 30 s), as the `knowledge` CLI does. Approve, retire and seen need the page token; with the token off they are refused, because any process on the NUC could then act as the operator. The log records each act with `by: operator` and `via: mission_control`. The staged grades are shown, not committed: the agent commits them (`agent_cli commit`), or the next mission does, because the agent may grade until then. "Contradicted lately" lists the live claims that a contradiction moved down in the last 14 days, until you mark them seen or retire them.
+- **The token:** the node writes it to its log, which the agent's shell on the NUC can read. The token stops mistakes, not an agent that looks for it.
+
+Still to build in the live page: the small map, and the Runs tab. The Runs tab needs the adapter to read the run folders.
 
 ## How it runs
 

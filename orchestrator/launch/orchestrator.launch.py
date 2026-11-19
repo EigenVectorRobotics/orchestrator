@@ -96,7 +96,8 @@ def generate_launch_description():
                                       'web_dir': PathJoinSubstitution([FindPackageShare('orchestrator'), 'web']),
                                       'skills_dir': LaunchConfiguration('skills_dir'),
                                       'stamps_file': PathJoinSubstitution([LaunchConfiguration('agent_dir'), STAMPS]),
-                                      'removed_dir': PathJoinSubstitution([LaunchConfiguration('agent_dir'), REMOVED])}],
+                                      'removed_dir': PathJoinSubstitution([LaunchConfiguration('agent_dir'), REMOVED]),
+                                      'knowledge_dir': PathJoinSubstitution([LaunchConfiguration('agent_dir'), KNOWLEDGE])}],
             condition=IfCondition(LaunchConfiguration('mission_control'))
         ),
         Node(package='orchestrator', executable='fake_robot', output='screen', condition=IfCondition(fake)),
