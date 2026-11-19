@@ -13,6 +13,8 @@ from orchestrator.tree.engine import BTContext
 
 from g1_skills.lib.press import offset_in_force
 
+from fakes import press_ctx
+
 
 CONTRACTS = Path(__file__).resolve().parents[1] / 'g1_skills'
 REGISTRY  = Registry.from_directory(CONTRACTS)
@@ -61,4 +63,4 @@ def _session(phase: str, inputs: dict, evidence: dict | None = None) -> AgentSes
     contract = REGISTRY.get('manipulation_recovery')
     evidence = {'last_failure': None, 'history': [], **(evidence or {})}
 
-    return AgentSession(Agent(None).skill(contract), AgentCall(contract, inputs, BTContext(), phase), evidence, lambda *a, **k: None)
+    return AgentSession(Agent(None, press_ctx(None)).skill(contract), AgentCall(contract, inputs, BTContext(), phase), evidence, lambda *a, **k: None)

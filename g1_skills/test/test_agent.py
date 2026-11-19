@@ -165,7 +165,7 @@ def _run(tree: BehaviorTree, max_ticks: int = 500) -> Status:
 def _session(phase: str, inputs: dict, evidence: dict | None = None, skill: str = 'manipulation_recovery') -> AgentSession:
     contract = Registry.from_directory(CONTRACTS).get(skill)
 
-    return AgentSession(Agent(None).skill(contract), AgentCall(contract, inputs, BTContext(), phase), evidence or {},
+    return AgentSession(Agent(None, press_ctx(None)).skill(contract), AgentCall(contract, inputs, BTContext(), phase), evidence or {},
                         lambda *a, **k: None)
 
 
@@ -268,7 +268,7 @@ def test_a_look_resets_the_ekf_after_the_mode_change_and_before_the_check_and_th
 def test_reposition_walks_to_the_offset_goal_checks_the_view_and_presses_again(tmp_path):
     backend = _push(tmp_path, [{'decision': 'reposition', 'reason': 'stalled 0.13 m short', 'dx': 0.15, 'dy': 0.0}])
     runner  = FakeRunner([MISS, (True, 'Controller reached target', [])])
-    tree    = _tree(AGENTIC, runner, Agent(backend))
+    tree    = _tree(AGENTIC, runner, Agent(backend, press_ctx(None)))
 
     assert _run(tree) == Status.SUCCESS
 
@@ -302,7 +302,7 @@ LOOK_THEN_CHECK = '''<root BTCPP_format="4">
 def test_abort_ends_the_tree_at_once(tmp_path):
     backend = _push(tmp_path, [{'decision': 'abort', 'reason': 'button not in view'}])   # a stance_check: diagnose has no abort
     runner  = FakeRunner([], failing=('button_in_view',))
-    tree    = _tree(LOOK_THEN_CHECK, runner, Agent(backend))
+    tree    = _tree(LOOK_THEN_CHECK, runner, Agent(backend, press_ctx(None)))
 
     assert _run(tree) == Status.FAILURE
     assert 'button not in view' in tree.context.abort_reason
@@ -312,7 +312,7 @@ def test_abort_ends_the_tree_at_once(tmp_path):
 def test_after_ask_help_the_agent_is_not_called_again(tmp_path):
     backend = _push(tmp_path, [{'decision': 'ask_help', 'reason': 'wrong object tracked'}])
     runner  = FakeRunner([MISS])
-    tree    = _tree(AGENTIC, runner, Agent(backend))
+    tree    = _tree(AGENTIC, runner, Agent(backend, press_ctx(None)))
 
     assert _run(tree) == Status.SUCCESS                                    # a person is asked; the door then opens
     assert len(backend.link.calls) == 1
@@ -326,7 +326,7 @@ def test_an_ask_help_ends_the_calls_for_its_own_panel_only(tmp_path):
                '<manipulation_recovery base_goal="{inside_panel}"/>'                                 # another panel: called
                '<ForceSuccess><manipulation_recovery base_goal="{call_panel}"/></ForceSuccess>'      # the same panel: not called
                '</Sequence></BehaviorTree></root>')
-    tree    = BehaviorTree(body, make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner([], agent=Agent(backend))),
+    tree    = BehaviorTree(body, make_leaf_factory(Registry.from_directory(CONTRACTS), FakeRunner([], agent=Agent(backend, press_ctx(None)))),
                            BTContext(blackboard={'call_panel': dict(PANEL), 'inside_panel': {**PANEL, 'x': 3.0}}))
     tree.context.last_failure = {'inputs': {}}
 
@@ -342,7 +342,7 @@ def test_a_call_that_fails_without_a_decision_says_why(tmp_path):
     body   = ('<root BTCPP_format="4"><BehaviorTree ID="t">'
               '<manipulation_recovery max_rounds="1" base_goal="{call_panel}"/></BehaviorTree></root>')
     spoken = []
-    tree   = _tree(body, FakeRunner([]), Agent(BrokenBackend(), speak=spoken.append))
+    tree   = _tree(body, FakeRunner([]), Agent(BrokenBackend(), press_ctx(None), speak=spoken.append))
     tree.context.last_failure = {'inputs': {}}
 
     assert _run(tree) == Status.FAILURE
@@ -350,7 +350,7 @@ def test_a_call_that_fails_without_a_decision_says_why(tmp_path):
 
     spent  = {'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'retry', 'rule': False}
     spoken = []
-    tree   = _tree(body, FakeRunner([]), Agent(BrokenBackend(), speak=spoken.append))
+    tree   = _tree(body, FakeRunner([]), Agent(BrokenBackend(), press_ctx(None), speak=spoken.append))
     tree.context.last_failure, tree.context.history = {'inputs': {}}, [spent]
 
     assert _run(tree) == Status.FAILURE
@@ -363,7 +363,7 @@ def test_the_round_budget_stops_the_agent(tmp_path):
     body    = ('<root BTCPP_format="4"><BehaviorTree ID="t"><RetryUntilSuccessful num_attempts="3"><Sequence>'
                '<manipulation_recovery max_rounds="2" base_goal="{call_panel}"/><press_button target_description="up"/>'
                '</Sequence></RetryUntilSuccessful></BehaviorTree></root>')
-    tree    = _tree(body, runner, Agent(backend))
+    tree    = _tree(body, runner, Agent(backend, press_ctx(None)))
     tree.context.last_failure = {'inputs': {}}
 
     assert _run(tree) == Status.FAILURE
@@ -377,11 +377,11 @@ def test_rule_answers_do_not_spend_the_round_budget(tmp_path):
     by_rule = {'skill': 'manipulation_recovery', 'phase': 'diagnose', 'decision': 'offset_retry', 'rule': True}
     by_agent = {**by_rule, 'decision': 'retry', 'rule': False}
 
-    tree = _tree(body, FakeRunner([]), Agent(backend))
+    tree = _tree(body, FakeRunner([]), Agent(backend, press_ctx(None)))
     tree.context.last_failure, tree.context.history = {'inputs': {}}, [by_rule, by_rule, by_agent]
     assert _run(tree) == Status.SUCCESS and len(backend.link.calls) == 1        # 1 agent diagnosis of 2 spent
 
-    tree = _tree(body, FakeRunner([]), Agent(backend))
+    tree = _tree(body, FakeRunner([]), Agent(backend, press_ctx(None)))
     tree.context.last_failure, tree.context.history = {'inputs': {}}, [by_rule, by_agent, by_agent]
     assert _run(tree) == Status.FAILURE and len(backend.link.calls) == 1        # 2 agent diagnoses: the budget is spent
 
@@ -391,7 +391,7 @@ def test_the_executor_says_when_a_call_opens_and_what_was_decided(tmp_path):
     backend = _push(tmp_path, [{'decision': 'retry', 'reason': 'a transient rejection'}])
     body    = ('<root BTCPP_format="4"><BehaviorTree ID="t">'
                '<manipulation_recovery base_goal="{call_panel}"/></BehaviorTree></root>')
-    tree    = _tree(body, FakeRunner([]), Agent(backend, speak=spoken.append))
+    tree    = _tree(body, FakeRunner([]), Agent(backend, press_ctx(None), speak=spoken.append))
     tree.context.last_failure = {'inputs': {}}
 
     assert _run(tree) == Status.SUCCESS
@@ -411,7 +411,7 @@ def test_a_call_waits_for_the_bridge_checks_its_decision_and_closes(tmp_path):
     requests = []
     backend  = _push(tmp_path, requests=requests)
     runner   = FakeRunner([MISS])
-    tree     = _tree(AGENTIC, runner, Agent(backend))
+    tree     = _tree(AGENTIC, runner, Agent(backend, press_ctx(None)))
     call     = _wait_call(tree, backend.link, 1)
 
     assert requests[0]['state'] == 'open' and call['skill'] == 'manipulation_recovery'
@@ -557,7 +557,7 @@ def test_the_bridge_gets_a_long_failure_whole(tmp_path):
     feedback = [{'t': 0.5 * index, 'distance_to_goal': float('inf'), 'tracking_lost': False, 'current_goal': goal,
                  'padding': 'x' * 300} for index in range(120)]
     runner   = FakeRunner([(False, 'timeout after 60 s', feedback)])
-    tree     = _tree(AGENTIC, runner, Agent(backend))
+    tree     = _tree(AGENTIC, runner, Agent(backend, press_ctx(None)))
 
     call = _wait_call(tree, backend.link, 1)
 
@@ -656,7 +656,7 @@ def test_confirm_phase_relays_the_question():
 
     assert spec.PHASES['confirm'] == ('confirmed', 'not_confirmed') and spec.ANSWERED_BY == 'operator'
     assert 'confirmed' in spec.GOING_ON and 'not_confirmed' not in spec.GOING_ON
-    assert 'Is the gantry removed?' in task_text(Agent(None).skill(contract), call)
+    assert 'Is the gantry removed?' in task_text(Agent(None, press_ctx(None)).skill(contract), call)
 
 
 # ========== The library ride tree with the press checks ==========

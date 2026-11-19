@@ -16,7 +16,7 @@ class PressJudge(AgentSkill):
 
     def evidence(self, call: AgentCall, evidence: dict):
         """Waits until the press's frames are chosen, then saves them"""
-        evidence['press'] = press_state(self.ctx).evidence() if self.ctx is not None else None
+        evidence['press'] = press_state(self.ctx).evidence()
 
     def task_lines(self, call: AgentCall) -> list[str]:
         lines = ['press_button reported success. Judge from the press frames whether the button was pressed; the '
@@ -50,7 +50,7 @@ class PressJudge(AgentSkill):
 
     def _keep_reference(self, inputs: dict, press: dict):
         """A press judged pressed becomes the reference for later presses on this button"""
-        if self.ctx is None or self.ctx.tf is None or not press.get('goal'):
+        if self.ctx.tf is None or not press.get('goal'):
             return
 
         tf = lambda target, source, timeout_s: frame_pose(self.ctx, target, source, timeout_s)

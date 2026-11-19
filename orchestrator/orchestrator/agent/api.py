@@ -63,7 +63,7 @@ class AgentSkill:
     phase_speech:    dict[str, str] = {}        # said when a call of the phase opens
     decision_speech: dict[str, str] = {}        # said when a decision is accepted
 
-    def __init__(self, contract: Contract, spec: ModuleType, ctx: 'SkillContext | None' = None):
+    def __init__(self, contract: Contract, spec: ModuleType, ctx: 'SkillContext'):
         self.contract = contract
         self.spec     = spec
         self.ctx      = ctx
@@ -147,7 +147,7 @@ class AgentSession:
 
     def camera(self) -> tuple[bytes, str] | None:
         """The latest camera frame and its media type, or None when there is none"""
-        camera = getattr(self.skill.ctx, 'camera', None)
+        camera = self.skill.ctx.camera
 
         if camera is None:
             return None
@@ -231,7 +231,7 @@ class AgentHandle:
 class Agent:
     """Runs agent skills for the executor: one call at a time, each in a thread"""
 
-    def __init__(self, backend: AgentBackend, ctx=None, library: SkillLibrary | None = None, on_event=None,
+    def __init__(self, backend: AgentBackend, ctx: 'SkillContext', library: SkillLibrary | None = None, on_event=None,
                  speak: Callable[[str], None] | None = None):
         self.backend  = backend
         self.ctx      = ctx

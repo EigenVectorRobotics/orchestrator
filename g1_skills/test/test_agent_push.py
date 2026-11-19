@@ -363,7 +363,7 @@ def test_word_from_the_bridge_gives_the_next_call_its_wait_again(tmp_path, monke
             if heard:
                 backend.link.heard_at = time.monotonic()      # a ping came in between the calls
 
-            tree = _tree(body, FakeRunner([]), Agent(backend))
+            tree = _tree(body, FakeRunner([]), Agent(backend, press_ctx(None)))
             assert _run(tree) == Status.FAILURE
             tree.halt()
     finally:
@@ -379,7 +379,7 @@ def test_a_recovery_call_carries_the_aim_crops_and_a_judge_call_does_not(tmp_pat
     press    = {'frames': {'press': str(tmp_path / 'press.jpg')}, 'aim': {'frames': {'contact_aim': str(tmp_path / 'press_aim.jpg')}}}
     session  = type('Session', (), {'camera': lambda self: None})()
     registry = Registry.from_directory(CONTRACTS)
-    agent    = Agent(None)
+    agent    = Agent(None, press_ctx(None))
 
     recovery = agent.skill(registry.get('manipulation_recovery')).images({'press': press}, session)
     judge    = agent.skill(registry.get('press_judge')).images({'press': press}, session)

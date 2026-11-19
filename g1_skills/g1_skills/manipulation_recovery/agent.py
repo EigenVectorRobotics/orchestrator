@@ -49,7 +49,7 @@ class ManipulationRecovery(AgentSkill):
         return None
 
     def evidence(self, call: AgentCall, evidence: dict):
-        if call.phase == 'diagnose' and (evidence['last_failure'] or {}).get('skill') == 'press_judge' and self.ctx is not None:
+        if call.phase == 'diagnose' and (evidence['last_failure'] or {}).get('skill') == 'press_judge':
             evidence['press'] = press_state(self.ctx).evidence()        # the judged press: its frames are chosen already
 
         try:
@@ -148,7 +148,7 @@ class ManipulationRecovery(AgentSkill):
 
     def _stance(self, inputs: dict, evidence: dict) -> dict | None:
         """The robot against the base goal and against the last press on this button that worked"""
-        if self.ctx is None or self.ctx.tf is None:
+        if self.ctx.tf is None:
             return None
 
         tf      = lambda target, source, timeout_s: frame_pose(self.ctx, target, source, timeout_s)
@@ -165,7 +165,7 @@ class ManipulationRecovery(AgentSkill):
                                stance.latest_reach(failure, evidence.get('history')), REPOSITION_LIMITS_M)
 
     def _robot(self) -> dict | None:
-        if self.ctx is None or self.ctx.tf is None:
+        if self.ctx.tf is None:
             return None
 
         try:
