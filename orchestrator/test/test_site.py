@@ -17,7 +17,7 @@ SITES   = PACKAGE / 'config' / 'sites'
 def test_the_stanley_site_has_what_the_robot_run_needs():
     site = load_site('stanley', SITES)
 
-    assert site['places_file'].endswith('two_floor_clean_cabin2.places.yaml')
+    assert site['places_file'].startswith('/home/vector/maps/') and site['places_file'].endswith('.places.yaml')
     assert site['planner_backend'] == 'external'
     assert site['agent_bridge']['host'] and site['agent_bridge']['port'] == 8771
     assert '/imu/data' in site['raw_bag']['topics']
@@ -56,21 +56,24 @@ def _resolve(given: dict, site: str = ''):
     return _launch().resolve(given, load_site(site, SITES), PACKAGE, Path('/registry'))
 
 
+def test_the_places_file_comes_from_the_site_unless_given_and_has_no_default():
+    assert _resolve({}, 'stanley')['places_file'] == load_site('stanley', SITES)['places_file']
+    assert _resolve({'places_file': '~/x.places.yaml'}, 'stanley')['places_file'] == str(Path('~/x.places.yaml').expanduser())
+    assert _resolve({})['places_file'] == ''                                  # no site: the nodes stop at start
+
+
 def test_the_launch_takes_the_site_and_a_given_argument_wins():
     found = _resolve({'planner_backend': 'claude'}, 'stanley')
 
-    assert found['places_file'].endswith('two_floor_clean_cabin2.places.yaml')
     assert found['planner_backend'] == 'claude' and found['planner_model'] == 'claude-opus-5-5'
     assert (found['agent_push_host'], found['agent_push_port']) == ('100.107.208.25', 8771)
     assert found['raw_bag']['output'].rsplit('/', 1)[-1].startswith('raw_') and '/tf' in found['raw_bag']['topics']
     assert _resolve({'raw_bag': 'false'}, 'stanley')['raw_bag'] is None
-    assert _resolve({'places_file': '/x.yaml'}, 'stanley')['places_file'] == '/x.yaml'
 
 
 def test_without_a_site_the_code_defaults_and_no_bridge_or_raw_bag():
     found = _resolve({})
 
-    assert found['places_file'] == str(PACKAGE / 'config' / 'places.yaml')
     assert found['planner_backend'] == 'claude' and found['agent_push_host'] == '' and found['raw_bag'] is None
     assert _resolve({'fake': 'true'}, 'stanley')['raw_bag'] is None          # a fake run records no raw topics
 

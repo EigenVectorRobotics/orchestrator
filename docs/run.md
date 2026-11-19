@@ -14,6 +14,11 @@ A Claude Code session that operates the robot does each step that starts, stops 
 - Every ROS command on the NUC runs after `source ~/orchestrator_ws/env.sh` (the stack's environment with the orchestrator on top).
 - Tests that publish or start nodes on the robot machines (a fake robot, a test tree on its own) use a free `ROS_DOMAIN_ID` (e.g. 99), never the live domain 0.
 
+### The map
+
+- `places_file` in the site file `orchestrator/config/sites/stanley.yaml` names the places file in use (`places_file:=<file>` for one launch). Change the map there only, then rebuild on the NUC (section 2).
+- The places file holds the places, the areas and the `floors` table (the planner takes `goal_floor` from it). Its `map:` is the prior map (.pcd) that preflight's `launch_nuc_stack` starts navigation on; start the NUC by hand on the same map (section 6).
+
 ## 2. Deploy on the NUC
 
 No script builds on the NUC (`start.sh` never builds). On the NUC:
@@ -26,7 +31,7 @@ cd ~/orchestrator_ws && source env.sh && MAKEFLAGS=-j1 nice -n 19 ionice -c3 col
 - Never build on the NUC while the robot stands: a build there once crashed the NUC, and the G1 fell. Build with one worker, as above.
 - The install is a copy, not a symlink install. Contracts, the tree library (`skill_registry/trees/`), `skill_registry/preflight/preflight.xml`, the site file and the test trees are installed files: rebuild after changing any of them.
 - What reads what, and when: the executor, the planner and the registry read the contracts and the places file at start; the planner reads the tree library and the preflight tree at start; `send_tree` reads the tree file you give it each time. So a contract, places, library or Python change needs a restart of the orchestrator (section 3); a test tree passed to `send_tree` by its source path needs nothing.
-- The site file `orchestrator/config/sites/stanley.yaml` holds what a robot run needs beyond the code defaults: the places file, the planner backend, the agent bridge's address, the raw bag topics. Change the map, the operator laptop or the raw topics there, nowhere else.
+- The site file `orchestrator/config/sites/stanley.yaml` holds what a robot run needs beyond the code defaults: the places file (The map, section 1), the planner backend, the agent bridge's address, the raw bag topics. Change the map, the operator laptop or the raw topics there, nowhere else.
 - Run the tests from each package's own directory (`cd ~/orchestrator_ws/src/orchestrator/orchestrator && python3 -m pytest -q test`, the same in `skill_registry`): from the repository root, the import finds the installed package and the tests check the old code.
 - Check a tree before sending it: `ros2 run skill_registry validate_tree <tree.xml>` (0 errors).
 - A tree file can pull subtrees from other files with `<include path="subtrees/press.xml"/>`, relative to the file. `send_tree`, `validate_tree`, `planner_cli --tree` and the planner's tree library inline them before anything else reads the tree. Shared subtrees live in `skill_registry/trees/subtrees/`.
@@ -47,8 +52,8 @@ By hand, on the NUC:
 tmux new -d -s orchestrator "bash -c 'source ~/orchestrator_ws/env.sh && ros2 launch orchestrator orchestrator.launch.py site:=stanley 2>&1 | tee ~/orchestrator.log'"
 ```
 
-- It starts the registry, the executor, the recorder, the planner and the raw bag, with the values of `orchestrator/config/sites/stanley.yaml`: the cabin2 places file, `planner_backend: external` (a session or `planner_cli` answers the planner), the agent bridge's address, and the raw topics for SLAM and EKF replay, recorded to `~/bags/raw_<date>_<time>` until the launch stops (`raw_bag:=false` leaves it out).
-- The first log line says what it took: `orchestrator: site stanley, places ..., planner external, agent bridge <address>`. A launch argument on the command line wins over the site (`places_file:=`, `planner_backend:=`, `planner_model:=`). Without `site`, the launch uses the code defaults: `orchestrator/config/places.yaml` (two placeholders, not enough for the elevator tree), the planner on the API, no agent bridge (agent skills fail), no raw bag. `fake:=true` is the laptop test with the fake robot.
+- It starts the registry, the executor, the recorder, the planner and the raw bag, with the values of `orchestrator/config/sites/stanley.yaml`: the places file, `planner_backend: external` (a session or `planner_cli` answers the planner), the agent bridge's address, and the raw topics for SLAM and EKF replay, recorded to `~/bags/raw_<date>_<time>` until the launch stops (`raw_bag:=false` leaves it out).
+- The first log line says what it took: `orchestrator: site stanley, places ..., planner external, agent bridge <address>`. A launch argument on the command line wins over the site (`places_file:=`, `planner_backend:=`, `planner_model:=`). Without `site`, there is no places file (give `places_file:=`, or the nodes stop at start), and the launch uses the code defaults: the planner on the API, no agent bridge (agent skills fail), no raw bag. `fake:=true` is the laptop test with the fake robot.
 - Ready when `~/orchestrator.log` shows `planner up: external ..., N existing trees` and the recorder's `recording to <session>`. The executor refuses trees until the recorder is ready (`record:=false` turns recording off), and task trees until a preflight has passed (section 5).
 - The executor logs the bridge link to `~/orchestrator.log`: `connected to the agent bridge at <host>:<port>`, or `the agent bridge link dropped: <error>`. `start.sh` and `status.sh` read these lines; the bridge prints `executor connected from ...`.
 - Parameters come from `orchestrator/config/orchestrator.yaml`; `params_file:=` gives another file. The planner's tree library is the installed `skill_registry/trees/` (parameter `tree_library`), and its preflight tree `skill_registry/preflight/preflight.xml` (`preflight_tree`; empty for none).
@@ -127,7 +132,7 @@ The trees reset the EKF with `reset_ekf`, check the view after a reposition with
 
 The test measures how often one press hits each call button, with no retries. Each cycle walks to the call panel, holds still for the EKF reset, presses the down button, then the up button, both with the right arm. The agent judges every press, and the tree goes on whatever the judge says.
 
-1. Bring the NUC up with the cabin2 map (section 6) and check `"localized": true`. The Orin and the Thor run as usual.
+1. Bring the NUC up on the map in use (section 6) and check `"localized": true`. The Orin and the Thor run as usual.
 2. Start the orchestrator (section 3) with `site:=stanley`.
 3. Run the agent bridge on the laptop (section 4), then start the run: `ros2 run orchestrator send_tree ~/orchestrator_ws/src/orchestrator/orchestrator/test_trees/freight_call_panel_press_repeat.xml` (add `--skip-preflight` when no task has run a preflight since the launch).
 4. The bridge judges each press. A press that move_to_pose refuses ("target out of reach") or that finds no target opens no call, so expect up to ten. A person by the panel notes the true outcome of each press, in order.
@@ -136,25 +141,25 @@ Compare the person's labels with the judge's decisions and the `press_judge` rec
 
 ## 6. Bring a machine up by hand
 
-Preflight starts the stacks itself (the `launch_nuc_stack`, `launch_orin_stack` and `launch_thor_stack` contracts in `skill_registry/contracts/`); no robot script does. When preflight cannot, start them one at a time and check each before the next.
+Preflight starts the stacks itself (the `launch_nuc_stack`, `launch_orin_stack` and `launch_thor_stack` contracts in `skill_registry/contracts/`); no robot script does. When preflight cannot, start them one at a time and check each before the next. `<map>.pcd` below is the `map:` of the places file in use (The map, section 1).
 
 **NUC** (robot interface, arm control, body EKF, navigation, `door_state_node`), with `scripts/deploy.sh` of the `eigen_vector` repository, from the laptop's `eigen_vector` checkout:
 
 ```bash
-scripts/deploy.sh launch nuc map:=/home/vector/maps/two_floor_clean_cabin2.pcd localization:=true    # SSH_HOST=192.168.123.5 on the robot wire
+scripts/deploy.sh launch nuc map:=<map>.pcd localization:=true    # SSH_HOST=192.168.123.5 on the robot wire
 ```
 
 It starts `bringup nuc.launch.py` in tmux on the NUC (`tmux -L eigen_vector`) and streams its log; Ctrl-C there stops the launch, so run it in the background. It is ready about 15 to 20 s later. On the NUC itself, `launch_nuc_stack` runs the same launch:
 
 ```bash
-tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 launch bringup nuc.launch.py map:=/home/vector/maps/two_floor_clean_cabin2.pcd localization:=true 2>&1 | tee ~/eigen_vector_ws/launch.log'"
+tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 launch bringup nuc.launch.py map:=<map>.pcd localization:=true 2>&1 | tee ~/eigen_vector_ws/launch.log'"
 ```
 
 On 2026-11-08 the NUC ran two launch files instead, in this order, both only on the NUC ([machines.md](machines.md)): the robot interface and arm control, then navigation and SLAM. `door_state_node` was in neither, so it ran in its own session:
 
 ```bash
 tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc \"source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\\\"\\$EIGEN_VECTOR_PRELOAD\\\" ros2 launch ~/nuc_manip_only.launch.py 2>&1 | tee ~/eigen_vector_ws/launch.log\""
-tmux -L nav new-session -d -s nav "bash -lc \"source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\\\"\\$EIGEN_VECTOR_PRELOAD\\\" ros2 launch ~/nuc_nav_only.launch.py map:=/home/vector/maps/two_floor_clean_cabin2.pcd localization:=true 2>&1 | tee ~/nav_launch.log\""
+tmux -L nav new-session -d -s nav "bash -lc \"source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\\\"\\$EIGEN_VECTOR_PRELOAD\\\" ros2 launch ~/nuc_nav_only.launch.py map:=<map>.pcd localization:=true 2>&1 | tee ~/nav_launch.log\""
 tmux new -d -s door_state "bash -c 'source ~/eigen_vector_ws/env.sh && export LD_PRELOAD=\$EIGEN_VECTOR_PRELOAD && ros2 launch elevator_states door_state_node.launch.py 2>&1 | tee ~/door_state.log'"
 ```
 

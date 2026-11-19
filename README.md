@@ -40,7 +40,7 @@ Each library tree in `skill_registry/trees/*.xml` says in its first comment what
 ## Run on a laptop, with no robot
 
 ```bash
-ros2 launch orchestrator orchestrator.launch.py fake:=true planner_backend:=scripted
+ros2 launch orchestrator orchestrator.launch.py fake:=true planner_backend:=scripted places_file:=<a places file on this laptop>
 ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the elevator and call it'}"
 ros2 topic echo /orchestrator/trace --field data
 ```

@@ -2,7 +2,7 @@
 
   this package's format     name: {x, y, yaw}                     yaw in radians, frame map
   the team's map format     places: {Name With Spaces: {x, y, yaw_deg, ...}}, with frame at the top
-                            (e.g. ~/maps/two_floor_clean_cabin2.places.yaml, saved with the map)
+                            (e.g. ~/maps/<map>.places.yaml, saved with the map)
 
 A name becomes its blackboard key in lower case with underscores: "freight elevator call panel" is
 {freight_elevator_call_panel}. z is kept when a place has it: on a map of several storeys the route

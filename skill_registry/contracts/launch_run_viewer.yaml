@@ -1,7 +1,7 @@
 name: launch_run_viewer
 kind: action
 device: nuc
-description: Start the Run Viewer on the NUC in tmux run_viewer (reads ~/orch_runs/*/events.jsonl locally, serves 127.0.0.1:8780). Does nothing when it runs.
+description: Start the Run Viewer on the NUC in tmux run_viewer (reads ~/orch_runs/*/events.jsonl locally, serves 127.0.0.1:8780). Does nothing when it runs. The orchestrator launch stops it on shutdown (Ctrl+C).
 interface:
   transport: command
   command: |

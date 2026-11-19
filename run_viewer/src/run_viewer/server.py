@@ -12,8 +12,6 @@ from run_viewer.store import EventStore
 
 
 PAGE = Path(__file__).parent / 'static' / 'index.html'
-MAPS = Path(__file__).parent / 'static' / 'maps'
-TYPES = {'.png': 'image/png', '.json': 'application/json'}
 MAX_BATCH = 500                   # events per stream message: a page that loads a long session gets them in parts
 BOOT  = str(time.time())          # new at each start: a page that sees it change reloads, as its event numbers are of the old server
 
@@ -33,7 +31,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Route / to the page, /stream to the event stream, /latest to the nav and camera state,
-        /sessions, /call and /frame to the recorder's session folders."""
+        /sessions, /call, /frame and /maps to the recorder's session folders."""
         url = urlparse(self.path)
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
         if url.path == '/':
@@ -52,9 +50,9 @@ class Handler(BaseHTTPRequestHandler):
             image = self.sessions.frame(query.get('session', ''), query.get('id', ''), query.get('path', ''))
             media = 'image/png' if query.get('path', '').lower().endswith('.png') else 'image/jpeg'
             self.send_body(image, media) if image else self.send_error(404)
-        elif url.path.startswith('/maps/') and (MAPS / Path(url.path).name).is_file():
-            file = MAPS / Path(url.path).name
-            self.send_body(file.read_bytes(), TYPES.get(file.suffix, 'application/octet-stream'))
+        elif url.path == '/maps':
+            maps = self.sessions.maps(query.get('session', ''))
+            self.send_body(json.dumps(maps).encode(), 'application/json') if maps else self.send_error(404)
         else:
             self.send_error(404)
 

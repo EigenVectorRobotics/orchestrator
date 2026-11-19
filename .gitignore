@@ -4,3 +4,6 @@ __pycache__/
 build/
 install/
 log/
+
+# Local files on one machine, not for the team
+local/

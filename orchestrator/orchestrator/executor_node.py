@@ -1,6 +1,7 @@
 """Validate a behavior tree, then tick it on the NUC; every step goes to the trace"""
 
 import json
+import os
 import uuid
 
 import rclpy
@@ -15,7 +16,7 @@ from .agent import Agent
 from .agent_push import PushAgentBackend, PushLink
 from .trace import Tracer
 from .agent_ros import RosReader
-from .node_setup import load_skills
+from .node_setup import load_place_map, load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
@@ -61,6 +62,7 @@ class ExecutorNode(Node):
         super().__init__('orchestrator_executor')
 
         self.registry, self.places, self.essential_devices = load_skills(self)
+        os.environ['MAP'] = load_place_map(self.get_parameter('places_file').value)   # launch_nuc_stack starts nav on it
 
         self.tick_hz      = self.declare_parameter('tick_hz', 10.0).value
         self.image_topic  = self.declare_parameter('image_topic', '/camera/camera/color/image_raw').value
