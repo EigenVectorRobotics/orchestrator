@@ -1,15 +1,20 @@
-"""Render one top-view PNG per floor of the prior map, and floors.json with their bounds and the places, for the map pane."""
+"""Print the map pane's floor maps of a places file as one JSON line: a top-view PNG per floor of the map it names, the bounds and the places.
+
+The Run Viewer runs it on the robot host as python3 -c, once per places file (sources.py, Sessions.maps); the host needs numpy and PyYAML, not Pillow.
+"""
 
 import argparse
+import base64
 import json
+import struct
+import zlib
 from pathlib import Path
 
 import numpy as np
 import yaml
-from PIL import Image
 
 
-OUT        = Path(__file__).resolve().parents[1] / 'src' / 'run_viewer' / 'static' / 'maps'
+GROUND_BIN_M = 0.02                     # the ground of a floor is the most filled z bin of this size in the floor's z range
 FLOOR_BAND = (-0.45, 0.30)              # height above the floor ground of floor points; the floor is not flat
 WALL_BAND  = (1.30, 2.20)               # height above the floor ground of wall points: tall structure only
 LOW_BAND   = (0.25, 1.30)               # furniture and other low objects, drawn lighter than walls
@@ -26,11 +31,8 @@ LOW_RGBA   = (190, 197, 191, 255)
 def parse_args() -> argparse.Namespace:
     """Read the command line."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--pcd', required=True, help='prior map, binary x y z intensity: <map>.pcd')
-    parser.add_argument('--places', required=True, help='the places file of that map: <map>.places.yaml')
-    parser.add_argument('--floors', default='1:-7.1,2:-0.93', help='floor:ground z, as /slam_elevatorlio/floor numbers them')
+    parser.add_argument('places', help='a places file: its map key names the prior map (binary x y z intensity .pcd), its floors table the z range of each floor')
     parser.add_argument('--res', type=float, default=0.05, help='metres per pixel')
-    parser.add_argument('--out', default=str(OUT))
     return parser.parse_args()
 
 
@@ -45,6 +47,33 @@ def read_pcd(
         count = int(header.split(b'POINTS ')[1].split()[0])
         fields = len(header.split(b'FIELDS ')[1].split(b'\n')[0].split())
         return np.frombuffer(file.read(4 * fields * count), dtype=np.float32).reshape(count, fields)
+
+
+def ground_z(
+    z: np.ndarray,
+    z_min: float,
+    z_max: float,
+) -> float:
+    """The ground of a floor: the centre of the most filled z bin between z_min and z_max."""
+    counts, edges = np.histogram(z, bins=np.arange(z_min, z_max + GROUND_BIN_M, GROUND_BIN_M))
+    return round(float(edges[np.argmax(counts)] + GROUND_BIN_M / 2), 2)
+
+
+def png_chunk(
+    kind: bytes,
+    data: bytes,
+) -> bytes:
+    """One PNG chunk: length, type, data and CRC."""
+    return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data))
+
+
+def png(
+    rgba: np.ndarray,
+) -> bytes:
+    """RGBA pixels (rows from the top) as PNG bytes, with the standard library."""
+    header = struct.pack('>IIBBBBB', rgba.shape[1], rgba.shape[0], 8, 6, 0, 0, 0)
+    pixels = zlib.compress(b''.join(b'\x00' + row.tobytes() for row in rgba), 9)
+    return b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', header) + png_chunk(b'IDAT', pixels) + png_chunk(b'IEND', b'')
 
 
 def cell_counts(
@@ -90,7 +119,7 @@ def render_floor(
     points: np.ndarray,
     ground: float,
     res: float,
-) -> tuple[Image.Image, dict]:
+) -> tuple[np.ndarray, dict]:
     """Floor area light, walls dark, transparent elsewhere; and the bounds in map metres."""
     height = points[:, 2] - ground
     floor = points[(height > FLOOR_BAND[0]) & (height < FLOOR_BAND[1]), :2]
@@ -110,28 +139,24 @@ def render_floor(
     rgba[low] = LOW_RGBA
     rgba[wall] = WALL_RGBA
     bounds = {'x0': round(float(x0), 3), 'y0': round(float(y0), 3), 'res': res, 'w': shape[1], 'h': shape[0], 'ground_z': ground}
-    return Image.fromarray(rgba, 'RGBA'), bounds
+    return rgba, bounds
 
 
 def main() -> None:
-    """Write floor_<n>.png and floors.json."""
+    """Print {map, floors: {n: bounds and png}, places} as one JSON line."""
     args = parse_args()
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    points = read_pcd(args.pcd)
-    grounds = {name: float(z) for name, z in (item.split(':') for item in args.floors.split(','))}
+    places_file = yaml.safe_load(Path(args.places).read_text())
+    points = read_pcd(places_file['map'])
+    grounds = {key.split()[-1]: ground_z(points[:, 2], band['z_min'], band['z_max']) for key, band in places_file['floors'].items()}   # "floor 1" is floor 1 of /slam_elevatorlio/floor
     floors = {}
     for name, ground in grounds.items():
-        image, bounds = render_floor(points, ground, args.res)
-        image.save(out / f'floor_{name}.png', optimize=True)
-        floors[name] = {'file': f'floor_{name}.png', **bounds}
-        print(f'floor {name}: {bounds["w"]}x{bounds["h"]} px')
+        rgba, bounds = render_floor(points, ground, args.res)
+        floors[name] = {**bounds, 'png': base64.b64encode(png(rgba)).decode()}
     places = []
-    for place, pose in (yaml.safe_load(Path(args.places).read_text()).get('places') or {}).items():
+    for place, pose in (places_file.get('places') or {}).items():
         floor = min(grounds, key=lambda name: abs(pose['z'] - grounds[name] - 0.5))
         places.append({'name': place, 'x': pose['x'], 'y': pose['y'], 'yaw_deg': pose.get('yaw_deg', 0.0), 'floor': floor})
-    (out / 'floors.json').write_text(json.dumps({'map': Path(args.pcd).name, 'floors': floors, 'places': places}, indent=1))
-    print(f'{len(places)} places -> {out / "floors.json"}')
+    print(json.dumps({'map': Path(places_file['map']).name, 'floors': floors, 'places': places}))
 
 
 if __name__ == '__main__':

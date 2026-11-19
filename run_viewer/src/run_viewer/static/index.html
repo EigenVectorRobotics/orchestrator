@@ -482,10 +482,14 @@ const PRIOR_ALPHA = 0.4;
 const ROBOT_M = 0.18;            // robot marker: tip this far ahead of the pose
 const ARM_LEN_M = 0.12, ARM_MIN_PX = 10, ARM_MAX_PX = 26, ARM_STALE_S = 30;   // arm goal arrow: true length, kept between these on screen
 
-fetch('/maps/floors.json').then(r => r.ok ? r.json() : null).then(j => {
-  floors = j; if (!j) return;
-  Object.entries(j.floors).forEach(([k, f]) => { const im = new Image(); im.onload = drawMap; im.src = '/maps/' + f.file; mapImgs[k] = im });
-}).catch(() => {});
+/* The floor maps of the session's places file (its provenance.json), made on the robot host when first asked for */
+function loadMaps(name) {
+  fetch(`/maps?session=${encodeURIComponent(name)}`).then(r => r.ok ? r.json() : null).then(j => {
+    floors = j; if (!j) { drawMap(); return }
+    Object.entries(j.floors).forEach(([k, f]) => { const im = new Image(); im.onload = drawMap; im.src = 'data:image/png;base64,' + f.png; mapImgs[k] = im });
+  }).catch(() => {});
+}
+if (picked) loadMaps(picked);
 
 /* Size a canvas to its box for the device pixel ratio and clear it; drawing is in CSS pixels */
 function fitCanvas(cv) {
@@ -540,7 +544,7 @@ function floorOf(n) {
 function drawMap() {
   const {ctx, W, H} = fitCanvas($('map'));
   const say = text => { ctx.fillStyle = css('--muted'); ctx.font = '12px ' + css('--mono'); ctx.fillText(text, 12, 22) };
-  if (!floors) { say('No floor maps: run scripts/make_floor_maps.py.'); return }
+  if (!floors) { say('No floor maps: the session\'s provenance.json names no places file, or the robot host could not read its map.'); return }
   if (!nav || !nav.pose) { say('Waiting for /odom_base_link.'); return }
   const fk = floorOf(nav), f = floors.floors[fk], img = mapImgs[fk];
   const [rx, ry, , ryaw] = nav.pose;
@@ -1039,7 +1043,11 @@ const answeredAt = r => r.time + (r.seconds || 0) - 2;
 function handle(batch) {
   for (const ev of batch) {
     if (ev.statusline) { $('src').textContent = ev.statusline; continue }
-    if (ev.kind === 'session') { if (!picked) sessionName = (ev.path || '').split('/').slice(-2)[0] || ''; continue }
+    if (ev.kind === 'session') {
+      const name = (ev.path || '').split('/').slice(-2)[0] || '';
+      if (!picked && name !== sessionName) { sessionName = name; loadMaps(name) }   // a new live session can name another places file
+      continue;
+    }
     if (ev.kind === 'state') {
       const el = $(ev.name === 'side' ? 'st-side' : 'st-door');
       el.textContent = `${ev.name === 'side' ? 'elevator' : 'door'}: ${ev.value}`;

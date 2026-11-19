@@ -67,7 +67,7 @@ Each person can run their own viewer. The viewers do not change anything on the 
 | Arm goal | `/traj` (frame `foot_world`), `/tf`, `/tf_static` |
 | Camera and masks | `/camera/camera/color/image_raw` (its `/compressed` when it has a publisher), `/track_3d/mask_outlines` |
 | Elevator side, door | `/slam_elevatorlio/elevator_side`, `/door_state` |
-| Floor maps | `src/run_viewer/static/maps/` (made with `scripts/make_floor_maps.py`) |
+| Floor maps | the session's `provenance.json` names the places file; `scripts/make_floor_maps.py` makes them on the robot host from the map that the places file names |
 
 ## Options
 
@@ -100,13 +100,7 @@ The recorder bag has the trace, the agent request, reply and event topics and `/
 
 ## Floor maps
 
-Make them again when the prior map changes:
-
-```bash
-python3 scripts/make_floor_maps.py --pcd <map>.pcd --places <map>.places.yaml --floors 1:<ground z>,2:<ground z>
-```
-
-It needs numpy, Pillow and PyYAML. `--floors` gives the ground z of each floor, numbered as `/slam_elevatorlio/floor` numbers them. Each floor is a plan: white floor area, dark walls (1.3 m to 2.2 m above the ground), grey low objects (0.25 m to 1.3 m). If `/slam_elevatorlio/floor` is silent, the page uses the floor whose ground is nearest the robot's z.
+When the page opens a session, the viewer runs `scripts/make_floor_maps.py` on the robot host (it needs numpy and PyYAML) and keeps the result per places file. The script reads the places file that the session's `provenance.json` names and draws one plan per floor of its `floors` table from the pcd in its `map:`: white floor, dark walls, grey low objects. The ground of a floor is the most filled 2 cm z bin in its range. If `/slam_elevatorlio/floor` is silent, the page uses the floor whose ground is nearest the robot's z.
 
 ## Record the page to a video
 
@@ -124,9 +118,9 @@ It needs Node 22 or newer, ffmpeg and Chrome (set `CHROME` to the binary if it i
 | `scripts/live_echo.py` | on the robot host: nav state (2 Hz), agent request and reply, the trace topic with `--trace-topic` |
 | `scripts/camera_echo.py` | on the camera host: the JPEG and the mask outlines (2 Hz) |
 | `scripts/state_echo.py` | on the robot host: elevator side and door state |
-| `scripts/make_floor_maps.py` | the floor PNGs and `floors.json` from the prior map |
+| `scripts/make_floor_maps.py` | on the robot host: the floor PNGs, their bounds and the places of a places file, as one JSON line |
 | `scripts/record_viewer.mjs` | record the page to an MP4 |
 | `src/run_viewer/sources.py` | the ssh streams, the trace parser, and the session folders (`Sessions`) |
 | `src/run_viewer/store.py` | the event list, its folded snapshot for a new page, and the latest nav and camera values |
-| `src/run_viewer/server.py` | the page, the event stream (`/stream`), `/latest`, `/maps/`, `/sessions`, `/call` and `/frame` |
+| `src/run_viewer/server.py` | the page, the event stream (`/stream`), `/latest`, `/sessions`, `/call`, `/frame` and `/maps` |
 | `src/run_viewer/static/index.html` | the page |
