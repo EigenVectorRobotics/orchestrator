@@ -1,3 +1,5 @@
+"""What track_anything publishes (the button's boxes and target pose), kept for the skills that read it."""
+
 import time
 import threading
 

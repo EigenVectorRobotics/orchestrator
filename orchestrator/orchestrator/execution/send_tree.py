@@ -1,3 +1,5 @@
+"""send_tree: send one tree file to the executor, without the planner."""
+
 import sys
 import json
 import argparse

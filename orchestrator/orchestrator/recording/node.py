@@ -1,4 +1,4 @@
-"""Record every orchestrator run on the NUC (see recording.py); refuse runs when the disk is too full.
+"""Record every orchestrator run on the NUC (see recorder.py); refuse runs when the disk is too full.
 
 Subscribes to the trace, the task and the agent topics; records a bag of the chosen topics for each tree run;
 publishes /orchestrator/recorder/status (latched JSON: ready, reason, free_gb, session). The executor refuses a

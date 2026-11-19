@@ -1,3 +1,5 @@
+"""What the press skills share: the press offset in force and the last press, and its frames for an agent call."""
+
 import time
 
 from pathlib import Path

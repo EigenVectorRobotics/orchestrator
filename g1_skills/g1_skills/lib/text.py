@@ -1,3 +1,5 @@
+"""Text for agent prompts: the panel type of a button, and number formatting."""
+
 def panel_type(button: str) -> str:
     if 'up' in button.split() or 'down' in button.split() or 'call' in button:
         return 'call panel, outside the car: the call button has its own light, rules 1-3'

@@ -1,3 +1,5 @@
+"""All contracts from the skill folders, and which of them are live in the ROS graph."""
+
 import importlib.util
 
 from pathlib import Path

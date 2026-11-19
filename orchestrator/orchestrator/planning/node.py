@@ -1,4 +1,7 @@
-"""Plan a tree for a task with an LLM, then send it to the executor"""
+"""Plan a tree for a task with an LLM, then send it to the executor
+
+Each task first sends the preflight tree (parameter preflight_tree) to the executor, and is planned only once it succeeds.
+"""
 
 import json
 import time

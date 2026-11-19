@@ -8,7 +8,7 @@ Each agent call gets runs/<n>-<tree>/agent/<id>/:
   request.json    what the model got: task, allowed decisions, failure, history, press, stance, and its images by file
                   (written when the call opens, replaced when it closes, with its outcome)
   messages.jsonl  everything that happened, in order: opened, started (model, effort, prompt, system prompt and its
-                  sha256, the sha256 of agent_prompts.py), each decision with the executor's reply and the model's
+                  sha256, the sha256 of the skill's prompt.py), each decision with the executor's reply and the model's
                   usage, failed, cancelled, closed
   summary.json    one record of the call: model, prompt, the two sha256s, final decision, state, time, tokens and cost in all
 The images it names are copied to the run's captures/ with the press frames.

@@ -1,3 +1,5 @@
+"""The skill API: the Skill base class that a skill folder's skill.py subclasses, and the handles a call returns."""
+
 from typing import TYPE_CHECKING, Callable
 
 from skill_registry import Contract
@@ -5,7 +7,7 @@ from skill_registry import Contract
 from ..tree.engine import Status
 
 if TYPE_CHECKING:
-    from .context import SkillContext
+    from .runtime import SkillContext
 
 
 class Handle:

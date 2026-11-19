@@ -22,7 +22,8 @@ sequenceDiagram
   EX->>SR: SkillRunner(node, registry, config, library, backend)
   SR->>SR: build Camera and VlmClient from the config
   SR->>CTX: SkillContext(node, camera, vlm_client, artifacts_dir, drivers)
-  Note over CTX: keeps them, builds Tf and the nine drivers
+  Note over CTX: keeps them, builds Tf and the drivers of default_drivers()
+  SR->>AG: Agent(backend, ctx, library) when there is a backend
   loop each contract in the registry
     SR->>CTX: prepare(contract)
     CTX->>CTX: watch(success_when) if any
@@ -32,12 +33,11 @@ sequenceDiagram
       SR->>S: Skill(contract, ctx) then setup()
     end
   end
-  SR->>AG: Agent(backend, ctx, library) when there is a backend
   EX->>TR: TreeRunner(make_leaf_factory(registry, runner), trace, ...)
-  EX->>EX: subscribe to the tree, cancel and recorder topics, start the 10 Hz timer
+  EX->>EX: subscribe to the tree, cancel and recorder topics, start the tick_hz timer
 ```
 
-A contract whose `prepare` fails is only logged. It fails later, when a tree calls it.
+A contract whose `prepare` fails is only logged. It fails later, when a tree calls it. The agent and tree transports have no driver: an agent skill runs through its own leaf.
 
 ## A tree arrives
 
@@ -64,28 +64,30 @@ sequenceDiagram
       BT->>F: build_leaf(skill, path, attributes, context)
       F-->>BT: AgentLeaf for an agent skill, else SkillLeaf
     end
+    Note over EX,TR: a tree that does not build is rejected here
     EX->>EX: preflight_gate(tree id, passed, skip, required)
     alt the gate is closed
       EX-->>T: trace rejected, status rejected
     else open
+      EX->>EX: a preflight tree clears preflight_passed
       EX->>TR: start(tree)
       TR->>TR: halt and replace the running tree
       TR-->>EX: status running, trace started
-      loop 10 Hz timer
+      loop every tick_hz tick
         EX->>TR: tick()
         TR->>BT: tick()
       end
       TR->>EX: on_finished(tree id, status)
-      EX->>EX: a preflight sets preflight_passed
+      EX->>EX: a preflight's success sets preflight_passed
     end
   end
 ```
 
-Starting a preflight closes the gate until it succeeds. `send_tree --skip-preflight` runs a task tree anyway and traces `preflight_skipped`.
+The gate holds only with `require_preflight`; when it holds, starting a preflight closes it until a preflight succeeds. `send_tree --skip-preflight` runs a task tree anyway and traces `preflight_skipped`. The gate's rules are in [Architecture](../architecture.md#the-preflight-gate).
 
 ## Planning a task
 
-The planner gates on preflight, then loops the LLM and the validator until the tree is clean or three attempts are spent.
+The planner runs the preflight first, then loops the LLM and the validator until the tree is clean or `max_attempts` are spent.
 
 ```mermaid
 sequenceDiagram
@@ -99,12 +101,13 @@ sequenceDiagram
   Op->>PN: /orchestrator/task "Go to floor 2"
   PN->>EX: /orchestrator/tree with preflight.xml
   EX-->>PN: the trace shows the preflight's end
-  Note over PN,EX: a failed preflight stops here
-  PN->>PL: plan(task, places, live_skills, blind)
-  loop at most max_attempts = 3
+  Note over PN,EX: a failed preflight stops here, and with no preflight_tree there is none
+  PN->>PL: plan(task, places, live_skills, blind, place floors, robot floor)
+  loop at most max_attempts
     PL->>LLM: complete(system prompt, messages)
     LLM-->>PL: XML tree, or use_tree id with parameters
     PL->>PL: expand the library tree and its replace tags
+    PL->>PL: fill the floor parameters from the places
     PL->>V: validate(xml)
     V-->>PL: issues
     alt errors
@@ -113,7 +116,7 @@ sequenceDiagram
       PL-->>PN: PlanResult with the tree
     end
   end
-  PN->>EX: /orchestrator/tree with the task tree
+  PN->>EX: /orchestrator/tree with the task tree, when auto_run
 ```
 
 The system prompt carries every contract, the places, the live skills and the tree library.
@@ -174,6 +177,7 @@ sequenceDiagram
   participant BE as PushAgentBackend
   participant BR as agent bridge
   participant M as Claude model or operator
+  AL->>AL: fail at once when no agent is configured
   AL->>SK: refuse(call)
   AL->>AG: start(contract, inputs, context)
   AG-->>AL: AgentHandle, the work runs in a thread
@@ -182,10 +186,12 @@ sequenceDiagram
   alt a rule decides
     SK-->>AG: decision and speech
   else ask the bridge
+    AG->>SS: AgentSession(skill, call, evidence)
     AG->>BE: run(task, session)
+    BE->>SK: request_fields() and images()
     BE->>BR: open the call with evidence and images
     BR->>M: system prompt and user message from prompt.py
-    loop until accepted, the third refusal fails the call
+    loop until accepted, MAX_REFUSED refusals fail the call
       M-->>BR: decision as JSON, schema from FIELDS
       BR->>BE: decision
       BE->>SS: decide(arguments)
@@ -200,7 +206,8 @@ sequenceDiagram
     AG->>SK: after_decision()
   end
   AG->>SK: outputs()
-  AL->>AG: poll the handle each tick
+  AL->>AG: poll the AgentHandle each tick
+  AL->>SK: record the decision, then finished()
 ```
 
-A decision in `GOING_ON` gives SUCCESS, and `abort` fails the whole tree. With no word from the bridge for 60 s the call fails, and later calls fail at once until it returns.
+A decision in `GOING_ON` gives SUCCESS, and `abort` fails the whole tree. A call the bridge does not answer fails after `UNREACHABLE_FAIL_S`; the link and the skills' rules are in [Agent skills](../agents.md#the-bridge-link).

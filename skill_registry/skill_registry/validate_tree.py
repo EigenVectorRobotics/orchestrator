@@ -1,3 +1,5 @@
+"""validate_tree: check a tree file against the contracts and print its issues."""
+
 import sys
 import argparse
 

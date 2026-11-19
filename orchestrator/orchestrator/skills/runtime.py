@@ -1,3 +1,6 @@
+"""The skill context, which talks to the outside and keeps the state skills share, and the runner that owns it with
+the agent and starts every non-agent call."""
+
 from typing import Callable, TypeVar
 from dataclasses import dataclass, field
 from concurrent.futures import Future, ThreadPoolExecutor

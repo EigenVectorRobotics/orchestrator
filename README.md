@@ -7,22 +7,22 @@ Agentic task execution for a Unitree G1 that rides a freight elevator and presse
 1. A task comes in on `/orchestrator/task`, as a sentence.
 2. The planner first runs the preflight tree: stacks up, localization healthy, the G1 in ready locomotion.
 3. The planner gives the task, the skill contracts, the places, the live skills and the tree library to an LLM, which answers with a BehaviorTree.CPP v4 tree or picks a library tree.
-4. The validator checks the tree against the contracts; errors go back to the LLM, three attempts at most.
-5. The executor ticks the tree at 10 Hz and calls each skill through its contract's transport (a ROS action, service or topic, a topic watch, a VLM question, an agent call), with the skill's own code around the call when it has some.
+4. The validator checks the tree against the contracts; errors go back to the LLM, `max_attempts` times at most.
+5. The executor ticks the tree at `tick_hz` and calls each skill through its contract's transport (a ROS action, service or topic, a topic watch, a VLM question, an agent call), with the skill's own code around the call when it has some.
 6. Agent calls (`press_judge`, `manipulation_recovery`, `operator_confirm`) go to the agent bridge on the laptop, which asks a Claude model or the operator for one decision; the executor checks it against fixed limits.
 7. The run recorder keeps everything on the NUC under `~/orch_runs`; the Run Viewer shows it in a browser.
 
 | Package | Holds |
 |---|---|
 | `g1_skills` | The G1's skills, one folder each: the contract, and the skill's own code, agent spec and prompts when it has them (`g1_skills/README.md`) |
-| `orchestrator` | The core, which names no skill: tree executor, skill runner and transports, agent engine and bridge link, planner, trace, recorder, VLM server, fake robot; `test_trees/`, trees for tests and runs (not shown to the planner) |
+| `orchestrator` | The core, which names no skill: tree executor, skill runner and transports, agent engine and bridge link, planner, trace, recorder, health checks, VLM server, fake robot; `test_trees/`, trees for tests and runs (not shown to the planner) |
 | `skill_registry` | The contract model, the tree validator, live-skill discovery, the tree library (`trees/`) and the preflight tree (`preflight/`) |
 | `mission_control` | The agent bridge (laptop), and the robot run scripts (`robot/`) |
 | `run_viewer` | The Run Viewer (not a ROS package): the tree, map, camera and agent calls of a run in a browser |
 
 ## Documents
 
-The site at https://eigenvectorrobotics.github.io/orchestrator/ shows these documents with their diagrams and an API reference generated from the code. Every push builds the branch's site into `github-pages/<branch>`; Pages serves the main one. The team's other repositories are linked from https://eigenvectorrobotics.github.io/eigen_vector/.
+The site at https://eigenvectorrobotics.github.io/orchestrator/ shows these documents with their diagrams and an API reference generated from the code: what each package and module holds is in its docstrings there. A push to a branch that `.github/workflows/docs.yml` lists builds that branch's site into `github-pages/<branch>`; Pages serves the main one. The team's other repositories are linked from https://eigenvectorrobotics.github.io/eigen_vector/.
 
 | Document | Read it when |
 |---|---|
@@ -31,7 +31,6 @@ The site at https://eigenvectorrobotics.github.io/orchestrator/ shows these docu
 | `docs/architecture.md` | You change the planner, validator, executor, contracts, preflight or trace, or need the open problems |
 | `docs/agents.md` | You work on an agent skill, the bridge's prompts, the executor's rules or the limits |
 | `g1_skills/README.md` | You add or change a skill |
-| `docs/code/orchestrator.md` | You look for where a piece of code lives (with `docs/code/g1_skills.md` and `docs/code/skill_registry.md`) |
 | `docs/run.md` | You run the robot: deploy, start, run a task or one tree, bring a machine up, stop, watch |
 | `docs/demo.md` | You are on site for the elevator demo and need the checklist |
 | `docs/machines.md` | You need what runs where on the NUC, Orin and Thor, or what a robot computer must change |
@@ -51,8 +50,16 @@ ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the 
 ros2 topic echo /orchestrator/trace --field data
 ```
 
-`fake_robot` stands in for the robot, and no preflight runs; without a site no agent bridge is set, so agent skills fail. Its parameters, the planner backends and `send_tree` are in `docs/architecture.md`.
+`fake_robot` stands in for the robot: the robot's topics, services, navigation and arm actions, and a VLM server on `vlm_port`. The two actions need `navigation_interfaces` and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Its parameters (`orchestrator/orchestrator/fake_robot.py`): `press_success:=false`; `press_fail_count:=1` (the first presses stall short, as out of reach, with feedback); `nav_blocked:=true` (every route turns blocked until cancelled, so `navigate_to` fails after its `failure_when` `hold_s`); `vlm_answers:=door=closed`; `nav_time_s:=5.0`. Without a site no agent bridge is set, so agent skills fail. A fake run has no preflight (it would try to start the robot stacks and fail on the missing NUC topics); `preflight:=true` runs it anyway. The planner backends are in `docs/architecture.md`.
+
+Run one tree with no planner:
+
+```bash
+ros2 run orchestrator send_tree my_tree.xml --blind            # validate and run it with no cloud link
+ros2 run orchestrator send_tree my_tree.xml --skip-preflight   # before any preflight passed: run it anyway (tests)
+ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
+```
 
 ## Add a skill
 
-Write one YAML contract in `g1_skills/g1_skills/`. No code is needed if the skill is a ROS action, service or topic, a topic watch, a VLM question or one of the executor's own transports. Copy the contract nearest to yours (`navigate_to.yaml` for an action, `set_profile.yaml` for a service, `door_open.yaml` for a watch) and check a tree that uses it with `ros2 run skill_registry validate_tree <tree.xml>`. The transports and their rules are in `docs/architecture.md`, "Skills and contracts".
+A skill is one folder in `g1_skills/g1_skills/`. A skill on a ROS action, service or topic, a topic watch, a VLM question or one of the executor's own transports needs only its `contract.yaml`. How to write one, and the four ways to extend a skill, are in `g1_skills/README.md`; what the executor does with each transport is in `docs/architecture.md`, "Skills and contracts".

@@ -1,3 +1,5 @@
+"""Checks a tree against the contracts before it runs: skills, ports, blind mode and places."""
+
 import xml.etree.ElementTree as ElementTree
 
 from dataclasses import dataclass, field

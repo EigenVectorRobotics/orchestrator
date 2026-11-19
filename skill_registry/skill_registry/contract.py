@@ -1,3 +1,5 @@
+"""Parses and checks a skill contract: kinds, transports, ports, watches and config."""
+
 from string import Formatter
 from pathlib import Path
 from dataclasses import dataclass, field

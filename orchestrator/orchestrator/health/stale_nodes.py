@@ -1,3 +1,6 @@
+"""Finds robot-control nodes that run twice and processes left outside their launch, on the NUC and the Orin. The
+preflight skills no_duplicate_nodes and no_stray_processes run it as a command."""
+
 import os
 import re
 import subprocess

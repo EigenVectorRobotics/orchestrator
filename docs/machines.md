@@ -70,7 +70,7 @@ Branch @ commit, and local changes, as checked on 2026-11-08. "No upstream": the
 | `~/eigen_vector_ws_bringup` | `bringup` | from `eigen_vector` `main`, `bringup/`, copied by `deploy.sh`; not a git checkout | |
 | | `vlm` | `main` @ `3ca4861` | clean; `ground_server` runs from here |
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
-| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-reorg` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd` (2026-11-04), a branch now deleted on GitHub and in the team's clones. `launch_thor_stack` starts `vlm_server.py` from this checkout; since `thor_up` checks only the grounding, preflight does not need it |
+| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `ltx-reorg` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd` (2026-11-04), a branch now deleted on GitHub and in the team's clones. `launch_thor_stack` starts `orchestrator/orchestrator/vlm/server.py` from this checkout; since `thor_up` checks only the grounding, preflight does not need it |
 | `~/eigen_vector_ws` | `track_anything` `trt` @ `f5a1f47`, `vlm` `thor` @ `3ca4861` | | not in use |
 
 Running when checked (2026-11-08): on the Thor, the tmux session `eigen_vector_bringup` (`ground_server`); no `vlm_server` session, so the VLM endpoint `http://vector-thor:8090/v1` did not answer. The Thor rebooted on its own on 2026-11-08 at about 21:20 and came back with no stack ([troubleshooting.md](troubleshooting.md), "Machines and processes").
@@ -195,6 +195,7 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 | `check_reach` (every look) | service `/check_reach`, type `humanoid_manipulation_interfaces/srv/CheckReach`, from `ik_server`, started by `move_to_pose.launch.py` | `main` since #11 (`f8d28b3`); was branch `feat/ik-server` |
 | `reset_ekf` (every look) | service `/body_ekf/reset` | `e63f2b8` or later (in `main`) |
 | `press_button` capture | static TF frames `right_ee` and `left_ee` on `*_wrist_yaw_link`, published by `move_to_pose` | the version that stopped publishing `/right_ee_pose` and `/left_ee_pose` |
+| `press_button` residual (the real fingertip) | TF frames `right_dex1_base_link_estimate` and `left_dex1_base_link_estimate`, the gripper's depth fit (`config.capture` in `g1_skills/g1_skills/press_button/contract.yaml`) | `gripper_pose_estimator` on the Orin (item 11); without them the residual uses the encoders. Not yet tested on the robot |
 | `set_press_offset` | `/move_to_pose_server/set_parameters` | |
 
 - **Check:** `ros2 service list | grep -E "check_reach|body_ekf/reset"` and `ros2 run tf2_ros tf2_echo foot_world right_ee`.
@@ -219,14 +220,14 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 #### 10b. Build the `g1_skills` package. Status: open
 
 - **Why:** the skills are the package `g1_skills`, one folder per skill (contract and code). Every node reads the contracts from it, and the executor loads the skills' code from it.
-- **Change:** build the three packages, one worker: `MAKEFLAGS=-j1 nice -n 19 ionice -c3 colcon build --parallel-workers 1 --packages-select skill_registry orchestrator g1_skills`.
-- **Check:** the executor logs `45 skills` at start, and `ros2 run skill_registry validate_tree <tree>` finds the contracts.
+- **Change:** build the three packages, one worker, as in [run.md](run.md#2-deploy-on-the-nuc).
+- **Check:** the executor logs `<n> skills, <m> places` at start, `<n>` the number of skill folders in `g1_skills/g1_skills/`, and `ros2 run skill_registry validate_tree <tree>` finds the contracts.
 
 ### Orin
 
 #### 11. `orin.launch.py` must start `gripper_pose_estimator`. Status: check
 
-- **Why:** `orin_up` waits for the estimator's node (`/gripper_estimation/get_parameters`), and `launch_orin_stack` no longer starts a second estimator in tmux.
+- **Why:** `orin_up` waits for the estimator's node (`/gripper_estimation/get_parameters`), and `launch_orin_stack` no longer starts a second estimator in tmux. `press_button` takes the fingertip for its residual from the estimate (item 7).
 - **Repository side:** done. `eigen_vector` `main` `bringup/launch/orin.launch.py` starts `humanoid_arm_skills` `gripper_pose_estimator`, and `manipulation_stack` `main` has it (#10).
 - **When checked:** the Orin ran `manipulation_stack` `cam-gripper-estimation` @ `ba0cbfa` with 2 uncommitted files. Deploy `main` and bringup from `eigen_vector` `main`.
 

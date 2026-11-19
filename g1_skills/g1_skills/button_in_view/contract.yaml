@@ -39,7 +39,7 @@ resources:
 - tracker
 timeout_s: 15
 maturity: untested
-source: g1_skills/button_in_view (skill.py, checks.py)
+source: g1_skills/button_in_view (skill.py)
 notes: >-
   The VLM grounding runs on the Thor, so it fails when the Thor drops out. press_button seeds the tracker again for
   its own goal. The margin is a first guess: a good down press had the button near y 540 of 720 at the call panel,

@@ -115,6 +115,7 @@ classDiagram
   }
   class SkillLibrary {
     +packages: list
+    +module(skill, part) module
     +find(skill, part, base) type
   }
   class Skill {
@@ -236,7 +237,7 @@ classDiagram
     +known_keys: set
   }
   class Planner {
-    +plan(task, places, live_skills, blind) PlanResult
+    +plan(task, places, live_skills, blind, floors, robot_floor) PlanResult
   }
   class Backend {
     <<protocol>>
@@ -305,7 +306,7 @@ classDiagram
     +handle: Handle
   }
   class AgentLeaf {
-    +agent: Agent
+    +runner: Agent
   }
   TreeRunner --> BehaviorTree : runs one
   BehaviorTree *-- TreeNode : root
@@ -325,20 +326,23 @@ classDiagram
   ForceSuccess <|-- ForceFailure
   Decorator <|-- RetryUntilSuccessful
   Decorator <|-- Repeat
+  Decorator <|-- KeepRunningUntilFailure
   Decorator <|-- Timeout
   Decorator <|-- Delay
   Decorator <|-- RunOnce
   TreeNode <|-- SkillLeaf
   SkillLeaf <|-- AgentLeaf
+  TreeNode <|-- AlwaysSuccess
+  TreeNode <|-- AlwaysFailure
   TreeNode <|-- SetBlackboard
   TreeNode <|-- Sleep
 ```
 
-`SkillLeaf` enforces the contract's `timeout_s` and cancels the handle when it runs out. An `abort` decision calls `BTContext.abort()`, which fails the whole tree.
+`SkillLeaf` enforces the contract's `timeout_s` and cancels the handle when it runs out. An `AgentLeaf`'s runner is the `Agent`. An `abort` decision calls `BTContext.abort()`, which fails the whole tree. `Timeout`, `Delay` and `Sleep` also share the `Timed` mixin, which keeps their start time.
 
 ## Agent engine and bridge
 
-The executor checks every decision a model makes. Each `AgentSkill` supplies evidence, rules and checks, and `spec.py` fixes the allowed answers.
+The executor checks every decision the bridge returns, from the model or the operator. Each `AgentSkill` supplies evidence, rules and checks, and `spec.py` fixes the allowed answers.
 
 ```mermaid
 classDiagram
@@ -386,6 +390,7 @@ classDiagram
     PHASES
     GOING_ON
     FIELDS
+    ANSWERED_BY
     limits()
   }
   class Bridge {
@@ -407,4 +412,4 @@ classDiagram
   AgentSkill <|-- OperatorConfirm
 ```
 
-A decision in `GOING_ON` makes the leaf succeed; any other decision fails it. The bridge's model has no tools and sees only what `prompt.py` builds.
+What each decision does to the leaf and the tree, and what the model sees, is in `docs/agents.md`.

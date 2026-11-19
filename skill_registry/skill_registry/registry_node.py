@@ -1,3 +1,5 @@
+"""The skill_registry node: publishes which skills are live."""
+
 import json
 import time
 import threading

@@ -10,7 +10,7 @@ Run it on the Thor, in the environment that runs ground_server (edgellm needs th
 
   ros2 run orchestrator vlm_server --port 8090
 
-Only the first image and the text of the last user message are used; response_format is not enforced, so the
+The text of the last user message is the prompt (edgellm answers on the first image only); response_format is not enforced, so the
 question itself must name the answers (the executor's VLM client does).
 """
 

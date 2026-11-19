@@ -1,6 +1,7 @@
 """A stand-in for the robot: the same topics, services, action and VLM server, with scripted results
 
-Use it to run the executor and the planner on a laptop, with no hardware.
+Use it to run the executor and the planner on a laptop, with no hardware. It also draws a camera image with a button and
+answers as track_anything would, with the button's box and pose.
 """
 
 import json

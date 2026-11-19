@@ -58,7 +58,7 @@ The planner may pick this tree with `use_tree`, set its parameters, or swap a su
 
 ## Preflight tree
 
-Preflight brings every machine up and proves the robot is ready. The executor runs no task tree until it passes.
+Preflight brings every machine up and proves the robot is ready, in this order. With `require_preflight` the executor runs no task tree until it passes.
 
 ```mermaid
 flowchart LR
@@ -69,8 +69,9 @@ flowchart LR
   O["orin_stack<br/>orin_up or launch_orin_stack"]
   T["thor_stack<br/>thor_up or launch_thor_stack"]
   SN["stale_nodes<br/>no_duplicate_nodes"]
-  LU["localization_up<br/>healthy, or ask to relocalize"]
-  RU["robot_up<br/>robot_ready, relocalize_here"]
+  LU["localization_up<br/>slam_healthy, or relocalize_here, or ask to relocalize"]
+  RU["robot_up<br/>robot_ready, or stop"]
+  RH["relocalize_here<br/>where the robot stands, or stop"]
   PF --> V
   PF --> SU
   SU --> N
@@ -79,29 +80,35 @@ flowchart LR
   PF --> SN
   PF --> LU
   PF --> RU
+  PF --> RH
 ```
 
 A preflight that does not succeed closes the gate again. The gate itself is in [Sequences](sequences.md#a-tree-arrives).
 
 ## The press slot
 
-Every button press runs this slot. It checks the stance first, then presses up to four times with a diagnosis between failures.
+Every button press runs this slot (`press_panel_button`, `subtrees/press.xml`). It checks the stance first, then presses up to four times with a diagnosis before each press after a failed one. The counts are the `num_attempts` in `press.xml`.
 
 ```mermaid
 stateDiagram-v2
   state "set_press_offset with the panel base offset" as Base
-  state "look: walk to goal, settle 2.5 s, look_here" as Look
-  state "manipulation_recovery in phase stance_check" as StanceRec
+  state "look: walk to goal, settle, look_here" as Look
+  state "manipulation_recovery in phase stance_check, or an executor rule" as StanceRec
+  state "look_here from where the robot stands" as Here
   state "press: set_press_offset, reset_filters, press_button, press_judge" as Press
   state "manipulation_recovery in phase diagnose, or an executor rule" as Diagnose
-  state "reposition: walk and look, up to 3 times" as Repo
+  state "reposition: release arms, walk and look, up to 3 times" as Repo
   state "release arms and say press_ask" as Ask
   state "the tree fails" as Abort
+  state "say the button is lost, the slot fails" as Lost
   [*] --> Base
   Base --> Look
   Look --> Press : button_in_view and check_reach pass
   Look --> StanceRec : a step failed
-  StanceRec --> Look : continue or reposition, 4 rounds at most
+  StanceRec --> Here : continue
+  Here --> Press : both checks pass
+  Here --> Look : a check failed, next round
+  StanceRec --> Look : reposition or no decision, next round
   StanceRec --> Ask : 4 rounds failed
   StanceRec --> Abort : abort
   Press --> [*] : press_judge says pressed
@@ -110,10 +117,11 @@ stateDiagram-v2
   Diagnose --> Press : retry, offset_retry or switch_arm
   Diagnose --> Repo : reposition
   Repo --> Press : a look passes
-  Repo --> Ask : every look failed
+  Repo --> Lost : every look failed
   Diagnose --> Ask : ask_help or no decision
   Ask --> [*]
   Abort --> [*]
+  Lost --> [*]
 ```
 
 `continue` reruns `look_here` where the robot stands, and `reposition` walks to the new goal first. The full rules are in [Agent skills](../agents.md#the-press-slot).

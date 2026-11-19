@@ -1,7 +1,8 @@
 # g1_skills
 
 The G1's skills for the orchestrator, one folder each. A folder holds everything about its skill: the contract, the code
-it needs, its agent prompts and its notes. To add or change a skill, you edit one folder.
+it needs and its agent prompts. To add or change a skill, you edit one folder. What the three agent skills decide is in
+`docs/agents.md`.
 
 ## A skill folder
 
@@ -12,11 +13,14 @@ it needs, its agent prompts and its notes. To add or change a skill, you edit on
 | `spec.py` | agent skills | Phases and their decisions, decision fields, who answers, the limits the executor enforces |
 | `agent.py` | agent skills | One `AgentSkill` subclass: the evidence a call gathers, the executor's own rules, decision checks, outputs |
 | `prompt.py` | agent skills the model answers | The model's system prompt and the prompt built from each call |
-| `README.md`, `experience.md`, `reference.md` | when useful | Notes for people: what the skill decides, what the team has seen, facts by construction |
+| other modules | when useful | Code only this skill uses, e.g. `press_button/capture.py`, `manipulation_recovery/rules.py` and `stance.py` |
 | `__init__.py` | when the folder has code | Empty |
 
-Code that two or more skills share goes in `lib/`: `press.py` (the press offset in force and the last press),
-`tracking.py` (what track_anything publishes), `text.py` (number formatting for prompts).
+What the team has seen about a skill goes in its contract's `notes`; open problems go in `docs/architecture.md`.
+
+Code that two or more skills share goes in `lib/`: `press.py` (the press offset in force, the last press and its
+images for a call), `tracking.py` (what track_anything publishes), `text.py` (number formatting and the panel type for
+prompts).
 
 ## Four ways to extend
 
@@ -87,8 +91,8 @@ The skill reads its own settings from `config` in its contract (`self.config`), 
 |---|---|
 | `node`, `logger`, `now()` | the executor's node, its logger, ROS time in seconds |
 | `action_client()`, `service_client()`, `publisher()`, `watch()` | ROS clients, made once and shared |
-| `camera` | the latest frame (`jpeg`, `size`) and the last seconds of frames (`frames`) |
-| `tf` | `lookup()`, `pose_in()`, and `tf()` from any thread |
+| `camera` | the latest frame (`jpeg`, `size`, `frame_id`), the intrinsics (`k`) and the last seconds of frames (`frames`) |
+| `tf` | `lookup()` (from any thread, with a timeout), `pose_in()`, `numbers()` (a transform as plain numbers) |
 | `shared(key, factory)` | one object per key for the whole executor: how skills hand state to each other |
 | `submit('vlm' or 'commands', function, ...)` | run blocking work in a thread |
 | `artifacts_dir`, `server_wait_s`, `vlm_client` | where to save files for the agent and the recorder; the server wait; the VLM |
@@ -123,20 +127,23 @@ Set `transport: agent` and `interface.skill` to the folder name. Then add:
 - `spec.py`: `PHASES` (phase to its decisions), `GOING_ON` (the decisions after which the tree goes on), `FIELDS`
   (decision fields beside decision and reason, with their JSON types), `ANSWERED_BY` (`'model'` or `'operator'`) and
   `limits()`. The contract's `phase` input lists the same phases.
-- `agent.py` (optional): an `AgentSkill` subclass. `evidence()` adds to what the call carries; `rule()` decides plain
-  cases without the bridge; `check()` refuses decisions outside the limits; `outputs()` is what the tree gets;
-  `request_fields()` and `images()` say what goes over the link.
+- `agent.py` (optional): an `AgentSkill` subclass. `refuse()` fails a call before it opens; `evidence()` adds to what
+  the call carries; `rule()` decides plain cases without the bridge; `task_lines()`, `request_fields()` and `images()`
+  say what goes over the link; `check()` refuses decisions outside the limits; `outputs()` is what the tree gets;
+  `after_decision()`, `record_fields()` and `finished()` keep what a decision leaves behind; `phase_speech` and
+  `decision_speech` are what the robot says. The base class in `orchestrator/orchestrator/agent/api.py` documents each.
 - `prompt.py` (when the model answers): `system(limits)` and `content(request, images)`, which gives the prompt text and
   the image names to show in order.
 
-`spec.py` and `prompt.py` import only the standard library and each other: the bridge on the laptop loads them without
-ROS. `operator_confirm/` is the smallest example; `manipulation_recovery/` the largest.
+`spec.py` and `prompt.py` import only the standard library, each other and `lib/text.py`: the bridge on the laptop
+loads them without ROS. `operator_confirm/` is the smallest example; `manipulation_recovery/` the largest.
 
 ## Contract fields
 
 | Field | Meaning |
 |---|---|
 | `name`, `kind`, `device` | the skill's name (its folder's name); `action`, `condition` or `composite`; where the capability runs |
+| `description`, `source`, `notes` | what it does, for the planner; the code it wraps; what the team has seen |
 | `interface.transport`, `.name`, `.ros_type` | how the executor reaches it, and the ROS name and type |
 | `interface.fixed` | message fields always sent |
 | `interface.success_when`, `.failure_when` | a topic value that ends the skill; an action feedback value that fails it once held |

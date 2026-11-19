@@ -1,3 +1,5 @@
+"""Runs one tree at a time: builds it, starts it in place of the running one, ticks, cancels and traces it."""
+
 import uuid
 
 from typing import Callable, Protocol

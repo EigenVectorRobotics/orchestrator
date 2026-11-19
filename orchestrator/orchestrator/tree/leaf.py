@@ -1,3 +1,5 @@
+"""The skill leaf and the agent leaf, and the factory that builds each leaf of a tree."""
+
 import math
 
 from typing import Protocol

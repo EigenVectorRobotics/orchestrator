@@ -13,21 +13,21 @@ How the orchestrator turns a task into robot motion: the nodes, the skills and t
 | `fake_robot` | laptop | The robot's topics, services, actions and a VLM server, for tests (`fake:=true`) |
 | `mission_control/agent_bridge.py` | operator laptop | Answers every agent call (`docs/agents.md`, `mission_control/README.md`) |
 
-`orchestrator/launch/orchestrator.launch.py` starts the registry, the executor, the planner and, unless `record:=false`, the recorder. All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). `contracts_directory` (empty: the skill packages' folders, parameter `skill_packages`, default `g1_skills`), `places_file` and `vlm_base_url` are launch arguments passed to every node. A site file (`site:=stanley`, `orchestrator/config/sites/stanley.yaml`) gives the places file, the planner backend, the agent bridge's address and the raw bag; a launch argument given on the command line wins over the site. Without a site no agent bridge is set, so agent skills fail.
+`orchestrator/launch/orchestrator.launch.py` starts the registry, the executor, the planner and, unless `record:=false`, the recorder. All nodes load `orchestrator/config/orchestrator.yaml` (`params_file:=` for another). Every node loads the contracts from the skill packages' folders (parameter `skill_packages`, default `DEFAULT_SKILL_PACKAGES` in `skill_registry/skill_registry/registry.py`), or from one folder when the launch argument `contracts_directory` names it; `contracts_directory`, `places_file` and `vlm_base_url` are launch arguments passed to every node. A site file (`site:=stanley`, `orchestrator/config/sites/stanley.yaml`) gives the places file, the planner backend, the agent bridge's address and the raw bag; a launch argument given on the command line wins over the site. Without a site no agent bridge is set, so agent skills fail.
 
 ## A task, step by step
 
 1. A task comes in on `/orchestrator/task`: a plain sentence, or `{"task": "...", "blind": true}`.
 2. The planner sends the preflight tree (`skill_registry/preflight/preflight.xml`) to the executor and waits for it to succeed (`preflight_timeout_s`). If it fails, the planner does not plan.
 3. The planner sends the task, the skill catalog, the places, the live skills and the tree library (`skill_registry/trees/*.xml`) to the LLM. The LLM answers with a BehaviorTree.CPP v4 XML tree, or picks a library tree with `<use_tree id="..." name="value">`, optionally with `<replace subtree="..." with="..."/>`.
-4. The validator checks the tree. If there are errors, the planner sends them back to the LLM, `max_attempts` times at most (3).
-5. The planner publishes the tree on `/orchestrator/tree` (or `/orchestrator/tree_blind`). The executor validates it again, checks the preflight gate and the recorder, then ticks it at `tick_hz` (10 Hz).
+4. The validator checks the tree. If there are errors, the planner sends them back to the LLM, `max_attempts` times at most.
+5. The planner publishes the tree on `/orchestrator/tree` (or `/orchestrator/tree_blind`). The executor checks that the recorder is ready, validates the tree again, checks the preflight gate, then ticks it at `tick_hz`.
 6. Each leaf is a skill. The executor calls it as its contract says. An agent skill opens a call to the agent bridge (`docs/agents.md`).
 7. Every step goes to the trace; the recorder writes it all to the run's folder.
 
 ## The code
 
-The core, `orchestrator/orchestrator/`, runs trees, calls skills through their transports, talks to the agent bridge, plans and records; it names no skill. The diagrams of how its parts fit are in [System](design/system.md), [Classes and interfaces](design/classes.md), [Sequences](design/sequences.md) and [Trees](design/trees.md). The skills live in `g1_skills/g1_skills/`, one folder each. What each folder of the code holds is in `docs/code/orchestrator.md`, `docs/code/g1_skills.md` and `docs/code/skill_registry.md`.
+The core, `orchestrator/orchestrator/`, runs trees, calls skills through their transports, talks to the agent bridge, plans and records; it names no skill. The diagrams of how its parts fit are in [System](design/system.md), [Classes and interfaces](design/classes.md), [Sequences](design/sequences.md) and [Trees](design/trees.md). The skills live in `g1_skills/g1_skills/`, one folder each. What each package and module holds is in its own docstrings (each package's `__init__.py`), which the API reference on the docs site shows.
 
 ## Topics
 
@@ -50,30 +50,28 @@ All names are in `orchestrator/orchestrator/common/topics.py`.
 
 ## Skills and contracts
 
-A skill is one folder in `g1_skills/g1_skills/`: its `contract.yaml` (schema: `skill_registry/skill_registry/contract.py`) and, when it needs them, `skill.py` (its own code around or instead of the transport), and for an agent skill `spec.py`, `agent.py` and `prompt.py`. How to write one is in `g1_skills/README.md`; the orchestrator core names no skill. It names its `kind` (action or condition), its `device`, its inputs and outputs, its `interface`, `timeout_s`, `fallback` and `maturity` (`tested`, `wip`, `untested`, `disabled`). The executor needs no code for a new skill if it uses one of these transports:
+A skill is one folder in `g1_skills/g1_skills/`: its `contract.yaml` (schema: `skill_registry/skill_registry/contract.py`) and, when it needs them, its own code. The folder's files, the contract's fields and the four ways to extend a skill are in `g1_skills/README.md`; the orchestrator core names no skill. The executor needs no code for a new skill on one of these transports (`orchestrator/orchestrator/skills/transports.py`):
 
 | Transport | Example | What the executor does |
 |---|---|---|
-| `action` | `navigate_to.yaml`, `press_button.yaml` | Sends a goal; `failure_when` fails it early on a feedback value held for `hold_s` |
-| `service` | `set_profile.yaml` (enum input), `set_press_offset.yaml` | Calls the service; a reply with per-item `successful` flags fails if any is false |
-| `topic` | `cancel_nav.yaml` | Publishes one message; with `success_when`, waits until a topic shows the result |
-| `watch` | `door_open.yaml`, `at_floor.yaml` | Reads a topic and compares a field; `equals_input` compares with a tree input |
-| `vlm` | `ask_vlm.yaml` | Asks the VLM a closed question |
-| `python` | `button_in_view`, `check_reach` | The skill's `skill.py` runs every call: `button_in_view` seeds track_anything and judges the first 2D box and 3D pose after the seed; `check_reach` asks ik_server whether the arm reaches the target. `interface.requires` names what must be up for it to be live |
-| `agent` | `press_judge.yaml`, `manipulation_recovery.yaml`, `operator_confirm.yaml` | Opens an agent call (`docs/agents.md`) |
-| `compare`, `alive`, `command` | `decision_is.yaml`, `nuc_up.yaml`, `launch_nuc_stack.yaml` | Runs inside the executor: compare two values, check that topics, services or URLs exist, run a shell command |
+| `action` | `navigate_to`, `press_button` | Sends a goal; `failure_when` fails it early on a feedback value held for `hold_s` |
+| `service` | `set_profile` (enum input), `set_press_offset` | Calls the service; a reply with per-item `successful` flags fails if any is false; with `success_when`, waits until a topic shows the result |
+| `topic` | `cancel_nav` | Publishes one message once a subscriber is there; with `success_when`, waits until a topic shows the result |
+| `watch` | `door_open`, `at_floor` | Reads a topic and compares a field; `equals_input` compares with a tree input |
+| `vlm` | `ask_vlm` | Asks the VLM a closed question about the latest camera frame |
+| `python` | `button_in_view`, `check_reach` | Nothing of its own: the skill's `skill.py` runs every call. `interface.requires` names what must be up for it to be live |
+| `agent` | `press_judge`, `manipulation_recovery`, `operator_confirm` | Opens an agent call (`docs/agents.md`) |
+| `compare`, `alive`, `command` | `decision_is`, `nuc_up`, `launch_nuc_stack` | Runs inside the executor: compare two values, check that topics, services or URLs exist, run a shell command |
 
-- An input's `field` can index a sequence: `set_press_offset.yaml` sets `parameters.0.value.double_value` of an `rcl_interfaces/srv/SetParameters` request whose `fixed` lists the parameters.
 - A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`. Give z on the two-storey map, or the route planner takes the lowest storey.
-- A `skill.py` may also run code around any transport (`before`, `wrap`): `press_button` keeps its frames around the action this way, and `set_press_offset` keeps the offset in force for `press_button` and `check_reach`. Its own settings are the contract's `config`.
-- A condition with `record: true` has every answer recorded in the history, a pass included (`check_reach.yaml`). Actions are always recorded.
+- Every finished action goes in the history; a condition does only with `record: true` (`check_reach`), and then every answer does, a pass included.
 - A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, and a `floors` table). Names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}` (`orchestrator/orchestrator/common/config.py`).
 
 ## Live skills
 
 `registry_node` loads every contract from the skill packages (or `contracts_directory`) and checks the ROS graph once a second. A skill is live when what its contract calls is in the graph now: an action server, a service server, a topic's subscriber (and the publisher of its `success_when` topic), a watched topic's publisher, what a `python` skill's `interface.requires` names; a `vlm` skill while `vlm_base_url/models` answers (probed every 5 s). `agent`, `compare`, `alive` and `command` skills are always live; a `tree` contract never is. The registry publishes the sorted list on `/skills/live` (latched) when it changes.
 
-The planner subscribes to `/skills/live` (`use_live_skills`, default true), tells the LLM to use only those skills, and its validator refuses a skill that is not live. Until the first list arrives, there is no such check. The executor does not check liveness: it reads the contracts from `contracts_directory`.
+The planner subscribes to `/skills/live` (`use_live_skills`), tells the LLM to use only those skills, and its validator refuses a skill that is not live. Until the first list arrives, there is no such check. The executor does not check liveness: it loads every contract at start.
 
 ## The validator
 
@@ -82,7 +80,7 @@ The planner subscribes to `/skills/live` (`use_live_skills`, default true), tell
 - the XML is not a BehaviorTree.CPP v4 tree, a node is unknown, a decorator lacks its attribute or has the wrong number of children, or a SubTree is unknown or calls itself;
 - a skill input is missing or unknown, an enum value is not one of its choices, or a `{key}` is neither a place nor written by the tree;
 - in blind mode, a skill has `needs_cloud` (the three agent skills);
-- a skill on a device outside `essential_devices` (`nuc`, `orin`) is not inside a Fallback with a recovery after it;
+- a skill on a device outside `essential_devices` (`orchestrator/config/orchestrator.yaml`) is not inside a Fallback with a recovery after it;
 - (planner only) a skill is not live;
 - a skill is `disabled`, or two Parallel branches use the same resource.
 
@@ -90,7 +88,7 @@ A skill that is not `tested` gives a warning.
 
 ## The preflight gate
 
-The preflight tree starts the Run Viewer, starts the NUC, Orin and Thor stacks that are not up (`nuc_up`, `orin_up`, `thor_up`), stops on a control node that runs twice (`no_duplicate_nodes`), waits for a healthy localization (asking a person to relocalize, two minutes at most), checks that the G1 is in ready locomotion (`robot_ready`), and relocalizes where the robot stands.
+The preflight tree starts the Run Viewer, starts the NUC, Orin and Thor stacks that are not up (`nuc_up`, `orin_up`, `thor_up`), stops on a control node that runs twice (`no_duplicate_nodes`) and warns of stray processes (`no_stray_processes`), waits for a healthy localization (asking a person to relocalize, two minutes at most), checks that the G1 is in ready locomotion (`robot_ready`), and relocalizes where the robot stands. Its diagram is in [Trees](design/trees.md#preflight-tree).
 
 The executor runs a task tree only after a preflight has passed since the launch (`require_preflight`, set by the launch argument `preflight`, default true, false with `fake:=true`). With `preflight` false the launch also gives the planner no preflight tree (`preflight_tree` empty), so no task runs one. A preflight that does not succeed closes the gate again. `send_tree --skip-preflight` runs a tree anyway and leaves a `preflight_skipped` warning in the trace. The executor also refuses a tree while the recorder is not ready (`require_recorder`, set by `record`).
 
@@ -98,19 +96,16 @@ The executor runs a task tree only after a preflight has passed since the launch
 
 The subtrees `walk_in` and `walk_out` (`skill_registry/trees/subtrees/walk.xml`):
 
-- Latched points in `/terrain_map` close ahead can block the walk into the cabin, so a failed walk in, or a failed walk on after the relocalization out of the cabin, says so, clears the terrain map, waits 2 s and walks again, three times at most.
+- Latched points in `/terrain_map` close ahead can block the walk into the cabin, so a failed walk in, or a failed walk on after the relocalization out of the cabin, says so, clears the terrain map, waits 2 s and walks again, three tries in all.
 - Tracking alone rejects the larger correction a ride leaves (0.5 m once), so `walk_out` stops at the goal floor's door-out place, about 1 m out of the door, and relocalizes in place (`relocalize_here`) before walking on.
 
 ## Press frames
 
-`press_button` keeps three camera frames for `press_judge` (`config.capture` in its contract; `g1_skills/g1_skills/press_button/capture.py`): a baseline when the end effector reaches the pre-grasp, the first frame at least `press_delay_s` after the deepest point of the push, and the first frame at least `release_delay_s` after the retreat began. The phases come from TF `right_ee` or `left_ee` in the goal's frame against the action feedback's `current_goal`. Each frame is also cropped around track_anything's box for that frame, grown `crop_scale` times; a frame without a box of its own uses the baseline's. The frames go to `capture_dir` (default `~/.ros/orchestrator_captures`); the recorder moves them into the run. It also keeps the camera's pose and the gripper's depth fit through the press: the first gives the recovery its aim crops, the second moves the residual to the real fingertip (`docs/agents.md`). Why the tracker counts only samples near the button axis is in `docs/agents.md` too.
-
-- The camera runs at 6 fps, so a chosen frame can be up to about 0.17 s after its moment.
-- Frame times are the camera's header stamps and pose times the NUC's: the Orin's and the NUC's clocks must agree.
+`press_button`'s `skill.py` keeps three camera frames around each press for `press_judge` (baseline, press, release), each also cropped around track_anything's box. Through the press it also samples the camera's pose and the gripper's depth fit with the end effector: the first gives the recovery its aim crops, the second moves the residual to the real fingertip (not yet tested on the robot). How the frames are chosen and cropped is in `g1_skills/g1_skills/press_button/capture.py`, its settings are `config.capture` in its contract, and what the agent calls get from them, with the camera's frame rate and the clocks that must agree, is in `docs/agents.md`. The frames go to `capture_dir`; the recorder moves them into the run.
 
 ## VLM conditions
 
-The executor's `vlm` skills post to `vlm_base_url` (default `http://vector-thor:8090/v1`) and wait up to `vlm_timeout_s`. On the Thor, `ros2 run orchestrator vlm_server --port 8090` answers with a VLM, the Edge-LLM Cosmos daemon by default (`--model`), one request at a time; a question may carry several images, and the model decides what to do with them (Edge-LLM answers on the first). No tree in the library asks the VLM now (`ask_vlm` is the only enabled `vlm` skill), so `thor_up` checks only the grounding service.
+The executor's `vlm` skills post to `vlm_base_url` (default in `orchestrator/launch/orchestrator.launch.py`) and wait up to `vlm_timeout_s`. On the Thor, `ros2 run orchestrator vlm_server --port 8090` answers with a VLM, the Edge-LLM Cosmos daemon by default (`--model`), one request at a time; a question may carry several images, and the model decides what to do with them (Edge-LLM answers on the first). No tree asks the VLM now (`ask_vlm` is the only enabled `vlm` skill).
 
 ## Trace
 
@@ -128,28 +123,10 @@ A task with `"blind": true`, a tree on `/orchestrator/tree_blind` or `send_tree 
 
 | `planner_backend` | Needs |
 |---|---|
-| `claude` (the launch default; model `claude-opus-5-5`, launch argument `planner_model`) | `pip install anthropic`, and `ANTHROPIC_API_KEY` or an `ant auth login` profile |
+| `claude` (the launch default; model: launch argument `planner_model`) | `pip install anthropic`, and `ANTHROPIC_API_KEY` or an `ant auth login` profile |
 | `openai_compatible` | `base_url`, `model`, and the key in the env var that `api_key_env` names. For GPT, Gemini's OpenAI endpoint, vLLM |
 | `scripted` | Nothing. It replies with `scripted_tree` |
-| `external` (the stanley site) | A Claude Code session that answers with `planner_cli` (`wait`, `show`, `answer --use-tree ID` or `--tree FILE`), or `planner_cli run --use-tree ID`, which sends the task and answers its call; the planner waits up to `external_timeout_s` (600 s) per call |
-
-## Run on a laptop, with no robot
-
-```bash
-ros2 launch orchestrator orchestrator.launch.py fake:=true planner_backend:=scripted
-ros2 topic pub --once /orchestrator/task std_msgs/msg/String "{data: 'Go to the elevator and call it'}"
-ros2 topic echo /orchestrator/trace --field data
-```
-
-`fake_robot` has the robot's topics, services, navigation and arm actions, and a VLM server on `vlm_port`. The two actions need `navigation_interfaces` and `humanoid_manipulation_interfaces` built in the workspace; without one, its skill fails with no server. Parameters: `press_success:=false`; `press_fail_count:=1` (the first presses stall 0.13 m short, as out of reach, with feedback); `nav_blocked:=true` (every route turns blocked until cancelled, so `navigate_to` fails after its `hold_s`, 10 s); `vlm_answers:=door=closed`; `nav_time_s:=5.0`. With no site, agent skills fail. A fake run has no preflight (it would try to start the robot stacks and fail on the missing NUC topics); `preflight:=true` runs it anyway.
-
-Run one tree with no planner:
-
-```bash
-ros2 run orchestrator send_tree my_tree.xml --blind            # validate and run it with no cloud link
-ros2 run orchestrator send_tree my_tree.xml --skip-preflight   # before any preflight passed: run it anyway (tests)
-ros2 run skill_registry validate_tree my_tree.xml --blind      # check only
-```
+| `external` (the stanley site) | A Claude Code session that answers with `planner_cli` (`wait`, `show`, `answer --use-tree ID` or `--tree FILE`), or `planner_cli run --use-tree ID`, which sends the task and answers its call; the planner waits up to `external_timeout_s` per call |
 
 ## Open problems
 

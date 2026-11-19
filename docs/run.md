@@ -19,15 +19,15 @@ A Claude Code session that operates the robot does each step that starts, stops 
 No script builds on the NUC (`start.sh` never builds). On the NUC:
 
 ```bash
-cd ~/orchestrator_ws/src/orchestrator && git fetch && git checkout ltx-reorg && git pull   # the branch in use: machines.md
-cd ~/orchestrator_ws && source env.sh && MAKEFLAGS=-j1 nice -n 19 ionice -c3 colcon build --parallel-workers 1 --packages-select skill_registry orchestrator
+cd ~/orchestrator_ws/src/orchestrator && git fetch && git checkout <branch> && git pull   # the branch to deploy: machines.md
+cd ~/orchestrator_ws && source env.sh && MAKEFLAGS=-j1 nice -n 19 ionice -c3 colcon build --parallel-workers 1 --packages-select skill_registry orchestrator g1_skills
 ```
 
 - Never build on the NUC while the robot stands: a build there once crashed the NUC, and the G1 fell. Build with one worker, as above.
-- The install is a copy, not a symlink install. Contracts, the tree library (`skill_registry/trees/`), `skill_registry/preflight/preflight.xml`, the site file and the test trees are installed files: rebuild after changing any of them.
-- What reads what, and when: the executor, the planner and the registry read the contracts and the places file at start; the planner reads the tree library and the preflight tree at start; `send_tree` reads the tree file you give it each time. So a contract, places, library or Python change needs a restart of the orchestrator (section 3); a test tree passed to `send_tree` by its source path needs nothing.
+- The install is a copy, not a symlink install. The skills (contracts and code, `g1_skills/g1_skills/`), the tree library (`skill_registry/trees/`), `skill_registry/preflight/preflight.xml`, the site file and the test trees are installed files: rebuild after changing any of them.
+- What reads what, and when: the executor, the planner, the registry and the recorder read the contracts and the places file at start; the executor loads the skills' code at start; the planner reads the tree library and the preflight tree at start; `send_tree` reads the tree file you give it each time. So a skill, places, library or Python change needs a rebuild and a restart of the orchestrator (section 3); a test tree passed to `send_tree` by its source path needs nothing.
 - The site file `orchestrator/config/sites/stanley.yaml` holds what a robot run needs beyond the code defaults: the places file, the planner backend, the agent bridge's address, the raw bag topics. Change the map, the operator laptop or the raw topics there, nowhere else.
-- Run the tests from each package's own directory (`cd ~/orchestrator_ws/src/orchestrator/orchestrator && python3 -m pytest -q test`, the same in `skill_registry`): from the repository root, the import finds the installed package and the tests check the old code.
+- Run the tests from the repository root with the command in `CLAUDE.md`: its `PYTHONPATH` puts the checkout ahead of the install, so the tests check the code you pulled, not the installed copy.
 - Check a tree before sending it: `ros2 run skill_registry validate_tree <tree.xml>` (0 errors).
 - A tree file can pull subtrees from other files with `<include path="subtrees/press.xml"/>`, relative to the file. `send_tree`, `validate_tree`, `planner_cli --tree` and the planner's tree library inline them before anything else reads the tree. Shared subtrees live in `skill_registry/trees/subtrees/`.
 
@@ -64,7 +64,7 @@ The agent bridge on the laptop answers the agent calls, and `planner_cli` (or a 
    ~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley
    ```
 
-   Keep this window in view: the robot asks you questions here. A bridge on another `protocol.PROTOCOL` fails every call with "protocol mismatch". `--model` (default `claude-opus-5-5`) and `--effort` (default `low`) choose the model. It listens on the site's `agent_bridge` address, and the executor connects there (launched with the same site). The executor pushes each call with its evidence and frames over one TCP link. The model answers `press_judge` and `manipulation_recovery` in a few seconds, with the frames as images. `operator_confirm` rings the bell in the bridge window and waits for you to type `y` or `n`, then an optional reason. The record of each call is kept on the NUC, in the run's `agent/<call id>/` ([recorder.md](recorder.md)); with `--keep` the bridge also keeps each call in `~/agent_calls/<call id>/` on the laptop. The executor keeps each press judged pressed in `~/orch_state/press_references.jsonl` on the NUC (the old `~/.ros/orchestrator_press_references.jsonl` is read until the first new reference moves it over).
+   Keep this window in view: the robot asks you questions here. It listens on the site's `agent_bridge` address, and the executor (launched with the same site) connects there. The model answers `press_judge` and `manipulation_recovery`; `operator_confirm` rings the bell in this window and waits for you to type `y` or `n`, then an optional reason. Its options, the protocol check and how to answer are in [mission_control/README.md](../mission_control/README.md). The record of each call is kept on the NUC, in the run's `agent/<call id>/` ([recorder.md](recorder.md)). `press_judge` keeps each press judged pressed in `~/orch_state/press_references.jsonl` on the NUC (the old `~/.ros/orchestrator_press_references.jsonl` is read while only it exists, and copied over on the first save).
 2. **Stand the robot up.** Stand the G1 in ready locomotion and remove the gantry: preflight does not stand the robot up, and stops the task if it is not in ready locomotion. Put the robot near the call panel on its floor.
 3. **Send the task and answer the planner.** From the laptop:
 
@@ -95,7 +95,7 @@ The agent bridge on the laptop answers the agent calls, and `planner_cli` (or a 
    ```
 
    `--use-tree` reuses a library tree (`--tree <file>` sends a new one); `--param` sets its parameters. `freight_elevator_go_to_place` needs only `goal`, a place on the other floor: the planner fills `goal_floor` from the place's z, and the tree derives the panels, the floor button and the door-out place from it. With no `--param` it rides from floor 1 to `{target_floor_2}`.
-6. **During the ride** the robot calls the elevator, walks in, presses the floor button, rides, and walks to the goal. The bridge answers each call as it comes; watch the Run Viewer. If the robot asks you to press a button, press it. To stop at any time, cancel (section 7). A connected bridge has up to the call's contract timeout (`timeout_s` in `g1_skills/g1_skills/press_judge/contract.yaml`, `manipulation_recovery.yaml` and `operator_confirm.yaml`). With no word from the bridge, the robot says so at 15 s and the call fails at 60 s (`UNREACHABLE_SAY_S`, `UNREACHABLE_FAIL_S` in `orchestrator/orchestrator/agent/link.py`); later calls fail at once until the bridge is heard from again ([troubleshooting.md](troubleshooting.md)). A failed call fails its agent skill, and the tree goes on as after any failure of that step (in the end, a person is asked to press).
+6. **During the ride** the robot calls the elevator, walks in, presses the floor button, rides, and walks to the goal. The bridge answers each call as it comes; watch the Run Viewer. If the robot asks you to press a button, press it. To stop at any time, cancel (section 7). A connected bridge has up to the call's contract timeout (`timeout_s` in `g1_skills/g1_skills/press_judge/contract.yaml`, `g1_skills/g1_skills/manipulation_recovery/contract.yaml` and `g1_skills/g1_skills/operator_confirm/contract.yaml`). With no word from the bridge, the robot says so at 15 s and the call fails at 60 s (`UNREACHABLE_SAY_S`, `UNREACHABLE_FAIL_S` in `orchestrator/orchestrator/agent/link.py`); later calls fail at once until the bridge is heard from again ([troubleshooting.md](troubleshooting.md)). A failed call fails its agent skill, and the tree goes on as after any failure of that step (in the end, a person is asked to press).
 7. **Results.** The run ends when the viewer shows `freight_elevator_go_to_place: success`. Results are under `~/orch_runs/<session>/runs/<n>-<tree>/` on the NUC: `tree.xml` (what ran), `records.jsonl`, `outcome.json`, the bag, and each agent call in `agent/<call id>/`. The session folder holds `events.jsonl`, the whole trace ([recorder.md](recorder.md)). The raw bag is in `~/bags/`.
 
 ## 5. Run one tree
@@ -106,7 +106,7 @@ On the NUC (no script sends a single tree):
 ros2 run orchestrator send_tree <tree.xml>                 # add --blind for a tree that must run with no cloud
 ```
 
-The executor runs a task tree only after a preflight passed since the launch: a task through the planner runs one first, and a preflight that fails or is cancelled closes the gate again. Before that, `send_tree` is refused ("no preflight has passed since the launch"); add `--skip-preflight` to run the tree anyway, which the trace marks (`preflight_skipped`). `preflight:=false` at launch turns the gate off, and the planner then runs no preflight before a task.
+The executor runs a task tree only after a preflight passed since the launch: a task through the planner runs one first, and a preflight that fails or is cancelled closes the gate again. Before that, `send_tree` is refused ("no preflight has passed since the launch"); add `--skip-preflight` to run the tree anyway, which the trace marks (`preflight_skipped`). `preflight:=false` at launch (the default with `fake:=true`) turns the gate off, and the planner then runs no preflight before a task.
 
 The bridge answers its agent calls, as in section 4. The recorder keeps the trace in `~/orch_runs/<session>/events.jsonl`.
 
@@ -120,6 +120,10 @@ Test trees, in `orchestrator/test_trees/`, to run a part of the task:
 | `freight_elevator_floor1_walk_in_again_agentic.xml` | in the cabin, off the inside place by less than a reposition can fix | backs up 0.35 m behind the inside place, walks in, floor 1 |
 | `freight_call_panel_press_repeat.xml` | anywhere on floor 2 | five cycles of walk in, down press, up press; the repeatability test below |
 | `freight_elevator_floor_press_repeat.xml` | on floor 2, with the cabin held open there | five cycles of walk in, floor 1, 2 and 3 presses, walk out; one press per button, never retried |
+| `freight_call_panel_press_loop.xml` | anywhere on floor 2 | until cancelled: walk to the call panel, up press, down press, each judged and never retried |
+| `freight_call_button_press_here.xml` | at the floor 2 call panel | look from where it stands, then the down press with its recovery |
+| `freight_call_button_floor1_press_here_loop.xml` | at the floor 1 call panel | until cancelled: look, one down press at zero offset, judged; no recovery, no walk |
+| `freight_elevator_ride_loop.xml` | on floor 1, localized | until cancelled: `ride_to_goal` to `{target_floor_2}`, then back to `{target_floor_1}` |
 
 The trees reset the EKF with `reset_ekf`, check the view after a reposition with `button_in_view`, and set the press offset before their first press: `press_button` refuses to run while no `set_press_offset` has run since the executor started.
 
@@ -184,10 +188,10 @@ Ready when the new part of `~/eigen_vector_ws/launch.log` (after its `[INFO] [la
 
 ```bash
 tmux -L eigen_vector_bringup new-session -d -s eigen_vector_bringup "bash -lc 'source ~/eigen_vector_ws_bringup/env.sh && ros2 launch bringup thor.launch.py 2>&1 | tee ~/eigen_vector_ws_bringup/launch.log'"
-tmux new -d -s vlm_server "env -i HOME=$HOME USER=$USER LANG=C.UTF-8 PATH=/usr/local/bin:/usr/bin:/bin bash --noprofile --norc -c 'source ~/eigen_vector_ws_bringup/env.sh && exec python3 ~/orchestrator_ws/src/orchestrator/orchestrator/orchestrator/vlm_server.py --port 8090'"
+tmux new -d -s vlm_server "env -i HOME=$HOME USER=$USER LANG=C.UTF-8 PATH=/usr/local/bin:/usr/bin:/bin bash --noprofile --norc -c 'source ~/eigen_vector_ws_bringup/env.sh && exec python3 ~/orchestrator_ws/src/orchestrator/orchestrator/orchestrator/vlm/server.py --port 8090'"
 ```
 
-The grounding is up when the log has `grounding service on /vlm_ground_server/ground_boxes` and `docker ps` shows `edgellm`; the VLM endpoint when `curl -s http://vector-thor:8090/v1/models` answers from the NUC. Both use the one Cosmos daemon, one request at a time. `launch_thor_stack` (preflight) runs the same two commands. `thor_up` checks only the grounding, so preflight passes without the VLM endpoint.
+The grounding is up when the log has `grounding service on /vlm_ground_server/ground_boxes` and `docker ps` shows `edgellm`; the VLM endpoint when `curl -s http://vector-thor:8090/v1/models` answers from the NUC. Both use the one Cosmos daemon, one request at a time (`vlm_server`'s `--model edgellm`, its default; `orchestrator/orchestrator/vlm/server.py`). `launch_thor_stack` (preflight) runs the same two commands, each only when its session does not exist. `thor_up` checks only the grounding, so preflight passes without the VLM endpoint.
 
 ## 7. Stop
 

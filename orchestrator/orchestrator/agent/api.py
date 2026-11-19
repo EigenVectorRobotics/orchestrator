@@ -1,9 +1,12 @@
 """Agent skills: one decision of a tree, handed to a model or to the operator through the agent bridge.
 
-The tree calls an agent skill like any other leaf (agent/leaf.py). The executor gathers the evidence once (the failure
+The tree calls an agent skill like any other leaf (AgentLeaf in tree/leaf.py). The executor gathers the evidence once (the failure
 the tree recorded, the history, and what the skill adds), the backend sends it with the task, and one decision comes
 back. The executor checks it, and the tree acts on it. What a skill adds, checks and outputs is in its folder's
 agent.py; this module knows no skill.
+
+A skill's agent.py subclasses AgentSkill. Agent runs each call in a thread: the evidence, the skill's own rules (which
+may decide without the bridge), the backend, then the decision checks.
 """
 
 import json

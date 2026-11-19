@@ -3,7 +3,7 @@
   ros2 launch orchestrator orchestrator.launch.py site:=stanley       on the robot (config/sites/stanley.yaml)
   ros2 launch orchestrator orchestrator.launch.py fake:=true          a laptop test with the fake robot
 
-A site file holds what a robot run needs beyond the code defaults (orchestrator/site.py): the places file, the planner
+A site file holds what a robot run needs beyond the code defaults (orchestrator/orchestrator/common/config.py): the places file, the planner
 backend, the agent bridge's address and the raw bag. A launch argument given on the command line wins over the site.
 """
 

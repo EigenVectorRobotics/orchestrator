@@ -23,7 +23,7 @@ LEVELS = {'debug': Log.DEBUG, 'info': Log.INFO, 'warn': Log.WARN, 'error': Log.E
 
 
 def load_places(path: str) -> dict:
-    """Named map-frame poses, put on the blackboard by name; either places format (see places.py)"""
+    """Named map-frame poses, put on the blackboard by name; either places format (see common/config.py)"""
     if not path or not Path(path).exists():
         return {}
 
@@ -32,7 +32,7 @@ def load_places(path: str) -> dict:
 
 
 def load_place_floors(path: str) -> dict:
-    """Blackboard key -> floor number as text, from the places file's floors table (see places.py)"""
+    """Blackboard key -> floor number as text, from the places file's floors table (see common/config.py)"""
     if not path or not Path(path).exists():
         return {}
 

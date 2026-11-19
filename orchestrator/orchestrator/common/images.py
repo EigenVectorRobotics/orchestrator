@@ -1,4 +1,4 @@
-"""Raw camera images to JPEG. No ROS needed: a message is anything with height, width, step, encoding and data.
+"""Raw camera images to RGB arrays and JPEG. No ROS needed: a message is anything with height, width, step, encoding and data.
 
 The Orin's RealSense publishes only raw frames (/camera/camera/color/image_raw, RGB8, 1280x720 at 6 fps; no
 compressed transport is installed there), so the executor encodes what it keeps.

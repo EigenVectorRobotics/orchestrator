@@ -2,7 +2,7 @@ name: docs
 
 on:
   push:
-    branches-ignore: ['github-pages/**']
+    branches: [main, ltx-reorg, integration]
   workflow_dispatch:
 
 permissions:

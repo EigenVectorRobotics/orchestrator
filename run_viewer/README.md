@@ -96,7 +96,7 @@ python3 scripts/start_viewer.py --robot local --trace-topic --calls <session> --
 ros2 bag play <session>/runs/<run>/bag
 ```
 
-The recorder bag has the trace, the agent request, reply and event topics and `/odom_base_link`, but not the route, paths, terrain, floor or camera topics the viewer reads (`run_recorder.py` `BAG_TOPICS`), so the map shows only the robot and the camera pane stays empty. The bag starts after the tree's `started` event, so the tree panes also stay empty. To see a copied session, use `--robot local --runs <folder of sessions>` and pick it in the session menu: all its events show at once, not in real time.
+The recorder bag has the trace, the agent request, reply and event topics and `/odom_base_link`, but not the route, paths, terrain, floor or camera topics the viewer reads (`BAG_TOPICS` in `orchestrator/orchestrator/recording/node.py`), so the map shows only the robot and the camera pane stays empty. The bag starts after the tree's `started` event, so the tree panes also stay empty. To see a copied session, use `--robot local --runs <folder of sessions>` and pick it in the session menu: all its events show at once, not in real time.
 
 ## Floor maps
 

@@ -10,11 +10,11 @@ Built: `orchestrator/orchestrator/recording/recorder.py` (no ROS: the folders an
 
 ## What the recorder reads
 
-- `/orchestrator/trace`: JSON events. The executor's: `started` (with the tree XML), `node`, `record`, `agent_start`, `agent_wait`, `agent_rule`, `agent_refused` (a decision the executor refused), `agent_camera`, `agent_reference`, `agent_say`, `agent_decision`, `agent_link`, `finished`, `halted`, `rejected`, `validation`, `preflight_skipped`, `error`. The planner's: `sent` and `preflight`. `run_id` and `tree_id` are on every executor event of a tree run.
+- `/orchestrator/trace`: JSON events. The executor's: `started` (with the tree XML), `node`, `record`, `agent_start`, `agent_wait`, `agent_rule`, `agent_refused` (a decision the executor refused), `agent_camera`, `agent_say`, `agent_decision`, `agent_link`, `finished`, `halted`, `rejected`, `validation`, `preflight_skipped`, `error`. The planner's: its steps (`task`, `reasoning`, `plan`, `tree`, `reuse`, `parameters`, `validation`, `valid`, `error`), then `sent` and `preflight`. `run_id` and `tree_id` are on every executor event of a tree run.
 - `record` events carry the full record of each finished call, with the action feedback over time.
 - `/orchestrator/task`: the task message the planner got, kept as text for the next run's `task.json`.
 - The agent topics. Each agent call goes out on `/orchestrator/agent/request` (latched: opened, then closed with its outcome); the executor's replies to the bridge's decisions go on `/orchestrator/agent/reply`; what the bridge reports (`started`, each `decision` with its usage, `failed`) and a `cancelled` go on `/orchestrator/agent/event`.
-- Press frames, and the camera image a recovery call sends (`call_<id>_camera.jpg`), are written to `capture_dir` (`~/.ros/orchestrator_captures`). The recorder moves them into the run.
+- Press frames (with their crops and aim crops), and the camera image a recovery call sends (`call_<id>_camera.jpg`), are written to `capture_dir` (`ARTIFACTS_DIR` in `orchestrator/orchestrator/common/config.py`). The recorder moves them into the run.
 - The recorder is the only writer of `~/orch_runs`. The executor writes no call records of its own; the bridge keeps a copy on the laptop only with `--keep`.
 - Not the recorder: the site's `raw_bag` (`orchestrator/config/sites/stanley.yaml`, lidar, IMU, SLAM and TF topics for replay) is recorded by the launch to `~/bags/` from launch to shutdown.
 
@@ -41,8 +41,8 @@ The node `run_recorder` (package `orchestrator`, node name `orchestrator_recorde
     agent/<call_id>/summary.json        one record, rewritten after each message: model, effort, prompt, system_sha256,
                                         prompts_sha256, final decision, answers, refused, state (thinking, answered,
                                         failed), error, start, seconds, when the bridge got it, cost and tokens in all
-    captures/                           the press frames this run named, and the camera images its recovery calls sent
-                                        (moved from capture_dir when the run ends: copied, then the originals removed)
+    captures/                           the press frames this run named or wrote, and the camera images its recovery calls
+                                        sent (moved from capture_dir when the run ends: copied, then the originals removed)
     bag/                                ros2 bag (MCAP) of BAG_TOPICS, for this tree run only
     bag_truncated                       only when the bag was stopped for space: the free space and the time
     outcome.json                        how it ended (finished, halted, error, closed), status, aborted, text, end time; written last, atomically
@@ -93,7 +93,7 @@ Not built:
 
 - `ros2 bag record -s mcap` of the topics in `BAG_TOPICS` (`orchestrator/orchestrator/recording/node.py`, the `bag_topics` parameter's default): the trace, the agent request, reply and event topics, `/rosout`, `/speak`, `/route_goal`, `/route_planner/status`, `/nav_state`, `/state_estimation`, `/odom_base_link`, `/track_3d/is_tracking`, `/track_3d/selected_target_3d`, `/slam_elevatorlio/status`, and the raw and filtered button poses (`/track_3d/selected_normal_pose`, `/track_3d/selected_normal_pose_filtered/arm_upright`). `/terrain_map`, the route and local paths, TF and the camera are not recorded.
 - The camera at full rate is about 17 MB/s raw on the NUC; record it at full rate only around a press (the press frames already cover the closest point).
-- **One bag per tree run, not per session.** The recorder starts the bag at the executor's `started` and stops it at `finished`, `halted` or `error` (SIGINT, then SIGKILL after 10 s). Preflight is a tree run too, so it has its own bag. A bring-up with no tree makes no bag. The recorder's parameter `bag` (default true; not a launch argument) turns the bags off.
+- **One bag per tree run, not per session.** The recorder starts the bag at the executor's `started` and stops it at `finished`, `halted` or `error` (SIGINT, then SIGKILL after `BAG_STOP_S`). Preflight is a tree run too, so it has its own bag. A bring-up with no tree makes no bag. The recorder's parameter `bag` (default true; not a launch argument) turns the bags off.
 
 ### Writes
 

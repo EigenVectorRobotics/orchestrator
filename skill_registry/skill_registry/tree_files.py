@@ -1,3 +1,5 @@
+"""Reads a tree file and expands its subtree includes."""
+
 import re
 
 from pathlib import Path

@@ -1,3 +1,5 @@
+"""Finds skill packages and the code in each skill folder. Standard library only."""
+
 import inspect
 import importlib
 import importlib.util

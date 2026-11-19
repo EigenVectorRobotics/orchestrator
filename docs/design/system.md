@@ -59,7 +59,7 @@ flowchart TB
   SR["skill_registry<br/>contract model, validator, tree library"]
   MC["mission_control<br/>agent bridge, robot scripts"]
   RVW["run_viewer<br/>plain Python, no ROS package"]
-  G1 -->|"imports skills.api, agent.api,<br/>sensing, common, tree.engine"| ORC
+  G1 -->|"imports skills.api, skills.transports,<br/>agent.api, sensing, common, tree.engine"| ORC
   ORC --> TREE
   ORC -->|"imports Contract, Registry,<br/>TreeValidator"| SR
   TREE -->|"imports Contract, Registry"| SR
@@ -111,7 +111,7 @@ The planner learns the preflight result from the trace. The topic names live in 
 
 ## A skill folder
 
-Each file in a skill folder has one reader in the core. A contract alone is a working skill.
+Each file in a skill folder has fixed readers in the core and the bridge. A contract alone is a working skill.
 
 ```mermaid
 flowchart LR
@@ -119,7 +119,7 @@ flowchart LR
     C["contract.yaml<br/>kind, device, ports, interface, timeout_s, maturity"]
     S["skill.py<br/>one Skill subclass"]
     A["agent.py<br/>one AgentSkill subclass"]
-    SP["spec.py<br/>PHASES, GOING_ON, FIELDS, limits()"]
+    SP["spec.py<br/>PHASES, GOING_ON, FIELDS,<br/>ANSWERED_BY, limits()"]
     P["prompt.py<br/>system prompt and user message"]
   end
   LIB["g1_skills/lib<br/>PressState, Tracking, text"]
@@ -141,4 +141,4 @@ flowchart LR
   A -.-> LIB
 ```
 
-Only `python` skills must have `skill.py`. The executor and the bridge both read `spec.py`, so both enforce the same decisions.
+Only `python` skills must have `skill.py`; an agent skill without `agent.py` runs as a plain `AgentSkill`. The executor and the bridge both read `spec.py`, so both enforce the same decisions. What each file holds is in `g1_skills/README.md`.

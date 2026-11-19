@@ -1,4 +1,7 @@
-"""Turn a task into a valid behavior tree: the LLM writes it, the validator checks it, errors go back to the LLM"""
+"""Turn a task into a valid behavior tree: the LLM writes it, the validator checks it, errors go back to the LLM
+
+The system prompt is built from the contracts, the named places and the tree library.
+"""
 
 import re
 

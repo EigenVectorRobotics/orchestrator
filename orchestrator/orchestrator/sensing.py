@@ -1,3 +1,6 @@
+"""What many skills share: the head camera (its latest frame, intrinsics and the last seconds of frames) and the
+executor's one TF buffer."""
+
 import threading
 
 from rclpy.node import Node

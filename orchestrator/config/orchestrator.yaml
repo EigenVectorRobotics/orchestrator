@@ -20,7 +20,7 @@ orchestrator_recorder:
     # root: ~/orch_runs (default), one folder per bring-up; the operator clears old runs by hand
     min_free_gb: 20.0                   # below this, no tree runs (checked at start and every 5 s)
     bag: true                           # a bag of bag_topics for each tree run
-    # bag_topics: run_recorder.py BAG_TOPICS (default); set it here only to record other topics
+    # bag_topics: BAG_TOPICS in orchestrator/orchestrator/recording/ (default); set it here only to record other topics
 
 orchestrator_planner:
   ros__parameters:

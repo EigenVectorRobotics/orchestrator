@@ -1,3 +1,6 @@
+"""How a contract's call goes out: message building, topic watches, the call handles, and the driver of every
+transport (default_drivers lists them)."""
+
 import copy
 import json
 import time
