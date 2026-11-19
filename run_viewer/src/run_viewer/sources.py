@@ -22,6 +22,7 @@ SCRIPTS     = Path(__file__).resolve().parents[2] / 'scripts'   # the echo scrip
 STREAMS: list[subprocess.Popen] = []    # the streams that run, stopped when the viewer stops
 RESTART_S   = 5.0                       # wait before an echo that stopped starts again
 NEWER_S     = 15.0                      # how often to look for a newer recorder session
+MAPS_S      = 120.0                     # time for the robot host to read the prior map and make the floor maps
 CALL_WATCH  = '''
 import glob, json, os, sys, time
 seen, parent = {}, os.getppid()
@@ -345,6 +346,7 @@ class Sessions:
         self.host = host
         self.live = live
         self.stores: dict[str, EventStore] = {}
+        self.floor_maps: dict[str, dict] = {}   # per places file path and hash
         self.lock = threading.Lock()
 
     def run(
@@ -394,6 +396,28 @@ class Sessions:
         except ValueError:
             return None
         return detail if detail.get('run') else None
+
+    def maps(
+        self,
+        name: str,
+    ) -> dict | None:
+        """The floor maps of the places file that a session's provenance.json names, made on the robot host once per places file."""
+        if not re.fullmatch(r'[\w.-]+', name or ''):
+            return None
+        try:
+            places = json.loads(self.run(f'cat {RUNS}/{name}/provenance.json')).get('places') or {}
+        except ValueError:
+            return None
+        if not places.get('path'):
+            return None
+        key = f'{places["path"]}:{places.get("sha256")}'
+        if key not in self.floor_maps:
+            out = self.run(f'python3 -c {shlex.quote((SCRIPTS / "make_floor_maps.py").read_text())} {shlex.quote(places["path"])}', MAPS_S)
+            try:
+                self.floor_maps[key] = json.loads(out)
+            except ValueError:
+                return None
+        return self.floor_maps[key]
 
     def frame(
         self,

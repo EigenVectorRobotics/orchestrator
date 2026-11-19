@@ -4,7 +4,7 @@
 #   laptop: ~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley
 # A launch argument given on the command line wins over the value here.
 
-places_file: /home/vector/maps/two_floor_clean_cabin2.places.yaml   # needs the floors table (planner goal_floor)
+places_file: /home/vector/maps/fvd_map_clean_elevator1.places.yaml   # the map in use: docs/run.md, The map
 
 planner_backend: external        # a session or `planner_cli run` answers the planner
 

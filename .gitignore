@@ -6,3 +6,6 @@ install/
 log/
 site/
 _site_src/
+
+# Local files on one machine, not for the team
+local/

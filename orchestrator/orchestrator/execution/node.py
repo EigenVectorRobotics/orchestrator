@@ -1,6 +1,7 @@
 """Validate a behavior tree, then tick it on the NUC; every step goes to the trace"""
 
 import json
+import os
 
 import rclpy
 
@@ -15,7 +16,7 @@ from ..skills.runtime import SkillRunner, SkillRunnerConfig
 from ..tree.engine import Status, TreeError
 from ..tree.leaf import make_leaf_factory
 from ..tree.runner import TreeRunner
-from .node_setup import Tracer, load_skills
+from .node_setup import Tracer, load_place_map, load_skills
 from ..common.topics import (AGENT_EVENT_TOPIC, AGENT_REPLY_TOPIC as REPLY_TOPIC, AGENT_REQUEST_TOPIC as REQUEST_TOPIC, CANCEL_TOPIC, COMMAND_QOS,
                      LATCHED_QOS as STATUS_QOS, RECORDER_STATUS_TOPIC as RECORDER_TOPIC, SPEAK_TOPIC, STATUS_TOPIC,
                      TREE_BLIND_TOPIC, TREE_TOPIC)
@@ -68,6 +69,7 @@ class ExecutorNode(Node):
 
         # (1) Skills: the runner owns everything skills share, the agent included
         self.registry, places, self.essential_devices, library = load_skills(self)
+        os.environ['MAP'] = load_place_map(self.get_parameter('places_file').value)   # launch_nuc_stack starts nav on it
         self.known_keys = set(places)
         self.tracer     = Tracer(self, 'executor')
         speaker         = self.create_publisher(String, SPEAK_TOPIC, 10)              # unitree_interface's TTS (remapped ~/tts)

@@ -2,9 +2,8 @@
   <!-- Repeatability test inside the freight elevator, floor 2: five cycles of walk in to the inside panel, EKF hold,
        press floor 1, floor 2 and floor 3, walk out to the door-out place. Each press is judged by the agent
        (press_judge) and never retried, so every cycle gives one press per button. The stance checks are recorded but do
-       not stop a press. Keep the cabin on floor 2 with the door open (hold it or use independent service). Places and
-       map: ~/maps/two_floor_clean_cabin2.places.yaml and two_floor_clean_cabin2.pcd. Run with send_tree (docs/run.md,
-       section 5) -->
+       not stop a press. Keep the cabin on floor 2 with the door open (hold it or use independent service). Run with send_tree
+       (docs/run.md, section 5) -->
   <BehaviorTree ID="freight_elevator_floor_press_repeat">
     <Repeat num_cycles="5">
       <Sequence>

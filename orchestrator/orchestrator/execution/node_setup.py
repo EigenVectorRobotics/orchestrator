@@ -8,9 +8,9 @@ from pathlib import Path
 import yaml
 
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from std_msgs.msg import String
 from rcl_interfaces.msg import Log
-from ament_index_python.packages import get_package_share_directory
 
 from skill_registry import DEFAULT_ESSENTIAL_DEVICES, DEFAULT_SKILL_PACKAGES, Registry, contract_directories
 
@@ -40,13 +40,21 @@ def load_place_floors(path: str) -> dict:
         return place_floors(yaml.safe_load(file))
 
 
+def load_place_map(path: str) -> str:
+    """The prior map (.pcd) that the places file names in its map key; '' when it names none"""
+    with open(path) as file:
+        return str((yaml.safe_load(file) or {}).get('map') or '')
+
+
 def declare_sources(node: Node) -> tuple[list[Path], str, list[str]]:
     """Declare skill_packages, contracts_directory and places_file: where every node loads its skills and places from.
     The contracts are the skill packages' folders, unless contracts_directory names one folder instead"""
-    own_share      = Path(get_package_share_directory('orchestrator'))
     skill_packages = list(node.declare_parameter('skill_packages', DEFAULT_SKILL_PACKAGES).value)
     contracts      = node.declare_parameter('contracts_directory', '').value
-    places_file    = node.declare_parameter('places_file', str(own_share / 'config' / 'places.yaml')).value
+    places_file    = node.declare_parameter('places_file', Parameter.Type.STRING).value
+
+    if not places_file or not Path(places_file).is_file():
+        raise ValueError(f"places_file must name a places file (the site's places_file, or places_file:=): '{places_file}'")
 
     return contract_directories(skill_packages, contracts), places_file, skill_packages
 

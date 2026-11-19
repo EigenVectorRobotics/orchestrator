@@ -80,9 +80,9 @@ Running when checked (2026-11-08): on the Thor, the tmux session `eigen_vector_b
 | Machine | Path | What | Status |
 |---|---|---|---|
 | NUC | `~/eigen_vector_ws/src/bringup/config/cyclonedds.xml` | `MaxAutoParticipantIndex` 120, because CycloneDDS's automatic participant index range (32 by default) filled up and new processes failed with `Failed to find a free participant index` | **GitHub:** now on `eigen_vector` `main` (`ParticipantIndex` auto, `MaxAutoParticipantIndex` 120; PR #3 and `dfabc71`, 2026-11-14): a redeploy from `main` keeps it, no hand edit needed |
-| NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py` | **GitHub:** on `eigen_vector` `main` since 2026-11-10 (PR #2 from `jean/door-state-bringup`, `77382fb`): a redeploy from `main` starts `door_state_node` with the NUC stack, so `nuc_up` gets `/door_state`. Its door regions are set for `two_floor_clean.pcd` (`elevator_states` `config/elevator_door_state.yaml`, as the launch file notes); check them against `two_floor_clean_cabin2`. On 2026-11-08 the NUC ran a bringup without it, and `door_state_node` ran in its own tmux session `door_state` ([run.md](run.md#6-bring-a-machine-up-by-hand)) |
+| NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py` | **GitHub:** on `eigen_vector` `main` since 2026-11-10 (PR #2 from `jean/door-state-bringup`, `77382fb`): a redeploy from `main` starts `door_state_node` with the NUC stack, so `nuc_up` gets `/door_state`. Its door regions are set for `two_floor_clean.pcd` (`elevator_states` `config/elevator_door_state.yaml`, as the launch file notes); check them against the map in use ([The map](run.md#the-map)). On 2026-11-08 the NUC ran a bringup without it, and `door_state_node` ran in its own tmux session `door_state` ([run.md](run.md#6-bring-a-machine-up-by-hand)) |
 | NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two: robot interface, arm control and foxglove (`tmux -L eigen_vector`); navigation and SLAM (`tmux -L nav`, log `~/nav_launch.log`) | what ran on 2026-11-08 evening; not in any repository |
-| NUC | `~/maps/two_floor_clean_cabin2.pcd`, `~/maps/two_floor_clean_cabin2.places.yaml` (backups `*.bak_*`) | the map in use and its places and areas (`freight elevator cabin`, `freight elevator hall`) | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
+| NUC | `~/maps/<map>.pcd`, `~/maps/<map>.places.yaml` (backups `*.bak_*`) | the maps and their places files; the one in use: [The map](run.md#the-map) | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
 | NUC | `~/fake_button_pose.py` | fixed button poses for `press_button` with no Thor | disabled: do not start it |
 | NUC | `~/watch_records_*.sh`, `~/ekf_reset.sh` | an old EKF reset outside the trees | not used: `ekf_hold` calls `reset_ekf` |
 | NUC | `~/places_markers.py` | publishes the places as markers for Foxglove (`tmux -L places`) | optional; stops with a reboot |
@@ -109,7 +109,7 @@ Questions the next check must answer. Each is open until someone looks on the ma
 4. NUC: which `manipulation_stack` is built? Is it `main` at `f8d28b3` or later, with `/check_reach` (`ik_server`) and `/body_ekf/reset`, and are the 6 uncommitted files on `cam-gripper-estimation` kept somewhere or dropped?
 5. NUC: does `unitree_interface` run from `main` (with `/unitree_interface/fsm_id`) or still from `jean/fsm-id-topic`?
 6. NUC: do `navigation_stack` (`jean/elevator-side`), `elevator_states` (`jean/door-state-in-out`) and their local changes still run, while `eigen_vector` `repos/nuc.repos` names `navigation_stack` `main` and `elevator_states` `feat/door_state`? Which is meant to run?
-7. NUC: does `~/maps/two_floor_clean_cabin2.places.yaml` have the `floors` table, and is the places file at `~/maps/` (the site file's path)?
+7. NUC: does the places file in use exist, with the `floors` table ([The map](run.md#the-map))?
 8. Orin: which `manipulation_stack` and `track_anything` are built, and does `orin.launch.py` start `gripper_pose_estimator`?
 9. Thor: does the tmux session `eigen_vector_bringup` come up after a reboot, and is `vlm_server` started (`launch_thor_stack` starts it in the session `vlm_server`)?
 10. Laptop: is the agent bridge address in `orchestrator/config/sites/stanley.yaml` (`agent_bridge`) the operator laptop's Tailscale address?
@@ -165,7 +165,7 @@ Repository side checked against `ltx-reorg` and GitHub on 2026-11-17. Robot side
 
 - **Why:** `nuc_up` waits for `/door_state`, and `door_open` reads it. Preflight starts the NUC stack with `bringup nuc.launch.py` (`launch_nuc_stack`).
 - **Repository side:** done. `jean/door-state-bringup` is merged into `eigen_vector` `main` (#2, `77382fb`, 2026-11-10): its `bringup/launch/nuc.launch.py` includes `door_state_node.launch.py`. The bringup redeployed on 2026-11-08 did not include it; `door_state_node` then ran by hand in the tmux session `door_state`.
-- **Change on the NUC:** redeploy bringup from `eigen_vector` `main`, so that `launch_nuc_stack` alone gives `/door_state`. The door regions are set for `two_floor_clean.pcd`; check them against `two_floor_clean_cabin2` (the snapshot above).
+- **Change on the NUC:** redeploy bringup from `eigen_vector` `main`, so that `launch_nuc_stack` alone gives `/door_state`. The door regions are set for `two_floor_clean.pcd`; check them against the map in use ([The map](run.md#the-map)).
 - **Check:** after `launch_nuc_stack`, `ros2 topic hz /door_state` shows messages without any hand-started session.
 
 #### 4. Run the NUC stack from `nuc.launch.py`, not the two split launch files. Status: check
@@ -203,10 +203,7 @@ The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when c
 
 #### 8. The places file must have a `floors` table. Status: check
 
-- **Why:** the planner fills `goal_floor` from the floor of the goal place (`fill_floor_parameters` in `orchestrator/orchestrator/planning/planner.py`). Without a `floors` table in the places file nothing is filled, the tree keeps its default `goal_floor`, and a goal on the other floor can be refused.
-- **File:** `~/maps/two_floor_clean_cabin2.places.yaml` on the NUC. It needs `floors: {"floor 1": {z_min, z_max}, "floor 2": {z_min, z_max}}`, and every place used by `freight_elevator_go_to_place` (`target_floor_1/2`, the call panels, the inside panels, the door-out places).
-- Start the orchestrator with `site:=stanley`: the site file names this places file. Without a site the launch takes `orchestrator/config/places.yaml`, the placeholder used without a site, which cannot run the elevator tree.
-- **Repository side:** the planner fills `goal_floor` when the table is there; `orchestrator/config/sites/stanley.yaml` names `/home/vector/maps/two_floor_clean_cabin2.places.yaml`.
+- **Check:** the places file in use has what [The map](run.md#the-map) lists.
 
 #### 9. Clear old press references after a map or place change. Status: open, when needed
 

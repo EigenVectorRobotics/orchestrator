@@ -1,19 +1,22 @@
 """The orchestrator: registry, executor, recorder and planner, and with fake:=true the fake robot.
 
-  ros2 launch orchestrator orchestrator.launch.py site:=stanley       on the robot (config/sites/stanley.yaml)
-  ros2 launch orchestrator orchestrator.launch.py fake:=true          a laptop test with the fake robot
+  ros2 launch orchestrator orchestrator.launch.py site:=stanley                           on the robot (config/sites/stanley.yaml)
+  ros2 launch orchestrator orchestrator.launch.py fake:=true places_file:=<places.yaml>  a laptop test with the fake robot
 
 A site file holds what a robot run needs beyond the code defaults (orchestrator/orchestrator/common/config.py): the places file, the planner
 backend, the agent bridge's address and the raw bag. A launch argument given on the command line wins over the site.
+The places file has no code default: without a site or places_file:=, the nodes stop at start.
 """
 
 import os
+import subprocess
 import time
 
 from pathlib import Path
 
-from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction
+from launch import LaunchContext, LaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction, RegisterEventHandler
+from launch.event_handlers import OnShutdown
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -25,6 +28,7 @@ DEFAULTS = {
     'planner_model':   'claude-opus-5-5',
     'vlm_base_url':    'http://vector-thor:8090/v1',
 }
+VIEWER_SESSION = 'run_viewer'          # the tmux session that preflight's launch_run_viewer starts
 
 
 def resolve(given: dict, site: dict, share: Path) -> dict:
@@ -39,7 +43,7 @@ def resolve(given: dict, site: dict, share: Path) -> dict:
         'preflight':       given.get('preflight') == 'true' if fake else given.get('preflight') != 'false',   # fake: off unless asked
         'params_file':     given.get('params_file') or str(share / 'config' / 'orchestrator.yaml'),
         'contracts':       given.get('contracts_directory') or '',          # empty: the skill packages' folders
-        'places_file':     given.get('places_file') or site.get('places_file') or str(share / 'config' / 'places.yaml'),
+        'places_file':     os.path.expanduser(given.get('places_file') or site.get('places_file') or ''),
         'vlm_base_url':    'http://127.0.0.1:8090/v1' if fake else value('vlm_base_url'),
         'planner_backend': value('planner_backend'),
         'planner_model':   value('planner_model'),
@@ -56,6 +60,14 @@ def resolve(given: dict, site: dict, share: Path) -> dict:
     return found
 
 
+def _stop_viewer(
+    context: LaunchContext,
+) -> list:
+    """Stop the Run Viewer that preflight started: the orchestrator that starts it also stops it"""
+    subprocess.run(['tmux', 'kill-session', '-t', VIEWER_SESSION], capture_output=True)
+    return []
+
+
 def _actions(context):
     share  = Path(get_package_share_directory('orchestrator'))
     given  = dict(context.launch_configurations)
@@ -65,8 +77,9 @@ def _actions(context):
     executor = {'require_recorder': found['record'], 'require_preflight': found['preflight'], 'agent_backend': found['agent_backend'],
                 'agent_push_host': found['agent_push_host'], 'agent_push_port': found['agent_push_port']}
     actions  = [
-        LogInfo(msg=f'orchestrator: site {given.get("site") or "none"}, places {found["places_file"]}, '
+        LogInfo(msg=f'orchestrator: site {given.get("site") or "none"}, places {found["places_file"] or "none"}, '
                     f'planner {found["planner_backend"]}, agent bridge {found["agent_push_host"] or "unset"}'),
+        RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(function=_stop_viewer)])),   # on Ctrl+C (stop.sh too), not on SIGTERM or SIGHUP
         Node(package='skill_registry', executable='registry_node', output='screen', parameters=shared),
         Node(package='orchestrator', executable='executor_node', output='screen', parameters=[*shared, executor]),
         Node(package='orchestrator', executable='planner_node', output='screen',
@@ -97,7 +110,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('site', default_value='', description='a site in config/sites (e.g. stanley), or a path'),
         DeclareLaunchArgument('fake', default_value='false', description='start the fake robot and its VLM server'),
-        DeclareLaunchArgument('places_file', default_value='', description='named map poses; default: the site, else config/places.yaml'),
+        DeclareLaunchArgument('places_file', default_value='', description='named map poses, the map in use; default: the site (no code default)'),
         DeclareLaunchArgument('planner_backend', default_value='', description='claude | openai_compatible | scripted | external; default: the site, else claude'),
         DeclareLaunchArgument('planner_model', default_value='', description=f'default: the site, else {DEFAULTS["planner_model"]}'),
         DeclareLaunchArgument('vlm_base_url', default_value='', description=f'default: {DEFAULTS["vlm_base_url"]}'),
