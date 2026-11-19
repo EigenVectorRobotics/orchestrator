@@ -25,8 +25,9 @@ device is down, say so; do not conclude that the robot cannot do it.
 
 ## How to tell what is up
 
-- The camera frame in your prompt comes from the Orin. **No frame means no image is published**: the Orin may be
-  down, or the camera driver stopped or failed. It does not mean that the robot is blind.
+- The camera image comes from the Orin. Get it with `agent_cli image camera OUT`. **An error from that command
+  means that no image is published**: the Orin may be down, or the camera driver stopped or failed. It does not
+  mean that the robot is blind.
 - SLAM says where you are and how sure it is. It runs on the NUC and it localizes you in the map all the time,
   whether or not a skill reports it.
 - The places on your blackboard come from `map_info` on the NUC. If there are none, `map_info` is not up.

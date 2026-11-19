@@ -114,23 +114,11 @@ def test_a_claim_expires_after_valid_for_s(tmp_path):
     claim, _ = store.note('A person waits in the hall.', seen(t=100.0), {'place': 'hall'}, valid_for_s=600)
 
     now[0] = 650.0
-    assert store.expire() == []
+    assert store.expire() == [] and 'place hall' in store.guide()
 
     now[0] = 800.0
-    assert store.prompt_section() == ''                     # a prompt retires expired claims first
+    assert 'place hall' not in store.guide()                # a read for the open task retires expired claims first
     assert store.get(claim.id).tier == 'retired'
-
-
-def test_prompt_section_has_facts_and_beliefs_not_observations(tmp_path):
-    store = KnowledgeStore(tmp_path)
-    store.note('Only seen once.', seen())
-    belief, _ = store.note('The cabin door closes after 8 s.', seen(), {'place': 'cabin'})
-    store.confirm(belief.id, seen(by='operator', run='r2'))
-
-    text = store.prompt_section()
-
-    assert 'closes after 8 s' in text
-    assert 'Only seen once' not in text
 
 
 def test_many_notes_in_one_run_count_as_one_sighting(tmp_path):
@@ -216,7 +204,8 @@ def test_a_claim_about_a_skill_earns_its_tier_again_when_its_code_moves(tmp_path
 
     code.version = 2                                                        # the follower changed
 
-    assert 'untried on this code' in store.prompt_section(observations=True)
+    store.expire()                                                          # applies the code clock
+    assert not any(store.get(lesson.id).counted)
     assert store.get(lesson.id).tier == 'observation' and store.get(place.id).tier == 'belief'   # no skill, no clock
 
     store.confirm(lesson.id, seen(by='check:arrived', run='r4'))            # one run on the new code is not enough
@@ -244,7 +233,8 @@ def test_a_skill_claim_with_no_record_of_its_code_counts_nothing_until_it_is_see
     claim, _ = KnowledgeStore(tmp_path).note('It stops short.', seen(), {'skill': 'navigate_to'})   # no clock here
     store    = KnowledgeStore(tmp_path, code=FakeCode())
 
-    assert 'untried on this code' in store.prompt_section(observations=True)
+    store.expire()                                                          # applies the code clock
+    assert not any(store.get(claim.id).counted)
 
     store.confirm(claim.id, seen(by='operator', run='r2'))
 

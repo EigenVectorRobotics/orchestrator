@@ -8,7 +8,6 @@
     knowledge approve C-0007 [--text "the exact text"]       the operator only, at a terminal
     knowledge refuse C-0007 --reason "..."
     knowledge retire C-0007 --reason "..."
-    knowledge prompt                                          the facts and beliefs as one text
 
 --dir (default $EIGEN_VECTOR_WS/agent/knowledge) is the executor's knowledge_dir. A value is read as JSON when it can be
 (0.012, [0.005, 0.0075, 0.0034], true), else as a word. --by operator works only at a terminal.
@@ -101,7 +100,6 @@ def main(argv: list[str] | None = None):
     listing.add_argument('--ready', action='store_true', help='only beliefs the operator can approve')
 
     commands.add_parser('show').add_argument('id')
-    commands.add_parser('prompt')
 
     def sighting_arguments(command):
         command.add_argument('--by', required=True, help=f'{OPERATOR}, agent:<skill>, check:<skill>')
@@ -151,8 +149,6 @@ def main(argv: list[str] | None = None):
             claim = store.get(arguments.id)
             print(_row(claim))
             print(json.dumps({**asdict(claim), 'reliability': claim.reliability(), 'value_stats': claim.value_stats()}, indent=2, default=str))
-        elif arguments.command == 'prompt':
-            print(store.prompt_section() or 'no facts or beliefs yet')
         elif arguments.command == 'note':
             claim, change = store.note(arguments.text, _sighting(arguments), _about(arguments.about),
                                        arguments.key, arguments.valid_for_s)

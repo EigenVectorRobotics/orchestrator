@@ -30,7 +30,6 @@ On the NUC, the store is in `$EIGEN_VECTOR_WS/agent/knowledge/` (`knowledge_dir`
 |---|---|---|---|
 | `scratch/<run_id>/` | one run | the task agent | notes while it works: plan, expectations, what it checked. Saved into the run folder at the end |
 | `claims.yaml` | until removed | the store only (through its API) | every observation, belief and fact, with evidence |
-| (prompt text) | each prompt | made from `claims.yaml` in memory (`prompt_section`) | the facts and beliefs, as text, for the prompts |
 
 - The run's scratch folder is `scratch/<run_id>/` (built): the open task names it, and the recorder moves it into the run's bundle at the end of the run.
 - The task session gets the store's guide when a task opens, and reads the claims it needs with the CLI.
@@ -78,7 +77,7 @@ On the NUC, the store is in `$EIGEN_VECTOR_WS/agent/knowledge/` (`knowledge_dir`
 |---|---|
 | observation → belief | seen in 2 runs or more, from 2 sources or more (a skill check, a frame judged by a VLM, a person) |
 | belief → fact | Wilson lower bound of confirmations / (confirmations + contradictions) ≥ 0.8, and the operator approves the text |
-| fact → belief → observation | one contradiction moves a claim down one tier; it is logged and shown in the next prompt |
+| fact → belief → observation | one contradiction moves a claim down one tier; it is logged, and the session sees it with `knowledge list` |
 | any → observation | a claim with a `skill` tag: the code under the skill moved (`skill_stamps.SkillClock`, the same rules as a skill stamp). Its sightings are kept but do not count, and it earns its tier again on the new code (built 2026-11-17) |
 | any → retired | `valid_for_s` passed, or a person retires it |
 
@@ -114,7 +113,7 @@ A contradiction of a belief or a fact starts reasoning when the current run uses
    - **ask the operator**;
    - **replan**;
    - **stop safely**.
-4. When the run does not use it, the store only logs it. It goes in the next prompt and in the operator's review list.
+4. When the run does not use it, the store only logs it. The session sees it with `knowledge list`, and it goes in the operator's review list.
 5. Blind mode (no cloud): a fixed rule. A critical use goes to the tree's fallback; a use that is not critical gives a warning and the tree continues.
 6. The recorder keeps each decision with its evidence. Later these teach the agent which contradictions matter.
 

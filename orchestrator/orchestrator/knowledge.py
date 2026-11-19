@@ -237,12 +237,6 @@ class KnowledgeStore:
                            'What it holds now:' if rows else 'It holds nothing yet.',
                            *(f'- {subject}: {", ".join(counts)}' for subject, counts in sorted(rows.items()))])
 
-    def prompt_section(self, observations: bool = False) -> str:
-        """Facts and beliefs as a prompt section with its heading, for the task agent; beliefs are marked
-        as not certain. observations: also the live observations, so an agent can confirm one by its id. Empty when
-        there are none"""
-        return _section(self._live(), observations)
-
     def _live(self) -> list[Claim]:
         """The live claims, after expiry and the code clock: one lock and one load"""
         with self._locked(save=False) as claims:
@@ -470,39 +464,6 @@ def _sources(claim: Claim) -> int:
 def _weak(sighting: Sighting) -> bool:
     """The end of a step that followed the claim: it counts in reliability, but it does not move a tier"""
     return sighting.by.startswith(f'{OUTCOME}:')
-
-
-def _section(claims: list[Claim], observations: bool) -> str:
-    """The live claims as a prompt section, by tier from the most trusted"""
-    lines = []
-    tiers = [('fact', 'Facts (confirmed and approved)'), ('belief', 'Beliefs (seen more than once, not certain)')]
-
-    if observations:
-        tiers.append(('observation', 'Observations (seen, not confirmed)'))
-
-    for tier, heading in tiers:
-        rows = [c for c in claims if c.tier == tier]
-
-        if rows:
-            lines.append(f'{heading}:')
-            lines += [f'- [{c.id}] ({c.subject()}) {c.text}' + _trust(c) for c in rows]
-
-    return '## What is known (knowledge store)\n\n' + '\n'.join(lines) if lines else ''
-
-
-def _trust(claim: Claim) -> str:
-    """What a prompt line says of a claim's evidence: its value, how it has done, and why older evidence is gone"""
-    good, bad = map(_independent, claim.counted)
-    text      = f' Value: {claim.value}.' if claim.key and claim.value is not None else ''
-
-    if claim.tier != 'fact':
-        text += f' Seen {good}, contradicted {bad}.'
-
-    if not good + bad:
-        reason = next((s.moved for s in reversed(claim.sightings) if s.moved), '')
-        text  += f' Its evidence was on older code ({reason}): untried on this code.'
-
-    return text
 
 
 def _agrees(known, seen) -> bool:

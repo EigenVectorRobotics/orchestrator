@@ -37,7 +37,7 @@ skill_registry/skills/<skill>/
 | `evidence` | what the result carries for the recorder and the agent (feedback over time, frames, residuals) |
 | `version`, `maturity` | as in `docs/skill-packages.md` |
 
-Facts are not written in the skill documents. They come from the knowledge store (`docs/knowledge.md`) and go into the prompt with their tier. Facts about the arm, perception and navigation become claims with evidence.
+Facts are not written in the skill documents. They come from the knowledge store (`docs/knowledge.md`) and the session reads them, with their tier, with `knowledge list|show`. Facts about the arm, perception and navigation become claims with evidence.
 
 ## A shared skill node
 

@@ -12,6 +12,8 @@
       "Bash(ros2 run:*)",
       "Bash(ros2 launch:*)",
       "Bash(ros2 bag play:*)",
+      "Bash(ros2 component load:*)",
+      "Bash(ros2 control:*)",
       "Bash(agent_cli step approve:*)",
       "Bash(agent_cli step refuse:*)",
       "Read(~/orchestrator_ws/**)",

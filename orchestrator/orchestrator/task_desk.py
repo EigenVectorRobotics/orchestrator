@@ -128,8 +128,8 @@ class TaskDesk:
         self.busy          = 0                       # commands in progress: a session waiting for a step is not quiet
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
 
-    def open(self, sentence: str, context: Context, blind: bool = False) -> dict:
-        """Open a task; returns the open message (also published)"""
+    def open(self, sentence: str, context: Context, blind: bool = False) -> None:
+        """Open a task and publish the open message"""
         if self.task is not None:
             self._close(self.task, 'replaced')          # a new task halts the old one (start_task)
 
@@ -155,16 +155,14 @@ class TaskDesk:
         }
         self.publish_open(opened)
 
-        return opened
-
     def known(self) -> str:
         """The knowledge store's guide, and how the task writes to it"""
         return f'{self.knowledge.guide()}\n{writing_text(self.knowledge.folder)}' if self.knowledge else ''
 
     @contextlib.contextmanager
-    def thinking(self):
-        """The session works on a command: not quiet. Only a success counts as heard: a session whose commands
-        keep failing goes quiet, and the robot says so"""
+    def _thinking(self):
+        """The session works on a command: not quiet. Each command that comes back counts as heard, also a
+        refused one: the session is there"""
         with self._lock:
             self.busy += 1
 
@@ -183,7 +181,7 @@ class TaskDesk:
         lines = deque(maxlen=MAX_TRACE_EVENTS)
         run   = str(message.get('run_id', ''))
 
-        with self.thinking(), self.tasks.tracer.tap(trace_listener(lines, run)):
+        with self._thinking(), self.tasks.tracer.tap(trace_listener(lines, run)):
             try:
                 reply |= self._command(message)
             except (KeyError, TypeError, ValueError) as error:
@@ -299,7 +297,7 @@ class TaskDesk:
         return reply
 
     def _note_stale(self, skill: str) -> None:
-        """Say in the trace and the bundle that a step used a stale skill, not only in the agent's prompt"""
+        """Say in the trace and the bundle that a step used a stale skill, not only in the catalog that the session reads"""
         try:
             if reason := self.stale().get(skill):
                 self.tasks.tracer.emit('stale_skill', f'{skill}: {reason}', level='warn', skill=skill)
