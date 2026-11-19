@@ -174,7 +174,7 @@ def failure_lines(failure: dict, press: dict | None, offset: list, limits: dict)
                   f'- Residual-based offset (offset in force minus residual, from {capture.get("residual_from", "encoders")}): {vec(suggested)} m, '
                   f'{"within" if inside else "OUTSIDE"} the {limits["press_offset_max_m"]:g} m limit']
     else:
-        lines.append('- Press capture: none (the press did not run)')
+        lines.append('- Press capture: none: the call carries one only after press_judge said not_pressed')
 
     return lines
 
