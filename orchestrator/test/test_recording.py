@@ -151,3 +151,13 @@ def test_a_failed_write_marks_the_session_failed_and_does_not_raise(tmp_path):
 
     assert not recorder.ready()[0]
     assert json.loads((recorder.path / 'finalization.json').read_text())['status'] == 'failed'
+
+
+def test_a_run_with_no_bag_records_none(tmp_path):
+    bag      = FakeBag()
+    recorder = make_recorder(tmp_path, bag=bag)
+
+    recorder.on_event(executor('task_started', name='discovery', bag=False))
+    recorder.on_event(executor('task_finished', end='done'))
+
+    assert not any(call[0] == 'start' for call in bag.calls)

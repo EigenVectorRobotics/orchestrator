@@ -18,7 +18,8 @@
 #     progress.md                                         the state of discovery (the discover skill makes it)
 #
 # The settings are made, not linked: the task session's hide each stack repo in src/ by its absolute path.
-# Safe to run again. It never deletes a file: a real file or folder where a link must go stops the script.
+# Safe to run again. It never deletes a file: a real file or folder where a link must go stops the script, and so
+# does a settings file that agent_settings.py did not make.
 # The old layout moves in: agent/contracts/<name>.yaml and agent/code/<name>.py go into skills/<name>/, and the files
 # of a real agent/docs/ go into the docs folder in git. A real agent/runbook.md is renamed runbook.md.local, for a
 # person to merge into the one in git.
@@ -27,7 +28,7 @@
 #   (defaults: $EIGEN_VECTOR_WS/agent, $EIGEN_VECTOR_WS/agent_discovery, $EIGEN_VECTOR_WS/src)
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 agent="${1:-${EIGEN_VECTOR_WS:?set EIGEN_VECTOR_WS or give the agent folder}/agent}"
 discovery="${2:-$(dirname "$agent")/agent_discovery}"
 src="${3:-$(dirname "$agent")/src}"
@@ -105,18 +106,22 @@ for folder in "$agent" "$discovery"; do
     link docs       "$repo/orchestrator/agent/docs"   "$folder"
 done
 
-link CLAUDE.md               "$repo/orchestrator/agent/discovery_session.md" "$discovery"
-link AGENTS.md               "$repo/orchestrator/agent/discovery_session.md" "$discovery"
-link .claude/skills/discover "$repo/orchestrator/agent/skills/discover"     "$discovery"
-link .codex/skills/discover  "$repo/orchestrator/agent/skills/discover"     "$discovery"
+for name in CLAUDE.md AGENTS.md; do            # what Claude Code and Codex read first
+    link "$name" "$repo/orchestrator/agent/discovery_session.md" "$discovery"
+done
+
+for tool in .claude .codex; do
+    link "$tool/skills/discover" "$repo/orchestrator/agent/skills/discover" "$discovery"
+done
 
 stack=()                                     # the stack repos: a task session uses the skills, not their code
-for folder in "$src"/*/; do
-    [[ -d "$folder" && "$(realpath "$folder")" != "$repo" ]] && stack+=("$(realpath "$folder")")
+for folder in "$src"/*; do                 # as named in src/: agent_settings.py denies both the name and the target
+    real="$(realpath "$folder")"
+    [[ -d "$real" && "$repo/" != "$real/"* ]] && stack+=("${folder%/}")
 done
 
 settings="$repo/orchestrator/agent/claude_settings.json"
 python3 "$repo/scripts/agent_settings.py" "$agent/.claude/settings.json" "$settings" --hide "${stack[@]}"
 python3 "$repo/scripts/agent_settings.py" "$discovery/.claude/settings.json" "$settings" \
-    "$repo/orchestrator/agent/claude_settings_discovery.json"
+    "$repo/orchestrator/agent/claude_settings_discovery.json" --no-edit "$discovery/skills"
 echo "made $agent/.claude/settings.json (hides ${#stack[@]} stack repos) and $discovery/.claude/settings.json"

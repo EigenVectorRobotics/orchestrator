@@ -17,12 +17,13 @@ from collections import deque
 from typing import Callable
 
 from .images import Camera
+from .topics import TASK_OPTIONS
 
 
 MAX_TASK_CHARS = 400                    # a task sentence; longer is a plan, not a task
 TRACE_KEEP     = 400                    # trace events the page can scroll back through
 DECISION_WAIT  = 5.0                    # seconds to wait for the executor's reply to a decision
-TASK_FIELDS    = ('state', 'run_id', 'task', 'blind', 'end', 'limits')   # of the open message; not places, known or scratch
+TASK_FIELDS    = ('state', 'run_id', 'task', 'blind', 'discovery', 'end', 'limits')   # of the open message; not places, known or scratch
 
 
 class MissionState:
@@ -96,13 +97,12 @@ class Commands:
         if len(sentence) > MAX_TASK_CHARS:
             return 400, {'ok': False, 'message': f'a task sentence is {MAX_TASK_CHARS} characters at most, not {len(sentence)}'}
 
-        blind     = bool(body.get('blind'))
-        discovery = bool(body.get('discovery'))
+        options = {option: bool(body.get(option)) for option in TASK_OPTIONS}
 
-        if not self.send_task({'task': sentence, 'blind': blind, 'discovery': discovery}):
+        if not self.send_task({'task': sentence, **options}):
             return 504, {'ok': False, 'message': 'the executor does not listen for a task; is it running?'}
 
-        return 200, {'ok': True, 'message': 'task sent' + (' (blind)' if blind else '') + (' (discovery)' if discovery else '')}
+        return 200, {'ok': True, 'message': ' '.join(['task sent', *(f'({option})' for option, on in options.items() if on)])}
 
     def step(self, body: dict) -> tuple[int, dict]:
         """Approve or refuse a step. The gate takes or refuses the decision; this only relays its answer"""

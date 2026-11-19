@@ -18,16 +18,17 @@ from dataclasses import dataclass, field
 from skill_registry import Contract, Issue, Registry, TreeValidator, ValidatorConfig
 
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
+from .topics import TASK_OPTIONS
 
 
-def parse_task_request(text: str) -> tuple[str, bool, bool]:
+def parse_task_request(text: str) -> tuple[str, dict]:
     """A message on /orchestrator/task: a plain sentence, or JSON {"task": "...", "blind": true, "discovery": true}.
-    Returns the sentence, blind and discovery"""
+    Returns the sentence and the options"""
     try:
         request = json.loads(text)
-        return str(request['task']), bool(request.get('blind', False)), bool(request.get('discovery', False))
+        return str(request['task']), {option: bool(request.get(option, False)) for option in TASK_OPTIONS}
     except (json.JSONDecodeError, TypeError, KeyError):
-        return text, False, False
+        return text, {}
 
 
 @dataclass
@@ -38,6 +39,7 @@ class Task:
     context: Context
     blind:   bool
     steps:   int = 0
+    bag:     bool = True                          # the recorder records a bag: not for a run with no step (discovery)
 
 
 @dataclass
@@ -76,9 +78,9 @@ class Tasks:
 
     # ========== In ==========
 
-    def start_task(self, name: str, context: Context, blind: bool = False) -> Task:
+    def start_task(self, name: str, context: Context, blind: bool = False, bag: bool = True) -> Task:
         """A task that stays open between steps until end_task"""
-        task = Task(context.run_id, name, context, blind)
+        task = Task(context.run_id, name, context, blind, bag=bag)
 
         with self._lock:
             self._stop('halted', 'halted for a new task')
@@ -199,7 +201,7 @@ class Tasks:
         task.context.scratch_dir = self.make_scratch(task.run_id)
         self.task                = task
         self.tracer.fields = {'run_id': task.run_id}
-        self.tracer.emit('task_started', f'task {task.run_id}: {task.name}', name=task.name, blind=task.blind,
+        self.tracer.emit('task_started', f'task {task.run_id}: {task.name}', name=task.name, blind=task.blind, bag=task.bag,
                          scratch=task.context.scratch_dir, places=dict(task.context.blackboard))
 
     def _start_step(self, step: _Step):

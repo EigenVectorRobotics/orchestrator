@@ -15,9 +15,9 @@ commands on COMMAND_TOPIC:
 - done, give_up: end the task; the reply names the applied claims with no grade
 - commit: after the task ends, its staged grades go into the knowledge store together
 
-A discovery task (discovery: true in the request; Mission Control's Start discovery) is for the discovery session,
-which reads the stack's code and writes skills (the discover agent skill). It refuses run, so it never moves the
-robot, and it has no time limit and no idle speech: reading code takes long, with no command between.
+Each task has its limits, set when it opens (self.limits). A discovery task (discovery: true in the request) has
+DISCOVERY_LIMITS: no run, so it never moves the robot, and no time limit or idle speech, because reading code takes
+long with no command between. The procedure is the discover agent skill (orchestrator/agent/skills/discover).
 
 A run that follows claims of the knowledge store says so (applies, one or more ids). The step's end changes no
 claim: a success can mean no more than "the message was published", and a failure can have another cause. The
@@ -55,6 +55,8 @@ from skill_registry.skill_writer import SkillWriter
 from .step_gate import StepGate
 from .behavior_tree import Context
 
+
+DISCOVERY_LIMITS = {'max_task_s': None, 'idle_s': None, 'run': False}   # a discovery task: see the module text
 
 LOST_SPEECH   = 'I lost the connection to my planner. I will wait here. Please help me if you can.'
 
@@ -104,7 +106,7 @@ def task_summary(task: dict) -> str:
     lines  = [task['runbook']] if task.get('runbook') else []        # what the robot is, before what it must do
     lines += [
         f'task {task["run_id"]}' + (' (blind)' if task.get('blind') else '')
-        + (' (discovery: write skills, no run, no time limit)' if task.get('discovery') else '') + f': {task["task"]}',
+        + (' (discovery)' if task.get('discovery') else '') + f': {task["task"]}',
         'places on the blackboard:' + (places or ' none'),
         f'scratch folder: {task.get("scratch")}',
         f'limits: {task.get("limits")}',
@@ -130,9 +132,8 @@ class TaskDesk:
         self.stale         = stale                   # every stale skill and why, in one read (skill_stamps.reasons)
         self.ran           = ran                     # a step that succeeded: kept with the skill's stamp as evidence
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
-        self.max_steps     = max_steps
-        self.max_task_s    = max_task_s
-        self.idle_s        = idle_s
+        self.task_limits   = {'max_steps': max_steps, 'max_task_s': max_task_s, 'idle_s': idle_s, 'run': True}
+        self.limits        = self.task_limits        # the open task's: set at open
         self.clock         = clock
         self.task          = None                    # the open task, and when it opened and last heard from the agent
         self.ended         = None                    # the run_id of the task that ended last: graded until the next opens
@@ -140,18 +141,17 @@ class TaskDesk:
         self.heard         = 0.0
         self.spoke_lost    = False
         self.plans         = 0
-        self.discovery     = False                   # the open task is a discovery task: no run, no time limit
         self.busy          = 0                       # commands in progress: a session waiting for a step is not quiet
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
         self._grading      = threading.Lock()        # the staged file of a run: each command runs on its own thread
 
     def open(self, sentence: str, context: Context, blind: bool = False, discovery: bool = False) -> None:
-        """Open a task and publish the open message"""
+        """Open a task and publish the open message; blind and discovery come from the task request"""
         if self.task is not None:
             self._close(self.task, 'replaced')          # a new task halts the old one (start_task)
 
         self._commit_left()
-        task = self.tasks.start_task('task', context, blind)
+        task = self.tasks.start_task('discovery' if discovery else 'task', context, blind, bag=not discovery)
 
         with self._lock:
             self.task, self.ended = task, None
@@ -159,7 +159,7 @@ class TaskDesk:
         self.opened     = self.heard = self.clock()
         self.spoke_lost = False
         self.plans      = 0
-        self.discovery  = discovery
+        self.limits     = self.task_limits | (DISCOVERY_LIMITS if discovery else {})
         opened          = {
             'state':   'open',
             'run_id':  context.run_id,
@@ -171,9 +171,10 @@ class TaskDesk:
             'runbook': self.runbook(),
             'grammar': contract_grammar() if self.writer else '',   # how to write a skill, if it may write one
             'scratch': context.scratch_dir,
-            'limits':  {'max_steps': self.max_steps, 'max_task_s': None if discovery else self.max_task_s},
+            'limits':  self.limits,
         }
         self.publish_open(opened)
+        self.tasks.tracer.emit('task_limits', f'limits: {self.limits}', limits=self.limits, discovery=discovery)
 
     def known(self) -> str:
         """The knowledge store's guide, and how the task writes to it"""
@@ -228,14 +229,12 @@ class TaskDesk:
 
         if self.tasks.task is not task:                  # cancelled, or a tree sent alone replaced it
             self._close(task, 'ended')
-        elif self.discovery:                             # reading code takes long, with no command between
-            return
-        elif self.clock() - self.opened > self.max_task_s:
-            self._end(task, 'gave_up', f'the task took longer than max_task_s {self.max_task_s:.0f} s')
-        elif not self.busy and not self.spoke_lost and self.clock() - self.heard > self.idle_s:
+        elif (limit := self.limits['max_task_s']) is not None and self.clock() - self.opened > limit:
+            self._end(task, 'gave_up', f'the task took longer than max_task_s {limit:.0f} s')
+        elif (idle := self.limits['idle_s']) is not None and not self.busy and not self.spoke_lost and self.clock() - self.heard > idle:
             self.spoke_lost = True
             self.speak(LOST_SPEECH)
-            self.tasks.tracer.emit('agent_lost', f'no command for {self.idle_s:.0f} s; said so and waiting', level='warn')
+            self.tasks.tracer.emit('agent_lost', f'no command for {idle:.0f} s; said so and waiting', level='warn')
 
     # ========== Commands ==========
 
@@ -255,11 +254,11 @@ class TaskDesk:
         if op == 'plan':
             return self._plan(task, [str(subgoal) for subgoal in message['subgoals']])
 
-        if op == 'run' and self.discovery:
-            return {'ok': False, 'message': 'a discovery task runs no skill: it never moves the robot. Write skills; '
-                                            'a task session tries them'}
-
         if op == 'run':
+            if not self.limits['run']:
+                return {'ok': False, 'message': 'a discovery task runs no skill: it never moves the robot. Write skills; '
+                                                'a task session tries them'}
+
             applies = message.get('applies') or []
 
             if not isinstance(applies, list):
@@ -304,8 +303,8 @@ class TaskDesk:
         return {'ok': True, 'message': f'plan v{self.plans} saved', 'version': self.plans}
 
     def _run(self, task: Task, skill: str, inputs: dict, subgoal: str, applies: list[str] = ()) -> dict:
-        if task.steps >= self.max_steps:
-            return {'ok': False, 'message': f'max_steps {self.max_steps} reached: end the task with done or give_up'}
+        if task.steps >= self.limits['max_steps']:
+            return {'ok': False, 'message': f'max_steps {self.limits["max_steps"]} reached: end the task with done or give_up'}
 
         if applies and (problem := self._not_live(applies)):
             return {'ok': False, 'message': f'the step did not run: {problem}'}

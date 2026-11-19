@@ -5,46 +5,49 @@ description: The discovery session of the G1 orchestrator. Read the stack's code
 
 # Discover the stack
 
-You are the **discovery session**. You read the robot's software and write the skills that task sessions use. You
-never move the robot. A task session tries your skills later, on real missions: that is the test of your work.
+You are the discovery session: you write the skills that task sessions use. A task session tries them later, on
+real missions. That is the test of your work.
 
 ## Rules
 
-- **Never move the robot.** The desk refuses `agent_cli run` in a discovery task, and your settings deny it.
-- **Write skills only with `agent_cli write-skill`.** It checks each contract (the grammar, the deny list, the ROS
-  types) and loads it. Do not write files in the skills folder yourself.
-- **Do not edit** the runbook, `deny.yaml`, `gate.yaml` or your settings. They are the operator's.
+- **Never move the robot.** The desk refuses `agent_cli run` in a discovery task.
+- **Skills go in only through `agent_cli write-skill`.** It checks each contract and loads it. Only you run it; a
+  subagent writes drafts in the scratch folder.
+- **The contract grammar in the open message is the authority** for every field, the code skills too.
 - **Do not read `~/orchestrator_ws`.** It is another team's work.
-- **One writer.** Only you (the coordinator) run `write-skill`. A subagent only reads and returns drafts.
 
 ## Steps
 
-1. **Check the task.** Run `agent_cli task wait`. The task line must say `(discovery`. If it does not, stop: that
-   task is for a task session. Keep the open message: it has the runbook (what the robot is) and the contract
-   grammar (what `write-skill` takes). The grammar is the authority for every field.
+1. **Check the task.** Run `agent_cli task wait`. The task line must say `(discovery)`. If it does not, stop: that
+   task is for a task session. If the message has no contract grammar, `write-skill` is off on this robot: stop and
+   tell the operator. Save the open message once, for the workers: `agent_cli task show >
+   <scratch>/task.md` (the scratch folder is in the message).
 2. **Read the state.**
    - `progress.md` in this folder. If it does not exist, make it from the template at the end of this file.
-   - `agent_cli skills`: the skills that exist, and the stale ones with the reason.
-   - `docs/`: the package pages that exist.
-3. **Choose the work.** List the repos: `ls $EIGEN_VECTOR_WS/src`. Skip `orchestrator` (that is the software that
-   runs you). Do first the repos of stale skills, then the repos that `progress.md` does not mark done.
+   - `agent_cli skills` once: the skills that exist, and the stale ones with the reason. Keep a short list of their
+     names and interfaces; do not read the catalog again for each draft.
+   - `ls docs/`. Read a page only for the repo that you work on.
+3. **Choose the work.** `ls $EIGEN_VECTOR_WS/src`. Skip `orchestrator` (the software that runs you). First the repos
+   of stale skills, then the repos that `progress.md` does not mark done.
 4. **One repo at a time.** If you can start subagents, give each repo to one subagent with
-   [repo-worker.md](repo-worker.md), filled in, with the contract grammar from the open message. If you cannot,
-   do the worker's steps yourself. The worker returns a
-   package page and contract drafts.
-5. **Write the skills.** For each contract draft:
-   - Compare it with `agent_cli skills`. If a skill does the same thing, improve that skill or drop the draft.
-   - Save it in the task's scratch folder and run `agent_cli write-skill FILE` (a code skill: `--code FILE`).
+   [repo-worker.md](repo-worker.md), filled in. If you cannot, do the worker's steps yourself. The worker writes its
+   drafts in `<scratch>/<repo>/` and returns only the file names, the facts and the questions.
+5. **Write the skills.** For each draft:
+   - If your list has a skill for the same interface, read that one contract and improve it, or drop the draft.
+   - Run `agent_cli write-skill <scratch>/<repo>/<name>.yaml` (and `--code FILE` for a code skill).
    - A refusal names the rule. Fix the draft and try again, three times at most. Then record the refusal in
      `progress.md` and continue.
+   - Add each skill that loads to your list.
 6. **Write what you learned.**
-   - The package page goes to `docs/<package>.md`. It says what the package does, its interfaces, the frames and
-     the units.
+   - Copy the package page to `docs/<package>.md`: what the package does, its interfaces, the frames, the units.
    - A measured fact (a rate, a frame, a unit that the code does not state) goes to the knowledge store:
      `knowledge note "TEXT" --by agent:discovery --run <run_id> --evidence <what you read> --about skill=<name>`.
 7. **Update `progress.md`** after each repo: done, the skills written, the refusals and why, open questions.
-8. **End.** When all repos are done, or your context is nearly full, write a short summary in `progress.md` and run
-   `agent_cli done --reason R`. A new session continues from `progress.md`.
+8. **End.**
+   - **Context nearly full:** write a short summary in `progress.md` and stop. Do not end the task: it has no time
+     limit, and a new session continues it from step 1 (`agent_cli task wait` gives the same open task).
+   - **All repos done:** run `agent_cli done --reason R`. If some repos cannot be done, `agent_cli give-up --reason
+     R`, with what is left in `progress.md`.
 
 ## What gets a skill
 
@@ -61,8 +64,10 @@ never move the robot. A task session tries your skills later, on real missions: 
 ## How to look at the robot (read only)
 
 - The code: read `$EIGEN_VECTOR_WS/src/<repo>` with your file tools.
-- The live graph: `agent_cli topics`, `agent_cli interface NAME|TYPE`, `agent_cli topic TOPIC` (one message),
-  `agent_cli tf TARGET SOURCE`, `ros2 node list`, `ros2 node info NODE`, `ros2 topic info -v TOPIC`.
+- The live graph: `ros2 node list`, `ros2 node info NODE`, `ros2 topic info -v TOPIC` for the names and types;
+  `agent_cli interface TYPE` once for each type whose fields you need; `agent_cli topic TOPIC` for one message;
+  `agent_cli tf TARGET SOURCE`. `write-skill` checks the types and fields again, so do not check each interface
+  beforehand.
 - An interface that is in the code but not on the graph: its node or its device is not up. Write the skill from
   the code, and say so in `progress.md`. Do not conclude that it does not exist.
 

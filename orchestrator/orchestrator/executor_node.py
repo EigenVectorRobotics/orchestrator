@@ -229,10 +229,10 @@ class ExecutorNode(Node):
 
     def _on_task(self, message: String):
         """Task mode: a task request opens a task for the session"""
-        task, blind, discovery = parse_task_request(message.data)
+        task, options = parse_task_request(message.data)
 
         if self._recorder_ready():
-            self.desk.open(task, self._new_context(), blind, discovery)
+            self.desk.open(task, self._new_context(), **options)
 
     def _recorder_ready(self) -> bool:
         recorder_up = self.count_publishers(RECORDER_TOPIC) > 0         # a latched ready outlives a recorder that died

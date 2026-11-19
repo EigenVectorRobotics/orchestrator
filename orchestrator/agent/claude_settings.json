@@ -1,5 +1,5 @@
 {
-  "$comment": "The task session's permissions (Claude Code), and the base of the discovery session's. scripts/link_agent_dir.sh makes $EIGEN_VECTOR_WS/agent/.claude/settings.json from this file, and adds a Read deny for each stack repo in src/: a task session uses the skills, not the code. Start the session in $EIGEN_VECTOR_WS/agent. The session acts on the robot only through agent_cli, so the executor's validator, deny list and step gate see each step. A guard against mistakes, not a security boundary: a wrapped command (bash -c, a Python script with rclpy) is not matched.",
+  "$comment": "The task session's deny rules, and the base of the discovery session's. A template: scripts/link_agent_dir.sh makes the settings from it. A guard against mistakes, not a security boundary: a wrapped command (bash -c, a Python script with rclpy) is not matched.",
   "permissions": {
     "deny": [
       "Bash(ros2 topic pub:*)",

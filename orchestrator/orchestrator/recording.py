@@ -166,13 +166,15 @@ class Recorder:
             'run_id':  event.get('run_id'),
             'name':    name,
             'blind':   bool(event.get('blind')),
+            'bag':     event.get('bag', True),
             'started': event.get('time'),
             'task':    self.task,                 # the task sentence
             'places':  event.get('places'),       # the blackboard at the start: the places and their poses
         })
         self.task    = None
         self.scratch = event.get('scratch')
-        self.bag.start(self.run / 'bag')
+        if event.get('bag', True):                # a run with no step (discovery) can be long: no bag
+            self.bag.start(self.run / 'bag')
 
     def _end_run(self, event: dict):
         if self.run is None:
