@@ -58,8 +58,8 @@ from sensor_msgs.msg import Image
 from .images import FrameBuffer, ImageError, image_to_jpeg, stamp_seconds
 from .agent_ros import RosReader, RosReadError
 from .sandbox import SandboxConfig, run_python
-from .task_desk import task_summary
 from .knowledge import GRADES
+from .task_desk import task_summary
 from .qos import COMMAND_QOS, LATCHED_QOS
 from .topics import COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC
 

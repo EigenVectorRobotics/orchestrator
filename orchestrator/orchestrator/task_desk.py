@@ -11,7 +11,7 @@ commands on COMMAND_TOPIC:
   the Python that calls other skills (skill_writer.py)
 - skills: the skills that run can run now, as the executor has them
 - grade: the agent's grade of a claim that a step of this task followed (useful, misleading, wrong, not-applicable)
-- done, give_up: end the task; the reply names the applied claims with no grade
+- done, give_up: end the task; the reply names the applied claims with no grade (grade before the end)
 
 A run that follows claims of the knowledge store says so (applies, one or more ids). The step's end changes no
 claim: a success can mean no more than "the message was published", and a failure can have another cause. The
@@ -40,7 +40,7 @@ from dataclasses import asdict
 from skill_registry import contract_grammar
 
 from .places import PLACE_INFO
-from .knowledge import GRADES, OUTCOME, KnowledgeError, KnowledgeStore, Sighting
+from .knowledge import OUTCOME, KnowledgeError, KnowledgeStore, Sighting
 from .tasks import Task, Tasks
 from .tasks import describe_catalog
 from skill_registry.skill_writer import SkillWriter
@@ -67,7 +67,7 @@ def trace_listener(lines: deque, run_id: str) -> Callable[[dict], None]:
 
 def writing_text(folder: Path) -> str:
     """How the task session adds evidence to the knowledge store in folder"""
-    return ('- On a run that follows claims, give their ids in applies. After the step, grade each one once: '
+    return ('- On a run that follows claims, give their ids in applies. After the step, and before done or give_up, grade each one once: '
             '`agent_cli grade <id> useful|misleading|wrong|not-applicable --reason R`. Useful and wrong are evidence; '
             'misleading (it led you wrong here) and not-applicable (it did not fit this case) say that its text or '
             'tags are too wide.'
@@ -76,12 +76,6 @@ def writing_text(folder: Path) -> str:
             f'instead: "When <what failed and how it showed>, <what to do instead>." Confirm or contradict a '
             f'claim you checked: `knowledge --dir {folder} confirm|contradict <id> --by agent:task --run '
             f'<run_id> --evidence ...`.')
-
-
-def _ids(applies) -> list[str]:
-    """The claim ids a run follows: one id or a list, each once, in order"""
-    applies = [applies] if isinstance(applies, str) else list(applies or [])
-    return list(dict.fromkeys(str(claim_id) for claim_id in applies if claim_id))
 
 
 def place_text(info: dict) -> str:
@@ -135,10 +129,9 @@ class TaskDesk:
         self.heard         = 0.0
         self.spoke_lost    = False
         self.plans         = 0
-        self.applied       = {}                      # claim id -> (skill, step) of the last step of this task that followed it
-        self.graded        = set()                   # the claims graded in this task: once each
         self.busy          = 0                       # commands in progress: a session waiting for a step is not quiet
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
+        self._grading      = threading.Lock()        # a claim's grade state: each command runs on its own thread
 
     def open(self, sentence: str, context: Context, blind: bool = False) -> None:
         """Open a task and publish the open message"""
@@ -153,8 +146,6 @@ class TaskDesk:
         self.opened     = self.heard = self.clock()
         self.spoke_lost = False
         self.plans      = 0
-        self.applied    = {}
-        self.graded     = set()
         opened          = {
             'state':   'open',
             'run_id':  context.run_id,
@@ -245,8 +236,13 @@ class TaskDesk:
             return self._plan(task, [str(subgoal) for subgoal in message['subgoals']])
 
         if op == 'run':
+            applies = message.get('applies') or []
+
+            if not isinstance(applies, list):
+                return {'ok': False, 'message': 'applies is a list of claim ids; the step did not run'}
+
             return self._run(task, message['skill'], dict(message.get('inputs') or {}), str(message.get('subgoal', '')),
-                             _ids(message.get('applies')))
+                             list(dict.fromkeys(map(str, applies))))
 
         if op == 'grade':
             return self._grade(task, str(message['claim']), str(message['grade']), str(message.get('reason', '')))
@@ -309,8 +305,14 @@ class TaskDesk:
         reply = {'ok': result.status != 'error', **asdict(result)}
 
         if applies and result.status in ('success', 'failure'):    # an error never ran: there is nothing to grade
-            self.applied |= {claim_id: (skill, task.steps) for claim_id in applies}
-            reply['applies'] = f'grade each once: agent_cli grade <id> {"|".join(GRADES)} --reason R: {", ".join(applies)}'
+            with self._grading:                                    # a claim is graded once per task, after any step
+                for claim_id in applies:
+                    task.applied.setdefault(claim_id, {'graded': False}).update(skill=skill, step=task.steps)
+
+                to_grade = [claim_id for claim_id in applies if not task.applied[claim_id]['graded']]
+
+            if to_grade:
+                reply['applies'] = f'grade each (agent_cli grade): {", ".join(to_grade)}'
 
         return reply
 
@@ -320,32 +322,37 @@ class TaskDesk:
             return 'applies needs a knowledge store, and there is none here'
 
         try:
-            retired = [claim_id for claim_id in applies if self.knowledge.get(claim_id).tier == 'retired']
+            self.knowledge.check_live(applies)
         except KnowledgeError as error:
             return str(error)
 
-        return f'retired: {", ".join(retired)}' if retired else ''
+        return ''
 
     def _grade(self, task: Task, claim_id: str, grade: str, reason: str) -> dict:
-        if claim_id not in self.applied:
+        with self._grading:                              # the check, the write and the mark as one: once per task
+            return self._grade_once(task, claim_id, grade, reason)
+
+    def _grade_once(self, task: Task, claim_id: str, grade: str, reason: str) -> dict:
+        applied = task.applied.get(claim_id)
+
+        if applied is None:
             return {'ok': False, 'message': f'no step of this task followed {claim_id}: grade only a claim that a run gave in applies'}
 
-        if claim_id in self.graded:
+        if applied['graded']:
             return {'ok': False, 'message': f'{claim_id} is graded already in this task'}
 
         if not reason.strip():
             return {'ok': False, 'message': 'a grade needs a reason'}
 
-        skill, step = self.applied[claim_id]
-        sighting    = Sighting(by=f'{OUTCOME}:{skill}', time=time.time(), run=task.run_id, evidence=[f'step:{step}'],
-                               grade=grade, reason=reason.strip())
+        sighting = Sighting(by=f'{OUTCOME}:{applied["skill"]}', time=time.time(), run=task.run_id,
+                            evidence=[f'step:{applied["step"]}'], grade=grade, reason=reason.strip())
 
         try:
             said = f'{claim_id} {self.knowledge.grade(claim_id, sighting)}'
         except KnowledgeError as error:
             return {'ok': False, 'message': str(error)}
 
-        self.graded.add(claim_id)
+        applied['graded'] = True
         self.tasks.tracer.emit('knowledge', said, claim=claim_id, grade=grade)
 
         return {'ok': True, 'message': said}
@@ -380,14 +387,16 @@ class TaskDesk:
         return decision
 
     def _end(self, task: Task, end: str, reason: str) -> dict:
-        ungraded = [claim_id for claim_id in self.applied if claim_id not in self.graded]
+        with self._grading:
+            ungraded = [claim_id for claim_id, applied in task.applied.items() if not applied['graded']]
         self._close(task, end)                           # first: else check() sees it end and closes it as 'ended'
         self.tasks.end_task(task, end, reason)
         message  = f'the task ended: {end}'
 
         if ungraded:                                     # said, not enforced: a grade is the agent's judgement
-            message += f'; not graded: {", ".join(ungraded)}'
-            self.tasks.tracer.emit('knowledge', f'not graded: {", ".join(ungraded)}', level='warn', claims=ungraded)
+            said     = f'not graded in this task (it is closed now): {", ".join(ungraded)}'
+            message += f'; {said}'
+            self.tasks.tracer.emit('knowledge', said, level='warn', claims=ungraded)
 
         return {'ok': True, 'message': message}
 

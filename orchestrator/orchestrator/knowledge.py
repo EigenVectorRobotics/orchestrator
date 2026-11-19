@@ -209,6 +209,13 @@ class KnowledgeStore:
     def get(self, claim_id: str) -> Claim:
         return _lookup(self._load(), claim_id)
 
+    def check_live(self, claim_ids: list[str]) -> None:
+        """Raises when one of the claims does not exist or is retired; one load for all"""
+        claims = self._load()
+
+        for claim_id in claim_ids:
+            _lookup(claims, claim_id, live=True)
+
     def find(self, about: dict, key: str) -> Claim | None:
         """The live value claim with this subject and key"""
         return _match(self._load(), about_of(about), key)
@@ -287,12 +294,11 @@ class KnowledgeStore:
         if sighting.grade not in GRADES:
             raise KnowledgeError(f'no grade {sighting.grade}; use {", ".join(GRADES)}')
 
+        if (confirms := GRADES[sighting.grade]) is not None:
+            return f'{sighting.grade}: ' + self.sight(claim_id, sighting, confirms)
+
         with self._locked() as claims:
             claim = _lookup(claims, claim_id, live=True)
-
-            if (confirms := GRADES[sighting.grade]) is not None:
-                return f'{sighting.grade}: ' + self._sight(claim, sighting, confirms)
-
             claim.grades.append(sighting)
             self._log('grade', claim, sighting.by, grade=sighting.grade, reason=sighting.reason, run=sighting.run)
 
@@ -357,7 +363,7 @@ class KnowledgeStore:
             if not reason:
                 continue
 
-            for sighting in claim.sightings:
+            for sighting in [*claim.sightings, *claim.grades]:
                 sighting.moved = sighting.moved or reason
 
             before                                   = claim.tier
@@ -403,7 +409,7 @@ class KnowledgeStore:
             change += ', ready for the operator to approve as a fact'
 
         self._log('confirm' if confirms else 'contradict', claim, sighting.by, tier_before=before, run=sighting.run,
-                  value=sighting.value, reliability=claim.reliability())
+                  value=sighting.value, reliability=claim.reliability(), grade=sighting.grade, reason=sighting.reason)
 
         return change
 
@@ -476,7 +482,7 @@ def _independent(sightings: list[Sighting]) -> int:
 
 
 def _runs(claim: Claim) -> int:
-    return len({s.run for s in claim.counted.confirmations if s.run})
+    return len({s.run for s in claim.counted.confirmations if s.run and not _weak(s)})
 
 
 def _sources(claim: Claim) -> int:

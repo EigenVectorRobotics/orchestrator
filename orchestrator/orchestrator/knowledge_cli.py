@@ -76,7 +76,8 @@ def _row(claim) -> str:
     older = len(claim.sightings) - good - bad
     older = f' ({older} on older code)' if older else ''
 
-    wide  = f'  graded misleading or not-applicable {len(claim.grades)}x: make the text or tags narrower' if claim.grades else ''
+    wide  = sum(not s.moved for s in claim.grades)
+    wide  = f'  graded misleading or not-applicable {wide}x: make the text or tags narrower' if wide else ''
 
     return (f'{claim.id}  {claim.tier:<11} +{good}/-{bad}{older} '
             f'r={claim.reliability():.2f}{ready}  ({claim.subject()}) {claim.text}{value}{wide}')

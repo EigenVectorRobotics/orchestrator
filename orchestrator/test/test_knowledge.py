@@ -9,8 +9,8 @@ from orchestrator.knowledge_cli import main as cli
 PANEL = {'place': 'freight_elevator_call_panel'}
 
 
-def seen(by='agent:task', run='r1', value=None, t=100.0):
-    return Sighting(by=by, time=t, run=run, evidence=['record:3'], value=value)
+def seen(by='agent:task', run='r1', value=None, t=100.0, grade=None):
+    return Sighting(by=by, time=t, run=run, evidence=['record:3'], value=value, grade=grade, reason='why' if grade else None)
 
 
 def ready_belief(store, count=11):
@@ -244,7 +244,7 @@ def test_a_skill_claim_with_no_record_of_its_code_counts_nothing_until_it_is_see
 def test_only_useful_and_wrong_grades_are_evidence(tmp_path):
     store    = KnowledgeStore(tmp_path)
     claim, _ = store.note('When it stops short, walk again.', seen(), {'skill': 'navigate_to'})
-    graded   = lambda grade, run: Sighting(by='outcome:navigate_to', time=200.0, run=run, grade=grade, reason='why')
+    graded   = lambda grade, run: seen(by='outcome:navigate_to', run=run, t=200.0, grade=grade)
     store.confirm(claim.id, seen(by='operator', run='r2'))
     claim    = store.get(claim.id)
     assert claim.tier == 'belief'
@@ -261,3 +261,13 @@ def test_only_useful_and_wrong_grades_are_evidence(tmp_path):
 
     with pytest.raises(KnowledgeError):
         store.grade(claim.id, graded('great', 'r7'))
+
+
+def test_a_useful_grade_in_a_second_run_does_not_make_a_belief(tmp_path):
+    store    = KnowledgeStore(tmp_path)
+    claim, _ = store.note('When it stops short, walk again.', seen(run='r1'), {'skill': 'navigate_to'})
+    store.confirm(claim.id, seen(by='operator', run='r1'))                  # two sources, one run
+
+    store.grade(claim.id, seen(by='outcome:navigate_to', run='r2', grade='useful'))
+
+    assert store.get(claim.id).tier == 'observation'                        # a grade is no run for graduation

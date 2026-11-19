@@ -223,5 +223,16 @@ def test_done_names_the_claims_with_no_grade_and_still_ends_the_task(tmp_path):
     _command(d, op='grade', claim=lesson, grade='useful', reason='it walked again and arrived')
     _command(d, op='done', reason='arrived')
 
-    assert d.replies[-1]['ok'] and d.replies[-1]['message'].endswith(f'not graded: {place}')
+    assert d.replies[-1]['ok'] and 'not graded' in d.replies[-1]['message'] and d.replies[-1]['message'].endswith(f': {place}')
     assert d.opened[-1]['state'] == 'closed' and not store.get(place).confirmations[1:]
+
+
+def test_a_step_that_follows_an_unknown_claim_does_not_run(tmp_path):
+    store, (lesson,) = _claims(tmp_path, 'When it stops short, walk again.')
+    d = _desk(FakeRunner({'navigate_to': [Status.SUCCESS]}), tmp_path, knowledge=store)
+
+    _command(d, op='run', skill='navigate_to', inputs={'goal': '{call_panel}'}, subgoal='walk', applies=[lesson, 'C-9999'])
+    _command(d, op='run', skill='navigate_to', inputs={'goal': '{call_panel}'}, subgoal='walk', applies=lesson)
+
+    assert not d.replies[0]['ok'] and 'no claim C-9999' in d.replies[0]['message']
+    assert not d.replies[1]['ok'] and 'a list of claim ids' in d.replies[1]['message'] and d.tasks.task.steps == 0
