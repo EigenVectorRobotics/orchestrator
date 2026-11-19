@@ -10,8 +10,8 @@ What runs where: how to reach each machine, the workspace in use, the branch of 
 
 Three kinds of statement, marked as such:
 
-- **Checked (2026-11-08, evening):** seen on the machine then. This is the only machine state in this part, and it has not been checked since. Everything not marked otherwise is of this kind.
-- **To deploy:** the branch the team runs from now on. It is a plan, not machine state: the machine still had what the row says was checked.
+- **Checked (2026-11-19, afternoon):** seen on the machine then, during the first robot run of `integration`. This is the only machine state in this part. Everything not marked otherwise is of this kind.
+- **Checked (2026-11-08):** seen then and not looked at since; marked where it appears.
 - **GitHub (2026-11-17):** read from the repositories on GitHub, not from a machine.
 
 What to check on the robot is in "Re-check on the robot", as questions.
@@ -27,10 +27,12 @@ What to check on the robot is in "Re-check on the robot", as questions.
 - `env.sh` in each workspace is written by `eigen_vector/scripts/deploy.sh`; source it before any ROS command on that machine. On the NUC, `~/orchestrator_ws/env.sh` sources the stack's environment too.
 - Passwords are not kept in the repository: ask the team. From the laptop, the Orin and the Thor are reached most reliably through the NUC (`ssh vector@vector-nuc "ssh unitree@192.168.123.164 '...'"`); `ssh -J` to them has timed out.
 - `deploy.sh launch orin` reaches the Orin at `192.168.123.164` through the NUC, so the laptop needs that address's current host key in `known_hosts`.
+- A build by hand uses the arguments `deploy.sh` uses: `COLCON_ARGS` in `eigen_vector` `config/nuc.env` and `config/orin.env` (`--symlink-install` and `CycloneDDS_DIR`). On the NUC, one worker and never with the robot standing ([run.md](run.md#2-deploy-on-the-nuc)).
+- `git fetch` on the NUC and the Orin needs your SSH agent: `ssh -A` to the NUC, and `ssh -A` again from there to the Orin.
 
 ### Repositories on each machine
 
-Branch @ commit, and local changes, as checked on 2026-11-08. "No upstream": the local branch tracks no remote branch. A row marked **to deploy** names the branch the team runs from now on; what was checked is in its last column until the machine is updated.
+Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a row holds the local changes the machine had before the branch in the row was checked out; `git stash list` in that checkout shows it.
 
 **bringup comes from `eigen_vector` `main`**, directory `bringup/`. Since 2026-10-26 (`eigen_vector` `8e498d7`, "bringup lives here") the package lives in `eigen_vector`; `deploy.sh` sends it and `provision.sh` copies it to `src/bringup` on each machine, so it is never a git checkout there. The separate repository `EigenVectorRobotics/bringup` stopped at 2026-10-27 (`4c70a72`): its `nuc.launch.py` starts only the arm visual servoing (no robot interface, navigation, SLAM or `door_state_node`), so `nuc_up` cannot pass with it. Do not deploy from it.
 
@@ -38,11 +40,11 @@ Branch @ commit, and local changes, as checked on 2026-11-08. "No upstream": the
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `bringup` | **to deploy:** `eigen_vector` `main`, `bringup/` (`dfabc71` on GitHub, 2026-11-17), copied by `deploy.sh` | checked: not a git checkout, edited by hand (see "Only on a machine") |
-| `manipulation_stack` | **to deploy:** `main` (`4f12ae1` on 2026-11-08: the gripper estimation merged as #10; contains `e63f2b8`, body_ekf `~/reset`). **GitHub:** `main` is `f8d28b3`, with `ik_server` (#11, 2026-11-14), which `check_reach` needs | checked: `cam-gripper-estimation` @ `ba0cbfa` with 6 files changed, not committed (`g1_pilot/src/move_to_pose/{planning.cpp,server.cpp,server.h}`, `humanoid_arm_skills/humanoid_arm_skills/gripper_pose_estimator.py`, `humanoid_arm_skills/launch/humanoid_arm_visual_servoing.launch.py`, `humanoid_arm_skills/package.xml`) |
-| `navigation_stack` | `jean/elevator-side` @ `39e6139` | no upstream; one untracked file, `slam_elevatorlio/slam_elevatorlio/slam_elevatorlio_parameters.py` |
-| `elevator_states` | `jean/door-state-in-out` @ `8ad0552` | no upstream; clean |
-| `unitree_interface` | `jean/fsm-id-topic` @ `e234864` | no upstream; clean. **GitHub:** merged into `main` (#3, `421e70f`, 2026-11-09), and the branch is deleted; `eigen_vector` `repos/nuc.repos` names `main` |
+| `bringup` | not a git checkout | `nuc.launch.py` includes `door_state_node.launch.py`; `cyclonedds.xml` has `MaxAutoParticipantIndex` 120; `floor_map_selector` is still in `nuc.launch.py` and `CMakeLists.txt` (item 5), so this is not a plain copy of `eigen_vector` `main` |
+| `manipulation_stack` | `fix/button-press-aim` @ `826c8d7` (since 2026-11-19; the team's choice for the press) | clean. Stash "nuc: fix/final-leg-foot-world worktree ... before fix/button-press-aim 2026-11-19": the earlier `fix/final-leg-foot-world` @ `f8d28b3` worktree, of which only a `planning.cpp` change and a D435 mount in the URDF (x 0.068963) were not on the branch. The D435 mount now is the branch's (0.081099, 0.023467, 0.414921) |
+| `navigation_stack` | `main` @ `91eef10` | 33 files changed, not committed (not looked at) |
+| `elevator_states` | `main` @ `d71ad3d` | 1 file changed, not committed: `config/elevator_door_state.yaml` `places_file` is `/home/vector/maps/fvd_map.places.yaml` (see "Only on a machine") |
+| `unitree_interface` | `main` @ `421e70f` | clean |
 | `livox_ros_driver2` | `master` @ `7e4114a` | clean |
 | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
 
@@ -50,15 +52,15 @@ Branch @ commit, and local changes, as checked on 2026-11-08. "No upstream": the
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `orchestrator` | **to deploy:** `integration` | checked: `jean/planner-tree-library` @ `e99f402` |
+| `orchestrator` | `integration` @ `00a6297` | clean; built 2026-11-19 |
 
 #### Orin, `~/eigen_vector_ws/src`
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `bringup` | from `eigen_vector` `main`, `bringup/`, copied by `deploy.sh`; not a git checkout (copied 2026-11-02) | |
-| `manipulation_stack` | `cam-gripper-estimation` @ `ba0cbfa` | 2 files changed, not committed |
-| `track_anything` | `perf/track3d-latest-frame` @ `191b222` | no upstream; 7 files changed, not committed |
+| `bringup` | not a git checkout; `orin.launch.py` starts `gripper_pose_estimator` | |
+| `manipulation_stack` | `fix/button-press-aim` @ `826c8d7` (since 2026-11-19) | clean. Stash "orin: main worktree ... before fix/button-press-aim 2026-11-19": `main` @ `4f12ae1` with 3 files changed (`gripper_fit.py`, `gripper_pose_estimator.py`, `utils.py`). Built: `g1_description`, `humanoid_manipulation_interfaces`, `humanoid_arm_skills`. Not built: `g1_pilot`, which needs `casadi`, not installed on the Orin; the Orin runs no `g1_pilot` node. `eigen_vector` `repos/orin.repos` does not list `manipulation_stack` |
+| `track_anything` | `perf/track3d-latest-frame` @ `191b222` | 7 files changed, not committed |
 | `vlm` | `main` @ `3ca4861` | clean |
 | `unitree_interface` | `main` @ `5e3257a` | clean |
 | `rmw_cyclonedds` | `humble` @ `e370e09` | clean |
@@ -67,56 +69,53 @@ Branch @ commit, and local changes, as checked on 2026-11-08. "No upstream": the
 
 | Workspace | Repository | Branch @ commit | Local state |
 |---|---|---|---|
-| `~/eigen_vector_ws_bringup` | `bringup` | from `eigen_vector` `main`, `bringup/`, copied by `deploy.sh`; not a git checkout | |
+| `~/eigen_vector_ws_bringup` | `bringup` | not a git checkout | |
 | | `vlm` | `main` @ `3ca4861` | clean; `ground_server` runs from here |
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
-| `~/orchestrator_ws` | `orchestrator` | **to deploy:** `integration` | checked: `tingxual/vec-125-scope-the-agentic-reasoning-topic` @ `33af8fd` (2026-11-04), a branch now deleted on GitHub and in the team's clones. `launch_thor_stack` starts `orchestrator/orchestrator/vlm/server.py` from this checkout; since `thor_up` checks only the grounding, preflight does not need it |
-| `~/eigen_vector_ws` | `track_anything` `trt` @ `f5a1f47`, `vlm` `thor` @ `3ca4861` | | not in use |
+| `~/orchestrator_ws` | `orchestrator` | `ltx-dev` @ `8d8fe7d` | has no `orchestrator/orchestrator/vlm/server.py`, so `launch_thor_stack` cannot start `vlm_server` from it (item 12) |
+| `~/eigen_vector_ws` | `track_anything` `trt` @ `f5a1f47`, `vlm` `thor` @ `3ca4861` (checked 2026-11-08) | | not in use |
 
-Running when checked (2026-11-08): on the Thor, the tmux session `eigen_vector_bringup` (`ground_server`); no `vlm_server` session, so the VLM endpoint `http://vector-thor:8090/v1` did not answer. The Thor rebooted on its own on 2026-11-08 at about 21:20 and came back with no stack ([troubleshooting.md](troubleshooting.md), "Machines and processes").
+Running when checked (2026-11-19): the Thor had booted at 15:34 and ran no stack: no `eigen_vector_bringup` session, no `vlm_server` or `cosmos_vlm` session; the container `edgellm` came up with the bringup started by hand at 16:28. The VLM endpoint `http://vector-thor:8090/v1` was not started. The Thor also came back with no stack after it rebooted on its own on 2026-11-08 ([troubleshooting.md](troubleshooting.md), "Machines and processes").
 
 ### Only on a machine (not in any repository)
 
 | Machine | Path | What | Status |
 |---|---|---|---|
-| NUC | `~/eigen_vector_ws/src/bringup/config/cyclonedds.xml` | `MaxAutoParticipantIndex` 120, because CycloneDDS's automatic participant index range (32 by default) filled up and new processes failed with `Failed to find a free participant index` | **GitHub:** now on `eigen_vector` `main` (`ParticipantIndex` auto, `MaxAutoParticipantIndex` 120; PR #3 and `dfabc71`, 2026-11-14): a redeploy from `main` keeps it, no hand edit needed |
-| NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py` | **GitHub:** on `eigen_vector` `main` since 2026-11-10 (PR #2 from `jean/door-state-bringup`, `77382fb`): a redeploy from `main` starts `door_state_node` with the NUC stack, so `nuc_up` gets `/door_state`. Its door regions are set for `two_floor_clean.pcd` (`elevator_states` `config/elevator_door_state.yaml`, as the launch file notes); check them against the map in use ([The map](run.md#the-map)). On 2026-11-08 the NUC ran a bringup without it, and `door_state_node` ran in its own tmux session `door_state` ([run.md](run.md#6-bring-a-machine-up-by-hand)) |
-| NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two: robot interface, arm control and foxglove (`tmux -L eigen_vector`); navigation and SLAM (`tmux -L nav`, log `~/nav_launch.log`) | what ran on 2026-11-08 evening; not in any repository |
-| NUC | `~/maps/<map>.pcd`, `~/maps/<map>.places.yaml` (backups `*.bak_*`) | the maps and their places files; the one in use: [The map](run.md#the-map) | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
-| NUC | `~/fake_button_pose.py` | fixed button poses for `press_button` with no Thor | disabled: do not start it |
-| NUC | `~/watch_records_*.sh`, `~/ekf_reset.sh` | an old EKF reset outside the trees | not used: `ekf_hold` calls `reset_ekf` |
+| NUC | `~/eigen_vector_ws/src/bringup/config/cyclonedds.xml` | `MaxAutoParticipantIndex` 120, because CycloneDDS's automatic participant index range (32 by default) filled up and new processes failed with `Failed to find a free participant index` | present (2026-11-19). **GitHub:** also on `eigen_vector` `main` (PR #3 and `dfabc71`, 2026-11-14), so a redeploy from `main` keeps it |
+| NUC | `~/eigen_vector_ws/src/bringup/launch/nuc.launch.py` | includes `elevator_states`' `door_state_node.launch.py`, and still the hand-made `floor_map_selector` | `door_state_node` starts with the stack (2026-11-19). **GitHub:** the include is on `eigen_vector` `main` since 2026-11-10 (PR #2, `77382fb`); `floor_map_selector` is not (item 5) |
+| NUC | `~/eigen_vector_ws/src/elevator_states/config/elevator_door_state.yaml` | `places_file: /home/vector/maps/fvd_map.places.yaml`, the door areas (`freight elevator cabin`, `freight elevator hall`) of the map in use. Committed on `elevator_states` `main` @ `d71ad3d`: `two_floor_clean_cabin2.places.yaml`; the refactored `elevator_states` has no such file, so the value cannot be committed there | set and built 2026-11-19. Change it with the map ([The map](run.md#the-map)), then build `elevator_states` |
+| NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two (what ran on 2026-11-08) | not used on 2026-11-19: the stack ran from one `nuc.launch.py` |
+| NUC | `~/maps/<map>.pcd`, `~/maps/<map>.places.yaml` (backups `*.bak_*`) | the maps and their places files; the one in use: [The map](run.md#the-map). The freight elevator is `fvd_map` (its places come from `two_floor_clean_cabin2`); `fvd_map_clean_elevator1` and `fvd_map_clean_elevator2` are two other elevators | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
+| NUC | `~/fake_button_pose.py` | fixed button poses for `press_button` with no Thor | still there (2026-11-19), disabled: do not start it |
+| NUC | `~/watch_records_20261108.sh`, `~/ekf_reset.sh` | an old EKF reset outside the trees | still there (2026-11-19), not used: `ekf_hold` calls `reset_ekf` (item 6) |
+| NUC | `~/run_viewer/` | the old hand copy of the Run Viewer | still there (2026-11-19); preflight starts the viewer from this repository (item 10) |
 | NUC | `~/places_markers.py` | publishes the places as markers for Foxglove (`tmux -L places`) | optional; stops with a reboot |
 | NUC | `~/orch_runs/` | run records: one folder per bring-up session, `runs/<n>-<tree>/` each | the operator clears old runs by hand |
 
-### Expected after the `integration` deploy (from the code, not checked)
+### After the `integration` deploy
 
-Paths the orchestrator on `integration` creates or uses on the NUC, read from the code. None of them was checked on a machine.
+Paths the orchestrator on `integration` creates or uses on the NUC.
 
-| Path | What |
-|---|---|
-| `~/orch_state/press_references.jsonl` | the presses judged pressed, for stance suggestions; the old `~/.ros/orchestrator_press_references.jsonl` is read while only it exists, and copied here on the first save (the old file stays) |
-| `~/bags/` | the site's raw bag (`raw_bag` in `orchestrator/config/sites/stanley.yaml`), recorded by the launch |
-| `~/orchestrator.log` | the orchestrator's log when started as in [run.md](run.md#3-start-the-orchestrator); the executor logs the agent bridge link there, and `start.sh` and `status.sh` read it |
-| tmux `run_viewer` | the Run Viewer, started by preflight (`launch_run_viewer`) from `~/orchestrator_ws/src/orchestrator/run_viewer/`; a hand copy in `~/run_viewer/` is no longer used (item 10 below) |
+| Path | What | Seen (2026-11-19) |
+|---|---|---|
+| `~/orch_state/press_references.jsonl` | the presses judged pressed, for stance suggestions; the old `~/.ros/orchestrator_press_references.jsonl` is read while only it exists, and copied here on the first save (the old file stays) | neither file exists yet: no press has been judged pressed |
+| `~/bags/` | the site's raw bag (`raw_bag` in `orchestrator/config/sites/stanley.yaml`), recorded by the launch | yes, `raw_<date>_<time>/`; it closes only when the orchestrator stops with Ctrl-C |
+| `~/orchestrator.log` | the orchestrator's log when started as in [run.md](run.md#3-start-the-orchestrator); the executor logs the agent bridge link there, and `start.sh` and `status.sh` read it | yes |
+| tmux `run_viewer` | the Run Viewer, started by preflight (`launch_run_viewer`) from `~/orchestrator_ws/src/orchestrator/run_viewer/` | not checked |
 
 ### Re-check on the robot
 
 Questions the next check must answer. Each is open until someone looks on the machine.
 
-1. NUC and Thor: does `~/orchestrator_ws/src/orchestrator` run `integration`, at which commit, with which local changes?
-2. NUC: is `bringup` redeployed from `eigen_vector` `main`, so that `nuc.launch.py` starts `door_state_node` and `cyclonedds.xml` has `MaxAutoParticipantIndex` 120 with no hand edit? Is `floor_map_selector` gone with it?
-3. NUC: does the stack run from one `nuc.launch.py`, or still from `~/nuc_manip_only.launch.py` and `~/nuc_nav_only.launch.py`?
-4. NUC: which `manipulation_stack` is built? Is it `main` at `f8d28b3` or later, with `/check_reach` (`ik_server`) and `/body_ekf/reset`, and are the 6 uncommitted files on `cam-gripper-estimation` kept somewhere or dropped?
-5. NUC: does `unitree_interface` run from `main` (with `/unitree_interface/fsm_id`) or still from `jean/fsm-id-topic`?
-6. NUC: do `navigation_stack` (`jean/elevator-side`), `elevator_states` (`jean/door-state-in-out`) and their local changes still run, while `eigen_vector` `repos/nuc.repos` names `navigation_stack` `main` and `elevator_states` `feat/door_state`? Which is meant to run?
-7. NUC: does the places file in use exist, with the `floors` table ([The map](run.md#the-map))?
-8. Orin: which `manipulation_stack` and `track_anything` are built, and does `orin.launch.py` start `gripper_pose_estimator`?
-9. Thor: does the tmux session `eigen_vector_bringup` come up after a reboot, and is `vlm_server` started (`launch_thor_stack` starts it in the session `vlm_server`)?
-10. Laptop: is the agent bridge address in `orchestrator/config/sites/stanley.yaml` (`agent_bridge`) the operator laptop's Tailscale address?
+1. Orin: with the gripper in the camera's view, does `gripper_pose_estimator` publish `right_dex1_base_link_estimate` and `left_dex1_base_link_estimate`, and does a press record `residual_from` other than `encoders`? On 2026-11-19 neither frame was seen (the arm was out of view), and every press used the encoders.
+2. Orin: where do the CycloneDDS errors `invalid data size` and `string data is not null-terminated` (`rmw_cyclonedds_cpp/src/serdata.cpp:384`) come from? `realsense2_camera_node` and `gripper_pose_estimator` print them, 41 to 135 times per launch; a message type that differs between Humble (Orin) and Jazzy (NUC) is suspected.
+3. NUC: what are the 33 uncommitted files in `navigation_stack`, and is `main` with them what is meant to run?
+4. NUC: should `bringup` be redeployed from `eigen_vector` `main`, which removes `floor_map_selector` (item 5)?
+5. Thor: should `eigen_vector_bringup` start on boot, and which `orchestrator` checkout should the Thor have for `vlm_server` (item 12)?
 
 ### Not in use
 
-Other workspaces on the machines; nothing that runs comes from them.
+Other workspaces on the machines; nothing that runs comes from them (checked 2026-11-08).
 
 - NUC: `eigen_vector_orch_ws`, `eigen_vector_ws_apt`, `eigen_vector_ws_lio`, `fsm_check_ws`, `nav_fix_ws`, `scratch_ekf_tf_ws`, `unitree_test_ws`
 - Orin: `eigen_vector_scratch_ws`, `eigen_vector_ws_nav`, `ev_humble_ws`, `humble_ws`, `thor_aligned_ws`
@@ -133,7 +132,7 @@ for d in ~/eigen_vector_ws/src/*/; do
 done
 ```
 
-Then change the date under "How to read it", move each **to deploy** row that is now on the machine into a plain row, remove the questions answered, and update the status of each item below.
+Then change the date under "How to read it", update the tables, remove the questions answered, and update the status of each item below.
 
 ## What the machines must change
 
@@ -144,7 +143,7 @@ The orchestrator on `integration` expects some things from the NUC, the Orin and
 
 Status words: **open** (not done), **check** (may already be done; confirm on the machine), **done**. Each item also says whether the repository side (contracts, trees, preflight, and the other repositories on GitHub) is done; that never makes the robot side done.
 
-Repository side checked against `ltx-reorg` and GitHub on 2026-11-17. Robot side last seen on 2026-11-08 (the snapshot above).
+Repository side checked against `ltx-reorg` and GitHub on 2026-11-17. Robot side last seen on 2026-11-19 (the snapshot above), by a Claude Code session operating the first `integration` run.
 
 ### NUC
 
@@ -154,92 +153,84 @@ Repository side checked against `ltx-reorg` and GitHub on 2026-11-17. Robot side
 - **Done in this repository:** the `ready_walk` contract is deleted; `nuc_up` no longer lists the service (it still checks `/unitree_interface/fsm_id` and `/unitree_interface/current_mode`, which show that `unitree_interface` runs); the fake robot no longer serves it.
 - **On the NUC:** nothing to remove. `unitree_interface` may keep the service; no tree calls it. Never call it on a standing robot: it damps the robot, then stands it up again.
 
-#### 2. `unitree_interface` must publish `/unitree_interface/fsm_id`. Status: check
+#### 2. `unitree_interface` must publish `/unitree_interface/fsm_id`. Status: done (2026-11-19)
 
 - **Why:** `robot_ready` (preflight `robot_up`) reads it, and `nuc_up` waits for it. Without it every preflight stops with "I am not in ready locomotion".
-- **Source:** `unitree_interface` `main`: `jean/fsm-id-topic` was merged as #3 (`421e70f`, 2026-11-09) and the branch is deleted. The NUC ran the branch head `e234864` when checked on 2026-11-08, which has the topic.
-- **Repository side:** done. `robot_ready` and `nuc_up` read the topic; `eigen_vector` `repos/nuc.repos` names `unitree_interface` `main`.
-- **Check:** `ros2 topic echo --once /unitree_interface/fsm_id` gives `801` with the robot standing in ready locomotion.
+- **On the NUC:** `unitree_interface` `main` @ `421e70f`. The topic gives `0` with the robot in the gantry and `801` standing in ready locomotion; preflight's `robot_ready` passed.
 
-#### 3. `door_state_node` must start with the NUC stack. Status: check
+#### 3. `door_state_node` must start with the NUC stack. Status: done (2026-11-19)
 
 - **Why:** `nuc_up` waits for `/door_state`, and `door_open` reads it. Preflight starts the NUC stack with `bringup nuc.launch.py` (`launch_nuc_stack`).
-- **Repository side:** done. `jean/door-state-bringup` is merged into `eigen_vector` `main` (#2, `77382fb`, 2026-11-10): its `bringup/launch/nuc.launch.py` includes `door_state_node.launch.py`. The bringup redeployed on 2026-11-08 did not include it; `door_state_node` then ran by hand in the tmux session `door_state`.
-- **Change on the NUC:** redeploy bringup from `eigen_vector` `main`, so that `launch_nuc_stack` alone gives `/door_state`. The door regions are set for `two_floor_clean.pcd`; check them against the map in use ([The map](run.md#the-map)).
-- **Check:** after `launch_nuc_stack`, `ros2 topic hz /door_state` shows messages without any hand-started session.
+- **On the NUC:** `nuc.launch.py` includes `door_state_node.launch.py`; `/door_state` publishes at 5 to 10 Hz with no hand-started session.
+- **With every map change:** `places_file` in `elevator_states` `config/elevator_door_state.yaml` on the NUC names the places file whose `cabin` and `hall` areas it uses ("Only on a machine"); set it to the map in use and build `elevator_states`.
 
-#### 4. Run the NUC stack from `nuc.launch.py`, not the two split launch files. Status: check
+#### 4. Run the NUC stack from `nuc.launch.py`, not the two split launch files. Status: done (2026-11-19)
 
-- **Why:** the stale-node check in preflight (`no_stray_processes`) expects every stack node to come from `nuc.launch.py`. On 2026-11-08 the NUC ran `~/nuc_manip_only.launch.py` and `~/nuc_nav_only.launch.py` instead. Then every preflight warns about every node and pauses 4.5 s.
-- **Repository side:** `launch_nuc_stack` starts `bringup nuc.launch.py`, and `HOSTS` in `orchestrator/orchestrator/health/stale_nodes.py` expects `nuc.launch.py` on the NUC and `orin.launch.py` on the Orin.
-- **Change:** go back to the single `nuc.launch.py` (with item 3), or add the split launch files to the NUC's entry in `HOSTS`.
+- **Why:** the stale-node check in preflight (`no_stray_processes`) expects every stack node to come from `nuc.launch.py` (`HOSTS` in `orchestrator/orchestrator/health/stale_nodes.py`).
+- **On the NUC:** the stack ran from one `bringup nuc.launch.py`, and preflight passed with no stale-node warning.
 
 #### 5. Remove `floor_map_selector`. Status: open
 
 - **Why:** `nuc_up` no longer waits for `/prior_map` (`8cbc9be`). Foxglove shows the current floor from `/route_planner/terrain`.
 - **Repository side:** done. `eigen_vector` `main` has no `floor_map_selector`, so a bringup deploy from `main` replaces the hand-edited copy.
-- **Change on the NUC:** remove the hand-made `~/eigen_vector_ws/src/bringup/scripts/floor_map_selector.py`, its line in bringup's `CMakeLists.txt` and its node in `launch/nuc.launch.py`, at the next bringup deploy.
+- **Change on the NUC:** remove the hand-made `~/eigen_vector_ws/src/bringup/scripts/floor_map_selector.py`, its line in bringup's `CMakeLists.txt` and its node in `launch/nuc.launch.py`, at the next bringup deploy. Still there on 2026-11-19.
 
 #### 6. Stop the old EKF-reset watcher. Status: open
 
 - **Why:** each look resets the body EKF itself with `reset_ekf` (`/body_ekf/reset`). A watcher started beside a tree resets the EKF a second time.
 - **Repository side:** done; nothing in this repository starts the watcher.
-- **Change on the NUC:** do not start `~/watch_records_*.sh`. Delete it and `~/ekf_reset.sh` (and `~/ekf_reset.sh.restart_bak`).
+- **Change on the NUC:** do not start `~/watch_records_20261108.sh`. Delete it and `~/ekf_reset.sh` (and `~/ekf_reset.sh.restart_bak`). Still there on 2026-11-19.
 
-#### 7. `manipulation_stack` must provide what the press flow uses. Status: check
+#### 7. `manipulation_stack` must provide what the press flow uses. Status: done, except the fingertip estimate (check)
 
-The NUC ran `cam-gripper-estimation` @ `ba0cbfa` with uncommitted changes when checked; `main` is the branch to deploy. On GitHub, `main` (`f8d28b3`, 2026-11-14) has `ik_server` (#11) and `e63f2b8`. Confirm that the deployed build has all of these:
+The NUC runs `fix/button-press-aim` @ `826c8d7` since 2026-11-19, built as `deploy.sh` builds it. Seen on 2026-11-19:
 
-| Needed by | What | Source |
+| Needed by | What | Seen |
 |---|---|---|
-| `check_reach` (every look) | service `/check_reach`, type `humanoid_manipulation_interfaces/srv/CheckReach`, from `ik_server`, started by `move_to_pose.launch.py` | `main` since #11 (`f8d28b3`); was branch `feat/ik-server` |
-| `reset_ekf` (every look) | service `/body_ekf/reset` | `e63f2b8` or later (in `main`) |
-| `press_button` capture | static TF frames `right_ee` and `left_ee` on `*_wrist_yaw_link`, published by `move_to_pose` | the version that stopped publishing `/right_ee_pose` and `/left_ee_pose` |
-| `press_button` residual (the real fingertip) | TF frames `right_dex1_base_link_estimate` and `left_dex1_base_link_estimate`, the gripper's depth fit (`config.capture` in `g1_skills/g1_skills/press_button/contract.yaml`) | `gripper_pose_estimator` on the Orin (item 11); without them the residual uses the encoders. Not yet tested on the robot |
-| `set_press_offset` | `/move_to_pose_server/set_parameters` | |
+| `check_reach` (every look) | service `/check_reach`, type `humanoid_manipulation_interfaces/srv/CheckReach`, from `ik_server`, started by `move_to_pose.launch.py` | present; every look of the run used it |
+| `reset_ekf` (every look) | service `/body_ekf/reset` | present |
+| `press_button` capture | static TF frames `right_ee` and `left_ee` on `*_wrist_yaw_link`, published by `move_to_pose` | present (`tf2_echo foot_world right_ee`) |
+| `press_button` residual (the real fingertip) | TF frames `right_dex1_base_link_estimate` and `left_dex1_base_link_estimate`, the gripper's depth fit (`config.capture` in `g1_skills/g1_skills/press_button/contract.yaml`) | **not seen**: every press of 2026-11-19 recorded `residual_from: "encoders"` (session `20261119T214319Z-198c58`, runs 002 and 003, on the earlier branch). Re-check question 1 |
+| `set_press_offset` | `/move_to_pose_server/set_parameters` | present |
 
-- **Check:** `ros2 service list | grep -E "check_reach|body_ekf/reset"` and `ros2 run tf2_ros tf2_echo foot_world right_ee`.
 - If `/check_reach` is missing, every look fails and the robot asks a person to press each button.
 
-#### 8. The places file must have a `floors` table. Status: check
+#### 8. The places file must have a `floors` table. Status: done (2026-11-19)
 
-- **Check:** the places file in use has what [The map](run.md#the-map) lists.
+- `fvd_map.places.yaml` has the `floors` table and the freight elevator's places; the site file names it (`orchestrator/config/sites/stanley.yaml`).
 
 #### 9. Clear old press references after a map or place change. Status: open, when needed
 
-- The executor keeps every press judged pressed in `~/orch_state/press_references.jsonl` (it reads the old `~/.ros/orchestrator_press_references.jsonl` while only that exists, and copies it there on the first save; the old file stays) and uses it to suggest stances. The file never expires. After the map or a panel place moves, move the new file and the old one aside, or the old one comes back.
+- The executor keeps every press judged pressed in `~/orch_state/press_references.jsonl` (it reads the old `~/.ros/orchestrator_press_references.jsonl` while only that exists, and copies it there on the first save; the old file stays) and uses it to suggest stances. The file never expires. After the map or a panel place moves, move the new file and the old one aside, or the old one comes back. On 2026-11-19 neither file existed.
 
-#### 10. Small things the demo assumes. Status: check
+#### 10. Small things the demo assumes. Status: open
 
-- `launch_run_viewer` starts the viewer from this repository (`~/orchestrator_ws/src/orchestrator/run_viewer/`; repository side done, `9e8e87e`). The hand copy in `~/run_viewer/` is no longer used; move it aside once the new one runs.
-- `~/fake_button_pose.py` stays disabled; delete it if nobody needs it.
+- `launch_run_viewer` starts the viewer from this repository (`~/orchestrator_ws/src/orchestrator/run_viewer/`; repository side done, `9e8e87e`). The hand copy in `~/run_viewer/` is no longer used; move it aside. Still there on 2026-11-19.
+- `~/fake_button_pose.py` stays disabled; delete it if nobody needs it. Still there on 2026-11-19.
 
-#### 10b. Build the `g1_skills` package. Status: open
+#### 10b. Build the `g1_skills` package. Status: done (2026-11-19)
 
-- **Why:** the skills are the package `g1_skills`, one folder per skill (contract and code). Every node reads the contracts from it, and the executor loads the skills' code from it.
-- **Change:** build the three packages, one worker, as in [run.md](run.md#2-deploy-on-the-nuc).
-- **Check:** the executor logs `<n> skills, <m> places` at start, `<n>` the number of skill folders in `g1_skills/g1_skills/`, and `ros2 run skill_registry validate_tree <tree>` finds the contracts.
+- **On the NUC:** the three packages are built from `integration` @ `00a6297`; the executor logs `45 skills, 13 places` at start.
 
 ### Orin
 
-#### 11. `orin.launch.py` must start `gripper_pose_estimator`. Status: check
+#### 11. `orin.launch.py` must start `gripper_pose_estimator`. Status: done, except its output (check)
 
 - **Why:** `orin_up` waits for the estimator's node (`/gripper_estimation/get_parameters`), and `launch_orin_stack` no longer starts a second estimator in tmux. `press_button` takes the fingertip for its residual from the estimate (item 7).
-- **Repository side:** done. `eigen_vector` `main` `bringup/launch/orin.launch.py` starts `humanoid_arm_skills` `gripper_pose_estimator`, and `manipulation_stack` `main` has it (#10).
-- **When checked:** the Orin ran `manipulation_stack` `cam-gripper-estimation` @ `ba0cbfa` with 2 uncommitted files. Deploy `main` and bringup from `eigen_vector` `main`.
+- **On the Orin:** `orin.launch.py` starts it from `manipulation_stack` `fix/button-press-aim` @ `826c8d7`, and `/gripper_estimation/get_parameters` answers. Whether it publishes the estimate frames is re-check questions 1 and 2.
 
 ### Thor
 
 #### 12. `vlm_server` on the Thor: no longer required. Status: open (robot side only)
 
 - **Repository side:** done (`9ae7b2f`). `thor_up` checks only `/vlm_ground_server/ground_boxes`; it no longer requires `http://vector-thor:8090/v1/models`. No tree asks the VLM (only `ask_vlm` and the disabled `door_open_vlm` use it), so a Thor whose VLM is down no longer stops preflight.
-- **Still on the robot:** the Thor's `~/orchestrator_ws` is on an old branch deleted on GitHub (the snapshot above), and runs the server as `cosmos_vlm_server.py` in the session `cosmos_vlm`. `launch_thor_stack` now starts `orchestrator/orchestrator/vlm/server.py` (model-agnostic, `--model edgellm` by default) in the session `vlm_server`. After a redeploy, stop the old `cosmos_vlm` session first, or the new server cannot take port 8090. Preflight passes either way.
+- **Still on the robot:** the Thor's `~/orchestrator_ws` is `ltx-dev` @ `8d8fe7d`, which has no `orchestrator/orchestrator/vlm/server.py`, so `launch_thor_stack` cannot start `vlm_server` (in the session `vlm_server`, `--model edgellm` by default) until that checkout is updated. No old `cosmos_vlm` session ran on 2026-11-19. Preflight passes either way.
 
 ### Laptop (operator)
 
-#### 13. The agent bridge. Status: check
+#### 13. The agent bridge. Status: done (2026-11-19)
 
 - The bridge's address is `agent_bridge` in `orchestrator/config/sites/stanley.yaml` (the laptop's Tailscale address, port 8771). The executor (launched with `site:=stanley`) and `agent_bridge.py --site stanley` both read it. For another laptop, change it there and rebuild on the NUC.
-- `~/bags/` is created by the launch when the site records the raw bag.
-- Set up once as in [mission_control/README.md](../mission_control/README.md) (the venv with `claude-agent-sdk`).
+- Set up once as in [mission_control/README.md](../mission_control/README.md) (the venv with `claude-agent-sdk`); the operator laptop's venv was made on 2026-11-19.
+- The bridge uses the laptop's Claude login. An `ANTHROPIC_API_KEY` (or another auth variable) in the bridge's shell takes precedence over that login; on 2026-11-19 an invalid one failed every agent call with "Invalid API key" (run 002 of session `20261119T214319Z-198c58`). Start the bridge with it unset: `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN ~/.venvs/agent_bridge/bin/python mission_control/agent_bridge.py --site stanley`.
 - Run the bridge from a checkout of the branch the NUC runs: a call with another `protocol.PROTOCOL` fails with both versions in its error. The bridge reads each agent skill's `spec.py` and `prompt.py` from `g1_skills/` in its checkout.
