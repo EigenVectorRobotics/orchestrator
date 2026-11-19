@@ -8,7 +8,7 @@
     knowledge approve C-0007 [--text "the exact text"]       the operator only, at a terminal
     knowledge refuse C-0007 --reason "..."
     knowledge retire C-0007 --reason "..."
-    knowledge prompt                                          what the codex task loop sees
+    knowledge prompt                                          the facts and beliefs as one text
 
 --dir (default $EIGEN_VECTOR_WS/agent/knowledge) is the executor's knowledge_dir. A value is read as JSON when it can be
 (0.012, [0.005, 0.0075, 0.0034], true), else as a word. --by operator works only at a terminal.

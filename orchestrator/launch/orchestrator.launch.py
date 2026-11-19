@@ -45,9 +45,6 @@ def generate_launch_description():
             description="the agent's folder in the workspace: links to skills/, runbook.md and docs/ in git "
                         "(scripts/link_agent_dir.sh), and knowledge/ and stamps.yaml, which change on each run"
         ),
-        DeclareLaunchArgument('task_agent', default_value='session',
-                              description='session (a session outside uses agent_cli) or codex (the executor asks codex exec for each step)'),
-        DeclareLaunchArgument('codex_model', default_value='gpt-6-astra', description='task_agent codex: the model, with the codex login'),
         DeclareLaunchArgument('write_skill', default_value='true',
                               description='the agent may save skills with write_skill; false refuses that command '
                                           '(a skill folder put in skills_dir by hand still loads)'),
@@ -87,7 +84,6 @@ def generate_launch_description():
             output='screen',
             parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]),
                                   'step_gate': step_gate, 'write_skill': LaunchConfiguration('write_skill'),
-                                  'task_agent': LaunchConfiguration('task_agent'), 'codex_model': LaunchConfiguration('codex_model'),
                                   'runbook': LaunchConfiguration('runbook')}]
         ),
         Node(package='orchestrator', executable='run_recorder', output='screen', parameters=shared, condition=IfCondition(record)),

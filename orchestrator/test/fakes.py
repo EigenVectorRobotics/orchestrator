@@ -1,6 +1,6 @@
 """Fakes and builders that several test modules share.
 
-Keep this module free of ROS imports: test_tasks, test_task_desk and test_codex_agent import it, and they must
+Keep this module free of ROS imports: test_tasks and test_task_desk import it, and they must
 collect with no rclpy on the path"""
 
 import time

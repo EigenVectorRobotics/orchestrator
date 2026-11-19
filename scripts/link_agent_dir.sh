@@ -5,6 +5,7 @@
 #     skills     -> <repo>/skill_registry/skills          the skill library (write_skill saves here)
 #     runbook.md -> <repo>/orchestrator/agent/runbook.md  what the robot is
 #     docs       -> <repo>/orchestrator/agent/docs        the agent's codebase docs
+#     .claude/settings.json -> <repo>/orchestrator/agent/claude_settings.json   the task session's permissions
 #     knowledge/                                          claims and their log (not in git)
 #     stamps.yaml                                         what each skill was proved against (not in git)
 #
@@ -19,7 +20,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 agent="${1:-${EIGEN_VECTOR_WS:?set EIGEN_VECTOR_WS or give the agent folder}/agent}"
 
-mkdir -p "$agent/knowledge"
+mkdir -p "$agent/knowledge" "$agent/.claude"
 
 link() {        # link NAME TARGET
     local path="$agent/$1" target="$2"
@@ -89,3 +90,4 @@ fi
 link skills     "$repo/skill_registry/skills"
 link runbook.md "$repo/orchestrator/agent/runbook.md"
 link docs       "$repo/orchestrator/agent/docs"
+link .claude/settings.json "$repo/orchestrator/agent/claude_settings.json"

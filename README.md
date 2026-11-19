@@ -19,10 +19,11 @@ Agentic task planning for the G1. A task is one sentence. An agent does it step 
 
 Limits: `task_max_steps` 40, `task_max_s` 900, `task_idle_s` 120. Design: `docs/task-mode.md`.
 
-### Two task agents (`task_agent`)
+### The task session
 
-- **`session` (the default):** a Claude Code or Codex session outside the executor, with a shell. It drives the task with `agent_cli` and reads and writes knowledge with the `knowledge` CLI. Give it permission for `agent_cli` (not `step approve|refuse`) and for `knowledge list|show|note|confirm|contradict` only (`docs/skill-discovery.md`).
-- **`codex`:** a loop inside the executor (`codex_agent.py`), one tool-free `codex exec` per decision (`codex_model`, default `gpt-6-astra`). The prompt is its only channel: it gets the knowledge pushed in and cannot write knowledge.
+The task agent is a Claude Code or Codex session outside the executor, with a shell. It drives the task with `agent_cli` and reads and writes knowledge with the `knowledge` CLI. Start it in `$EIGEN_VECTOR_WS/agent`: there, `.claude/settings.json` (a link to `orchestrator/agent/claude_settings.json`) denies the `ros2` commands that act (`topic pub`, `service call`, `action send_goal`, `param set`, `run`, `launch`, ...), `agent_cli step approve|refuse`, `~/orchestrator_ws`, and edits to the deny list, the gate, the runbook and these settings. Thus the session acts on the robot only through `agent_cli`, and the executor's checks see each step. This is a guard against mistakes: a wrapped command (`bash -c`, a Python script with `rclpy`) is not matched. A Codex session does not read these settings.
+
+One task is one session: start a new session for the next task. Skill discovery is a separate session (`docs/skill-discovery.md`); a task session uses the contracts and does not read the stack's code.
 
 ```bash
 agent_cli task wait                     # the open task
@@ -116,6 +117,6 @@ The NUC builds this repo in `~/eigen_vector_orch_ws`, from the deploy repo `eige
 ## Not done yet
 
 - Nothing committed after 2026-11-11 has run on the robot.
-- The `codex` loop cannot read a type's fields before it writes a skill (a session can, with `agent_cli interface`).
+- A Codex session has no deny rules yet (Claude Code settings only).
 - The knowledge store follows a claim's `skill` tag only: a value measured through a skill but tagged only with a place is not reset when the skill's code moves. A code skill's `skills.run(variable)` calls are not followed.
 - The executor reads the raw camera topic (`image_topic`), because the Orin has no compressed image transport installed: about 17 MB/s at 6 fps.

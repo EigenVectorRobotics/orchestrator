@@ -231,14 +231,13 @@ def test_a_claim_about_a_skill_earns_its_tier_again_when_its_code_moves(tmp_path
     assert store.get(lesson.id).tier == 'observation'
 
 
-def test_a_session_gets_the_rules_and_an_index_and_a_model_with_no_tools_gets_the_claims(tmp_path):
+def test_a_session_gets_the_rules_and_an_index_not_the_claims(tmp_path):
     store = KnowledgeStore(tmp_path)
     store.note('When navigate_to stops short, send the goal again.', seen(by='agent:task'), {'skill': 'navigate_to'})
 
-    session, model = store.guide(), store.guide(claims=True)
+    guide = store.guide()
 
-    assert 'skill navigate_to: 1 observation' in session and 'send the goal again' not in session
-    assert 'send the goal again' in model and 'knowledge list' not in model
+    assert 'skill navigate_to: 1 observation' in guide and 'send the goal again' not in guide
 
 
 def test_a_skill_claim_with_no_record_of_its_code_counts_nothing_until_it_is_seen_again(tmp_path):

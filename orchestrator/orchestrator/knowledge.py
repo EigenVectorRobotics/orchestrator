@@ -208,10 +208,9 @@ class KnowledgeStore:
         """The live value claim with this subject and key"""
         return _match(self._load(), about_of(about), key)
 
-    def guide(self, claims: bool = False) -> str:
-        """For the task agent: what the store is and its rules, made from the constants here. Then, for a session
-        that reads the claims it needs, an index of what the store holds; with claims, the claims themselves, for a
-        model with no tools to read them"""
+    def guide(self) -> str:
+        """For the task session: what the store is and its rules, made from the constants here, and an index of what
+        the store holds; the session reads the claims it needs with the knowledge CLI"""
         live    = self._live()
         to_fact = next(n for n in range(1, 1000) if wilson_lower_bound(n, n) >= FACT_RELIABILITY)
         rules   = [
@@ -223,14 +222,10 @@ class KnowledgeStore:
             'retired that long after it was last seen; the operator can retire it.',
             '- A claim about a skill holds only for the code under that skill: its contract, the skills it runs, and '
             'the repos it uses. When that code changes, its evidence stops counting and it is an observation again, '
-            'untried on this code. ' + ('Its line says why.' if claims else
-                                        '`knowledge show` gives the reason (moved) on each old sighting.'),
+            'untried on this code. `knowledge show` gives the reason (moved) on each old sighting.',
         ]
         head    = ['## The knowledge store', '', 'What the robot has learned, as claims with evidence. Read the claims '
                    'about a skill before you use it, and again after a step fails.']
-
-        if claims:
-            return '\n'.join([*head, *rules, '', _section(live, observations=True) or 'It holds nothing yet.'])
 
         held = Counter((claim.subject(), claim.tier) for claim in live)
         rows = {subject: [f'{held[subject, tier]} {tier}' for tier in LIVE if held[subject, tier]]

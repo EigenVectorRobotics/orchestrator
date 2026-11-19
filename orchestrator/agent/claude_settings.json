@@ -1,0 +1,26 @@
+{
+  "$comment": "The task session's permissions (Claude Code). scripts/link_agent_dir.sh links $EIGEN_VECTOR_WS/agent/.claude/settings.json here; start the session in $EIGEN_VECTOR_WS/agent. The session acts on the robot only through agent_cli, so the executor's validator, deny list and step gate see each step. A guard against mistakes, not a security boundary: a wrapped command (bash -c, a Python script with rclpy) is not matched.",
+  "permissions": {
+    "deny": [
+      "Bash(ros2 topic pub:*)",
+      "Bash(ros2 service call:*)",
+      "Bash(ros2 action send_goal:*)",
+      "Bash(ros2 param set:*)",
+      "Bash(ros2 param load:*)",
+      "Bash(ros2 param delete:*)",
+      "Bash(ros2 lifecycle set:*)",
+      "Bash(ros2 run:*)",
+      "Bash(ros2 launch:*)",
+      "Bash(ros2 bag play:*)",
+      "Bash(agent_cli step approve:*)",
+      "Bash(agent_cli step refuse:*)",
+      "Read(~/orchestrator_ws/**)",
+      "Edit(~/orchestrator_ws/**)",
+      "Edit(**/skill_registry/deny.yaml)",
+      "Edit(**/skill_registry/gate.yaml)",
+      "Edit(**/runbook.md)",
+      "Edit(**/claude_settings.json)",
+      "Edit(**/.claude/settings.json)"
+    ]
+  }
+}

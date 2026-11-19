@@ -33,7 +33,7 @@ On the NUC, the store is in `$EIGEN_VECTOR_WS/agent/knowledge/` (`knowledge_dir`
 | (prompt text) | each prompt | made from `claims.yaml` in memory (`prompt_section`) | the facts and beliefs, as text, for the prompts |
 
 - The run's scratch folder is `scratch/<run_id>/` (built): the open task names it, and the recorder moves it into the run's bundle at the end of the run.
-- The task agent gets the store's guide when a task opens: a session reads the claims it needs with the CLI, and the codex loop gets the facts and beliefs in each prompt.
+- The task session gets the store's guide when a task opens, and reads the claims it needs with the CLI.
 
 ## Claims
 
@@ -68,7 +68,7 @@ On the NUC, the store is in `$EIGEN_VECTOR_WS/agent/knowledge/` (`knowledge_dir`
 - The retrospection operator (`retrospect`): from a run, for example the arrival error at each place, or the offset that made a press light.
 - A person: by hand, at a terminal (`knowledge note --by operator`).
 - The task agent, as a session (built 2026-11-17): it writes with `knowledge note|confirm|contradict --by agent:task`, for example after a failure what to do instead ("When <what failed>, <what to do instead>"). The CLI uses the executor's code clock: the executor saves where it reads the code in `<knowledge_dir>/code_clock.yaml`, so a claim about a skill keeps the code under it. `--by operator` works only at a terminal.
-- How the task agent learns the store (built 2026-11-17): the open task carries `TaskDesk.known()`: `KnowledgeStore.guide()` (the rules, made from the store's constants, and an index of subjects) and how to write (`writing_text`). A session reads the claims it needs with `knowledge list|show`; the codex loop has no tools, so its prompt carries the claims (`known(claims=True)`), and it cannot write.
+- How the task agent learns the store (built 2026-11-17): the open task carries `TaskDesk.known()`: `KnowledgeStore.guide()` (the rules, made from the store's constants, and an index of subjects) and how to write (`writing_text`). The session reads the claims it needs with `knowledge list|show`.
 - A known limit: the code clock follows the `skill` tag only. A value measured through a skill but tagged only with a place (an arrival offset) depends on that skill's code too, and is not reset. Give such a claim the skill tag as well.
 - A step that follows a claim (`applies: <id>` on a run): the step's end confirms it (success) or contradicts it (failure), by `outcome:<skill>`. This is weak evidence, because a success can mean only that the message was published: it counts in reliability, not as a source for graduation.
 

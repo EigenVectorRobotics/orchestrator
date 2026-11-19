@@ -63,20 +63,15 @@ def trace_listener(lines: deque, run_id: str) -> Callable[[dict], None]:
     return listen
 
 
-def writing_text(folder: Path, claims: bool = False) -> str:
-    """How the task agent adds evidence to the knowledge store in folder; claims: for a model with no tools, which
-    cannot write"""
-    applies = ('- On a run that follows a claim, give its id in applies: the end of the step confirms it (success) or '
-               'contradicts it (failure).')
-
-    if claims:
-        return applies
-
-    return applies + (f'\n- Write what you learned, for later runs: `knowledge --dir {folder} note "TEXT" --by agent:task '
-                      f'--run <run_id> --evidence step:<n> --about skill=<name>`. After a failure, write what to do '
-                      f'instead: "When <what failed and how it showed>, <what to do instead>." Confirm or contradict a '
-                      f'claim you checked: `knowledge --dir {folder} confirm|contradict <id> --by agent:task --run '
-                      f'<run_id> --evidence ...`.')
+def writing_text(folder: Path) -> str:
+    """How the task session adds evidence to the knowledge store in folder"""
+    return ('- On a run that follows a claim, give its id in applies: the end of the step confirms it (success) or '
+            'contradicts it (failure).'
+            f'\n- Write what you learned, for later runs: `knowledge --dir {folder} note "TEXT" --by agent:task '
+            f'--run <run_id> --evidence step:<n> --about skill=<name>`. After a failure, write what to do '
+            f'instead: "When <what failed and how it showed>, <what to do instead>." Confirm or contradict a '
+            f'claim you checked: `knowledge --dir {folder} confirm|contradict <id> --by agent:task --run '
+            f'<run_id> --evidence ...`.')
 
 
 def place_text(info: dict) -> str:
@@ -87,8 +82,8 @@ def place_text(info: dict) -> str:
 
 
 def task_summary(task: dict) -> str:
-    """The open message as text: what a session (agent_cli) and the task loop (codex_agent.py) read. It carries the
-    runbook (what the robot is) and the contract grammar (what write_skill takes), so both agents get them"""
+    """The open message as text: what the session reads (agent_cli task wait). It carries the runbook (what the
+    robot is) and the contract grammar (what write_skill takes)"""
     if task['state'] != 'open':
         return f'no open task; the last one ({task["run_id"]}) ended: {task.get("end")}'
 
@@ -152,7 +147,7 @@ class TaskDesk:
             'task':    sentence,
             'blind':   blind,
             'places':  {key: {field: place[field] for field in PLACE_INFO if field in place} for key, place in sorted(context.blackboard.items())},
-            'known':   self.known(),                    # a session reads the claims it needs itself
+            'known':   self.known(),
             'runbook': self.runbook(),
             'grammar': contract_grammar() if self.writer else '',   # how to write a skill, if it may write one
             'scratch': context.scratch_dir,
@@ -162,14 +157,14 @@ class TaskDesk:
 
         return opened
 
-    def known(self, claims: bool = False) -> str:
-        """The knowledge store's guide, and how the task writes to it; with claims, for a model with no tools"""
-        return f'{self.knowledge.guide(claims)}\n{writing_text(self.knowledge.folder, claims)}' if self.knowledge else ''
+    def known(self) -> str:
+        """The knowledge store's guide, and how the task writes to it"""
+        return f'{self.knowledge.guide()}\n{writing_text(self.knowledge.folder)}' if self.knowledge else ''
 
     @contextlib.contextmanager
     def thinking(self):
-        """The agent works on a command (a session's, or a model's in the executor): not quiet. Only a success
-        counts as heard: a model that keeps failing (no network) goes quiet, and the robot says so"""
+        """The session works on a command: not quiet. Only a success counts as heard: a session whose commands
+        keep failing goes quiet, and the robot says so"""
         with self._lock:
             self.busy += 1
 

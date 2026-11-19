@@ -1,5 +1,5 @@
-"""Streams that skills share: the head camera, for now. The runner reads it for its VLM skills, and the codex agent
-for its prompt; neither subscribes itself"""
+"""Streams that skills share: the head camera, for now. The runner reads it for its VLM skills; it does not subscribe
+itself"""
 
 from rclpy.node import Node
 from sensor_msgs.msg import Image
