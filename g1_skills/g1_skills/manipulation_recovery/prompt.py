@@ -1,5 +1,7 @@
 import math
+from pathlib import Path
 
+from ..lib.fingertip import fingertip_text, reference_images
 from ..lib.text import fmt, panel_type, vec
 from . import spec
 
@@ -33,6 +35,7 @@ robot can still settle by up to about 0.065 m and 0.19 rad. A robot more than {l
 {limits['stance_tolerance_rad']:g} rad off the stance it was sent to is sent there again by the executor before you are asked.
 - Pelvis frame: the robot body; x forward, y left, z up. "Target in pelvis" comes from the press goal in foot_world, \
 with EKF drift up to 0.03 m. A reach miss is arm end minus target, in pelvis: x < 0 means the arm stops short.
+- The fingertip. {fingertip_text("this call's images")}
 - "Stance now" is the pelvis against the base goal. "Button in base-goal frame" is computed for you: stance now plus \
 the target rotated by the stance yaw. The panel does not move, so this point must agree across calls within 0.05 m.
 - Offset (ox, oy, oz): added to the press goal; x into the panel, y left, z up. State the whole offset, not a change.
@@ -69,13 +72,16 @@ D6 Nothing fits, or the evidence contradicts itself: ask_help.
 
 Setting an offset_retry (state the whole offset, in the press frame)
 O1 With the aim crops: in contact_aim find the centre of the button's inner face (before_aim shows it unoccluded; the \
-camera may move between the two, so measure in contact_aim only) and the fingertip of the pressing arm where it touches.
+camera may move between the two, so measure in contact_aim only) and the fingertip of the pressing arm where it touches \
+(the fingertip as above, not the end of the silver bar; a cyan crosshair, when contact_aim has one, is the robot's \
+estimate of it, which can be 1 to 2 cm off: find the real fingertip near it).
 O2 The miss is fingertip minus face centre: its pixels right and down, times the crop's mm per px, along the crop's right \
 and down directions in the press frame. The image cannot show depth, so leave x out of it.
 O3 New oy, oz = offset in force minus the miss on y and z. New ox = the offset in force, deeper by the shortfall plus \
 0.005 m when the residual says the press stopped over 0.003 m short with the fingertip on the face.
-O4 Quote the face centre, the fingertip and the miss in the reason. Without crops, or with no fingertip to find, take the \
-residual-based offset.
+O4 Quote the face centre, the fingertip and the miss in the reason. With the aim crops, oy and oz come from the image \
+only; when the face centre or the fingertip cannot be found in contact_aim, keep oy and oz of the offset in force and set \
+only ox. Without crops, take the residual-based offset.
 
 Stance check: take the first step that fits
 S1 Reach check failed. "Reach move" fixable and within limits: reposition to it. Within limits false: the detection \
@@ -87,6 +93,11 @@ S3 Off to the side. The box touches the left or right edge: reposition to "Refer
 {limits['walk_min_m']:g} m or more from the robot, else shift dy {SIDE_SHIFT_M:g} m toward the button.
 S4 No track or no box, but the button is in the camera image: continue (the look runs button_in_view again from here).
 S5 Button not in the camera image and no stance you can justify: abort.'''
+
+
+def references() -> list[tuple[str, Path]]:
+    """The operator-labelled fingertip references the bridge attaches before the call's images (lib/fingertip.py)"""
+    return reference_images()
 
 
 def recovery_images(frames: set) -> list[str]:
@@ -108,7 +119,8 @@ def recovery_prompt(request: dict, frames: set) -> str:
         lines.append(f'Base goal (map): x {fmt(goal.get("x"))}, y {fmt(goal.get("y"))}, yaw {fmt(goal.get("yaw", 0.0))}. '
                      'A reposition is relative to it, not to where the robot stands.')
 
-    lines += [''] + failure_lines(request.get('failure') or {}, request.get('press'), request.get('offset_in_force') or [0.0] * 3, limits)
+    lines += [''] + failure_lines(request.get('failure') or {}, request.get('press'), request.get('offset_in_force') or [0.0] * 3, limits,
+                                  aim_shown='contact_aim' in frames)
 
     if request.get('press'):
         lines += [''] + aim_lines((request['press'].get('aim') or {}), frames)
@@ -134,6 +146,10 @@ def aim_lines(aim: dict, frames: set) -> list[str]:
              '(the goal before the offset). contact_aim is the deepest point of the press; before_aim is the pre-grasp, '
              'nothing in front of the button.']
 
+    if aim.get('estimate_marked'):
+        lines.append('- contact_aim: the cyan crosshair is where the robot estimates the fingertip (encoders moved by the '
+                     'gripper depth fit), up to 1 to 2 cm off the real fingertip.')
+
     for name in shown:
         geometry = (aim.get('geometry') or {}).get(name) or {}
         lines.append(f'- {name}: 1 px = {fmt(geometry.get("mm_per_px"))} mm at the button; image right = '
@@ -148,7 +164,11 @@ def call_limits(request: dict) -> dict:
     return request.get('limits') or spec.limits()
 
 
-def failure_lines(failure: dict, press: dict | None, offset: list, limits: dict) -> list[str]:
+def failure_lines(failure: dict, press: dict | None, offset: list, limits: dict, aim_shown: bool = False) -> list[str]:
+    """The failure and the press capture. With contact_aim shown, only the depth (x) of the residual and of the
+    residual-based offset: y and z then come from the image alone (O1 to O4). The residual's y and z once undid
+    move_to_pose's gripper correction (an encoder tip 24 mm low brought a 24 mm higher offset, session
+    20261120T004319Z-eed273, call 1519670b), and with crops the model read y and z off the image anyway"""
     call    = failure.get('checked_call') or failure
     capture = (press or {}).get('capture') or {}
     lines   = ['## Failure', f'- {failure.get("skill")} {failure.get("status")}: {failure.get("message")}']
@@ -169,10 +189,20 @@ def failure_lines(failure: dict, press: dict | None, offset: list, limits: dict)
         residual  = capture.get('residual_m') or [0.0, 0.0, 0.0]
         suggested = [round(o - r, 4) for o, r in zip(offset, residual)]
         inside    = all(abs(value) <= limits['press_offset_max_m'] for value in suggested)
-        lines += [f'- Press capture: deepest {fmt(capture.get("max_depth_m"))} m along the normal (negative is short), '
-                  f'residual fingertip minus goal (x in, y left, z up) {vec(residual)} m',
-                  f'- Residual-based offset (offset in force minus residual, from {capture.get("residual_from", "encoders")}): {vec(suggested)} m, '
-                  f'{"within" if inside else "OUTSIDE"} the {limits["press_offset_max_m"]:g} m limit']
+        source    = capture.get('residual_from', 'encoders')
+
+        if aim_shown:
+            inside = abs(suggested[0]) <= limits['press_offset_max_m']
+            lines += [f'- Press capture: deepest {fmt(capture.get("max_depth_m"))} m along the normal (negative is short), '
+                      f'residual fingertip minus goal along x (in) {fmt(residual[0])} m. Its y and z are not given: take '
+                      'them from contact_aim (O1 to O4)',
+                      f'- Residual-based ox (offset in force minus residual on x, from {source}): {fmt(suggested[0])} m, '
+                      f'{"within" if inside else "OUTSIDE"} the {limits["press_offset_max_m"]:g} m limit']
+        else:
+            lines += [f'- Press capture: deepest {fmt(capture.get("max_depth_m"))} m along the normal (negative is short), '
+                      f'residual fingertip minus goal (x in, y left, z up) {vec(residual)} m',
+                      f'- Residual-based offset (offset in force minus residual, from {source}): {vec(suggested)} m, '
+                      f'{"within" if inside else "OUTSIDE"} the {limits["press_offset_max_m"]:g} m limit']
     else:
         lines.append('- Press capture: none: the call carries one only after press_judge said not_pressed')
 

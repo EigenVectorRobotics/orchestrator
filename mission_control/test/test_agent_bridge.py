@@ -213,7 +213,10 @@ def test_a_model_call_reports_the_system_prompt_and_the_prompts_file(tmp_path):
     assert [message['type'] for message in sent] == ['started', 'failed']
     assert sent[0]['prompt'] == recovery_prompts.recovery_prompt({**RECOVERY, 'limits': RECOVERY_SPEC.limits()}, set())
     assert sent[0]['system'] == system and sent[0]['system_sha256'] == hashlib.sha256(system.encode()).hexdigest()
-    assert sent[0]['prompts_sha256'] == hashlib.sha256(Path(recovery_prompts.__file__).read_bytes()).hexdigest()   # the skill's prompt.py
+    expected = hashlib.sha256(Path(recovery_prompts.__file__).read_bytes())    # the skill's prompt.py and its references
+    for _, path in recovery_prompts.references():
+        expected.update(Path(path).read_bytes())
+    assert sent[0]['prompts_sha256'] == expected.hexdigest()
 
 
 def test_a_diagnosis_shows_the_aim_crops_with_their_scale_and_axes():
@@ -226,3 +229,20 @@ def test_a_diagnosis_shows_the_aim_crops_with_their_scale_and_axes():
     assert 'before_aim:' not in text
     assert recovery_prompts.recovery_images({'camera', 'before_aim', 'contact_aim', 'press'}) == ['contact_aim', 'before_aim', 'camera']
     assert 'none: no camera pose' in recovery_prompts.recovery_prompt({**call, 'press': {'capture': {}}}, set())
+
+
+def test_the_references_come_after_the_text_and_before_the_call_images(tmp_path, monkeypatch):
+    from PIL import Image
+    from g1_skills.lib import fingertip
+
+    monkeypatch.setattr(fingertip, 'REFERENCE_DIR', tmp_path)
+    Image.new('RGB', (8, 8)).save(tmp_path / 'a.jpg')
+    before = agent_bridge.prompts_sha256('manipulation_recovery')
+    _, blocks = agent_bridge.content(RECOVERY, {'camera': ('image/jpeg', b'jpeg')})
+
+    labels = [block['text'] for block in blocks[1:] if block['type'] == 'text']
+    assert labels == ['reference_a:', 'camera:']
+    assert [block['type'] for block in blocks] == ['text', 'text', 'image', 'text', 'image']
+
+    Image.new('RGB', (9, 9)).save(tmp_path / 'b.jpg')
+    assert agent_bridge.prompts_sha256('manipulation_recovery') != before

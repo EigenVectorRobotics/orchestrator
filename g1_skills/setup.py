@@ -7,7 +7,7 @@ setup(
     name=PACKAGE_NAME,
     version='0.0.0',
     packages=find_packages(exclude=['test']),
-    package_data={'': ['contract.yaml', '*.md'], PACKAGE_NAME: ['*/contract.yaml', '*/*.md']},
+    package_data={'': ['contract.yaml', '*.md'], PACKAGE_NAME: ['*/contract.yaml', '*/*.md', 'lib/fingertip_references/*.jpg']},
     data_files=[
         ('share/ament_index/resource_index/packages', [f'resource/{PACKAGE_NAME}']),
         (f'share/{PACKAGE_NAME}', ['package.xml']),

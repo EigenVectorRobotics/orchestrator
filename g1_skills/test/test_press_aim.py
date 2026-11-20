@@ -72,3 +72,24 @@ def test_the_press_evidence_carries_the_goal_axis_and_its_aim_crops(tmp_path):
 
     ctx.camera.k = K.tolist()
     assert state.evidence(wait_s=0.0)['aim'] is None                      # no frames or camera poses for this press
+
+
+def test_contact_aim_marks_the_estimated_fingertip_at_the_goal_plus_the_residual(tmp_path):
+    """The residual 10 mm left and 20 mm up of the goal lands left of and above the crop centre, scaled by mm per px"""
+    press = {**_press(tmp_path), 'capture': {'residual_m': [0.0, 0.010, 0.020]}}
+    view  = aim_view(press, {'baseline': LEVEL, 'press': LEVEL}, K, str(tmp_path))
+    mm    = view['geometry']['contact_aim']['mm_per_px']
+    x, y  = round(220 - 10.0 / mm), round(160 - 20.0 / mm)
+    image = Image.open(view['frames']['contact_aim'])
+
+    assert view['estimate_marked'] is True
+    assert image.getpixel((x, y))[1:] == pytest.approx((255, 255), abs=60) and image.getpixel((x, y))[0] < 100
+    assert image.getpixel((220, 160)) == pytest.approx((90, 90, 90), abs=10)
+    assert Image.open(view['frames']['before_aim']).getpixel((x, y)) == pytest.approx((90, 90, 90), abs=10)
+
+
+def test_an_estimate_outside_the_crop_is_not_marked(tmp_path):
+    press = {**_press(tmp_path), 'capture': {'residual_m': [0.0, 0.0, 0.5]}}
+
+    assert aim_view(press, {'baseline': LEVEL, 'press': LEVEL}, K, str(tmp_path))['estimate_marked'] is False
+    assert 'estimate_marked' not in aim_view(_press(tmp_path), {'baseline': LEVEL, 'press': LEVEL}, K, str(tmp_path))

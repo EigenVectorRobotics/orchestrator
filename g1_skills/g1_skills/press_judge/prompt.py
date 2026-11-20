@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from ..lib.fingertip import fingertip_text, reference_images
 from ..lib.text import fmt, panel_type
 
 
@@ -10,6 +13,7 @@ Evidence you get
 - Frames from the head camera, looking down at the panel. baseline: fingertip 0.10 m before the button, nothing \
 pushed yet. press: fingertip at its deepest point; judge it first. release: about 0.5 s after the retreat began. \
 A crop is a zoom around the tracked button. Each frame is attached as an image, right after its label.
+- The fingertip. {fingertip}
 - The panel type, stated in the call. Car panel: floor buttons ("3", "2", "*1"), each with its own light ring. \
 Call panel (outside the car): the call button, with its own light.
 - Arm numbers. They measure the arm against its goal, not against the panel, so they never decide alone.
@@ -49,7 +53,12 @@ def judge_images(frames: set) -> list[str]:
 
 
 def system(limits: dict) -> str:
-    return JUDGE_SYSTEM
+    return JUDGE_SYSTEM.replace('{fingertip}', fingertip_text("this press's frames"))
+
+
+def references() -> list[tuple[str, Path]]:
+    """The operator-labelled fingertip references the bridge attaches before the frames (lib/fingertip.py)"""
+    return reference_images()
 
 
 def content(request: dict, images: set) -> tuple[str, list[str]]:

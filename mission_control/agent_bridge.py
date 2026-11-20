@@ -74,8 +74,15 @@ def main():
 
 
 def prompts_sha256(skill: str) -> str:
-    """The sha256 of the skill's prompt.py this bridge loaded, so a run record names the prompts that answered it"""
-    return hashlib.sha256(Path(protocol.load_prompt(skill).__file__).read_bytes()).hexdigest()
+    """The sha256 of the skill's prompt.py this bridge loaded and of its reference images, so a run record names the
+    prompts that answered it"""
+    module = protocol.load_prompt(skill)
+    digest = hashlib.sha256(Path(module.__file__).read_bytes())
+
+    for _, path in (module.references() if hasattr(module, 'references') else []):
+        digest.update(Path(path).read_bytes())
+
+    return digest.hexdigest()
 
 
 def system_prompt(skill: str, limits: dict | None = None) -> str:
@@ -84,9 +91,17 @@ def system_prompt(skill: str, limits: dict | None = None) -> str:
 
 
 def content(call: dict, images: dict) -> tuple[str, list[dict]]:
-    """The prompt text, and the user message: the text, then each image the skill shows after its label"""
-    text, names = protocol.load_prompt(call['skill']).content(call, set(images))
+    """The prompt text, and the user message: the text, the skill's reference images (prompt references(): files in the
+    bridge's checkout, such as the labelled fingertips of lib/fingertip.py), then each image the call carries, each
+    after its label"""
+    module      = protocol.load_prompt(call['skill'])
+    text, names = module.content(call, set(images))
     blocks      = [{'type': 'text', 'text': text}]
+
+    for name, path in (module.references() if hasattr(module, 'references') else []):
+        blocks += [{'type': 'text', 'text': f'{name}:'},
+                   {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg',
+                                                'data': base64.b64encode(Path(path).read_bytes()).decode()}}]
 
     for name in names:
         media, data = images[name]

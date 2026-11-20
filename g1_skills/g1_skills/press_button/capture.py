@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from orchestrator.sensing import FrameBuffer
 
@@ -380,7 +380,36 @@ def aim_view(press: dict, camera_poses: dict, k, directory: str) -> dict | None:
             'down_in_press':  [round(float(value), 3) for value in axes @ turn.T @ np.array([0.0, 1.0, 0.0])],
         }
 
+    residual = (press.get('capture') or {}).get('residual_m')
+
+    if residual is not None:            # the estimated fingertip: goal plus the residual, back from the press frame
+        turn, shift = camera_poses[AIM_FRAMES['contact_aim']]
+        goal        = turn @ np.asarray(press['goal'], dtype=float) + shift
+        tip         = turn @ (np.asarray(press['goal'], dtype=float) + axes.T @ np.asarray(residual, dtype=float)) + shift
+
+        if tip[2] > 0.0:
+            view['estimate_marked'] = _mark_in_crop(view['frames']['contact_aim'], (k @ goal)[:2] / goal[2],
+                                                    (k @ tip)[:2] / tip[2])
+
     return view
+
+
+def _mark_in_crop(path: str, centre, point) -> bool:
+    """Draw a cyan crosshair at camera pixel point on the aim crop cut around centre; False when it falls outside"""
+    left, top = int(centre[0]) - AIM_HALF_WIDTH_PX, int(centre[1]) - AIM_HALF_HEIGHT_PX
+    x, y      = (point[0] - left) * AIM_SCALE, (point[1] - top) * AIM_SCALE
+    image     = Image.open(path).convert('RGB')
+
+    if not (0 <= x < image.width and 0 <= y < image.height):
+        return False
+
+    draw = ImageDraw.Draw(image)
+    draw.line((x - 14, y, x + 14, y), fill=(0, 255, 255), width=2)
+    draw.line((x, y - 14, x, y + 14), fill=(0, 255, 255), width=2)
+    draw.ellipse((x - 9, y - 9, x + 9, y + 9), outline=(0, 255, 255), width=2)
+    image.save(path, quality=95)
+
+    return True
 
 
 def _crop_at(source: str, centre, path: Path):
