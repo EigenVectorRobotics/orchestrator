@@ -47,7 +47,6 @@
       <SetBlackboard output_key="button" value="{call_button}"/>
       <SetBlackboard output_key="press_panel" value="{call_panel}"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>
-      <SetBlackboard output_key="press_arm_min_y" value="0.0"/>   <!-- outside, the arm on the button's side -->
       <SetBlackboard output_key="press_base_offset_x" value="0.0"/>
       <SetBlackboard output_key="press_base_offset_y" value="0.0"/>
       <SetBlackboard output_key="press_base_offset_z" value="0.0"/>
@@ -85,7 +84,6 @@
       <SetBlackboard output_key="button" value="{floor_button}"/>
       <SetBlackboard output_key="press_panel" value="{inside_panel}"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>   <!-- inside: the right arm; the left failed IK for floor buttons -->
-      <SetBlackboard output_key="press_arm_min_y" value="0.10"/>
       <!-- the inside panel needs the press 3 mm deeper, left and up (2026-11-14) -->
       <SetBlackboard output_key="press_base_offset_x" value="0.003"/>
       <SetBlackboard output_key="press_base_offset_y" value="0.003"/>

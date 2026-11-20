@@ -22,7 +22,7 @@ from ..lib.tracking import Tracking, tracking
 # ========== The checks ==========
 
 VIEW_DEFAULTS  = {'max_age_s': 1.0, 'margin_frac': 0.05}
-ARM_DEFAULTS   = {'left_arm_min_y_m': 0.10}
+ARM_DEFAULTS   = {'left_arm_max_x_frac': 0.4}
 
 
 def _limits(defaults: dict, limits: dict | None, inputs: dict | None) -> dict:
@@ -67,15 +67,14 @@ def judge_view(box: tuple | None, box_age_s: float | None, image_size: tuple | N
     return True, f'in view: {where}', outputs
 
 
-def judge_arm(position: tuple, limits: dict | None = None, inputs: dict | None = None) -> tuple[bool, str]:
-    """True for the left arm: the button sits more than left_arm_min_y_m to the robot's left; a tree sets it per panel"""
-    threshold = _limits(ARM_DEFAULTS, limits, inputs)['left_arm_min_y_m']
-    y         = position[1]
+def judge_arm(centre_x_frac: float, limits: dict | None = None, inputs: dict | None = None) -> tuple[bool, str]:
+    """True for the left arm: the box centre lies in the left left_arm_max_x_frac of the image width"""
+    threshold = _limits(ARM_DEFAULTS, limits, inputs)['left_arm_max_x_frac']
 
-    if y > threshold:
-        return True, f'left arm: the button is {y:+.3f} m to the side, past {threshold:+.2f}'
+    if centre_x_frac < threshold:
+        return True, f'left arm: the box centre is at {centre_x_frac:.2f} of the image width, in the left {threshold:.0%}'
 
-    return False, f'right arm: the button is {y:+.3f} m to the side, not past {threshold:+.2f}'
+    return False, f'right arm: the box centre is at {centre_x_frac:.2f} of the image width, in the right {1 - threshold:.0%}'
 
 
 # ========== The skill ==========
@@ -127,15 +126,15 @@ class InViewHandle(Handle):
         return self.status
 
     def _choose_arm(self, pose: PoseStamped) -> str:
+        left_arm, reason = judge_arm(self.outputs['centre_frac'][0], self.skill.limits, self.inputs)
+        self.outputs['left_arm'] = left_arm
         frame = self.skill.target.get('frame', 'pelvis')
 
-        try:
+        try:                                            # recorded for the recovery and the run records
             position, _ = self.skill.ctx.tf.pose_in(pose, frame)
+            self.outputs[f'position_{frame}'] = [round(value, 3) for value in position]
         except Exception as error:                      # tf2 raises several kinds; all mean "not available"
-            return f'; right arm: no transform {frame} <- {pose.header.frame_id} ({error})'
-
-        left_arm, reason = judge_arm(position, self.skill.limits, self.inputs)
-        self.outputs.update({'left_arm': left_arm, f'position_{frame}': [round(value, 3) for value in position]})
+            reason += f'; no transform {frame} <- {pose.header.frame_id} ({error})'
 
         return f'; {reason}'
 

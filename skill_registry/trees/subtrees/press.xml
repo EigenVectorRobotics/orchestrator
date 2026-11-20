@@ -126,7 +126,7 @@
                 </Sequence>
             </Fallback>
             <reset_filters/>
-            <button_in_view query="{button}" left_arm_min_y_m="{press_arm_min_y}" left_arm="{press_left_arm}"/>
+            <button_in_view query="{button}" left_arm="{press_left_arm}"/>
             <check_reach left_arm="{press_left_arm}"/>   <!-- IK only, on the arm button_in_view chose: no arm motion when out of reach -->
         </Sequence>
     </BehaviorTree>

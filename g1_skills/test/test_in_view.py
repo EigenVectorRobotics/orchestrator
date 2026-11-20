@@ -26,7 +26,7 @@ CONTRACT = parse_contract({
     },
     'config': {
         'target': {'box_topic': '/track_3d/detections_2d', 'pose_topic': '/track_3d/selected_normal_pose', 'frame': 'pelvis'},
-        'limits': {'max_wait_s': 0.2, 'margin_frac': 0.05, 'left_arm_min_y_m': 0.10},
+        'limits': {'max_wait_s': 0.2, 'margin_frac': 0.05, 'left_arm_max_x_frac': 0.4},
     },
     'inputs': [{'name': 'query', 'type': 'string'}],
 })
@@ -69,13 +69,22 @@ def test_it_seeds_then_passes_a_box_inside_the_image():
     assert handle.outputs['left_arm'] is False and 'right arm' in handle.message
 
 
-def test_a_button_well_to_the_left_takes_the_left_arm():
+def test_a_button_in_the_left_of_the_image_takes_the_left_arm():
     skill  = _skill(in_pelvis=(0.40, 0.18, 0.25))
     handle = _seeded(skill)
-    _track(skill, (600, 400, 680, 480))
+    _track(skill, (300, 400, 380, 480))
 
     assert handle.poll() == Status.SUCCESS
     assert handle.outputs['left_arm'] is True and handle.outputs['position_pelvis'] == [0.4, 0.18, 0.25]
+
+
+def test_a_button_left_of_the_pelvis_but_right_in_the_image_takes_the_right_arm():
+    skill  = _skill(in_pelvis=(0.52, 0.02, 0.28))
+    handle = _seeded(skill)
+    _track(skill, (690, 410, 740, 460))
+
+    assert handle.poll() == Status.SUCCESS
+    assert handle.outputs['left_arm'] is False and 'right arm' in handle.message
 
 
 def test_a_box_at_the_bottom_edge_fails():

@@ -37,10 +37,9 @@ def test_the_tree_can_narrow_the_margin():
     assert judge_view(box, 0.2, IMAGE, inputs={'margin_frac': 0.02})[0]
 
 
-def test_the_left_arm_only_past_the_threshold_to_the_left():
-    assert judge_arm((0.42, 0.15, 0.2))[0] is True
-    assert judge_arm((0.42, 0.06, 0.2))[0] is False                         # inside: the right arm reached y +0.05 to +0.07
-    assert judge_arm((0.42, -0.12, 0.2))[0] is False
-    assert judge_arm((0.42, 0.06, 0.2), {'left_arm_min_y_m': 0.05})[0] is True
-    assert judge_arm((0.40, 0.04, 0.25), None, {'left_arm_min_y_m': 0.0})[0] is True       # the call panel: by side
-    assert judge_arm((0.40, -0.04, 0.25), None, {'left_arm_min_y_m': 0.0})[0] is False
+def test_the_left_arm_only_in_the_left_part_of_the_image():
+    assert judge_arm(0.30)[0] is True
+    assert judge_arm(0.40)[0] is False                                      # the right 60 % of the image takes the right arm
+    assert judge_arm(0.56)[0] is False                                      # the down button straight ahead, 2026-11-19
+    assert judge_arm(0.45, {'left_arm_max_x_frac': 0.5})[0] is True
+    assert judge_arm(0.45, None, {'left_arm_max_x_frac': 0.3})[0] is False

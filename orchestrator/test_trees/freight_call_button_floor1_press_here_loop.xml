@@ -13,7 +13,6 @@
       <SetBlackboard output_key="button" value="down button"/>   <!-- "up button" grounds the light above the button -->
       <SetBlackboard output_key="press_panel" value="{freight_elevator_call_panel_floor_1}"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>
-      <SetBlackboard output_key="press_arm_min_y" value="0.0"/>
       <Repeat num_cycles="-1">
         <Sequence>
           <ForceSuccess>

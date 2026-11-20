@@ -15,7 +15,6 @@
       <SetBlackboard output_key="recovery_goal" value="{freight_elevator_call_panel}"/>
       <SetBlackboard output_key="recovery_walk_in" value="no"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>
-      <SetBlackboard output_key="press_arm_min_y" value="0.0"/>
       <SetBlackboard output_key="press_base_offset_x" value="0.0"/>
       <SetBlackboard output_key="press_base_offset_y" value="0.0"/>
       <SetBlackboard output_key="press_base_offset_z" value="0.0"/>
