@@ -25,10 +25,13 @@ proved, only because the code changed.
 import os
 import re
 import ast
+import copy
 import time
+import fcntl
 import threading
 
 from pathlib import Path
+from contextlib import contextmanager
 from xml.etree import ElementTree
 
 import yaml
@@ -92,6 +95,68 @@ def uses_of(contract: Contract, code: str = '') -> tuple[list[str], bool]:
     return sorted({*contract.conditions, *names}), unknown
 
 
+def write_atomic(path: Path, text: str) -> None:
+    """A temp file, then one rename: a reader never sees half a file"""
+    temporary = path.with_name(f'.{path.name}.{os.getpid()}.{threading.get_ident()}.tmp')
+
+    try:
+        temporary.write_text(text)
+        temporary.replace(path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)   # no stray file in a skill folder, which is in git
+        raise
+
+
+class StampsError(OSError):
+    """The stamps file is there, but it cannot be read: a change would write over every stamp in it"""
+
+
+def _parse(path: Path) -> dict:
+    """The stamps; {} when there is no file. StampsError when there is one that is not a mapping of stamps"""
+    try:
+        value = yaml.safe_load(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
+        raise StampsError(f'{path} cannot be read; correct it or move it away: {error}') from error
+
+    if value is not None and not isinstance(value, dict):
+        raise StampsError(f'{path} is not a mapping of skill names to stamps; correct it or move it away')
+
+    return value or {}
+
+
+def read_stamps(path: Path) -> dict:
+    """A file we cannot read reads as no stamps, so nothing is falsely proved"""
+    try:
+        return _parse(path)
+    except StampsError:
+        return {}
+
+
+@contextmanager
+def locked_stamps(path: Path | str):
+    """The stamps, to change under a lock that other processes see too: the executor stamps and adds runs, and
+    Mission Control's Keep and Remove change stamps. The caller changes the dict; the file is written only when it
+    changed. StampsError when the file is there but cannot be read. The lock file is opened to read only, so a
+    process of another user can lock it too"""
+    path = Path(path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = os.open(path.with_name(f'.{path.name}.lock'), os.O_RDONLY | os.O_CREAT, 0o666)
+
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        stamps = _parse(path)
+        before = copy.deepcopy(stamps)
+
+        yield stamps
+
+        if stamps != before:
+            write_atomic(path, yaml.safe_dump(stamps, sort_keys=True))
+    finally:
+        os.close(lock)
+
+
 class Stamps:
     """The stamps of the library's skills, in one file outside git (registry.stamps_file)"""
 
@@ -100,7 +165,7 @@ class Stamps:
         self.path       = Path(path).expanduser()
         self.repo_roots = list(repo_roots)
         self.sweep_s    = sweep_s           # how long one git sweep serves; the registry reloads on the same period
-        self._lock      = threading.Lock()  # the writer stamps on a save, the desk on a step: two threads, one file
+        self._lock      = threading.Lock()  # guards _world; locked_stamps guards the file, from threads and processes
         self._world     = None              # (clock, stamps, repo states): what reasons() reads
 
     # ========== Writing ==========
@@ -109,29 +174,31 @@ class Stamps:
         """Stamp one skill against the code that is here now; write_skill calls it once the files are on disk. It
         replaces the stamp, so the runs kept by ran() go: they were evidence about code that is no longer here"""
         uses, unknown = uses_of(contract, self.code_of(contract))
-        stamp         = {
-            'self':    self.digest(contract.name),   # its own file: an edit by hand loads too, and is not this stamp
-            'repos':   self.repos_of(contract),
-            'uses':    {name: self.digest(name) for name in uses},
-            'unknown': unknown,            # a call that does not name its skill: stale() never clears this skill
-            'at':      round(time.time(), 3),
-        }
+        repos         = self.repos_of(contract)      # the git sweep: slow, so not under the lock
+
+        with locked_stamps(self.path) as stamps:     # the digests under it: a Keep in the sweep changes the files
+            stamp = stamps[contract.name] = {
+                'self':    self.digest(contract.name),   # its own file: an edit by hand loads too, and is not this stamp
+                'repos':   repos,
+                'uses':    {name: self.digest(name) for name in uses},
+                'unknown': unknown,            # a call that does not name its skill: stale() never clears this skill
+                'at':      round(time.time(), 3),
+            }
 
         with self._lock:
-            self._save({**self._read(), contract.name: stamp})
+            self._world = None              # the next reasons() reads the file again
 
         return stamp
 
     def ran(self, name: str, run_id: str) -> None:
         """A step with this skill succeeded. It is evidence, kept with the stamp, and it proves nothing on its own
-        (see the module docstring), so repos and uses are untouched and a stale skill stays stale"""
-        with self._lock:
-            stamps = self._read()
-            stamp  = stamps.get(name)
+        (see the module docstring), so repos and uses are untouched and a stale skill stays stale: reasons() does not
+        read the runs, so its cache stays"""
+        with locked_stamps(self.path) as stamps:
+            stamp = stamps.get(name)
 
             if isinstance(stamp, dict):
                 stamp['runs'] = [*(stamp.get('runs') or []), run_id][-MAX_RUNS:]
-                self._save(stamps)
 
     def repos_of(self, contract: Contract, states: dict[str, str] | None = None) -> dict[str, str]:
         """The repos this skill names in source, as they are now. A skill that names none depends on the whole
@@ -159,26 +226,10 @@ class Stamps:
         path = body_file(contract.interface.transport, contract.name, self.skills)
         return path.read_text() if path and path.is_file() else ''
 
-    def _save(self, stamps: dict) -> None:
-        """Called under the lock. A temp file per writer, then one rename, so a reader never sees half a file"""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(f'.{os.getpid()}.{threading.get_ident()}.tmp')
-        temporary.write_text(yaml.safe_dump(stamps, sort_keys=True))
-        temporary.replace(self.path)
-        self._world = None                  # the next reasons() reads the file again
-
     # ========== Reading ==========
 
     def all(self) -> dict:
-        with self._lock:
-            return self._read()
-
-    def _read(self) -> dict:
-        """Called under the lock. A file we cannot parse reads as no stamps, so nothing is falsely proved"""
-        try:
-            return yaml.safe_load(self.path.read_text()) or {}
-        except (FileNotFoundError, yaml.YAMLError):
-            return {}
+        return read_stamps(self.path)
 
     def digest(self, name: str) -> str | None:
         return file_digest(contract_file(name, self.skills))
@@ -186,9 +237,13 @@ class Stamps:
     def reasons(self, registry: Registry | None = None) -> dict[str, str]:
         """Every stale skill and why, in one pass: the stamp file and the repo states are read once, not once per
         skill, and a sweep serves sweep_s. The catalog renders for every decision and a step asks again, and one
-        sweep is 3 git calls per repo over every repo under the roots"""
+        sweep is 3 git calls per repo over every repo under the roots. A stamps file that cannot be read makes every
+        skill of the registry stale, with the reason: nothing is proved, and the catalog and the page say why"""
         stamps, now = self.world()
         found       = {}
+
+        if isinstance(stamps, StampsError):
+            return {contract.name: str(stamps) for contract in registry or []}
 
         for name in stamps:
             reason = self._stale(name, stamps, now, set(), registry)
@@ -198,11 +253,16 @@ class Stamps:
 
         return found
 
-    def world(self) -> tuple[dict, dict[str, str]]:
-        """The stamps and the repo states, swept at most every sweep_s"""
+    def world(self) -> tuple[dict | StampsError, dict[str, str]]:
+        """The stamps (or why they cannot be read) and the repo states, swept at most every sweep_s"""
         with self._lock:
             if self._world is None or time.monotonic() - self._world[0] > self.sweep_s:
-                self._world = (time.monotonic(), self._read(), self.repo_states())
+                try:
+                    stamps = _parse(self.path)
+                except StampsError as error:
+                    stamps = error
+
+                self._world = (time.monotonic(), stamps, self.repo_states())
 
             return self._world[1], self._world[2]
 
@@ -307,12 +367,9 @@ class SkillClock:
         return f'{skill} now runs {", ".join(added)}' if added else ''
 
     def save(self, folder: Path | str) -> None:
-        where     = {'skills': str(self.stamps.skills), 'stamps': str(self.stamps.path),
-                     'repo_roots': list(self.stamps.repo_roots)}
-        path      = Path(folder).expanduser() / CLOCK_FILE
-        temporary = path.with_suffix(f'.{os.getpid()}.tmp')
-        temporary.write_text(yaml.safe_dump(where))
-        temporary.replace(path)             # a reader never sees half a file
+        where = {'skills': str(self.stamps.skills), 'stamps': str(self.stamps.path),
+                 'repo_roots': list(self.stamps.repo_roots)}
+        write_atomic(Path(folder).expanduser() / CLOCK_FILE, yaml.safe_dump(where))
 
     @classmethod
     def load(cls, folder: Path | str) -> 'SkillClock | None':

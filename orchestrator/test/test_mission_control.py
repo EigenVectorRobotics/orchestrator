@@ -371,13 +371,13 @@ def test_stale_skills_come_from_the_executor_s_stamps_and_are_kept_a_while(tmp_p
     assert 'another library' in StaleSkills(tmp_path, tmp_path / 'other')()[1]
 
 
-def test_a_bad_stamps_file_is_said_and_kept_a_while(tmp_path):
-    library = _clock_files(tmp_path, '- walk\n')                               # a list: reasons() cannot read it
+def test_a_bad_stamps_file_makes_every_skill_stale_with_the_reason_and_is_kept_a_while(tmp_path):
+    library = _clock_files(tmp_path, '- walk\n')                               # a list, not stamps: nothing is proved
     now     = [0.0]
     stale   = StaleSkills(tmp_path, library, every_s=30.0, clock=lambda: now[0])
 
-    assert stale()[0] is None and 'stale not known' in stale()[1]
+    assert 'is not a mapping of skill names to stamps' in stale()[0]['walk']
 
     (tmp_path / 'code_clock.yaml').unlink()                                    # not looked at again within every_s
 
-    assert 'stale not known' in stale()[1] and 'no executor' not in stale()[1]
+    assert 'walk' in stale()[0] and 'no executor' not in stale()[1]

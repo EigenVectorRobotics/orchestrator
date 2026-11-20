@@ -12,7 +12,6 @@ refresh: a kept skill loads the same (write_skill saves it at maturity untested)
   a leaf of a tree).
 """
 
-import os
 import time
 import shutil
 import hashlib
@@ -25,7 +24,7 @@ import yaml
 from .contract import AGENT_MARK, ContractError, load_contract
 from .provenance import file_digest
 from .registry import CODE_FILE, TREE_FILE, code_file, contract_file, contract_files, tree_file
-from .skill_stamps import body_parts
+from .skill_stamps import StampsError, body_parts, locked_stamps, read_stamps, write_atomic
 from .skill_writer import BODY_MARKS
 
 
@@ -35,10 +34,7 @@ class ReviewError(ValueError):
 
 def _runs(stamps_path: Path | None) -> dict[str, int]:
     """The successful runs that skill_stamps kept for each skill; none when there is no stamps file"""
-    try:
-        stamps = yaml.safe_load(Path(stamps_path).read_text()) or {} if stamps_path else {}
-    except (OSError, yaml.YAMLError):
-        return {}
+    stamps = read_stamps(Path(stamps_path).expanduser()) if stamps_path else {}
 
     return {name: len(stamp.get('runs') or []) for name, stamp in stamps.items() if isinstance(stamp, dict)}
 
@@ -88,13 +84,6 @@ def _folder(directory: Path, name: str) -> Path:
         raise ReviewError(f'no skill {name!r} in the library')
 
     return folders[name]
-
-
-def _write(path: Path, text: str):
-    """A temp file, then one rename: the registry never reads half a file"""
-    temporary = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
-    temporary.write_text(text)
-    temporary.replace(path)
 
 
 def _version(text: str, body: str) -> str:
@@ -173,17 +162,16 @@ def _seen(folder: Path, name: str, version: str | None):
 
 
 def _stamps(stamps_path: Path | None, change):
-    """Change the stamps file, a temp file then one rename as Stamps does. Nothing when there is no file"""
-    if not stamps_path or not Path(stamps_path).is_file():
+    """Change the stamps file under the lock that the executor's Stamps takes too. Nothing when there is no file, or
+    one that cannot be read: it reads as no stamps, and the executor's next write says why"""
+    if not stamps_path or not Path(stamps_path).expanduser().is_file():
         return
 
     try:
-        stamps = yaml.safe_load(Path(stamps_path).read_text()) or {}
-    except yaml.YAMLError:
+        with locked_stamps(stamps_path) as stamps:
+            change(stamps)
+    except StampsError:
         return
-
-    change(stamps)
-    _write(Path(stamps_path), yaml.safe_dump(stamps, sort_keys=True))
 
 
 def keep(directory: Path, name: str, stamps_path: Path | None = None, version: str | None = None) -> str:
@@ -199,9 +187,9 @@ def keep(directory: Path, name: str, stamps_path: Path | None = None, version: s
 
     for body, mark in BODY_MARKS.items():
         if (found := _read(folder / body)).startswith(mark):
-            _write(folder / body, found.removeprefix(mark))
+            write_atomic(folder / body, found.removeprefix(mark))
 
-    _write(contract, text.removeprefix(AGENT_MARK))
+    write_atomic(contract, text.removeprefix(AGENT_MARK))
     digest = file_digest(contract)
 
     def follow(stamps: dict):
