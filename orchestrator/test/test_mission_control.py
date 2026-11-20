@@ -8,7 +8,7 @@ from skill_registry.contract import AGENT_MARK
 from orchestrator.images import Camera, Outlines
 from orchestrator.knowledge import KnowledgeStore, Sighting
 from orchestrator.mission_control import (Commands, KnowledgeShelf, MissionApi, MissionState, SkillShelf, StaleSkills,
-                                          live_names, token_ok)
+                                          finite, live_names, token_ok)
 
 
 def _api(reply: dict | None = {'accepted': True, 'message': 'approved'}, listening: bool = True):
@@ -381,3 +381,11 @@ def test_a_bad_stamps_file_makes_every_skill_stale_with_the_reason_and_is_kept_a
     (tmp_path / 'code_clock.yaml').unlink()                                    # not looked at again within every_s
 
     assert 'walk' in stale()[0] and 'no executor' not in stale()[1]
+
+
+def test_the_state_is_strict_json_when_feedback_holds_inf():
+    feedback = {'trace': [{'feedback': [{'distance_to_goal': float('inf'), 'error': float('nan'), 'ok': 1.5}]}]}
+
+    text = json.dumps(finite(feedback), allow_nan=False)    # the browser reads only strict JSON (2026-11-20)
+
+    assert json.loads(text)['trace'][0]['feedback'][0] == {'distance_to_goal': None, 'error': None, 'ok': 1.5}

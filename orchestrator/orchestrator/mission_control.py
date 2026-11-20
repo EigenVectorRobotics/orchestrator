@@ -156,6 +156,21 @@ class SessionFollower:
         return len(items)
 
 
+def finite(value):
+    """Changes each inf and NaN in value to None. Python writes them as Infinity and NaN, and these are not JSON. On
+    2026-11-20, an arm skill gave distance_to_goal inf in its feedback. After that, the page could not read the state"""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+
+    if isinstance(value, dict):
+        return {key: finite(item) for key, item in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [finite(item) for item in value]
+
+    return value
+
+
 def token_ok(expected: str, given: str) -> bool:
     """True when a command carries the node's token. `off` takes the check away, for a bench with no agent on it"""
     return expected == 'off' or (bool(expected) and hmac.compare_digest(expected.encode(), (given or '').encode()))

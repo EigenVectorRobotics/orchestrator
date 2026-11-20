@@ -747,9 +747,12 @@ $('filters').addEventListener('click', event => {
 async function poll() {
   if (polling) return;          // a slow answer must not let the next poll ask with the same cursor, twice
   polling = true;
+  let trouble = 'the adapter does not answer';
   try {
     const answer = await fetch('/api/state?after=' + seq + (masks ? '&outlines=1' : ''));
+    trouble = 'the adapter answered, but the page cannot read it';      // bad data is not the same as no answer
     state = safe(await answer.json());
+    trouble = 'the page cannot show the state';
     if (state.seq < seq) { events = []; words = []; opened.clear(); seq = 0; drawn = {}; renderFeed(); renderLog(); return; }   // the adapter restarted: read the trace again
     seq = state.seq || seq;
     keep = state.keep || keep;
@@ -762,7 +765,7 @@ async function poll() {
     health(); nowBand(); renderPlan(); renderCamera(); feedNote();
     once('map', JSON.stringify(state.map || {}), drawMap);
   } catch (error) {
-    $('health').innerHTML = '<span class="issue">the adapter does not answer</span>';
+    $('health').innerHTML = '<span class="issue">' + escapeText(trouble + ': ' + (error && error.message || String(error))) + '</span>';
     $('minimap').hidden = true;                          // a pose that no longer comes must not look fresh
     drawn = {};
   } finally {

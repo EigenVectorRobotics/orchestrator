@@ -43,7 +43,7 @@ from skill_registry.skill_review import composition, grade_version, written_matu
 from .map_view import MapView
 from .map_places import MapInfoPlaces
 from .mission_control import (DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf,
-                              SessionFollower, StaleSkills, live_names, token_ok)
+                              SessionFollower, StaleSkills, finite, live_names, token_ok)
 from .recording import RecorderConfig
 from .node_setup import session_log
 
@@ -335,7 +335,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == 'POST' and code >= 400:   # log_message is quiet: a refused command must still be seen
             self.server.log.warning(f'refused POST {urlparse(self.path).path} ({code}): {payload.get("message")}')
 
-        self._send(code, json.dumps(payload, default=str).encode(), 'application/json')
+        self._send(code, json.dumps(finite(payload), default=str).encode(), 'application/json')
 
     def _send(self, code: int, body: bytes, media_type: str):
         self.send_response(code)
