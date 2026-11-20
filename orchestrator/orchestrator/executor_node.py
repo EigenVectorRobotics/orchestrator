@@ -8,6 +8,7 @@ from pathlib import Path
 
 import rclpy
 
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from std_msgs.msg import Empty, String
@@ -150,7 +151,7 @@ class ExecutorNode(Node):
             knowledge=self.knowledge,
             runbook=lambda: read_text(self._runbook_file()),
             max_steps=self.declare_parameter('task_max_steps', 40).value,
-            max_task_s=self.declare_parameter('task_max_s', 900.0).value,
+            max_task_s=float(self.declare_parameter('task_max_s', 1800.0, ParameterDescriptor(dynamic_typing=True)).value),   # 0 is an int
             idle_s=self.declare_parameter('task_idle_s', 120.0).value,
             gate=self.gate,
             writer=self.writer if writes else None,

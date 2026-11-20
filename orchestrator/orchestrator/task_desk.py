@@ -28,7 +28,7 @@ are weak evidence (knowledge.OUTCOME). Each grade keeps the code under the claim
 that the agent rewrote later counts for no version. A task that opens commits the grades the last one left. The
 agent writes claims itself, with the knowledge CLI (a session).
 
-Each command gets one reply on REPLY_TOPIC with its id. Limits: max_steps and max_task_s end the task as gave_up.
+Each command gets one reply on REPLY_TOPIC with its id. Limits: max_steps and max_task_s (when set) end the task as gave_up.
 When no command comes for idle_s between steps (the session or its cloud link is gone), the robot says so once on
 /speak and waits.
 
@@ -137,7 +137,7 @@ class TaskDesk:
     def __init__(self, tasks: Tasks, publish_open: Callable[[dict], None], publish_reply: Callable[[dict], None],
                  speak: Callable[[str], None], knowledge: KnowledgeStore | None = None,
                  runbook: Callable[[], str] = lambda: '', max_steps: int = 40,
-                 max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
+                 max_task_s: float | None = 1800.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
                  gate: StepGate | None = None, writer: SkillWriter | None = None,
                  stale: Callable[[], dict[str, str]] = dict, ran: Callable[[str, str], None] = lambda name, run: None,
                  steps: StepGrades | None = None, composition: Callable[[str], dict] = lambda name: {},
@@ -156,6 +156,7 @@ class TaskDesk:
         self.trust_tested  = trust_tested            # a tested skill that is not stale runs with no question at the gate
         self.composition   = composition             # what a code skill calls, and its versions (skill_review.composition)
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
+        max_task_s         = max_task_s if max_task_s and max_task_s > 0 else None     # 0 or less: no time limit
         self.task_limits   = {'max_steps': max_steps, 'max_task_s': max_task_s, 'idle_s': idle_s, 'run': True}
         self.limits        = self.task_limits        # the open task's: set at open
         self.clock         = clock

@@ -17,7 +17,7 @@ Agentic task planning for the G1. A task is one sentence. An agent does it step 
 4. On the robot, a person approves each step (the step gate, `step_gate:=auto`: on unless `fake:=true`). A code skill or a tree is one step: its parts do not ask. A skill that earned `tested` on the robot, and that is not stale, runs with no question (`gate_trusts_tested:=true`, the default). A deprecated skill does not run.
 5. The trace goes to `/orchestrator/trace` (JSON) and `/orchestrator/log` (`rcl_interfaces/Log`, for Foxglove). The recorder keeps each run in a bundle (`docs/recorder.md`).
 
-Limits: `task_max_steps` 40, `task_max_s` 900, `task_idle_s` 120. Design: `docs/task-mode.md`.
+Limits: `task_max_steps` 40, `task_max_s` 1800 (0: no limit), `task_idle_s` 120. Design: `docs/task-mode.md`.
 
 ### The task session
 

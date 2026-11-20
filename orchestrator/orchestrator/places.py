@@ -23,6 +23,8 @@ class PlacesError(ValueError):
 
 
 def place_key(name: str) -> str:
+    """The blackboard key of a place name. map_info finds a place by the same key (map_info annotations.py place_key):
+    keep the two in step"""
     return re.sub(r'[^0-9a-z]+', '_', str(name).strip().lower()).strip('_')
 
 

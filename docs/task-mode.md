@@ -28,7 +28,7 @@ Status: built, 2026-11-05 to 2026-11-18. Related: `docs/skill-packages.md` ("Com
 
 ### Limits
 
-- `max_steps` (for example 40) and `max_task_s` (for example 600 s) per task; at the limit, the task ends as `gave_up`.
+- `max_steps` (40) and `max_task_s` per task; at a limit, the task ends as `gave_up`. The ROS parameter `task_max_s` is 1800 s (30 min) by default; 0 or less means no time limit. A search with waits at the gate took more than 15 minutes (2026-11-20), and a task whose session dies must still end.
 - `/orchestrator/cancel` halts the running step and ends the task.
 - A skill that the robot may not use is refused by the validator in `run`.
 

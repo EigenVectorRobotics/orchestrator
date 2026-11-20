@@ -66,6 +66,16 @@ def test_a_quiet_session_is_said_once_and_the_time_limit_gives_up(tmp_path):
     assert d.tracer.events[-1]['end'] == 'gave_up' and d.opened[-1]['end'] == 'gave_up' and d.desk.task is None
 
 
+def test_a_time_limit_of_0_or_less_is_no_limit(tmp_path):
+    for limit in (0.0, -1.0):
+        d = _desk(FakeRunner(), tmp_path / str(limit), max_task_s=limit)
+
+        d.clock.now = 7 * 24 * 3600.0
+        d.desk.check()
+
+        assert d.desk.task is not None
+
+
 def test_a_cancel_closes_the_open_task(tmp_path):
     d = _desk(FakeRunner(), tmp_path)
 

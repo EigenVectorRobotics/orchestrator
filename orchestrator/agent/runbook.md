@@ -35,9 +35,9 @@ device is down, say so; do not conclude that the robot cannot do it.
   whether or not a skill reports it.
 - The places on your blackboard come from `map_info` on the NUC. If there are none, `map_info` is not up. The
   task gives their names, kind, floor and note, but not their poses. For the poses, read
-  `agent_cli topic /map_info/places`: it gives the places that map_info has now, with their map_info names. Use
-  these names with the map_info skills. Do not read a places file on the disk: it can be old or for a different
-  map.
+  `agent_cli topic /map_info/places`: it gives the places that map_info has now. Give a map_info skill the place
+  key as text, without the braces that the task shows (`place=freight_elevator_call_panel`, not
+  `{freight_elevator_call_panel}`: that gives the pose). Do not read a places file on the disk: it can be old or for a different map.
 
 ## Where you are
 
