@@ -7,7 +7,7 @@ interface:
   name: /slam_elevatorlio/relocalize
   ros_type: std_srvs/srv/Trigger
 resources: [base]
-timeout_s: 12
+timeout_s: 20                    # above slam_elevatorlio's relocalize_timeout_s (15 s), so SLAM answers first
 maturity: untested
 source: navigation_stack (jean/elevator-side) slam_elevatorlio ~/relocalize
 notes: >-
