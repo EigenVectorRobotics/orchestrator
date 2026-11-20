@@ -9,7 +9,7 @@ from skill_registry import contract_grammar
 from orchestrator.knowledge import KnowledgeStore, Sighting
 from orchestrator.task_desk import LOST_SPEECH, task_summary
 from orchestrator.step_gate import StepGate
-from orchestrator.behavior_tree import Status
+from orchestrator.behavior_tree import Status, TreeError
 
 from fakes import FakeRunner, _context, _desk, _tick_until
 
@@ -141,6 +141,75 @@ def test_the_step_gate_runs_an_approved_step_and_not_a_refused_one(tmp_path):
     assert requests[0]['skill'] == 'say' and requests[0]['step'] == 1
     refused = [event for event in d.tracer.events if event['kind'] == 'step_gate'][-1]  # the page puts it in the plan
     assert (refused['state'], refused['subgoal'], refused['step']) == ('refused', 'greet', 2)
+
+
+def _not_asked(d, inputs):
+    """A run that the desk must refuse before the gate asks; fails (and frees the gate) if the gate asks"""
+    thread = threading.Thread(target=d.desk.command, args=({'id': 'c', 'run_id': 'r1', 'op': 'run', 'skill': 'say',
+                                                            'inputs': inputs, 'subgoal': 'greet'},))
+    thread.start()
+
+    while d.desk.gate.request is None and thread.is_alive():
+        thread.join(0.01)
+
+    if thread.is_alive():
+        d.desk.gate.decide({'id': d.desk.gate.request['id'], 'approve': False})
+        thread.join(2.0)
+        pytest.fail('a step that cannot run went to the gate')
+
+
+def test_a_step_that_does_not_validate_is_refused_before_the_gate_asks(tmp_path):
+    runner, requests = FakeRunner(), []
+    d                = _desk(runner, tmp_path, gate=StepGate(requests.append))
+
+    _not_asked(d, {'text': '{no_such_key}'})
+    assert requests == [] and runner.calls == []
+    assert d.replies[0]['status'] == 'refused' and 'does not validate' in d.replies[0]['message']
+    refused = [event for event in d.tracer.events if event['kind'] == 'step_gate'][-1]
+    assert (refused['state'], refused['by'], refused['step']) == ('refused', 'validator', 1)
+
+    _gated_run(d, lambda request: d.desk.gate.decide({'id': request['id'], 'approve': True}))   # a valid step still asks
+    assert len(requests) == 2 and len(runner.calls) == 1
+
+
+def test_a_run_while_a_step_runs_is_refused_before_the_gate_asks(tmp_path):
+    runner, requests = FakeRunner(), []
+    d                = _desk(runner, tmp_path, gate=StepGate(requests.append))
+    first            = threading.Thread(target=d.desk.command, args=({'id': 'c', 'run_id': 'r1', 'op': 'run', 'skill': 'say',
+                                                                     'inputs': {'text': 'hi'}, 'subgoal': 'greet'},))
+    first.start()
+
+    while d.desk.gate.request is None and first.is_alive():
+        first.join(0.01)
+
+    d.desk.gate.decide({'id': d.desk.gate.request['id'], 'approve': True})
+
+    while d.tasks.step is None and first.is_alive():              # it runs until a tick ends it
+        first.join(0.01)
+
+    _not_asked(d, {'text': 'again'})
+    assert 'still running' in d.replies[-1]['message'] and len(requests) == 2   # the first step's: open, approved
+    _tick_until(d.tasks, first)
+    first.join(5.0)
+
+
+def test_a_step_that_does_not_build_is_refused_before_the_gate_and_after_an_approval(tmp_path):
+    runner, requests = FakeRunner(), []
+    d                = _desk(runner, tmp_path, gate=StepGate(requests.append))
+    factory          = d.tasks.leaf_factory
+
+    def no_runner(*_, **__):                                       # e.g. a code skill on an executor that runs no code
+        raise TreeError('say is a code skill, and this executor runs none')
+
+    d.tasks.leaf_factory = no_runner
+    _not_asked(d, {'text': 'hi'})
+    assert requests == [] and 'does not build' in d.replies[-1]['message']
+
+    d.tasks.leaf_factory = factory                                 # it changes while the person decides
+    _gated_run(d, lambda request: (setattr(d.tasks, 'leaf_factory', no_runner),
+                                   d.desk.gate.decide({'id': request['id'], 'approve': True})))
+    assert d.replies[-1]['status'] == 'refused' and 'after the operator approved' in d.replies[-1]['message']
+    assert runner.calls == []
 
 
 def test_a_composition_gets_the_gate_once_shows_what_it_calls_and_does_not_run_when_it_changed_after(tmp_path):

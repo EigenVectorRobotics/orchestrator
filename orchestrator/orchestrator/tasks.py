@@ -11,7 +11,7 @@ finished, halted or error for each step. This module needs no ROS.
 import json
 import threading
 
-from typing import Callable
+from typing import Callable, NamedTuple
 from xml.sax.saxutils import quoteattr
 from dataclasses import dataclass, field
 
@@ -62,6 +62,17 @@ class _Step:
     failure: object = None                        # the task's last failure before the step, to see a new one
 
 
+class _StepTree(NamedTuple):
+    xml:     str
+    outputs: list[str]                            # the blackboard keys of its outputs
+    board:   dict                                 # the blackboard values it needs: its inputs that are not text
+    config:  ValidatorConfig
+
+
+def _not_valid(errors: list[Issue]) -> str:
+    return 'the step does not validate: ' + '; '.join(f'{issue.path}: {issue.message}' for issue in errors)
+
+
 class Tasks:
     def __init__(self, registry: Registry, leaf_factory, tracer, publish_status: Callable[[str, str | None], None],
                  essential_devices: set[str], make_scratch: Callable[[str], str | None] = lambda run_id: None,
@@ -107,31 +118,17 @@ class Tasks:
         if contract is None:
             return StepResult('error', f'no skill {name}')
 
-        prefix     = f'step{task.steps + 1}'
-        attributes = {}
-        outputs    = {port.name: f'{prefix}_{port.name}' for port in contract.outputs}
-
-        for port, value in inputs.items():
-            if isinstance(value, str):
-                attributes[port] = value
-            else:
-                task.context.blackboard[f'{prefix}_{port}'] = value
-                attributes[port]                           = f'{{{prefix}_{port}}}'
-
-        attributes |= {port: f'{{{key}}}' for port, key in outputs.items()}
-        leaf        = ' '.join(f'{port}={quoteattr(str(value))}' for port, value in attributes.items())
-        xml_text    = f'<root BTCPP_format="4"><BehaviorTree ID="{prefix}_{name}"><{name} {leaf}/></BehaviorTree></root>'
-        config      = ValidatorConfig(essential_devices=self.essential_devices, blind=task.blind,
-                                      known_keys=set(task.context.blackboard), require_fallback=False)  # the agent recovers
-
-        errors = self._validate(xml_text, config, 'step')
+        tree   = self._step_tree(task, contract, inputs)
+        errors = self._validate(tree.xml, tree.config, 'step')
 
         if errors:
-            return StepResult('error', 'the step does not validate: '
-                                       + '; '.join(f'{issue.path}: {issue.message}' for issue in errors))
+            return StepResult('error', _not_valid(errors))
+
+        task.context.blackboard.update(tree.board)
+        xml_text = tree.xml
 
         try:
-            step = _Step(BehaviorTree(xml_text, self.leaf_factory, task.context), xml_text, list(outputs.values()),
+            step = _Step(BehaviorTree(xml_text, self.leaf_factory, task.context), xml_text, tree.outputs,
                          subgoal, failure=task.context.last_failure)
         except (TreeError, ValueError) as error:
             return StepResult('error', f'the step does not build: {error}')
@@ -147,6 +144,59 @@ class Tasks:
                 self.cancel_step(step, 'the agent was stopped')
 
         return step.result
+
+    def check_step(self, task: Task, name: str, inputs: dict) -> str:
+        """Why run_skill would refuse this step of the task before it runs, or ''. Nothing changes: no blackboard
+        value, no trace; a tree that is built does nothing until it ticks. The desk asks this before the step gate,
+        so a person sees only a step that can run"""
+        with self._lock:
+            if self.task is not task:
+                return 'the task is not open'
+
+            if self.step is not None:
+                return 'a step is still running'
+
+        contract = self.registry.get(name)
+
+        if contract is None:
+            return f'no skill {name}'
+
+        tree   = self._step_tree(task, contract, inputs)
+        errors = self._errors(tree.xml, tree.config)[1]
+
+        if errors:
+            return _not_valid(errors)
+
+        try:
+            BehaviorTree(tree.xml, self.leaf_factory, task.context)
+        except (TreeError, ValueError) as error:
+            return f'the step does not build: {error}'
+
+        return ''
+
+    def _step_tree(self, task: Task, contract: Contract, inputs: dict) -> '_StepTree':
+        """The one-leaf tree of a step. A string input goes into the tree as written; any other value goes on the
+        blackboard (the caller puts it there)"""
+        name       = contract.name
+        prefix     = f'step{task.steps + 1}'
+        attributes = {}
+        board      = {}
+        outputs    = {port.name: f'{prefix}_{port.name}' for port in contract.outputs}
+
+        for port, value in inputs.items():
+            if isinstance(value, str):
+                attributes[port] = value
+            else:
+                board[f'{prefix}_{port}'] = value
+                attributes[port]          = f'{{{prefix}_{port}}}'
+
+        attributes |= {port: f'{{{key}}}' for port, key in outputs.items()}
+        leaf        = ' '.join(f'{port}={quoteattr(str(value))}' for port, value in attributes.items())
+        xml_text    = f'<root BTCPP_format="4"><BehaviorTree ID="{prefix}_{name}"><{name} {leaf}/></BehaviorTree></root>'
+        config      = ValidatorConfig(essential_devices=self.essential_devices, blind=task.blind,
+                                      known_keys=set(task.context.blackboard) | set(board), require_fallback=False)  # the agent recovers
+
+        return _StepTree(xml_text, list(outputs.values()), board, config)
 
     def end_task(self, task: Task, end: str, reason: str = ''):
         """Task mode: done or gave_up, from the task agent; a running step is halted first. Nothing if this task
@@ -245,8 +295,7 @@ class Tasks:
     def _validate(self, xml_text: str, config: ValidatorConfig, what: str) -> list[Issue]:
         """The errors that stop the tree, [] when it validates. The caller gives them back to whoever sent the
         tree: an agent then reads WHY its step was refused, not only that something is in the trace"""
-        issues = TreeValidator(self.registry, config).validate(xml_text)
-        errors = [issue for issue in issues if issue.level == 'error']
+        issues, errors = self._errors(xml_text, config)
 
         for issue in issues:
             if issue.code == 'maturity':
@@ -258,6 +307,11 @@ class Tasks:
             self.reject(f'{what} rejected: {len(errors)} errors')
 
         return errors
+
+    def _errors(self, xml_text: str, config: ValidatorConfig) -> tuple[list[Issue], list[Issue]]:
+        """All the validator's issues, and the errors among them: those stop the tree"""
+        issues = TreeValidator(self.registry, config).validate(xml_text)
+        return issues, [issue for issue in issues if issue.level == 'error']
 
     def reject(self, text: str) -> bool:
         self.tracer.emit('rejected', text, level='error')

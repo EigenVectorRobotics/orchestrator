@@ -357,6 +357,12 @@ class TaskDesk:
                                f'write a new version (write_skill), or use another skill'}
 
         if self.gate is not None:
+            if problem := self.tasks.check_step(task, skill, inputs):
+                # a person sees only a step that can run: on 2026-11-20 the operator approved three that then did not validate
+                self.ask_step({'skill': skill, 'inputs': inputs, 'subgoal': subgoal},
+                              decided={'approve': False, 'state': 'refused', 'reason': problem, 'by': 'validator', 'level': 'warn'})
+                return {'ok': False, 'status': 'refused', 'message': f'{problem}. The step did not run, and the operator was not asked'}
+
             trusted  = self.trust_tested and trust['maturity'] == 'tested' and trust['earned']
             decision = self.ask_step({'skill': skill, 'inputs': inputs, 'subgoal': subgoal,
                                       **({'calls': seen['calls'], 'unknown_calls': seen['unknown']} if seen.get('versions') else {})},
@@ -364,6 +370,11 @@ class TaskDesk:
 
             if not decision['approve']:
                 return {'ok': False, 'status': 'refused', 'message': f'the operator refused the step: {decision["reason"]}'}
+
+            if problem := self.tasks.check_step(task, skill, inputs):      # a skill written while the person decided
+                self.tasks.tracer.emit('step_gate', f'{skill}: refused after the approval, {problem}', level='warn',
+                                       skill=skill, state='refused', run_id=task.run_id)
+                return {'ok': False, 'status': 'refused', 'message': f'{problem}, after the operator approved it: the step did not run'}
 
             if self.composition(skill).get('versions') != seen.get('versions'):
                 self.tasks.tracer.emit('step_gate', f'{skill}: refused, its code changed after the approval', level='warn',
