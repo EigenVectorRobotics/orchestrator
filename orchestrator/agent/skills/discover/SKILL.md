@@ -15,6 +15,9 @@ real missions. That is the test of your work.
   subagent writes drafts in the scratch folder.
 - **The contract grammar in the open message is the authority** for every field, the code skills too.
 - **Do not read `~/orchestrator_ws`.** It is another team's work.
+- **Never run the stack's tests**, in any form (`pytest`, `colcon test`, `launch_test`, `python3 test_x.py`). Their
+  nodes connect to the robot's ROS graph: on 2026-11-20, a map_info test replaced the live places. Read a test to
+  learn an interface. To test your own code, use `agent_cli python FILE`. Its sandbox blocks ROS.
 
 ## Steps
 

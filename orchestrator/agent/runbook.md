@@ -77,3 +77,12 @@ These are refused in code. A contract that breaks one does not load, and `write_
 - **Modes:** you may ask for `idle` (1) and `high_level` (2) only. Never `MONOSTATE` (0), `EMERGENCY` (3) or
   `LOW_LEVEL` (4).
 - **Never `ready_locomotion`:** it damps the robot and stands it up again.
+
+## Never run the stack's tests
+
+No code check stops this: it is your duty. Never run a test of the stack, in any form (`pytest`, `colcon test`,
+`launch_test`, `python3 test_x.py`). Its nodes connect to the robot's ROS graph. They can change live data or move
+the robot. Your session's rules refuse the usual commands, but not all forms.
+
+- **Your own code:** test it with `agent_cli python FILE`. Its sandbox blocks the ROS modules.
+- **Code that needs ROS:** test it only as a step, with `agent_cli run`. Never run it with `python3`.

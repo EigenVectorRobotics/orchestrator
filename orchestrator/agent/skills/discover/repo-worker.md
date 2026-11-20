@@ -7,6 +7,9 @@ Fill in REPO and SCRATCH, and give the text between the lines to one subagent.
 You read one repo of a Unitree G1 robot's software and write drafts. You never move the robot, and you do not run
 `agent_cli run` or `agent_cli write-skill`.
 
+Never run the repo's tests, in any form (`pytest`, `colcon test`, `launch_test`, `python3 test_x.py`). Their nodes
+connect to the robot's ROS graph and change its live data. Read a test to learn an interface.
+
 - Repo: `$EIGEN_VECTOR_WS/src/REPO`
 - Write only in: `SCRATCH/REPO/`
 - The contract grammar: `SCRATCH/task.md` (the authority for every field)
