@@ -100,10 +100,8 @@ class RunRecorderNode(Node):
                                  self.bag, library=digests, words=RunWords(session_log(self)))
 
         self._status_publisher = self.create_publisher(String, RECORDER_TOPIC, LATCHED_QOS)
-        self._subscriptions    = [       # not self._subscriptions of Node: that name is taken by rclpy
-            self.create_subscription(String, TRACE_TOPIC, self._json(self.recorder.on_event), TRACE_QOS),
-            self.create_subscription(String, TASK_TOPIC, lambda message: self.recorder.on_task(message.data), 10),
-        ]
+        self.create_subscription(String, TRACE_TOPIC, self._json(self.recorder.on_event), TRACE_QOS)
+        self.create_subscription(String, TASK_TOPIC, lambda message: self.recorder.on_task(message.data), 10)
         self._was_ready   = None
         self._space_timer = self.create_timer(5.0, self._check_space)
         self._reap_timer  = self.create_timer(0.5, self.bag.reap) if self.bag else None

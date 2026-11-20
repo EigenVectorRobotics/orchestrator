@@ -94,24 +94,22 @@ class MissionControlNode(Node):
         self._task_publisher     = self.create_publisher(String, TASK_TOPIC, COMMAND_QOS)
         self._decision_publisher = self.create_publisher(String, STEP_DECISION_TOPIC, COMMAND_QOS)
         self._cancel_publisher   = self.create_publisher(Empty, CANCEL_TOPIC, COMMAND_QOS)
-        self._subscriptions      = [
-            self.create_subscription(String, STATUS_TOPIC, self._reader('status'), LATCHED_QOS),
-            self.create_subscription(String, OPEN_TOPIC, self._reader('task'), LATCHED_QOS),
-            self.create_subscription(String, STEP_REQUEST_TOPIC, self._reader('step'), LATCHED_QOS),
-            self.create_subscription(String, RECORDER_TOPIC, self._reader('recorder'), LATCHED_QOS),
-            self.create_subscription(String, TRACE_TOPIC, self._reader('trace'), TRACE_QOS),
-            self.create_subscription(String, STEP_REPLY_TOPIC, self._reader('step_reply'), COMMAND_QOS),
-            self.create_subscription(Image, image_topic, self.camera.put, SENSOR_QOS),
-            self.create_subscription(String, LIVE_SKILLS_TOPIC, self._on_live, LATCHED_QOS),
-            self.create_subscription(Odometry, self.declare_parameter('pose_topic', '/odom_base_link').value,
-                                     self._on_pose, SENSOR_QOS),
-            self.create_subscription(Int32, self.declare_parameter('floor_topic', '/slam_elevatorlio/floor').value,
-                                     lambda message: self.map_view.put_floor(message.data), LATCHED_QOS),
-            self.create_subscription(RoutePath, self.declare_parameter('route_topic', '/route_planner/path').value,
-                                     lambda message: self.map_view.put_route([(stamped.pose.position.x, stamped.pose.position.y,
-                                                                               stamped.pose.position.z)
-                                                                              for stamped in message.poses]), LATCHED_QOS),
-        ]
+        self.create_subscription(String, STATUS_TOPIC, self._reader('status'), LATCHED_QOS)
+        self.create_subscription(String, OPEN_TOPIC, self._reader('task'), LATCHED_QOS)
+        self.create_subscription(String, STEP_REQUEST_TOPIC, self._reader('step'), LATCHED_QOS)
+        self.create_subscription(String, RECORDER_TOPIC, self._reader('recorder'), LATCHED_QOS)
+        self.create_subscription(String, TRACE_TOPIC, self._reader('trace'), TRACE_QOS)
+        self.create_subscription(String, STEP_REPLY_TOPIC, self._reader('step_reply'), COMMAND_QOS)
+        self.create_subscription(Image, image_topic, self.camera.put, SENSOR_QOS)
+        self.create_subscription(String, LIVE_SKILLS_TOPIC, self._on_live, LATCHED_QOS)
+        self.create_subscription(Odometry, self.declare_parameter('pose_topic', '/odom_base_link').value,
+                                 self._on_pose, SENSOR_QOS)
+        self.create_subscription(Int32, self.declare_parameter('floor_topic', '/slam_elevatorlio/floor').value,
+                                 lambda message: self.map_view.put_floor(message.data), LATCHED_QOS)
+        self.create_subscription(RoutePath, self.declare_parameter('route_topic', '/route_planner/path').value,
+                                 lambda message: self.map_view.put_route([(stamped.pose.position.x, stamped.pose.position.y,
+                                                                           stamped.pose.position.z)
+                                                                          for stamped in message.poses]), LATCHED_QOS)
 
         knowledge_dir      = self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value
         library            = self.declare_parameter('skills_dir', str(skills_dir())).value

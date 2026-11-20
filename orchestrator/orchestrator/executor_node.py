@@ -92,10 +92,8 @@ class ExecutorNode(Node):
                            on_error=self.get_logger().error)
 
         self._status_publisher   = self.create_publisher(String, STATUS_TOPIC, LATCHED_QOS)
-        self._subscriptions      = [
-            self.create_subscription(Empty, CANCEL_TOPIC, self._on_cancel, 10),
-            self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, LATCHED_QOS),
-        ]
+        self.create_subscription(Empty, CANCEL_TOPIC, self._on_cancel, 10)
+        self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, LATCHED_QOS)
         # skills that change on disk load while it runs, checked as write_skill checks them (skill_writer.py)
         self.stamps              = self._make_stamps(self.skills_dir)
         self.knowledge.code      = SkillClock(self.stamps, self.registry)     # a claim about a skill counts evidence on its code now
@@ -173,10 +171,8 @@ class ExecutorNode(Node):
 
             threading.Thread(target=desk.command, args=(command,), daemon=True).start()
 
-        self._task_subscriptions = [
-            self.create_subscription(String, TASK_TOPIC, self._on_task, 10),
-            self.create_subscription(String, COMMAND_TOPIC, on_command, COMMAND_QOS),
-        ]
+        self.create_subscription(String, TASK_TOPIC, self._on_task, 10)
+        self.create_subscription(String, COMMAND_TOPIC, on_command, COMMAND_QOS)
 
         return desk
 
