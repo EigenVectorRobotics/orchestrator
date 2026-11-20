@@ -813,10 +813,18 @@ async function loadSkills() {
   once('skills', JSON.stringify([shelf.skills, sFilter, sFind, selected, confirming]), renderSkills);
 }
 
+// The maturity it shows: the higher of the contract's and what it earned from the agent's grades on the robot
+function maturityPill(item) {
+  const m = item.maturity, e = item.earned, n = e ? e.worked + e.failed : 0;
+  const said = n ? `graded on the robot, this version: ${e.worked} worked, ${e.failed} failed; earned ${e.earned}; the contract says ${item.contract.maturity}`
+    : `no grades on the robot for this version; the contract says ${item.contract.maturity}`;
+  return `<span class="tagp ${m === 'tested' ? 'tested' : m === 'deprecated' ? 'bad' : ''}" title="${said}">${m}${n ? ` ${e.worked}/${n}` : ''}</span>`;
+}
+
 function pills(item) {
   const c = item.contract;
   return (toReview(item) ? '<span class="tagp">to review</span>' : '')
-    + (item.error ? '<span class="tagp bad">does not load</span>' : `<span class="tagp ${c.maturity === 'tested' ? 'tested' : ''}">${c.maturity}</span>`)
+    + (item.error ? '<span class="tagp bad">does not load</span>' : maturityPill(item))
     + (item.code ? '<span class="tagp">code</span>' : '')
     + (item.stale ? `<span class="tagp warn" title="${item.stale}">stale</span>` : '')
     + (item.live === false ? '<span class="tagp off" title="Its interface is not in the ROS graph now">not live</span>' : '');

@@ -36,19 +36,21 @@ def _key(step: int) -> str:
 
 
 class StepGrades(StagedRuns):
-    def __init__(self, folder, version: Callable[[str], str | None] = lambda name: None, clock=time.time):
+    def __init__(self, folder, version: Callable[[str], str | None] = lambda name: None, robot: bool = False,
+                 clock=time.time):
         self.folder     = Path(folder).expanduser()
         self.staged_dir = self.folder / STAGED
         self.log_path   = self.folder / LOG
         self.version    = version                # a skill's version now: what a grade of its step is of
+        self.robot      = robot                  # False on the fake robot: its grades do not graduate a skill
         self.clock      = clock
 
     def stage_step(self, run_id: str, step: int, skill: str, version: str | None, end: str) -> None:
         """A step ran: an entry with no grade, for the version of its skill when the step started (self.version then);
         a write_skill during the step must not get the grade of the version that ran"""
         staged             = self.staged(run_id)
-        staged[_key(step)] = {'step': step, 'skill': skill, 'version': version, 'end': end, 'grade': None,
-                              'reason': '', 'time': None}
+        staged[_key(step)] = {'step': step, 'skill': skill, 'version': version, 'robot': self.robot, 'end': end,
+                              'grade': None, 'reason': '', 'time': None}
         self._write_staged(run_id, staged)
 
     def stage(self, run_id: str, step: int, grade: str, reason: str) -> None:

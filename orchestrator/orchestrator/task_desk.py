@@ -52,6 +52,7 @@ from skill_registry import contract_grammar
 from .places import PLACE_INFO
 from .knowledge import KnowledgeError, KnowledgeStore, StagedRuns
 from .step_grades import StepGrades
+from .graduation import Graduation
 from .tasks import Task, Tasks
 from .tasks import describe_catalog
 from skill_registry.skill_writer import SkillWriter
@@ -143,6 +144,7 @@ class TaskDesk:
         self.stale         = stale                   # every stale skill and why, in one read (skill_stamps.reasons)
         self.ran           = ran                     # a step that succeeded: kept with the skill's stamp as evidence
         self.steps         = steps                   # the grades of each step's skill; None: steps are not graded
+        self.graduation    = Graduation(steps) if steps else None
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
         self.task_limits   = {'max_steps': max_steps, 'max_task_s': max_task_s, 'idle_s': idle_s, 'run': True}
         self.limits        = self.task_limits        # the open task's: set at open
@@ -288,7 +290,8 @@ class TaskDesk:
             return self._write_skill(str(message['yaml']), str(message.get('code', '')))
 
         if op == 'skills':
-            return {'ok': True, 'catalog': describe_catalog(self.tasks.registry, self.tasks.essential_devices, self.stale())}
+            return {'ok': True, 'catalog': describe_catalog(self.tasks.registry, self.tasks.essential_devices, self.stale(),
+                                                                self.graduation and self.graduation.of)}
 
         if op in ('done', 'give_up'):
             return self._end(task, 'done' if op == 'done' else 'gave_up', str(message.get('reason', '')))

@@ -37,6 +37,9 @@ from .qos import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS, TRACE_QOS
 from .topics import (CANCEL_TOPIC, LIVE_SKILLS_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
                      STEP_REQUEST_TOPIC, TASK_TOPIC, TRACE_TOPIC)
 from .images import Camera, Outlines
+from .graduation import Graduation
+from .step_grades import StepGrades
+from skill_registry.skill_review import grade_version
 from .map_view import MapView
 from .map_places import MapInfoPlaces
 from .mission_control import (DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf,
@@ -119,7 +122,9 @@ class MissionControlNode(Node):
                                        skills=SkillShelf(library,
                                                          self.declare_parameter('stamps_file', str(stamps_file())).value,
                                                          self.declare_parameter('removed_dir', str(agent_dir() / REMOVED)).value,
-                                                         stale=StaleSkills(knowledge_dir, library), live=lambda: self._live),
+                                                         stale=StaleSkills(knowledge_dir, library), live=lambda: self._live,
+                                                         graduation=Graduation(StepGrades(
+                                                             knowledge_dir, version=lambda name: grade_version(library, name)))),
                                        knowledge=KnowledgeShelf(knowledge_dir),
                                        runs=RunShelf(self.declare_parameter('runs_root', RecorderConfig.root).value),
                                        map_view=self.map_view, session_log=self.session_log)

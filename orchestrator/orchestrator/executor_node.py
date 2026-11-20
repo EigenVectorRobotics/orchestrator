@@ -153,7 +153,8 @@ class ExecutorNode(Node):
             writer=self.writer if writes else None,
             stale=self._stale,
             ran=self.stamps.ran,
-            steps=StepGrades(self.knowledge.folder, version=lambda name: grade_version(self.skills_dir, name)),
+            steps=StepGrades(self.knowledge.folder, version=lambda name: grade_version(self.skills_dir, name),
+                             robot=self.declare_parameter('on_robot', False).value),   # the launch file sets it; off: no grade graduates
         )
 
         def on_command(message: String):                # a run blocks until its step ends: not on the spin thread

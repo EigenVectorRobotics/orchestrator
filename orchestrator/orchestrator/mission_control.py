@@ -28,6 +28,7 @@ from skill_registry.skill_stamps import SkillClock
 
 from .images import Camera, Outlines
 from .knowledge import OPERATOR, Claim, KnowledgeError, KnowledgeStore, Sighting
+from .graduation import Graduation
 from .map_view import MapView
 from .run_browser import list_runs, run_detail
 from .session_log import SessionLog
@@ -287,12 +288,13 @@ class SkillShelf:
     interface is in the ROS graph now (registry_node's /skills/live), or None while nothing says"""
 
     def __init__(self, directory, stamps_file, removed_dir, stale: Callable[[], tuple] = lambda: (None, ''),
-                 live: Callable[[], set | None] = lambda: None):
+                 live: Callable[[], set | None] = lambda: None, graduation: Graduation | None = None):
         self.directory   = Path(directory)
         self.stamps_file = stamps_file
         self.removed_dir = Path(removed_dir)
         self.stale       = stale
         self.live        = live
+        self.graduation  = graduation          # the maturity each skill earned from the grades of its steps
 
     def get(self) -> tuple[int, dict]:
         try:
@@ -311,6 +313,10 @@ class SkillShelf:
         for item in skills:
             item['stale'] = None if stale is None else stale.get(item['name'], '')   # None: not known
             item['live']  = None if live is None else item['name'] in live
+
+            if not item['error']:
+                item['earned']   = self.graduation.of(item['name'], item['contract']['maturity']) if self.graduation else None
+                item['maturity'] = item['earned']['maturity'] if item['earned'] else item['contract']['maturity']
 
         return 200, {'skills': skills, 'problem': missing_folder(self.directory), 'stale_unknown': unknown, 'deny': deny,
                      'directory': str(self.directory)}

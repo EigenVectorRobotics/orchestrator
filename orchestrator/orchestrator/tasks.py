@@ -266,7 +266,8 @@ class Tasks:
 
 # ========== The catalog, as the agent reads it ==========
 
-def describe_contract(contract: Contract, essential_devices: set[str], stale: str = '') -> str:
+def describe_contract(contract: Contract, essential_devices: set[str], stale: str = '', earned: dict | None = None) -> str:
+    """earned: graduation.Graduation.of(), the maturity to show and what the skill earned from the grades of its steps"""
     def describe_port(port) -> str:
         text = f'{port.name}: {port.type}'
 
@@ -307,7 +308,9 @@ def describe_contract(contract: Contract, essential_devices: set[str], stale: st
     if contract.needs_cloud:
         lines.append('needs the cloud')
 
-    lines.append(f'maturity: {contract.maturity}')
+    graded = earned and earned['worked'] + earned['failed']
+    lines.append(f'maturity: {earned["maturity"] if earned else contract.maturity}' + (
+        f' (graded on the robot, this version: {earned["worked"]} worked, {earned["failed"]} failed)' if graded else ''))
 
     if stale:                     # its own line, as 'needs the cloud' is: maturity is the agent's word, not ours
         lines.append(f'stale, test it before you trust it: {stale}')
@@ -315,9 +318,12 @@ def describe_contract(contract: Contract, essential_devices: set[str], stale: st
     return '\n'.join(line for line in lines if line)
 
 
-def describe_catalog(registry: Registry, essential_devices: set[str], stale: dict[str, str] | None = None) -> str:
-    """stale: skill -> why its code no longer proves it (skill_stamps.Stamps.reasons), read once for the catalog"""
+def describe_catalog(registry: Registry, essential_devices: set[str], stale: dict[str, str] | None = None,
+                     earned: Callable[[str, str], dict] | None = None) -> str:
+    """stale: skill -> why its code no longer proves it (skill_stamps.Stamps.reasons), read once for the catalog.
+    earned: (skill, its contract's maturity) -> what it earned (graduation.Graduation.of)"""
     return '\n\n'.join(
-        describe_contract(contract, essential_devices, (stale or {}).get(contract.name, ''))
+        describe_contract(contract, essential_devices, (stale or {}).get(contract.name, ''),
+                          earned(contract.name, contract.maturity) if earned else None)
         for contract in sorted(registry, key=lambda contract: contract.name)
     )

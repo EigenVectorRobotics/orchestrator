@@ -10,6 +10,7 @@ This module needs no ROS: run_recorder feeds it messages and starts and stops th
 
 import os
 import json
+import threading
 import time
 import uuid
 import shutil
@@ -36,6 +37,41 @@ def append_line(path: Path, entry: dict):
         file.seek(0, os.SEEK_END)
         torn = file.tell() > 0 and (file.seek(-1, os.SEEK_END), file.read(1))[1] != b'\n'
         file.write((b'\n' if torn else b'') + json.dumps(entry, default=str).encode() + b'\n')
+
+
+_cache, _cache_lock = {}, threading.Lock()   # path -> (size, mtime, entries); the run browser and the step grade log read through it
+
+
+def read_lines(path: Path) -> list[dict]:
+    """A .jsonl file; a line that is not an entry (a torn last line) is left out. Parsed again only when it changed: while
+    it has not, the same list comes back"""
+    try:
+        stat = path.stat()
+        mark = (stat.st_size, stat.st_mtime_ns)
+
+        with _cache_lock:
+            if (cached := _cache.get(path)) and cached[0] == mark:
+                return cached[1]
+
+        text = path.read_text()
+    except OSError:
+        return []
+
+    entries = []
+
+    for line in text.splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+
+        if isinstance(entry, dict):
+            entries.append(entry)
+
+    with _cache_lock:
+        _cache[path] = (mark, entries)
+
+    return entries
 
 
 def free_gb(path: Path) -> float:

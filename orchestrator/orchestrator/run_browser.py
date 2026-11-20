@@ -9,9 +9,10 @@ session is in that session's events, not here.
 """
 
 import json
-import threading
 
 from pathlib import Path
+
+from .recording import read_lines
 
 
 MAX_RUNS = 200                      # the newest runs the list shows
@@ -28,38 +29,6 @@ def _json(path: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-_cache, _cache_lock = {}, threading.Lock()   # path -> (size, mtime, entries): events.jsonl grows for a whole bring-up
-
-
-def _lines(path: Path) -> list[dict]:
-    """A .jsonl file; a line that is not an entry (a torn last line) is left out. Parsed again only when it changed"""
-    try:
-        stat = path.stat()
-        mark = (stat.st_size, stat.st_mtime_ns)
-
-        with _cache_lock:
-            if (cached := _cache.get(path)) and cached[0] == mark:
-                return cached[1]
-
-        text = path.read_text()
-    except OSError:
-        return []
-
-    entries = []
-
-    for line in text.splitlines():
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-
-        if isinstance(entry, dict):
-            entries.append(entry)
-
-    with _cache_lock:
-        _cache[path] = (mark, entries)
-
-    return entries
 
 
 def _sentence(task) -> str | None:
@@ -112,7 +81,7 @@ def _reason(outcome: dict, run_id) -> str | None:
 
 def _summary(run: Path, newest: Path | None) -> dict:
     task, outcome = _json(run / 'task.json'), _json(run / 'outcome.json')
-    steps         = _lines(run / 'steps.jsonl')
+    steps         = read_lines(run / 'steps.jsonl')
     end           = outcome.get('end') or (None if _live(run, newest) else 'lost')   # 'lost': the recorder stopped
 
     return {'key': _key(run), 'run_id': task.get('run_id'), 'name': task.get('name') or run.name.split('-', 1)[-1],
@@ -152,9 +121,9 @@ def run_detail(root, key: str) -> dict | None:
     session = run.parent.parent
     detail  = _summary(run, _newest(folders))
     run_id  = detail['run_id']
-    events  = [event for event in _lines(session / 'events.jsonl') if run_id and event.get('run_id') == run_id]
+    events  = [event for event in read_lines(session / 'events.jsonl') if run_id and event.get('run_id') == run_id]
     scratch = run / 'scratch'
-    steps   = _lines(run / 'steps.jsonl')
+    steps   = read_lines(run / 'steps.jsonl')
 
     if detail['end'] is None:                       # the step that runs now: its line comes only when it ends
         ended   = {step.get('step') for step in steps}
@@ -166,7 +135,7 @@ def run_detail(root, key: str) -> dict | None:
     return {**detail,
             'folder':   str(run),
             'steps':    steps,
-            'plans':    _lines(run / 'plans.jsonl'),
+            'plans':    read_lines(run / 'plans.jsonl'),
             'refused':  [{'skill': event.get('skill'), 'subgoal': event.get('subgoal'), 'reason': event.get('reason'),
                           'by': event.get('by'), 'time': event.get('time')}
                          for event in events if event.get('kind') == 'step_gate' and event.get('state') == 'refused'],

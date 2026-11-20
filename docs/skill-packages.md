@@ -1,6 +1,6 @@
 # Skill package and skill graduation (design, partly built)
 
-Status: draft for review, 2026-11-05. Changed on 2026-11-05: one skill package on the NUC, not one package per device (see "Per-device packages (deferred)"). Changed on 2026-11-19: why compositions exist ("Where the agent decides"), and a skill's evidence is the agent's grade of each step ("Credit assignment"). Built since: one package, live skills, agent-written skills, code skills, the grades of steps. Not built: graduation, trees.
+Status: draft for review, 2026-11-05. Changed on 2026-11-05: one skill package on the NUC, not one package per device (see "Per-device packages (deferred)"). Changed on 2026-11-19: why compositions exist ("Where the agent decides"), and a skill's evidence is the agent's grade of each step ("Credit assignment"). Built since: one package, live skills, agent-written skills, code skills, the grades of steps, graduation (computed, shown). Not built: trees.
 
 ## Goal
 
@@ -61,17 +61,23 @@ A skill goes up in maturity as it is used more and is reliable.
 
 | Maturity | Planner | Real robot | How it gets here |
 |---|---|---|---|
-| `experimental` | sim only | no | new skill or new version |
-| `wip` | yes, shown after `tested` skills | yes, in a tree with a fallback | sim: n ≥ 5 and reliability ≥ 0.6, then a human approves the first robot use |
-| `tested` | yes, shown first | yes | robot: n ≥ 10 and reliability ≥ 0.8 |
-| `deprecated` | hidden | no | n ≥ 10 and reliability ≤ 0.2, or a human sets it |
+| `untested` | yes, shown last | yes, a person approves each step at the gate | new skill or new version |
+| `wip` | yes, shown after `tested` skills | yes, in a tree with a fallback | robot: n ≥ 5 and reliability ≥ 0.6 |
+| `tested` | yes, shown first | yes | robot: n ≥ 10, reliability ≥ 0.8, and no failure in the last 10 |
+| `deprecated` | hidden | no | robot: n ≥ 10 and the upper bound ≤ 0.2; earned only, a contract cannot say it |
 
-- **Reliability** is the Wilson lower bound of the success rate, so a skill does not go up after a small number of lucky successes. The numbers in the table are a first guess for review.
-- **A tested skill goes down** to `wip` when its reliability over the last 10 uses is less than the limit.
-- **Sim and robot counts are separate.** Success in the sim does not make a skill `tested`.
+The planner order and the robot column are the plan for when maturity is used at run time ("Not yet" below).
+
+- **Reliability** is the Wilson lower bound of the success rate at 80 % (decided 2026-11-19). A skill does not go up after a few lucky successes. At 80 %, 5 of 5 gives 0.75 and 10 of 10 gives 0.86. At 95 %, `tested` would need 16 successes in a row.
+- **`deprecated`** needs n ≥ 10 and the upper Wilson bound ≤ 0.2: the skill is reliably bad. 1 of 10 is not yet deprecated (upper bound 0.28).
+- **A tested skill goes down** when one of its last 10 grades is a failure. It goes to `wip`, or lower when its record is weaker. The last 10 are by the time of the grade.
+- **Only robot grades count** (decided 2026-11-19). The fake robot tests the plumbing, not the skill. Each staged step says `robot: true` or `false`. The executor parameter `on_robot` is false unless the launch file sets it: true, except with `fake:=true`.
 - **Success is not the skill's own report.** Example: `PressController` reports success when the finger did not touch the button. A use counts only through the agent's grade of its step ("Credit assignment"). When the contract has a `check` (another skill, for example a VLM question that the button is lit), a `worked` grade must agree with it. The agent's grade is enough, also for `tested` (decided 2026-11-19). A person can grade a step too, and the person's grade wins.
-- **Where the counts live:** the committed grades, in a log next to the knowledge store. The counts for a skill version are made from that log, not kept apart. `/skills/live` carries the maturity.
-- The current maturity values (`tested`, `wip`, `untested`) map to this table, with `untested` renamed `experimental`, and a new `deprecated`.
+- **Where the counts live:** the committed grades, in a log next to the knowledge store. The counts for a skill version are made from that log, not kept apart.
+- **The earned maturity is computed, not written** (decided 2026-11-19). `orchestrator/graduation.py` makes it from the log when the catalog or the Skills tab is read. No file changes.
+- **What is shown** is the higher of the contract's `maturity` (a person's word) and the earned one. `deprecated` always wins. The catalog says `maturity: wip (graded on the robot, this version: 6 worked, 0 failed)`, and the Skills tab shows `wip 6/6`.
+- The names stay `untested`, `wip` and `tested`. `deprecated` is an earned value only.
+- **Not yet:** maturity changes nothing at run time. The planner order, the composition limit and the blind segments come with trees.
 
 ### Credit assignment: the agent grades each step
 
@@ -113,7 +119,7 @@ A behavior tree is a composition that the agent makes from steps that worked, an
 
 Experiment: can the agent find the compositions alone? For the test, the agent must not see trees or procedures that people wrote. Keep them outside the agent's view (the session's permissions, the code sandbox), to compare with what the agent makes.
 
-Built: task mode and one run per task (`docs/task-mode.md`), code skills, the grades of steps (`step_grades.py`, `agent_cli grade-step`). Not built yet: graduation, the maturity limit of a composition, the failed part in a composition's result, a contract for a tree (`transport: tree`), and the agent's tool to write a tree from run bundles.
+Built: task mode and one run per task (`docs/task-mode.md`), code skills, the grades of steps (`step_grades.py`, `agent_cli grade-step`), graduation (`graduation.py`). Not built yet: the maturity limit of a composition, the failed part in a composition's result, a contract for a tree (`transport: tree`), and the agent's tool to write a tree from run bundles.
 
 ### Similar work
 

@@ -84,6 +84,7 @@ def generate_launch_description():
             output='screen',
             parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]),
                                   'step_gate': step_gate, 'write_skill': LaunchConfiguration('write_skill'),
+                                  'on_robot': PythonExpression(["'", fake, "' != 'true'"]),
                                   'runbook': LaunchConfiguration('runbook')}]
         ),
         Node(package='orchestrator', executable='run_recorder', output='screen', parameters=shared, condition=IfCondition(record)),
