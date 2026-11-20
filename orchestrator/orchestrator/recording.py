@@ -8,6 +8,7 @@ in steps/ and one line per step in steps.jsonl), its records, its plans, the age
 This module needs no ROS: run_recorder feeds it messages and starts and stops the bag.
 """
 
+import os
 import json
 import time
 import uuid
@@ -27,6 +28,14 @@ def write_json(path: Path, value):
     temporary = path.with_name(path.name + '.tmp')
     temporary.write_text(json.dumps(value, indent=2, default=str) + '\n')
     temporary.replace(path)
+
+
+def append_line(path: Path, entry: dict):
+    """One JSON line at the end of a log; after a torn last line (a crash in a write), start a new one"""
+    with Path(path).open('a+b') as file:
+        file.seek(0, os.SEEK_END)
+        torn = file.tell() > 0 and (file.seek(-1, os.SEEK_END), file.read(1))[1] != b'\n'
+        file.write((b'\n' if torn else b'') + json.dumps(entry, default=str).encode() + b'\n')
 
 
 def free_gb(path: Path) -> float:

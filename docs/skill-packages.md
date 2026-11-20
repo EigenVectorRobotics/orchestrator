@@ -1,6 +1,6 @@
 # Skill package and skill graduation (design, partly built)
 
-Status: draft for review, 2026-11-05. Changed on 2026-11-05: one skill package on the NUC, not one package per device (see "Per-device packages (deferred)"). Changed on 2026-11-19: why compositions exist ("Where the agent decides"), and a skill's evidence is the agent's grade of each step ("Credit assignment"). Built since: one package, live skills, agent-written skills, code skills. Not built: graduation, credit assignment, trees.
+Status: draft for review, 2026-11-05. Changed on 2026-11-05: one skill package on the NUC, not one package per device (see "Per-device packages (deferred)"). Changed on 2026-11-19: why compositions exist ("Where the agent decides"), and a skill's evidence is the agent's grade of each step ("Credit assignment"). Built since: one package, live skills, agent-written skills, code skills, the grades of steps. Not built: graduation, trees.
 
 ## Goal
 
@@ -90,6 +90,12 @@ A step's raw end is not evidence about its skill. The knowledge store has the sa
 
 - Each grade needs a reason. A step with no grade counts nothing.
 - **A grade belongs to one version** of the skill: the digest at that step, as for a claim grade. The record of an old version does not graduate a new one.
+- **Built** (`orchestrator/step_grades.py`):
+  - Each step that ran (success or failure) is staged in `knowledge/staged_steps/<run_id>.json`. The entry has the skill's version from when the step started.
+  - The version is `skill_review.grade_version`: a hash of the contract and the code, without the agent's marks. So Keep does not start a new version.
+  - `agent_cli grade-step N GRADE --reason R` grades a step. `agent_cli commit`, or the next mission's open, writes the graded steps to `knowledge/step_grades.jsonl`.
+  - Not yet: grades of parts. They wait for the failed part in a composition's result.
+  - Not yet: a `worked` grade is not checked against the contract's `check`.
 - **A composition and its parts:** the agent grades the composition. When it failed, its result names the part that failed and why ("Compositions"). The agent grades that part too, so the credit goes to the part at fault. The other parts get no grade from that run.
 - **Why grades, not raw counts:** a skill that the agent used badly, or that ran while a device was down, must not lose trust. A skill that reported success but did nothing must not gain it.
 
@@ -107,7 +113,7 @@ A behavior tree is a composition that the agent makes from steps that worked, an
 
 Experiment: can the agent find the compositions alone? For the test, the agent must not see trees or procedures that people wrote. Keep them outside the agent's view (the session's permissions, the code sandbox), to compare with what the agent makes.
 
-Built: task mode and one run per task (`docs/task-mode.md`), code skills. Not built yet: graduation, the grades of steps, the maturity limit of a composition, the failed part in a composition's result, a contract for a tree (`transport: tree`), and the agent's tool to write a tree from run bundles.
+Built: task mode and one run per task (`docs/task-mode.md`), code skills, the grades of steps (`step_grades.py`, `agent_cli grade-step`). Not built yet: graduation, the maturity limit of a composition, the failed part in a composition's result, a contract for a tree (`transport: tree`), and the agent's tool to write a tree from run bundles.
 
 ### Similar work
 

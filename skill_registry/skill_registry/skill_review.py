@@ -23,7 +23,7 @@ import yaml
 
 from .contract import AGENT_MARK, ContractError, load_contract
 from .provenance import file_digest
-from .registry import CODE_FILE, contract_files
+from .registry import CODE_FILE, code_file, contract_file, contract_files
 from .skill_stamps import called_skills
 from .skill_writer import CODE_MARK
 
@@ -97,6 +97,18 @@ def _write(path: Path, text: str):
 
 def _version(text: str, code: str) -> str:
     return hashlib.sha256(f'{text}\0{code}'.encode()).hexdigest()[:16]
+
+
+def grade_version(directory: Path, name: str) -> str | None:
+    """The version of a skill that a grade of its step belongs to: its contract and code, without the agent's marks.
+    Keep takes only the marks away, so a kept skill keeps its grades; any other change is a new version. It is not
+    the version the Skills tab shows (library()), which has the marks: that one says which files a person read"""
+    contract = contract_file(name, directory)
+
+    if not contract.is_file():
+        return None
+
+    return _version(contract.read_text().removeprefix(AGENT_MARK), _read(code_file(name, directory)).removeprefix(CODE_MARK))
 
 
 def _read(path: Path) -> str:

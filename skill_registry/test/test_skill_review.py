@@ -6,7 +6,7 @@ import yaml
 from skill_registry import Registry
 from skill_registry.contract import AGENT_MARK
 from skill_registry.provenance import file_digest
-from skill_registry.skill_review import ReviewError, keep, library, remove
+from skill_registry.skill_review import ReviewError, grade_version, keep, library, remove
 from skill_registry.skill_writer import CODE_MARK, SkillWriter
 
 
@@ -83,7 +83,7 @@ def test_the_library_lists_each_skill_with_who_wrote_it_its_runs_and_who_names_i
     assert items['broken']['error'] and items['broken']['contract'] == {}
 
 
-def test_keep_takes_the_marks_away_and_the_skill_stays_untested(tmp_path):
+def test_keep_takes_the_marks_away_and_the_skill_stays_untested_with_its_version_for_grades(tmp_path):
     writer = SkillWriter(Registry(), tmp_path, lambda contract: [], lambda contract: None)
     code   = 'def run(skills, inputs):\n    return {}\n'
     assert writer.write(yaml.safe_dump(SAY | {'name': 'walk', 'maturity': 'tested', 'interface': {'transport': 'code'},
@@ -92,6 +92,7 @@ def test_keep_takes_the_marks_away_and_the_skill_stays_untested(tmp_path):
     stamps = tmp_path / 'stamps.yaml'
     stamps.write_text(yaml.safe_dump({'walk': {'self': 'old', 'runs': ['r1']}, 'other': {'uses': {'walk': 'old'}}}))
     version = next(item['version'] for item in library(tmp_path) if item['name'] == 'walk')
+    graded  = grade_version(tmp_path, 'walk')
 
     with pytest.raises(ReviewError, match='changed since you read it'):
         keep(tmp_path, 'walk', stamps, version='not what is on disk')
@@ -103,6 +104,9 @@ def test_keep_takes_the_marks_away_and_the_skill_stays_untested(tmp_path):
     assert not (tmp_path / 'walk' / 'contract.yaml').read_text().startswith(AGENT_MARK)
     assert not (tmp_path / 'walk' / 'code.py').read_text().startswith(CODE_MARK)
     assert Registry.from_directory(tmp_path).get('walk').maturity == 'untested'    # the agent's "tested" is not kept
+    assert grade_version(tmp_path, 'walk') == graded                         # only the marks went: its grades stay
+    (tmp_path / 'walk' / 'code.py').write_text(code.replace('{}', '{"x": 1}'))
+    assert grade_version(tmp_path, 'walk') != graded and grade_version(tmp_path, 'nothing') is None
 
     with pytest.raises(ReviewError, match='not waiting for review'):
         keep(tmp_path, 'walk')

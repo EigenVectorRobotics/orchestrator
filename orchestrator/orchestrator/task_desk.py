@@ -12,8 +12,10 @@ commands on COMMAND_TOPIC:
 - skills: the skills that run can run now, as the executor has them
 - grade: stage the agent's grade of a claim that a step of this task followed (useful, misleading, wrong,
   not-applicable); the last grade of a claim wins. Also after the task ends, until the next task opens
+- grade_step: stage the agent's grade of a step's skill (worked, failed, misused, blocked; step_grades.py), the same
+  way: it is the evidence a skill graduates on
 - done, give_up: end the task; the reply names the applied claims with no grade
-- commit: after the task ends, its staged grades go into the knowledge store together
+- commit: after the task ends, its staged grades go into the knowledge store and the step grade log together
 
 Each task has its limits, set when it opens (self.limits). A discovery task (discovery: true in the request) has
 DISCOVERY_LIMITS: no run, so it never moves the robot, and no time limit or idle speech, because reading code takes
@@ -48,7 +50,8 @@ from dataclasses import asdict
 from skill_registry import contract_grammar
 
 from .places import PLACE_INFO
-from .knowledge import KnowledgeError, KnowledgeStore
+from .knowledge import KnowledgeError, KnowledgeStore, StagedRuns
+from .step_grades import StepGrades
 from .tasks import Task, Tasks
 from .tasks import describe_catalog
 from skill_registry.skill_writer import SkillWriter
@@ -89,6 +92,13 @@ def writing_text(folder: Path) -> str:
             f'<run_id> --evidence ...`.')
 
 
+STEP_GRADING = ('- After the task (or after a step), grade the skill of each step that ran: `agent_cli grade-step <n> '
+                'worked|failed|misused|blocked --reason R` (the last grade wins). worked: it did what the subgoal '
+                'needed, and you saw it; failed: the skill did not do its job; misused: you chose the wrong skill or '
+                'gave wrong inputs; blocked: a device or the place was the cause. Only worked and failed count for '
+                'the skill, for its version at that step. `agent_cli commit` keeps them with the claim grades.')
+
+
 def place_text(info: dict) -> str:
     """map_info's kind, floor and note of a place; empty for a places file"""
     text = ', '.join(part for part in (info.get('kind'), info.get('floor')) if part)
@@ -121,7 +131,8 @@ class TaskDesk:
                  runbook: Callable[[], str] = lambda: '', max_steps: int = 40,
                  max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
                  gate: StepGate | None = None, writer: SkillWriter | None = None,
-                 stale: Callable[[], dict[str, str]] = dict, ran: Callable[[str, str], None] = lambda name, run: None):
+                 stale: Callable[[], dict[str, str]] = dict, ran: Callable[[str, str], None] = lambda name, run: None,
+                 steps: StepGrades | None = None):
         self.tasks         = tasks
         self.writer        = writer                  # None: write_skill is refused
         self.gate          = gate                    # None: steps run without a person's approval (sim)
@@ -131,6 +142,7 @@ class TaskDesk:
         self.knowledge     = knowledge               # what is known, for the open task; the grades go in
         self.stale         = stale                   # every stale skill and why, in one read (skill_stamps.reasons)
         self.ran           = ran                     # a step that succeeded: kept with the skill's stamp as evidence
+        self.steps         = steps                   # the grades of each step's skill; None: steps are not graded
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
         self.task_limits   = {'max_steps': max_steps, 'max_task_s': max_task_s, 'idle_s': idle_s, 'run': True}
         self.limits        = self.task_limits        # the open task's: set at open
@@ -143,7 +155,7 @@ class TaskDesk:
         self.plans         = 0
         self.busy          = 0                       # commands in progress: a session waiting for a step is not quiet
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
-        self._grading      = threading.Lock()        # the staged file of a run: each command runs on its own thread
+        self._grading      = threading.Lock()        # the staged files of a run: each command runs on its own thread
 
     def open(self, sentence: str, context: Context, blind: bool = False, discovery: bool = False) -> None:
         """Open a task and publish the open message; blind and discovery come from the task request"""
@@ -178,7 +190,12 @@ class TaskDesk:
 
     def known(self) -> str:
         """The knowledge store's guide, and how the task writes to it"""
-        return f'{self.knowledge.guide()}\n{writing_text(self.knowledge.folder)}' if self.knowledge else ''
+        parts = [self.knowledge.guide(), writing_text(self.knowledge.folder)] if self.knowledge else []
+
+        if self.steps and self.limits['run']:             # a discovery task runs no step: nothing to grade
+            parts.append(STEP_GRADING)
+
+        return '\n'.join(parts)
 
     @contextlib.contextmanager
     def _thinking(self):
@@ -245,7 +262,7 @@ class TaskDesk:
         if task is not None and message.get('run_id') == task.run_id:
             self.heard, self.spoke_lost = self.clock(), False
 
-        if op in ('grade', 'commit'):                    # also after the task ends, until the next task opens
+        if op in ('grade', 'grade_step', 'commit'):      # also after the task ends, until the next task opens
             return self._grading_op(op, message)
 
         if task is None or message.get('run_id') != task.run_id:
@@ -276,7 +293,7 @@ class TaskDesk:
         if op in ('done', 'give_up'):
             return self._end(task, 'done' if op == 'done' else 'gave_up', str(message.get('reason', '')))
 
-        return {'ok': False, 'message': f'unknown op {op}; use plan, run, grade, write_skill, skills, done, give_up or commit'}
+        return {'ok': False, 'message': f'unknown op {op}; use plan, run, grade, grade_step, write_skill, skills, done, give_up or commit'}
 
     def _write_skill(self, text: str, code: str = '') -> dict:
         if self.writer is None:
@@ -317,26 +334,44 @@ class TaskDesk:
                 return {'ok': False, 'status': 'refused', 'message': f'the operator refused the step: {decision["reason"]}'}
 
         self._note_stale(skill)
-        result = self.tasks.run_skill(skill, inputs, subgoal=subgoal)
+        version = self._version(skill)                   # before the step: the version that runs, not a write during it
+        result  = self.tasks.run_skill(skill, inputs, subgoal=subgoal)
 
         if result.status == 'success':
             self._keep(skill, task.run_id)
 
         reply = {'ok': result.status != 'error', **asdict(result)}
 
-        if applies and result.status in ('success', 'failure'):    # an error never ran: there is nothing to grade
-            if self.task is not task:                              # it ended while the step ran: its grades are committed
-                reply['applies'] = 'not kept: the task ended while the step ran'
-            else:
-                try:
-                    with self._grading:                            # with the code under each claim now: the version graded
-                        self.knowledge.stage_applied(task.run_id, applies, skill, task.steps)
+        if result.status not in ('success', 'failure'):           # an error never ran: there is nothing to grade
+            return reply
 
-                    reply['applies'] = f'grade each (agent_cli grade): {", ".join(applies)}'
-                except Exception as error:                         # the step HAS run: never fail it for bookkeeping
-                    reply['applies'] = f'not kept, so these cannot be graded: {error!r}'
+        stages = [('grade', lambda: self.steps.stage_step(task.run_id, task.steps, skill, version, result.status),
+                   f'grade this step after it (agent_cli grade-step {task.steps})')] if self.steps else []
+
+        if applies:                                               # with the code under each claim now: the version graded
+            stages.append(('applies', lambda: self.knowledge.stage_applied(task.run_id, applies, skill, task.steps),
+                           f'grade each (agent_cli grade): {", ".join(applies)}'))
+
+        for field, stage, said in stages:
+            try:
+                with self._grading:                                # with the check: a commit runs under this lock too
+                    if self.task is not task:                      # it ended while the step ran: it may be committed
+                        reply[field] = 'not kept: the task ended while the step ran'
+                        continue
+
+                    stage()
+
+                reply[field] = said
+            except Exception as error:                             # the step HAS run: never fail it for bookkeeping
+                reply[field] = f'not kept, so this cannot be graded: {error!r}'
 
         return reply
+
+    def _version(self, skill: str) -> str | None:
+        try:
+            return self.steps.version(skill) if self.steps else None
+        except OSError:                                            # bookkeeping must never decide whether a step runs
+            return None
 
     def _not_live(self, applies: list[str]) -> str:
         """Why a run cannot follow these claims, or ''"""
@@ -351,11 +386,12 @@ class TaskDesk:
         return ''
 
     def _grading_op(self, op: str, message: dict) -> dict:
-        """grade and commit: for a run with staged entries, during the task or after it ends"""
+        """grade, grade_step and commit: for a run with staged entries, during the task or after it ends"""
         run_id = str(message.get('run_id'))
+        store, what = {'grade': (self.knowledge, 'claim'), 'grade_step': (self.steps, 'step')}.get(op, (None, None))
 
-        if self.knowledge is None:
-            return {'ok': False, 'message': 'there is no knowledge store here'}
+        if what and store is None:
+            return {'ok': False, 'message': f'no {what} is graded here: there is no store for it'}
 
         if run_id not in (self.task and self.task.run_id, self.ended):
             return {'ok': False, 'message': f'{run_id} is not the open task or the task that ended last'}
@@ -367,48 +403,64 @@ class TaskDesk:
             if op == 'commit':
                 return self._commit(run_id, '')
 
+            graded = str(message[what]) if what == 'claim' else message[what]
+
             try:
-                self.knowledge.stage(run_id, str(message['claim']), str(message['grade']), str(message.get('reason', '')).strip())
+                store.stage(run_id, graded, str(message['grade']), str(message.get('reason', '')).strip())
             except KnowledgeError as error:
                 return {'ok': False, 'message': str(error)}
 
-        said = f'{message["claim"]} staged: {message["grade"]}; agent_cli commit after the task ends'
-        self.tasks.tracer.emit('knowledge', said, claim=message['claim'], grade=message['grade'], run_id=run_id)
+        said = f'{what} {graded} staged: {message["grade"]}; agent_cli commit after the task ends'
+        self.tasks.tracer.emit('knowledge', said, grade=message['grade'], run_id=run_id, **{what: graded})
 
         return {'ok': True, 'message': said}
 
-    def _commit(self, run_id: str, when: str) -> dict:
-        """The staged grades of a run go into the store; the caller holds _grading"""
-        said, ungraded = self.knowledge.commit(run_id)
-        self.tasks.tracer.emit('knowledge', f'committed {run_id}{when}: ' + ('; '.join(said) or 'no grades'),
-                               run_id=run_id, claims=said)
+    def _stores(self) -> list[StagedRuns]:
+        """The stores that keep staged grades: the claims' and the steps'"""
+        return [store for store in (self.knowledge, self.steps) if store is not None]
 
-        return {'ok': True, 'message': '\n'.join(said) or 'no grades to commit',
-                **({'not_graded': ungraded} if ungraded else {})}
+    def _commit(self, run_id: str, when: str) -> dict:
+        """The staged grades of a run go in, each store alone: a file that cannot be committed is set aside, and the
+        other store's grades still go in. The caller holds _grading"""
+        said, ungraded, failed = [], [], []
+
+        for store in self._stores():
+            try:
+                if not store.has_staged(run_id):
+                    continue
+
+                kept, left = store.commit(run_id)
+                said      += kept
+                ungraded  += left
+            except Exception as error:                   # bookkeeping must never stop a task from opening
+                failed.append(f'{store.staged_dir.name}/{run_id}: {error!r}, set aside')
+                self._set_aside(store, run_id)
+
+        self.tasks.tracer.emit('knowledge', f'committed {run_id}{when}: ' + ('; '.join(said) or 'no grades'),
+                               run_id=run_id, grades=said)
+
+        for problem in failed:
+            self.tasks.tracer.emit('knowledge', f'could not commit {problem}', level='warn', run_id=run_id)
+
+        return {'ok': not failed, 'message': '\n'.join(said + [f'could not commit {problem}' for problem in failed])
+                                             or 'no grades to commit', **({'not_graded': ungraded} if ungraded else {})}
 
     def _commit_left(self) -> None:
         """At a task open: the grades that an earlier task staged and did not commit go in first"""
-        if self.knowledge is None:
-            return
-
         with self._grading:
-            for run_id in self._staged_runs():
-                try:
-                    self._commit(run_id, ' at the next open')
-                except Exception as error:                # bookkeeping must never stop a task from opening
-                    self.tasks.tracer.emit('knowledge', f'could not commit {run_id}, set aside: {error!r}', level='warn',
-                                           run_id=run_id)
-                    self._set_aside(run_id)
+            for run_id in sorted({run_id for store in self._stores() for run_id in self._staged_runs(store)}):
+                self._commit(run_id, ' at the next open')
 
-    def _staged_runs(self) -> list[str]:
+    @staticmethod
+    def _staged_runs(store) -> list[str]:
         try:
-            return self.knowledge.staged_runs()
+            return store.staged_runs()
         except OSError:
             return []
 
-    def _set_aside(self, run_id: str) -> None:
+    def _set_aside(self, store: StagedRuns, run_id: str) -> None:
         try:
-            self.knowledge.set_aside(run_id)
+            store.set_aside(run_id)
         except (OSError, KnowledgeError) as error:
             self.tasks.tracer.emit('knowledge', f'could not set {run_id} aside: {error!r}', level='warn', run_id=run_id)
 
@@ -456,10 +508,16 @@ class TaskDesk:
         return {'ok': True, 'message': message}
 
     def _staged(self, run_id: str) -> dict:
-        try:
-            return self.knowledge.staged(run_id) if self.knowledge else {}
-        except (OSError, ValueError, KnowledgeError):
-            return {}
+        """What the run staged in each store, by what the agent grades: a claim id, or 'step <n>'"""
+        staged = {}
+
+        for store in self._stores():
+            try:
+                staged |= store.staged(run_id)
+            except (OSError, ValueError, KnowledgeError):
+                continue
+
+        return staged
 
     def _close(self, task: Task, end: str):
         with self._lock:                                 # check() and a command can both close it; a new task may be open

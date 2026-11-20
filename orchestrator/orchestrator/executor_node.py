@@ -17,6 +17,7 @@ from skill_registry import agent_knowledge_dir, agent_runbook_file, stamps_file
 
 from .trace import Tracer
 from .knowledge import KnowledgeStore
+from .step_grades import StepGrades
 from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
@@ -26,6 +27,7 @@ from .tasks import Tasks, parse_task_request
 from skill_registry.provenance import DEFAULT_REPO_ROOTS
 from skill_registry.skill_stamps import SkillClock, Stamps
 from skill_registry.skill_writer import SkillWriter
+from skill_registry.skill_review import grade_version
 from skill_registry.contract_check import check_ros_types
 from .step_gate import StepGate
 from .task_desk import TaskDesk
@@ -151,6 +153,7 @@ class ExecutorNode(Node):
             writer=self.writer if writes else None,
             stale=self._stale,
             ran=self.stamps.ran,
+            steps=StepGrades(self.knowledge.folder, version=lambda name: grade_version(self.skills_dir, name)),
         )
 
         def on_command(message: String):                # a run blocks until its step ends: not on the spin thread

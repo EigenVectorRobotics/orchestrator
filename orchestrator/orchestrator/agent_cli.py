@@ -28,7 +28,12 @@ Task mode (docs/task-mode.md): the session does a task step by step.
                                         stage a grade of a claim that a step followed (the last one wins; also after
                                         the task ends): useful and wrong are evidence; misleading and not-applicable
                                         say its text or tags are too wide
-  agent_cli commit                      after the task ends: its staged grades go into the knowledge store
+  agent_cli grade-step N worked|failed|misused|blocked --reason R
+                                        stage a grade of the skill of step N (the last one wins; also after the task
+                                        ends): worked and failed count for that version of the skill; misused (your
+                                        choice or inputs) and blocked (a device or the place) count for nothing
+  agent_cli commit                      after the task ends: its staged grades go into the knowledge store and the
+                                        step grade log
 
 The step gate (on the real robot): a person approves each step, at a terminal; the session cannot.
   agent_cli step wait [--timeout S]     block until a step waits for approval; print it
@@ -61,6 +66,7 @@ from .images import FrameBuffer, ImageError, image_to_jpeg, stamp_seconds
 from .agent_ros import RosReader, RosReadError
 from .sandbox import SandboxConfig, run_python
 from .knowledge import GRADES
+from .step_grades import STEP_GRADES
 from .task_desk import task_summary
 from .qos import COMMAND_QOS, LATCHED_QOS
 from .topics import COMMAND_TOPIC, OPEN_TOPIC, REPLY_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC
@@ -282,6 +288,10 @@ def main():
     grade.add_argument('claim')
     grade.add_argument('grade', choices=list(GRADES))
     grade.add_argument('--reason', required=True)
+    grade_step = commands.add_parser('grade-step')
+    grade_step.add_argument('step', type=int)
+    grade_step.add_argument('grade', choices=list(STEP_GRADES))
+    grade_step.add_argument('--reason', required=True)
     commands.add_parser('commit')
     for name in ('done', 'give-up'):
         commands.add_parser(name).add_argument('--reason', required=True)
@@ -355,6 +365,10 @@ def _run(node, arguments) -> int:
 
     if arguments.command == 'grade':
         return _task_command(node, {'op': 'grade', 'claim': arguments.claim, 'grade': arguments.grade,
+                                    'reason': arguments.reason}, 10.0, ended=True)
+
+    if arguments.command == 'grade-step':
+        return _task_command(node, {'op': 'grade_step', 'step': arguments.step, 'grade': arguments.grade,
                                     'reason': arguments.reason}, 10.0, ended=True)
 
     if arguments.command == 'commit':

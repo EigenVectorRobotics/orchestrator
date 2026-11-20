@@ -33,7 +33,6 @@ This module needs no ROS.
 """
 
 import re
-import os
 import json
 import math
 import time
@@ -46,7 +45,7 @@ from pathlib import Path
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 
-from .recording import write_json
+from .recording import append_line, write_json
 
 
 TIERS            = ('observation', 'belief', 'fact', 'retired')
@@ -200,7 +199,39 @@ def _claim_from(raw: dict) -> Claim:
     return Claim(**raw)
 
 
-class KnowledgeStore:
+class StagedRuns:
+    """Grades staged per run, one file each (staged_dir/<run_id>.json), until a commit after the run. The claims'
+    grades (KnowledgeStore) and the steps' grades (step_grades.StepGrades) are both kept this way"""
+
+    staged_dir: Path
+
+    def staged(self, run_id: str) -> dict:
+        path = self._staged_path(run_id)
+        return json.loads(path.read_text()) if path.exists() else {}
+
+    def has_staged(self, run_id: str) -> bool:
+        return self._staged_path(run_id).exists()
+
+    def staged_runs(self) -> list[str]:
+        return sorted(path.stem for path in self.staged_dir.glob('*.json')) if self.staged_dir.exists() else []
+
+    def set_aside(self, run_id: str) -> Path | None:
+        """A staged file that cannot be committed: renamed .bad, for a person to look at. None: there is no file"""
+        path = self._staged_path(run_id)
+        return path.replace(path.with_suffix('.bad')) if path.exists() else None
+
+    def _staged_path(self, run_id: str) -> Path:
+        if not RUN_ID.fullmatch(run_id):
+            raise KnowledgeError(f'not a run id: {run_id!r}')
+
+        return self.staged_dir / f'{run_id}.json'
+
+    def _write_staged(self, run_id: str, staged: dict) -> None:
+        self.staged_dir.mkdir(parents=True, exist_ok=True)
+        write_json(self._staged_path(run_id), staged)
+
+
+class KnowledgeStore(StagedRuns):
     def __init__(self, folder: str, clock=time.time, code: CodeClock | None = None):
         self.folder = Path(folder).expanduser()
         self.clock  = clock
@@ -335,13 +366,6 @@ class KnowledgeStore:
         staged[claim_id] |= {'grade': grade, 'reason': reason, 'time': self.clock()}
         self._write_staged(run_id, staged)
 
-    def staged(self, run_id: str) -> dict:
-        path = self._staged_path(run_id)
-        return json.loads(path.read_text()) if path.exists() else {}
-
-    def staged_runs(self) -> list[str]:
-        return sorted(path.stem for path in self.staged_dir.glob('*.json')) if self.staged_dir.exists() else []
-
     def commit(self, run_id: str) -> tuple[list[str], list[str]]:
         """The graded entries of a run go into the claims together, in one write. Returns what happened to each,
         and the claims with no grade"""
@@ -380,21 +404,6 @@ class KnowledgeStore:
         self._log('grade', claim, sighting.by, grade=sighting.grade, reason=sighting.reason, run=sighting.run)
 
         return f'{sighting.grade}: kept apart, no evidence; make the text or tags narrower{counted}'
-
-    def _staged_path(self, run_id: str) -> Path:
-        if not RUN_ID.fullmatch(run_id):
-            raise KnowledgeError(f'not a run id: {run_id!r}')
-
-        return self.staged_dir / f'{run_id}.json'
-
-    def set_aside(self, run_id: str) -> Path:
-        """A staged file that cannot be committed: renamed .bad, for a person to look at"""
-        path = self._staged_path(run_id)
-        return path.replace(path.with_suffix('.bad'))
-
-    def _write_staged(self, run_id: str, staged: dict) -> None:
-        self.staged_dir.mkdir(exist_ok=True)
-        write_json(self._staged_path(run_id), staged)
 
     def approve(self, claim_id: str, by: str, text: str | None = None, via: str | None = None) -> Claim:
         """The operator makes a ready belief a fact, with the exact text (edited or not). via: the tool the operator
@@ -582,13 +591,8 @@ class KnowledgeStore:
             temporary.replace(self.claims_path)
 
     def _log(self, action: str, claim: Claim, by: str, via: str | None = None, **data):
-        entry = {'time': self.clock(), 'action': action, 'claim': claim.id, 'tier': claim.tier, 'by': by,
-                 **({'via': via} if via else {}), **data}
-
-        with self.log_path.open('a+b') as file:              # after a torn last line, start a new one
-            file.seek(0, os.SEEK_END)
-            torn = file.tell() > 0 and (file.seek(-1, os.SEEK_END), file.read(1))[1] != b'\n'
-            file.write((b'\n' if torn else b'') + json.dumps(entry, default=str).encode() + b'\n')
+        append_line(self.log_path, {'time': self.clock(), 'action': action, 'claim': claim.id, 'tier': claim.tier,
+                                    'by': by, **({'via': via} if via else {}), **data})
 
 
 def _lookup(claims: dict, claim_id: str, live: bool = False) -> Claim:
