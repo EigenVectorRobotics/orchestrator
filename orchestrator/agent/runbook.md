@@ -33,7 +33,11 @@ device is down, say so; do not conclude that the robot cannot do it.
   mean that the robot cannot see.
 - SLAM says where you are and how sure it is. It runs on the NUC and it localizes you in the map all the time,
   whether or not a skill reports it.
-- The places on your blackboard come from `map_info` on the NUC. If there are none, `map_info` is not up.
+- The places on your blackboard come from `map_info` on the NUC. If there are none, `map_info` is not up. The
+  task gives their names, kind, floor and note, but not their poses. For the poses, read
+  `agent_cli topic /map_info/places`: it gives the places that map_info has now, with their map_info names. Use
+  these names with the map_info skills. Do not read a places file on the disk: it can be old or for a different
+  map.
 
 ## Where you are
 

@@ -65,6 +65,9 @@ real missions. That is the test of your work.
 - **Yes:** an interface that a task could call or read. For example: an action server (navigate, move the arm), a
   service that changes or reports a state, a topic that a node listens to for a command, a state or sensor topic
   that a task must check (the pose, a door state, a detection).
+- **Yes, also when a person usually does it:** an interface that changes the map or the knowledge of the robot
+  (save a place). Do not skip an interface because you think it is operator work; the deny list says what the
+  agent must not do.
 - **No:** internal plumbing (`/rosout`, `/parameter_events`, `/tf_static`, `~/transition_event`), debug and
   visualization topics (markers, images for RViz), the internal topics between the nodes of one package, and an
   interface that a skill already covers.
