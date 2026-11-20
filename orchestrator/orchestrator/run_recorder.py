@@ -1,7 +1,7 @@
 """Record every orchestrator run on the NUC (see recording.py); refuse runs when the disk is too full.
 
 Subscribes to the trace and the task topic; records a bag of the chosen topics for each task run; reads the agent's
-words from its Codex session logs (session_log.py) into the run; publishes
+words from its Codex and Claude Code session logs (session_log.py) into the run; publishes
 /orchestrator/recorder/status (latched JSON: ready, reason, free_gb, session). The executor refuses a task while
 the status is not ready, when its require_recorder is true.
 """
@@ -24,7 +24,7 @@ from std_msgs.msg import String
 from skill_registry.registry import CODE_FILE, CONTRACT_FILE
 from skill_registry.provenance import DEFAULT_REPO_ROOTS, directory_digests, file_digest, find_repos, git_state
 
-from .node_setup import declare_sources, session_log
+from .node_setup import agent_folders, declare_sources, session_log
 from .session_log import RunWords
 from .qos import LATCHED_QOS, TRACE_QOS
 from .topics import (COMMAND_TOPIC, OPEN_TOPIC, RECORDER_TOPIC, REPLY_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
@@ -97,7 +97,7 @@ class RunRecorderNode(Node):
 
         self.bag      = RosBag(self, bag_topics) if record_bag else None
         self.recorder = Recorder(RecorderConfig(root=root, min_free_gb=min_free_gb), provenance,
-                                 self.bag, library=digests, words=RunWords(session_log(self)))
+                                 self.bag, library=digests, words=RunWords(session_log(self, agent_folders(self))))
 
         self._status_publisher = self.create_publisher(String, RECORDER_TOPIC, LATCHED_QOS)
         self.create_subscription(String, TRACE_TOPIC, self._json(self.recorder.on_event), TRACE_QOS)

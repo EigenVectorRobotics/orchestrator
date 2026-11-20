@@ -77,6 +77,11 @@ def generate_launch_description():
                               description='the page is on 127.0.0.1 only; reach it with ssh -L 8080:localhost:8080'),
         DeclareLaunchArgument('mission_control_token', default_value='',
                               description='a command needs this token; empty: the node makes one and logs the link, off: no token'),
+        DeclareLaunchArgument('agent', default_value='claude',
+                              description="the Start agent button of Mission Control starts this tool in tmux (claude | codex); "
+                                          "empty: no button, start the agent's session by hand"),
+        DeclareLaunchArgument('agent_program', default_value='',
+                              description="the agent tool's program; empty: the tool's name on the PATH of a login shell"),
         DeclareLaunchArgument('record', default_value='true', description='record every run (run_recorder); the executor refuses tasks while it is not ready'),
 
         Node(package='skill_registry', executable='registry_node', output='screen', parameters=shared),
@@ -101,6 +106,8 @@ def generate_launch_description():
             parameters=[params_file, {'port': ParameterValue(LaunchConfiguration('mission_control_port'), value_type=int),
                                       'token': ParameterValue(LaunchConfiguration('mission_control_token'), value_type=str),
                                       'web_dir': PathJoinSubstitution([FindPackageShare('orchestrator'), 'web']),
+                                      'agent': ParameterValue(LaunchConfiguration('agent'), value_type=str),
+                                      'agent_program': ParameterValue(LaunchConfiguration('agent_program'), value_type=str),
                                       'skills_dir': LaunchConfiguration('skills_dir'),
                                       'stamps_file': PathJoinSubstitution([LaunchConfiguration('agent_dir'), STAMPS]),
                                       'removed_dir': PathJoinSubstitution([LaunchConfiguration('agent_dir'), REMOVED]),

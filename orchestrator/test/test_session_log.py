@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 from datetime import datetime, timezone
 
@@ -70,8 +71,8 @@ def test_the_agent_s_thoughts_and_words_come_once_and_nothing_else(tmp_path):
         ('said', 'agent', '', 'The button is at the lift.'),
         ('said', 'agent', '', 'The button is at the lift.')]
     assert log.new(T0) == []
-    assert log.status() == {'sessions': 2, 'empty': 1}
-    assert log.new(T0 + 100) == [] and log.status() == {'sessions': 0, 'empty': 0}   # the next mission counts again
+    assert log.status() == {'sessions': 2, 'empty': 1, 'quiet': 'codex'}
+    assert log.new(T0 + 100) == [] and log.status() == {'sessions': 0, 'empty': 0, 'quiet': None}   # the next mission counts again
 
 
 def test_a_line_codex_has_not_ended_is_read_when_it_ends_and_a_huge_line_is_skipped(tmp_path, monkeypatch):
@@ -135,3 +136,55 @@ def test_a_new_run_gets_its_own_tail_after_its_end():
 
     assert words('a', 1.0, False) == []
     assert words('b', 2.0, False) == [{'since': 2.0}]
+
+
+def _claude(seconds, *parts, type='assistant', **more) -> dict:
+    return {'type': type, 'timestamp': _stamp(seconds), 'cwd': '/x', **more,
+            'message': {'role': type, 'content': [{'type': kind, kind if kind != 'tool_use' else 'input': text}
+                                                  for kind, text in parts]}}
+
+
+def _claude_log(path, records):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('\n'.join(json.dumps(record) for record in records) + '\n')
+    os.utime(path, (T0 + 60, T0 + 60))
+
+
+def test_claude_code_thoughts_and_words_come_from_the_folder_of_the_agent_s_logs(tmp_path):
+    real, root = tmp_path / 'ws' / 'agent_dir', tmp_path / 'claude'
+    real.mkdir(parents=True)
+    (tmp_path / 'agent').symlink_to(real)                    # the session starts in the link: Claude names the logs after it
+    logs = root / session_log.claude_folder(tmp_path / 'agent')
+    _claude_log(logs / 's1.jsonl', [
+        _claude(-5, ('text', 'before the mission')),
+        _claude(10, ('thinking', 'I will find the button first.'), ('text', 'Going to the lift.')),
+        _claude(11, ('tool_use', {'command': 'cat secrets'})),
+        {**_claude(12, ('text', 'Going to the lift.')), 'type': 'api-request-blob'},     # a copy of an earlier turn
+        _claude(13, ('thinking', '')),                           # no showThinkingSummaries
+    ])
+    _claude_log(logs / 's1' / 'subagents' / 'agent-a1.jsonl', [_claude(14, ('text', 'Found it.'))])
+    (logs / 's1' / 'subagents' / 'agent-a1.meta.json').write_text('{"agentType": "Explore"}')
+    _claude_log(root / session_log.claude_folder(tmp_path / 'elsewhere') / 's2.jsonl', [_claude(15, ('text', 'not ours'))])
+
+    log   = SessionLog([tmp_path / 'agent'], root=tmp_path / 'codex', claude_root=root)
+    items = log.new(T0)
+
+    assert [(item['kind'], item['who'], item['text']) for item in items] == [
+        ('thought', 'agent', 'I will find the button first.'), ('said', 'agent', 'Going to the lift.'),
+        ('said', 'Explore', 'Found it.')]
+    assert log.status() == {'sessions': 2, 'empty': 1, 'quiet': 'claude'}
+    assert log.new(T0) == []                                     # each item once
+
+    _claude_log(logs / 's3.jsonl', [_claude(20, ('text', 'A new session.'))])   # the folder changes: listed again
+    os.utime(logs, (T0 + 70, T0 + 70))
+    assert [item['text'] for item in log.new(T0)] == ['A new session.']
+
+    os.utime(logs / 's1.jsonl', (T0 - 60, T0 - 60))                           # the session waits for its worker
+    _claude_log(logs / 's1' / 'subagents' / 'agent-a1.jsonl', [_claude(14, ('text', 'Found it.')), _claude(30, ('text', 'Still here.'))])
+    assert [item['text'] for item in log.new(T0)] == ['Still here.']
+
+    tick = time.time()                                                         # a new file in the same tick as the last listing
+    os.utime(logs, (tick, tick)); log.new(T0)
+    _claude_log(logs / 's4.jsonl', [_claude(40, ('text', 'Same tick.'))])
+    os.utime(logs, (tick, tick))
+    assert [item['text'] for item in log.new(T0)] == ['Same tick.']

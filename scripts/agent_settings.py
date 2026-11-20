@@ -3,7 +3,7 @@
 
     agent_settings.py OUT TEMPLATE [TEMPLATE ...] [--hide DIR ...] [--no-edit DIR ...] [--codex RULES]
 
-The deny lists of the templates are joined in order. Each DIR to hide becomes a Read deny (and each --no-edit DIR an
+The deny lists of the templates are joined in order; their other settings are merged, a later template wins. Each DIR to hide becomes a Read deny (and each --no-edit DIR an
 Edit deny) with its absolute path, which a template cannot hold: the workspace is in a different place on each
 machine. Edit the templates, not OUT. A file at OUT that this script did not make stops it.
 
@@ -28,24 +28,27 @@ def _paths(folders: list[Path]) -> list[str]:
 
 
 def settings(templates: list[Path], hide: list[Path], no_edit: list[Path] = ()) -> dict:
-    deny  = _deny(templates)
+    loaded = [json.loads(template.read_text()) for template in templates]
+    deny   = _deny(loaded)
     deny += [f'Read(/{path}/**)' for path in _paths(hide)]           # //abs: an absolute path in a rule
     deny += [f'Edit(/{path}/**)' for path in _paths(no_edit)]
     made  = ', '.join(str(template) for template in templates)
 
+    other = {key: value for template in loaded for key, value in template.items() if key not in ('$comment', 'permissions')}
+
     return {'$comment': f'{MADE} from {made}: edit those, then run link_agent_dir.sh again.',
-            'permissions': {'deny': deny}}
+            **other, 'permissions': {'deny': deny}}
 
 
-def _deny(templates: list[Path]) -> list[str]:
-    return [rule for template in templates for rule in json.loads(template.read_text())['permissions']['deny']]
+def _deny(loaded: list[dict]) -> list[str]:
+    return [rule for template in loaded for rule in template['permissions']['deny']]
 
 
 def codex_rules(templates: list[Path]) -> str:
     """The shell rules of the templates as Codex prefix rules: Bash(ros2 topic pub:*) forbids `ros2 topic pub ...`"""
     lines = [f'# {MADE} from {", ".join(map(str, templates))}: edit those, then run link_agent_dir.sh again.']
 
-    for rule in _deny(templates):
+    for rule in _deny([json.loads(template.read_text()) for template in templates]):
         if not rule.startswith('Bash'):
             continue                                                    # a file rule: Codex has none
 

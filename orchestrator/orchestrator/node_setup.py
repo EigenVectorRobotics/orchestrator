@@ -7,11 +7,12 @@ from typing import Callable
 
 from rclpy.node import Node
 
-from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry, agent_dir, missing_folder, skills_dir
+from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry, agent_dir, missing_folder, skills_dir, workspace
 
 from .places import parse_places
 from .map_places import MapInfoPlaces
-from .session_log import CODEX_SESSIONS, SessionLog
+from .session_log import CLAUDE_LOGS, CODEX_SESSIONS, SessionLog
+from .agent_session import AgentSessions
 
 
 def load_places(path: str) -> dict:
@@ -33,10 +34,27 @@ def declare_sources(node: Node) -> tuple[str, str, str]:
     return library, places_file, map_info
 
 
-def session_log(node: Node) -> SessionLog:
-    """Declare agent_folders and session_logs: the agent's sessions are the Codex logs of a session in these folders"""
-    folders = node.declare_parameter('agent_folders', [str(agent_dir()), str(agent_dir().parent / 'agent_discovery')]).value
-    return SessionLog(folders, node.declare_parameter('session_logs', str(CODEX_SESSIONS)).value)
+def agent_folders(node: Node) -> dict[str, str]:
+    """Declare agent_folders: where the task agent's session starts, then the discovery agent's"""
+    folders = node.declare_parameter('agent_folders', [str(agent_dir()), str(workspace() / 'agent_discovery')]).value
+
+    if len(folders) != 2:
+        raise ValueError(f'agent_folders holds two folders, the task agent\'s and the discovery agent\'s; not {folders}')
+
+    return dict(zip(('task', 'discovery'), folders))
+
+
+def session_log(node: Node, folders: dict[str, str]) -> SessionLog:
+    """Declare session_logs and claude_logs: the agent's sessions are the Codex and Claude Code logs of a session in
+    its folders"""
+    return SessionLog(folders.values(), node.declare_parameter('session_logs', str(CODEX_SESSIONS)).value,
+                      node.declare_parameter('claude_logs', str(CLAUDE_LOGS)).value)
+
+
+def agent_sessions(node: Node, folders: dict[str, str]) -> AgentSessions:
+    """Declare agent and agent_program: the tool that Mission Control's Start agent button starts in its folders"""
+    return AgentSessions(node.declare_parameter('agent', '').value, node.declare_parameter('agent_program', '').value,
+                         folders, env_file=workspace() / 'env.sh')
 
 
 def load_skills(node: Node) -> tuple[Registry, Callable[[], dict], set[str]]:

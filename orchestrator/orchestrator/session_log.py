@@ -1,31 +1,43 @@
-"""The task agent's own words, read from its Codex session log, for the Mission feed.
+"""The task agent's own words, read from its session log, for the Mission feed.
 
-The task agent is a Codex session that starts in the agent's folder (agent or agent_discovery). Codex writes each
-session to ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl: a session_meta line (with the cwd) and then one line per
-item. This module reads two kinds of item, and nothing else:
+The task agent is a Codex or a Claude Code session that starts in the agent's folder (agent or agent_discovery).
+This module reads the logs of both tools:
 
-  - reasoning: the summary of the model's reasoning. Codex writes it only when it starts with
-    -c model_reasoning_summary="detailed"; else the summary is empty.
-  - message:   what the agent says (role assistant).
+  - Codex writes each session to ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl: a session_meta line (with the cwd)
+    and then one line per item.
+  - Claude Code writes each session to ~/.claude/projects/<cwd, each other character a ->/<id>.jsonl, and a
+    worker's (subagent's) to <id>/subagents/agent-*.jsonl, with its type in agent-*.meta.json. Each line holds one
+    part of a message.
+
+It reads two kinds of item, and nothing else:
+
+  - thought: the summary of the model's reasoning. Codex writes it only when it starts with
+    -c model_reasoning_summary="detailed", Claude Code only with showThinkingSummaries; else the text is empty.
+  - said:    what the agent says (role assistant).
 
 It does not read commands, their output or the prompts: these can hold file contents, and the page shows only what
 the agent thinks and says. No ROS here: the node calls new() about once a second while a mission is open.
 """
 
+import re
 import json
 import time
 
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Callable
 
 
 CODEX_SESSIONS = Path.home() / '.codex' / 'sessions'
+CLAUDE_LOGS    = Path.home() / '.claude' / 'projects'
 MAX_TEXT       = 2000               # characters of one item; a longer item is cut
 MAX_READ       = 4 * 1024 * 1024    # bytes of one file in one call: a long log is read over a few calls
 SEEN_KEEP      = 5000               # texts kept to drop a copy (a forked worker's log starts with its parent's items)
 DAYS_BACK      = 7                  # day folders read back from the mission's start: a resumed session stays in its first day
+LIST_AGAIN_S   = 2.0                # seconds a log folder is listed at each call after it changed
 AFTER_END      = 5.0                # seconds a run's words are still read after it ended: its last words come just after
-ITEMS          = {'reasoning': ('thought', 'summary'), 'message': ('said', 'content')}   # type -> (kind, field of the parts)
+ITEMS          = {'reasoning': ('thought', 'summary'), 'message': ('said', 'content')}   # Codex: type -> (kind, field of the parts)
+CLAUDE_PARTS   = {'thinking': 'thought', 'text': 'said'}                                 # Claude Code: type of a part -> kind
 
 
 def _time(stamp) -> float | None:
@@ -46,16 +58,49 @@ def _title(text: str) -> tuple[str, str]:
     return '', text
 
 
-def _item(payload: dict) -> tuple[str, str] | None:
-    """(kind, text) of an item the feed shows, else None. The same item comes again as an event (agent_reasoning,
+def _codex_items(record: dict) -> list[tuple[str, str]]:
+    """(kind, text) of an item the feed shows. The same item comes again as an event (agent_reasoning,
     agent_message, item_completed) under another type: only these two types are read, so it comes once"""
+    payload     = record.get('payload')
+    payload     = payload if isinstance(payload, dict) else {}
     kind, field = ITEMS.get(payload.get('type'), (None, None))
 
     if kind is None or (kind == 'said' and payload.get('role') != 'assistant'):
-        return None
+        return []
 
     parts = [part.get('text') for part in payload.get(field) or [] if isinstance(part, dict)]
-    return kind, '\n\n'.join(part for part in parts if isinstance(part, str) and part)
+    return [(kind, '\n\n'.join(part for part in parts if isinstance(part, str) and part))]
+
+
+def _claude_items(record: dict) -> list[tuple[str, str]]:
+    """(kind, text) of each thinking and text part of an assistant line; tool calls are not read. Other lines can
+    hold an assistant message too (api-request-blob: a copy of an earlier turn), so the type of the line decides"""
+    message = record.get('message')
+
+    if record.get('type') != 'assistant' or not isinstance(message, dict):
+        return []
+
+    parts = message.get('content') if isinstance(message.get('content'), list) else []
+    found = [(CLAUDE_PARTS.get(part.get('type')), part.get(part.get('type'))) for part in parts if isinstance(part, dict)]
+    return [(kind, text if isinstance(text, str) else '') for kind, text in found if kind]
+
+
+PARSERS = {'codex': _codex_items, 'claude': _claude_items}     # the tool of a log -> (kind, text) of its items
+
+
+def claude_folder(cwd: Path) -> str:
+    """The folder name Claude Code gives the logs of a session that starts in cwd"""
+    return re.sub(r'[^A-Za-z0-9]', '-', str(cwd))
+
+
+def _worker(log: Path) -> str:
+    """A Claude Code worker's name: its type (Explore, say), from the meta file beside its log"""
+    try:
+        meta = json.loads(log.with_suffix('.meta.json').read_text())
+    except (OSError, ValueError):
+        meta = None
+
+    return str(meta.get('agentType') or 'worker') if isinstance(meta, dict) else 'worker'
 
 
 def _who(line: bytes, folders: set[str]) -> str | None:
@@ -100,23 +145,31 @@ class RunWords:
 class SessionLog:
     """The new items of the agent's sessions, each once. One thread calls new(); status() may be read from any"""
 
-    def __init__(self, folders, root=CODEX_SESSIONS):
+    def __init__(self, folders, root=CODEX_SESSIONS, claude_root=CLAUDE_LOGS):
         self.root     = Path(root).expanduser()
-        self.folders  = {str(Path(folder).expanduser().resolve()) for folder in folders}
-        self._files   = {}                       # path -> {'offset', 'who', 'skip'}; who is None for a session of another folder
+        self.claude   = Path(claude_root).expanduser()
+        folders       = [Path(folder).expanduser() for folder in folders]
+        self.folders  = {str(folder.resolve()) for folder in folders}
+        # Claude Code names the folder of the logs after the cwd as the shell spells it, which may be a link
+        self._claude  = sorted({claude_folder(spelling) for folder in folders for spelling in (folder.absolute(), folder.resolve())})
+        self._files   = {}                       # path -> {'offset', 'who', 'skip', 'tool'}; who is None for a session of another folder
+        self._listed  = {}                       # Claude Code log folder -> (its mtime, its logs): listed again on a change
         self._texts   = {}                       # (kind, hash of the text) -> None, oldest first: what a forked worker copies
         self._since   = None
         self.sessions = 0                        # the agent's sessions written in the open mission
-        self.empty    = 0                        # reasoning items of the open mission with no summary: Codex runs without summaries
+        self.empty    = 0                        # reasoning items of the open mission with no summary: the tool writes none
+        self.quiet    = None                     # the tool of the last of them: 'codex' or 'claude'
 
     def new(self, since: float) -> list[dict]:
         """The items of the agent's sessions that are not older than since and were not given before, oldest first"""
         if since != self._since:                 # a new mission
-            self._since, self.empty = since, 0
+            self._since, self.empty, self.quiet = since, 0, None
 
         items, sessions = [], 0
 
-        for path, size in self._logs(since):
+        # the agent's own sessions first: a worker's copy of their items is then known as a copy
+        for path, size in sorted(self._logs(since) + self._claude_logs(since),
+                                 key=lambda log: (self._files[log[0]]['who'] != 'agent', log[0])):
             items    += self._read(path, size, since)
             sessions += bool(self._files[path]['who'])
 
@@ -124,17 +177,17 @@ class SessionLog:
         return sorted(items, key=lambda item: item['time'])
 
     def status(self) -> dict:
-        return {'sessions': self.sessions, 'empty': self.empty}
+        return {'sessions': self.sessions, 'empty': self.empty, 'quiet': self.quiet}
 
     def _logs(self, since: float) -> list[tuple[Path, int]]:
-        """(path, size) of the agent's logs written since then, its own sessions first: a worker's copy of their items
-        is then known as a copy. Codex files a session under the local day it started"""
+        """(path, size) of the agent's Codex logs written since then. Codex files a session under the local day it
+        started"""
         day, last = date.fromtimestamp(since) - timedelta(days=DAYS_BACK), date.today()
         logs      = []
 
         while day <= last:
             for path in (self.root / f'{day:%Y/%m/%d}').glob('rollout-*.jsonl'):
-                file = self._files.setdefault(path, {'offset': 0, 'who': '', 'skip': False})
+                file = self._file(path, 'codex', lambda: '')
 
                 if file['who'] is None:
                     continue
@@ -149,7 +202,60 @@ class SessionLog:
 
             day += timedelta(days=1)
 
-        return sorted(logs, key=lambda log: (self._files[log[0]]['who'] != 'agent', log[0]))
+        return logs
+
+    def _claude_logs(self, since: float) -> list[tuple[Path, int]]:
+        """(path, size) of the agent's Claude Code logs written since then, and of their workers. The folder of the
+        logs says whose session it is. A worker's log has its own time: its session's log waits while it works"""
+        logs, recent = [], since - DAYS_BACK * 86400
+
+        for folder in self._claude:
+            for path in self._listing(self.claude / folder, '*.jsonl'):
+                main = self._size(path, since)
+
+                if main is None and self._size(path, recent) is None:
+                    continue                                    # an old session: its workers ended long ago
+
+                if main is not None:
+                    self._file(path, 'claude', lambda: 'agent')
+                    logs.append((path, main))
+
+                for worker in self._listing(path.with_suffix('') / 'subagents', 'agent-*.jsonl'):
+                    if (size := self._size(worker, since)) is not None:
+                        self._file(worker, 'claude', lambda worker=worker: _worker(worker))
+                        logs.append((worker, size))
+
+        return logs
+
+    @staticmethod
+    def _size(path: Path, since: float) -> int | None:
+        """The size of a log written since then, else None"""
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+
+        return stat.st_size if stat.st_mtime >= since else None
+
+    def _listing(self, folder: Path, pattern: str) -> list[Path]:
+        """The logs in a folder. Listed again when a new file changes the folder, and while its time is new: a file
+        made in the same tick as the last listing does not change it"""
+        try:
+            mtime = folder.stat().st_mtime
+        except OSError:
+            return []
+
+        if self._listed.get(folder, (None,))[0] != mtime or time.time() - mtime < LIST_AGAIN_S:
+            self._listed[folder] = (mtime, sorted(folder.glob(pattern)))
+
+        return self._listed[folder][1]
+
+    def _file(self, path: Path, tool: str, who: Callable[[], str]) -> dict:
+        """What this knows of one log; who is asked once, when the log is new"""
+        if path not in self._files:
+            self._files[path] = {'offset': 0, 'who': who(), 'skip': False, 'tool': tool}
+
+        return self._files[path]
 
     def _identify(self, path: Path, file: dict) -> bool:
         """Read the first line, which says whose session it is; False until it says the agent's"""
@@ -211,40 +317,38 @@ class SessionLog:
                 continue
 
             try:
-                item = self._new_item(record, since, file['who']) if isinstance(record, dict) else None
+                items += self._new_items(record, since, file) if isinstance(record, dict) else []
             except (TypeError, ValueError, AttributeError):     # one odd item; the next lines still count
                 continue
 
-            if item:
-                items.append(item)
-
         return items
 
-    def _new_item(self, record: dict, since: float, who: str) -> dict | None:
-        payload = record.get('payload')
-        found   = _item(payload) if isinstance(payload, dict) else None
-        when    = _time(record.get('timestamp'))
+    def _new_items(self, record: dict, since: float, file: dict) -> list[dict]:
+        when, who, items = _time(record.get('timestamp')), file['who'], []
 
-        if not found or when is None or when < since:
-            return None
+        if when is None or when < since:
+            return []
 
-        kind, text = found
+        for kind, text in PARSERS[file['tool']](record):
+            if not text:
+                if kind == 'thought':
+                    self.empty, self.quiet = self.empty + 1, file['tool']
 
-        if not text:
-            self.empty += kind == 'thought'
-            return None
+                continue
 
-        # each line is read once (the offset), so the same words said again are a new item; only a worker's copy of
-        # what its parent said is dropped
-        copy = (kind, hash(text))
+            # each line is read once (the offset), so the same words said again are a new item; only a worker's copy
+            # of what its parent said is dropped
+            copy = (kind, hash(text))
 
-        if who != 'agent' and copy in self._texts:
-            return None
+            if who != 'agent' and copy in self._texts:
+                continue
 
-        self._texts[copy] = None
+            self._texts[copy] = None
 
-        if len(self._texts) > SEEN_KEEP:
-            del self._texts[next(iter(self._texts))]
+            if len(self._texts) > SEEN_KEEP:
+                del self._texts[next(iter(self._texts))]
 
-        title, text = _title(text) if kind == 'thought' else ('', text)
-        return {'kind': kind, 'time': when, 'who': who, 'title': title, 'text': text[:MAX_TEXT]}
+            title, text = _title(text) if kind == 'thought' else ('', text)
+            items.append({'kind': kind, 'time': when, 'who': who, 'title': title, 'text': text[:MAX_TEXT]})
+
+        return items

@@ -45,7 +45,7 @@ from .map_places import MapInfoPlaces
 from .mission_control import (DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf,
                               SessionFollower, StaleSkills, finite, live_names, token_ok)
 from .recording import RecorderConfig
-from .node_setup import session_log
+from .node_setup import agent_folders, agent_sessions, session_log
 
 
 MAX_BODY  = 64 * 1024
@@ -113,7 +113,8 @@ class MissionControlNode(Node):
 
         knowledge_dir      = self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value
         library            = self.declare_parameter('skills_dir', str(skills_dir())).value
-        self.session_log   = session_log(self)
+        folders            = agent_folders(self)
+        self.session_log   = session_log(self, folders)
         self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel),
                                        self.camera, token_needed=not off, outlines=self.outlines,
                                        skills=SkillShelf(library,
@@ -126,7 +127,8 @@ class MissionControlNode(Node):
                                                              written_of=lambda name: written_maturity(library, name))),
                                        knowledge=KnowledgeShelf(knowledge_dir),
                                        runs=RunShelf(self.declare_parameter('runs_root', RecorderConfig.root).value),
-                                       map_view=self.map_view, session_log=self.session_log)
+                                       map_view=self.map_view, session_log=self.session_log,
+                                       agents=agent_sessions(self, folders))
         self._places = self._map_places(self.declare_parameter('map_info', '/map_info').value)
         self.create_timer(1.0, self._follow_outlines)
         self.create_timer(2.0, self._watch_live)

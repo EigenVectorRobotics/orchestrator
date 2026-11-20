@@ -305,6 +305,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
     <div class="eyebrow" id="open-eyebrow"></div>
     <h1 id="open-title"></h1>
     <div class="run-row"><div class="bar" id="open-bar" aria-label="Time used"><i></i></div><span class="wait" id="open-text"></span></div>
+    <div class="row" id="agent-row" hidden><button class="btn" id="start-agent">Start agent</button><span class="hint" id="agent-hint"></span></div>
   </div>
 
   <div class="now soft" id="now-idle" hidden>
@@ -315,7 +316,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
         <button class="btn" id="send">Send mission</button>
         <label class="check"><input type="checkbox" id="blind"> blind</label>
         <label class="check" title="The discovery session reads the stack's code and writes skills. It never moves the robot. An empty box sends &quot;Learn the stack&quot;"><input type="checkbox" id="discovery"> discovery</label>
-        <span class="hint">An agent session in the agent folder picks it up.</span>
+        <span class="hint">Then start the agent, or an agent session in the agent folder picks it up.</span>
       </div>
     </div>
   </div>
@@ -527,6 +528,7 @@ function nowBand() {
       $('open-title').innerHTML = running ? `Step ${running.step}: ${running.subgoal || running.skill}` : task.task);
     $('open-bar').hidden = !(used !== null && limit);
     if (used !== null && limit) $('open-bar').firstElementChild.style.width = Math.min(100, used / limit * 100).toFixed(1) + '%';
+    agentRow(task);
     $('open-text').textContent = [used !== null ? (limit ? `${mmss(used)} of ${mmss(limit)}` : mmss(used)) : '',
                                   `${ran} step${ran === 1 ? '' : 's'}`, refused ? `${refused} refused` : ''].filter(Boolean).join(' · ');
   }
@@ -552,6 +554,23 @@ $('send').addEventListener('click', () => {
   send('/api/task', { task: text || (discovery ? DISCOVERY_TASK : ''), blind: $('blind').checked, discovery });
 });
 $('cancel').addEventListener('click', () => send('/api/cancel', {}));
+
+// One task, one session: a start stops the agent session of that kind that runs
+function agentRow(task) {
+  const agent = state.agent, kind = task.discovery ? 'discovery' : 'task';
+  $('agent-row').hidden = !agent;
+  if (!agent) return;
+  const running = !!(agent.running || {})[kind];
+  once('agent', JSON.stringify([agent.tool, kind, running]), () => {
+    $('start-agent').textContent = running ? `Start a new ${agent.tool} agent` : `Start ${agent.tool} agent`;
+    $('agent-hint').textContent = running ? `a ${kind} agent runs (tmux -L ${kind} attach -t ${kind}); a new one stops it`
+                                          : `no ${kind} agent runs`;
+  });
+}
+$('start-agent').addEventListener('click', () => {
+  $('start-agent').disabled = true;                       // one click, one session
+  send('/api/agent', { discovery: !!(state.task || {}).discovery }).finally(() => $('start-agent').disabled = false);
+});
 
 // ---------- Plan ----------
 
@@ -711,7 +730,8 @@ function feedNote() {
   const log = state.reasoning, open = (state.task || {}).state === 'open';
   const run  = (state.task || {}).run_id;
   const hint = !log || !open || words.some(word => word.kind === 'thought' && word.run_id === run) ? ''
-    : !log.sessions ? 'no Codex session of the agent found'
+    : !log.sessions ? 'no session of the agent found'
+    : log.quiet === 'claude' ? 'Claude Code writes no reasoning: set showThinkingSummaries in its settings'
     : log.empty ? 'Codex writes no reasoning: start it with -c model_reasoning_summary="detailed"' : '';
   const note = 'newest first' + (hint ? ' · ' + hint : '');
   once('feednote', note, () => $('feednote').textContent = note);

@@ -30,6 +30,7 @@ from .images import Camera, Outlines
 from .knowledge import OPERATOR, Claim, KnowledgeError, KnowledgeStore, Sighting
 from .graduation import Graduation, shown_maturity
 from .map_view import MapView
+from .agent_session import AgentSessions
 from .run_browser import list_runs, run_detail
 from .session_log import RunWords, SessionLog
 from .topics import TASK_OPTIONS
@@ -41,6 +42,7 @@ DECISION_WAIT  = 5.0                    # seconds to wait for the executor's rep
 TASK_FIELDS    = ('state', 'run_id', 'task', 'blind', 'discovery', 'end', 'limits')   # of the open message; not places, known or scratch
 STEPS_KEEP     = 200                    # steps of one task the page shows in the plan
 STEP_ENDS      = ('finished', 'halted', 'error')
+OPERATOR_POSTS = ('/api/knowledge/', '/api/agent')   # acts as the operator: they need the token on (path prefixes)
 
 
 class MissionState:
@@ -475,7 +477,7 @@ class MissionApi:
     def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None,
                  token_needed: bool = True, outlines: Outlines | None = None, skills: SkillShelf | None = None,
                  knowledge: KnowledgeShelf | None = None, runs: RunShelf | None = None, map_view: MapView | None = None,
-                 session_log: SessionLog | None = None):
+                 session_log: SessionLog | None = None, agents: AgentSessions | None = None):
         self.state        = state
         self.camera       = camera or Camera()
         self.outlines     = outlines or Outlines()
@@ -485,10 +487,12 @@ class MissionApi:
         self.runs         = runs
         self.map_view     = map_view or MapView()
         self.session_log  = session_log
+        self.agents       = agents
         self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel,
                              **({'/api/skill/keep': skills.keep, '/api/skill/remove': skills.remove} if skills else {}),
                              **({'/api/knowledge/approve': knowledge.approve, '/api/knowledge/retire': knowledge.retire,
-                                 '/api/knowledge/seen': knowledge.seen} if knowledge else {})}
+                                 '/api/knowledge/seen': knowledge.seen} if knowledge else {}),
+                             **({'/api/agent': agents.start} if agents else {})}
 
     def get(self, path: str, query: dict) -> tuple[int, dict]:
         if path == '/api/skills' and self.skills:
@@ -517,6 +521,7 @@ class MissionApi:
         return 200, {**self.state.snapshot(after), 'camera': self.camera.state(), 'outlines': self.outlines.state(),
                      'map': self.map_view.state(),
                      'reasoning': self.session_log.status() if self.session_log else None,
+                     'agent': self.agents.state() if self.agents else None,
                      'token_needed': self.token_needed}
 
     def post(self, path: str, body: dict) -> tuple[int, dict]:
@@ -528,8 +533,8 @@ class MissionApi:
         if not isinstance(body, dict):
             return 400, {'ok': False, 'message': 'the body is a JSON object'}
 
-        if path.startswith('/api/knowledge/') and not self.token_needed:
+        if path.startswith(OPERATOR_POSTS) and not self.token_needed:
             # an act as the operator: with the token off, any process on this host (the agent's too) could do it
-            return 403, {'ok': False, 'message': 'approve, retire and seen need the page token, and it is off'}
+            return 403, {'ok': False, 'message': f'{path} acts as the operator: it needs the page token, and it is off'}
 
         return command(body)

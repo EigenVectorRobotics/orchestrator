@@ -1,5 +1,6 @@
 {
-  "$comment": "The task session's deny rules, and the base of the discovery session's. A template: scripts/link_agent_dir.sh makes the settings from it. A guard against mistakes, not a security boundary: a wrapped command (bash -c, a Python script with rclpy) is not matched.",
+  "$comment": "The task session's deny rules, and the base of the discovery session's. A template: scripts/link_agent_dir.sh makes the settings from it. A guard against mistakes, not a security boundary: a wrapped command (bash -c, a Python script with rclpy) is not matched. showThinkingSummaries: the session log holds the reasoning, for the Mission feed.",
+  "showThinkingSummaries": true,
   "permissions": {
     "deny": [
       "Bash(ros2 topic pub:*)",
