@@ -282,3 +282,52 @@ def test_without_a_near_gripper_estimate_the_residual_stays_on_the_encoders():
     for capture in (press_with_tip_shift(None), press_with_tip_shift(0.7 * DURATION + 5.0)):
         assert capture.residual() == pytest.approx([-0.005, -0.008, -0.003], abs=1e-4)
         assert capture.events()['residual_from'] == 'encoders'
+
+
+def press_with_tip_shifts(shifts):
+    """The press of the residual test with several gripper estimates fed, as (seconds, shift)"""
+    capture = PressCapture(CaptureConfig(), FrameBuffer(), left_arm=False)
+    capture.on_goal(GOAL, (0.0, 0.0, 0.0, 1.0))
+
+    for stamp, shift in shifts:
+        capture.on_tip_shift(stamp, shift)
+
+    for step in range(301):
+        t     = step / 100
+        depth = float(np.interp(t / DURATION, [p[0] for p in PRESS], [p[1] for p in PRESS]))
+        capture.on_pose(t, (GOAL[0] + depth - 0.005, GOAL[1] - 0.008, GOAL[2] - 0.003))
+
+    return capture
+
+
+def test_without_a_near_fit_the_residual_takes_the_held_median_of_the_fits_before_the_push():
+    """As move_to_pose corrects its target: no fit within tip_shift_max_age_s of the deepest point, so the per-axis
+    median of the earlier fits moves the residual (here 6 mm up), and a fit after the deepest point is not held"""
+    deepest = 0.7 * DURATION
+    capture = press_with_tip_shifts([(deepest - 30.0, (0.0, 0.004, 0.004)), (deepest - 20.0, (0.0, 0.004, 0.006)),
+                                     (deepest - 10.0, (0.0, 0.004, 0.009)), (deepest + 5.0, (0.0, 0.0, 0.020))])
+
+    assert capture.residual() == pytest.approx([-0.005, -0.004, 0.003], abs=1e-4)
+    assert capture.events()['residual_from'] == 'gripper estimate, held median of 3'
+
+
+def test_the_held_median_skips_old_fits_and_fits_over_the_error_limit():
+    """A fit older than tip_shift_hold_s and one past tip_shift_max_error_m are not held; with none left, the encoders"""
+    deepest = 0.7 * DURATION
+    config  = CaptureConfig()
+    old     = (deepest - config.tip_shift_hold_s - 1.0, (0.0, 0.004, 0.006))
+    wild    = (deepest - 5.0, (0.0, 0.0, config.tip_shift_max_error_m + 0.01))
+
+    assert press_with_tip_shifts([old, wild]).events()['residual_from'] == 'encoders'
+    assert press_with_tip_shifts([old, wild, (deepest - 3.0, (0.0, 0.004, 0.006))]).residual() == pytest.approx(
+        [-0.005, -0.004, 0.003], abs=1e-4)
+
+
+def test_the_held_median_keeps_only_the_last_fits():
+    """Only the last tip_shift_hold_count fits are held, as GripperErrorHistory keeps its capacity"""
+    deepest = 0.7 * DURATION
+    count   = int(CaptureConfig().tip_shift_hold_count)
+    early   = [(deepest - 50.0 + i, (0.0, 0.0, 0.020)) for i in range(count)]
+    late    = [(deepest - 20.0 + i, (0.0, 0.004, 0.006)) for i in range(count)]
+
+    assert press_with_tip_shifts(early + late).residual() == pytest.approx([-0.005, -0.004, 0.003], abs=1e-4)

@@ -47,7 +47,14 @@ class CaptureConfig:
     crop_scale:           float = 2.5       # the crop's sides, as a multiple of the button box's
     min_crop_px:          float = 48.0
     box_max_age_s:        float = 1.5       # a box older than this, before its frame, is not used for it
-    tip_shift_max_age_s:  float = 1.0       # a gripper estimate further than this from the deepest point is not used
+    tip_shift_max_age_s:  float = 1.0       # a gripper estimate this close to the deepest point is used alone
+    # Else the held median, as move_to_pose corrects its target (g1_pilot gripper_error_history.h): the per-axis median of
+    # the last tip_shift_hold_count fits within tip_shift_hold_s before the deepest point, each under tip_shift_max_error_m.
+    # Without it the residual kept move_to_pose's correction as an error (29 of 33 presses on 2026-11-19), and recovery
+    # set it back: an encoder tip 24 mm low brought a 24 mm higher offset where move_to_pose had lowered 17 mm
+    tip_shift_hold_s:     float = 60.0      # move_to_pose gripper_estimate_hold_time
+    tip_shift_hold_count: float = 5         # GripperErrorHistory's capacity
+    tip_shift_max_error_m: float = 0.03     # move_to_pose gripper_estimate_max_error
     camera_pose_max_age_s: float = 0.1      # a camera pose further than this from its frame is not used for it
 
     @classmethod
@@ -175,15 +182,37 @@ class PressCapture:
             self.tip_shifts.append((t, np.asarray(shift, dtype=float)))
 
     def tip_shift_at_max(self):
-        """The gripper estimate's shift nearest the deepest point, or None when none is close enough"""
-        t = self.tracker._max_t
+        """The gripper estimate's shift at the deepest point, or None without one (tip_shift_source_at_max)"""
+        return self.tip_shift_source_at_max()[0]
 
-        if t is None or not self.tip_shifts:
-            return None
+    def tip_shift_source_at_max(self):
+        """(shift, source) at the deepest point: the fit nearest it when one is within tip_shift_max_age_s ('gripper
+        estimate'); else the per-axis median of the last tip_shift_hold_count fits within tip_shift_hold_s before it
+        ('gripper estimate, held median of N'); else (None, 'encoders'). Fits over tip_shift_max_error_m are not used"""
+        config = self.config
+        t      = self.tracker._max_t
 
-        stamp, shift = min(self.tip_shifts, key=lambda item: abs(item[0] - t))
+        if t is None:
+            return None, 'encoders'
 
-        return shift if abs(stamp - t) <= self.config.tip_shift_max_age_s else None
+        fits = [(stamp, shift) for stamp, shift in self.tip_shifts
+                if float(np.linalg.norm(shift)) <= config.tip_shift_max_error_m]
+
+        if not fits:
+            return None, 'encoders'
+
+        stamp, shift = min(fits, key=lambda item: abs(item[0] - t))
+
+        if abs(stamp - t) <= config.tip_shift_max_age_s:
+            return shift, 'gripper estimate'
+
+        held = [shift for stamp, shift in fits if 0.0 <= t - stamp <= config.tip_shift_hold_s]
+        held = held[-int(config.tip_shift_hold_count):]
+
+        if not held:
+            return None, 'encoders'
+
+        return np.median(np.array(held), axis=0), f'gripper estimate, held median of {len(held)}'
 
     def on_camera_pose(self, t: float, rotation_matrix, translation):
         with self._lock:
@@ -304,7 +333,7 @@ class PressCapture:
             'max_depth_m': None if math.isinf(tracker.max_depth) else round(tracker.max_depth, 4),
             'lateral_at_max_m': None if tracker.lateral_at_max is None else round(tracker.lateral_at_max, 4),
             'residual_m': self.residual(),
-            'residual_from': 'gripper estimate' if self.tip_shift_at_max() is not None else 'encoders',
+            'residual_from': self.tip_shift_source_at_max()[1],
             'frames':     {name: round(t, 3) for name, (t, _) in self.frames.items()},
             'boxes':      {name: [round(value, 1) for value in box] for name, box in self.boxes.items()},
         }
