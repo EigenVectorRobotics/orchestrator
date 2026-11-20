@@ -11,6 +11,7 @@ from .deny import DenyList
 from .contract import Contract, ContractError, load_contract
 
 
+UNREAD_PART   = 'a part that cannot be read (a call with no name, or a body that is missing or does not parse)'
 CONTRACT_FILE = 'contract.yaml'          # each skill is a folder: <skills_dir>/<name>/contract.yaml
 CODE_FILE     = 'code.py'                # and, for a code skill, <skills_dir>/<name>/code.py
 TREE_FILE     = 'tree.xml'               # and, for a tree skill, <skills_dir>/<name>/tree.xml
@@ -101,6 +102,7 @@ class Registry:
         self._file_times: dict[str, float]    = {}  # refresh: skill folder -> the mtime of its contract when last read
         self._gone_once:  set[str]            = set()  # folders missing at the last refresh: gone if missing again
         self._refreshing                      = threading.Lock()
+        self.directory:  Path | None          = None   # the skill folders, once loaded from them: cloud_part reads bodies
 
         for contract in contracts or []:
             self.add(contract)
@@ -113,6 +115,7 @@ class Registry:
         registry._drop_dependents_of_denied()
         registry.check_references()
         registry._file_times = {path.parent.name: path.stat().st_mtime for path in paths}
+        registry.directory   = Path(directory)
 
         return registry
 
@@ -156,6 +159,7 @@ class Registry:
         person's edit), each through admit_errors and check (e.g. its ROS types). Returns the skills that changed,
         and the skill folders that did not load with why. A skill whose folder is gone unloads (_unload_gone)"""
         with self._refreshing:
+            self.directory  = Path(directory)
             pending, errors = {}, {}
             paths           = contract_files(directory)
             self._unload_gone(directory, {path.parent.name for path in paths}, errors)
@@ -217,19 +221,55 @@ class Registry:
             if self._contracts.pop(name, None) is not None:
                 logging.getLogger('skill_registry').info(f'{name} unloaded: its folder is gone')
 
+    def cloud_part(self, name: str) -> str:
+        """The skill that makes this one need the cloud: itself, a condition that it names, or a part of a composition at
+        any depth, with that part's conditions. '' when none. It reads the bodies now, so a tree that a person wrote
+        and a part that needs the cloud later count. A call that does not name its skill counts too: it cannot be
+        shown to run without the cloud, and so does a code or tree body that is missing or does not parse"""
+        from .skill_stamps import body_parts         # skill_stamps imports this module
+
+        stack, seen, unknown = [name], set(), False
+
+        while stack:
+            skill = stack.pop()
+
+            if skill in seen or (contract := self.get(skill)) is None:
+                continue
+
+            seen.add(skill)
+
+            for each in [contract, *map(self.get, contract.conditions)]:
+                if each is not None and each.needs_cloud:
+                    return each.name
+
+            body             = self._body(contract, self.directory)
+            called, unclear  = body_parts(contract.interface.transport, body)
+            unknown         |= unclear or (contract.interface.transport in ('code', 'tree') and not body)
+            stack           += called
+
+        return UNREAD_PART if unknown else ''
+
+    def cloud_text(self, name: str) -> str:
+        """'needs the cloud', with the part that makes it need it; '' when it runs without the cloud"""
+        part = self.cloud_part(name)
+        return f'needs the cloud{"" if part == name else f" (through {part})"}' if part else ''
+
+    @staticmethod
+    def _body(contract: Contract, directory: Path | None) -> str:
+        """A code skill's code or a tree skill's tree; '' for another skill, or when it cannot be read"""
+        path = body_file(contract.interface.transport, contract.name, directory) if directory else None
+
+        try:
+            return path.read_text() if path else ''
+        except OSError:
+            return ''
+
     @staticmethod
     def _uses(contract: Contract, directory: Path) -> list[str]:
         """The skills this one names, and for a code skill or a tree skill its parts"""
         from .skill_stamps import body_parts         # skill_stamps imports this module
 
-        path = body_file(contract.interface.transport, contract.name, directory)
-
-        try:
-            body = path.read_text() if path else ''
-        except OSError:
-            body = ''
-
-        return [*contract.references, *body_parts(contract.interface.transport, body)[0]]
+        return [*contract.references, *body_parts(contract.interface.transport, Registry._body(contract, directory))[0]]
 
     def _admit_all(self, pending: dict[str, Contract], check, errors: dict[str, str]) -> list[str]:
         """Admit in passes, so a contract may name another one of the same batch"""

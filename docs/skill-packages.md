@@ -126,7 +126,7 @@ A behavior tree is a composition that the agent makes from steps that worked, an
 - **The gate (decided 2026-11-19):** a tree is just a skill. The whole tree gets the gate once, as a step: the operator runs the whole tree or not. Its parts do not ask. A code skill is the same: its calls do not ask (`gate.yaml` is gone).
 - **The result of a failed tree** says the part that failed, its path in the tree and its message. The outputs carry it as `failed_part`. The agent grades the tree, and it can grade that part.
 - **Maturity:** the shown maturity of a tree, or of a code skill, is at most the lowest shown maturity of its parts. A deprecated part counts as untested there. The agent may use untested parts (decided 2026-11-19): then the tree earns nothing until its parts do.
-- **The cloud:** a tree needs the cloud when one of its parts does.
+- **The cloud:** a skill needs the cloud when it, a condition that it names, or a part at any depth needs it (`Registry.cloud_part`, read from the bodies when asked, 2026-11-19). A call that does not name its skill counts too. The catalog line names that part, and a blind task refuses the skill.
 - **Limits:** a tree inside a tree, or inside a code skill, counts toward the same depth limit as code skills (3). A tree cannot run itself, also through another tree.
 - **Built** (`orchestrator/tree_skill.py`, 2026-11-19): all of the above. The Skills tab shows the tree and a `tree` pill. The catalog says when a part holds a composition down.
 - **The cabin:** the operator approves the tree once, before the robot goes in. Nothing inside it asks, so it can run with no network.

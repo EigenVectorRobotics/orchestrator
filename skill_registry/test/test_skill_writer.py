@@ -3,9 +3,11 @@ import yaml
 from skill_registry import Registry, parse_contract
 
 from skill_registry.contract import AGENT_MARK
+from skill_registry.registry import UNREAD_PART
 
 from skill_registry.skill_writer import SkillWriter
 from skill_registry.skill_stamps import Stamps
+from skill_registry.validator import TreeValidator, ValidatorConfig
 
 
 SAY = {'name': 'say_it', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5, 'maturity': 'tested',
@@ -271,15 +273,45 @@ def test_a_tree_skill_saves_its_checked_tree_and_needs_the_cloud_when_a_part_doe
 
     reply = writer.write(yaml.safe_dump(TREE), tree=_xml('<say_it text="{text}"/>', '<say_it text="again"/>'))
 
-    assert reply['ok'] and reply['message'].endswith('with its tree') and not registry.get('greet_twice').needs_cloud
+    assert reply['ok'] and reply['message'].endswith('with its tree') and registry.cloud_part('greet_twice') == ''
     assert (tmp_path / 'greet_twice' / 'tree.xml').read_text().startswith(TREE_MARK)
     assert writer.write(yaml.safe_dump(TREE | {'name': 'ask_twice'}), tree=_xml('<ask_cloud text="hi"/>'))['ok']
-    assert registry.get('ask_twice').needs_cloud                          # in the cabin it is no better than its part
+    assert registry.cloud_part('ask_twice') == 'ask_cloud'                # in the cabin it is no better than its part
     assert writer.write(yaml.safe_dump(TREE | {'name': 'ask_code', 'interface': {'transport': 'code'}}),
                         code='def run(skills, inputs):\n    return skills.run("ask_cloud", text="hi")\n')['ok']
-    assert registry.get('ask_code').needs_cloud                           # a code skill too
+    assert registry.cloud_part('ask_code') == 'ask_cloud'                 # a code skill too
     assert writer.write(yaml.safe_dump(TREE | {'name': 'ask_twice', 'timeout_s': 20}))['ok']    # the contract only
-    assert registry.get('ask_twice').needs_cloud                          # its tree on disk still calls the cloud
+    assert registry.cloud_part('ask_twice') == 'ask_cloud'                # its tree on disk still calls the cloud
+
+    blind = TreeValidator(registry, ValidatorConfig(blind=True, require_fallback=False))
+    assert 'needs the cloud (through ask_cloud)' in blind.validate(_xml('<ask_twice text="hi"/>'))[0].message
+    assert writer.write(yaml.safe_dump(SAY | {'needs_cloud': True}))['ok']                 # a part needs it later
+    assert registry.cloud_part('greet_twice') == 'say_it'
+
+    _file(tmp_path, 'by_hand').write_text(yaml.safe_dump(TREE | {'name': 'by_hand'}))      # a person's tree
+    (tmp_path / 'by_hand' / 'tree.xml').write_text(_xml('<ask_cloud text="hi"/>'))
+    _file(tmp_path, 'any_skill').write_text(yaml.safe_dump(TREE | {'name': 'any_skill', 'interface': {'transport': 'code'}}))
+    (tmp_path / 'any_skill' / 'code.py').write_text('def run(skills, inputs):\n    return skills.run(inputs["name"])\n')
+    for name, other in (('loop_a', 'loop_b'), ('loop_b', 'loop_a')):                    # a person's trees in a loop
+        _file(tmp_path, name).write_text(yaml.safe_dump(TREE | {'name': name}))
+        (tmp_path / name / 'tree.xml').write_text(_xml(f'<{other} text="hi"/>'))
+    registry.refresh(tmp_path)
+    assert registry.cloud_part('by_hand') == 'ask_cloud' and registry.cloud_part('loop_a') == ''
+    assert registry.cloud_part('any_skill') == UNREAD_PART
+    (tmp_path / 'by_hand' / 'tree.xml').write_text('<root')                                # a person's typo
+    assert registry.cloud_part('by_hand') == UNREAD_PART
+    (tmp_path / 'by_hand' / 'tree.xml').unlink()
+    assert registry.cloud_part('by_hand') == UNREAD_PART
+    (tmp_path / 'any_skill' / 'code.py').write_text('def run(skills, inputs):\n    return skills.run(skill="ask_cloud")\n')
+    assert registry.cloud_part('any_skill') == 'ask_cloud'                                  # the keyword form
+    (tmp_path / 'any_skill' / 'code.py').write_text('def run(skills, inputs):\n    go = skills.run\n    return go("say_it")\n')
+    assert registry.cloud_part('any_skill') == UNREAD_PART                                 # an alias
+
+    door = {'name': 'door_seen', 'kind': 'condition', 'device': 'nuc', 'needs_cloud': True,
+            'interface': {'transport': 'vlm', 'question': 'Is the door open?', 'choices': ['yes', 'no'], 'success_answer': 'yes'}}
+    assert writer.write(yaml.safe_dump(door))['ok']
+    assert writer.write(yaml.safe_dump(SAY | {'name': 'say_inside', 'pre': ['door_seen']}))['ok']
+    assert registry.cloud_part('say_inside') == 'door_seen'                    # a condition it names runs in its step
 
 
 def test_a_tree_may_use_a_skill_that_can_drop_out_and_a_new_transport_moves_the_old_body_aside(tmp_path):

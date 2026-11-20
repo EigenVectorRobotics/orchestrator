@@ -29,6 +29,7 @@ import time
 import threading
 
 from pathlib import Path
+from xml.etree import ElementTree
 
 import yaml
 
@@ -46,17 +47,23 @@ def called_skills(code: str) -> tuple[list[str], bool]:
     except SyntaxError:
         return [], True
 
-    names, unknown = [], False
+    names, unknown, called = [], False, set()
 
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'run'):
             continue
 
-        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-            names.append(node.args[0].value)
-        elif node.args:
+        called.add(id(node.func))
+        skill = node.args[0] if node.args else next((word.value for word in node.keywords if word.arg == 'skill'), None)
+
+        if isinstance(skill, ast.Constant) and isinstance(skill.value, str):
+            names.append(skill.value)
+        else:                                  # a name in a variable, or no name
             unknown = True
 
+    # skills.run used but not called here (r = skills.run): its calls cannot be read
+    unknown |= any(isinstance(node, ast.Attribute) and node.attr == 'run' and id(node) not in called
+                   for node in ast.walk(tree))
     return names, unknown
 
 
@@ -66,7 +73,15 @@ def body_parts(transport: str, body: str) -> tuple[list[str], bool]:
     if not body:
         return [], False
 
-    return (tree_skills(body), False) if transport == 'tree' else called_skills(body)
+    if transport != 'tree':
+        return called_skills(body)
+
+    try:
+        ElementTree.fromstring(body)
+    except ElementTree.ParseError:             # a tree that does not parse: its parts cannot be read
+        return [], True
+
+    return tree_skills(body), False
 
 
 def uses_of(contract: Contract, code: str = '') -> tuple[list[str], bool]:

@@ -6,6 +6,7 @@ from skill_registry import Registry, parse_contract
 
 from orchestrator.behavior_tree import Status
 from orchestrator.skill_leaf import make_leaf_factory
+from orchestrator.tasks import describe_catalog
 from orchestrator.tree_skill import TreeRunner
 
 from test_code_skill import SAY, WALK, FakeRunner, _context
@@ -117,3 +118,21 @@ def test_a_tree_inside_itself_too_deep_or_with_no_file_fails_at_once(tmp_path):
     (tmp_path / 'loop_b' / 'tree.xml').unlink()
     leaf = build('loop_b', 'step2/loop_b', {'text': 'x'}, _context())
     assert _run(leaf) == Status.FAILURE and 'no tree file' in leaf.message
+
+
+def test_the_catalog_says_a_tree_needs_the_cloud_through_its_part(tmp_path):
+    import yaml
+
+    for name, contract, body in [
+            ('ask', {'kind': 'action', 'interface': {'transport': 'topic', 'name': '/ask', 'ros_type': 'std_msgs/msg/String'},
+                     'needs_cloud': True}, None),
+            ('ride', {'kind': 'action', 'interface': {'transport': 'tree'}},
+             '<root BTCPP_format="4"><BehaviorTree ID="main"><ask/></BehaviorTree></root>')]:
+        (tmp_path / name).mkdir()
+        (tmp_path / name / 'contract.yaml').write_text(yaml.safe_dump({'name': name, 'device': 'nuc', 'timeout_s': 5, **contract}))
+        if body:
+            (tmp_path / name / 'tree.xml').write_text(body)                  # a person's tree: no write_skill
+
+    catalog = describe_catalog(Registry.from_directory(tmp_path), {'nuc'})   # as agent_cli skills --dir reads it
+
+    assert 'needs the cloud (through ask)' in catalog and catalog.count('needs the cloud') == 2

@@ -266,8 +266,10 @@ class Tasks:
 
 # ========== The catalog, as the agent reads it ==========
 
-def describe_contract(contract: Contract, essential_devices: set[str], stale: str = '', earned: dict | None = None) -> str:
-    """earned: graduation.Graduation.of(), the maturity to show and what the skill earned from the grades of its steps"""
+def describe_contract(contract: Contract, essential_devices: set[str], stale: str = '', earned: dict | None = None,
+                      cloud: str = '') -> str:
+    """earned: graduation.Graduation.of(), the maturity to show and what the skill earned from the grades of its steps.
+    cloud: Registry.cloud_text(), why it needs the cloud"""
     def describe_port(port) -> str:
         text = f'{port.name}: {port.type}'
 
@@ -305,8 +307,8 @@ def describe_contract(contract: Contract, essential_devices: set[str], stale: st
     if contract.device not in essential_devices:
         lines.append(f'runs on {contract.device}: can drop out')
 
-    if contract.needs_cloud:
-        lines.append('needs the cloud')
+    if cloud:
+        lines.append(cloud)
 
     graded = earned and earned['worked'] + earned['failed']
     lines.append(f'maturity: {earned["maturity"] if earned else contract.maturity}' + (
@@ -325,6 +327,6 @@ def describe_catalog(registry: Registry, essential_devices: set[str], stale: dic
     earned: (skill, its contract's maturity) -> what it earned (graduation.Graduation.of)"""
     return '\n\n'.join(
         describe_contract(contract, essential_devices, (stale or {}).get(contract.name, ''),
-                          earned(contract.name, contract.maturity) if earned else None)
+                          earned(contract.name, contract.maturity) if earned else None, registry.cloud_text(contract.name))
         for contract in sorted(registry, key=lambda contract: contract.name)
     )

@@ -208,8 +208,8 @@ class TreeValidator:
             if port and port.type == 'enum' and not is_variable and value not in port.choices:
                 issues.append(Issue('error', frame.path, f'{name}: {port_name}={value} is not one of {port.choices}'))
 
-        if self.config.blind and contract.needs_cloud:
-            issues.append(Issue('error', frame.path, f'{name} needs the cloud, but this tree must run blind'))
+        if self.config.blind and (cloud := self.registry.cloud_text(name)):
+            issues.append(Issue('error', frame.path, f'{name} {cloud}, but this tree must run blind'))
 
         if self.config.require_fallback and contract.device not in self.config.essential_devices and not self._is_protected(frame):
             issues.append(Issue('error', frame.path, f'{name} runs on {contract.device}, which can drop out; put it in a Fallback with a recovery after it'))

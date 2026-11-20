@@ -55,7 +55,7 @@ asks for help on `/speak` and waits. You continue when the network comes back.
 - **Before you go in, plan the part in that place as one step:** a tree skill that goes in, does the work and
   comes out. Put its checks and fallbacks in the tree, because you cannot recover inside.
 - **Use a trusted tree if one exists.** In `agent_cli skills`, its maturity is wip or tested, and it is not
-  stale. The tree and each of its parts do not say "needs the cloud".
+  stale. It does not say "needs the cloud". (That line names the part that needs it.)
 - **If no trusted tree exists, try, but warn first.** Say it: `agent_cli say "I have no trusted routine for the
   cabin. I can need help."` Then run your best untested tree as one step, or go step by step. Grade the step
   after it. A tree earns trust only from such grades.

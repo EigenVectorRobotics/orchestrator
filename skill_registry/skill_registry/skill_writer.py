@@ -5,7 +5,7 @@ the same way in as a file that changes on disk, so the next step can run it.
 A code skill (transport code) is two files in its folder: the contract, and the Python that calls other skills. Both are saved
 together and both go back if either is refused, so the library never holds a contract without its code. A tree skill
 (transport tree) is the same, with tree.xml: a BehaviorTree of skills the library knows, checked by the tree validator.
-A tree needs the cloud when one of its parts does.
+Registry.cloud_part says when a composition needs the cloud: it reads the parts when asked.
 
 The agent does not grade its own skills: a file with the mark loads at maturity untested. It may write a new version
 of a skill it wrote (the old files go to old/ in the skill's folder), never one that a person wrote. This module needs no ROS: the
@@ -22,7 +22,6 @@ import yaml
 
 from .contract import AGENT_MARK, Contract, ContractError, parse_contract
 from .registry import CODE_FILE, TREE_FILE, Registry, body_file, code_file, contract_file, tree_file
-from .skill_stamps import body_parts
 from .validator import TreeValidator, ValidatorConfig, tree_skills
 
 CODE_MARK = '# written by the agent with write_skill; it runs in the sandbox and calls skills through the executor\n'
@@ -70,11 +69,6 @@ class SkillWriter:
 
         body_path = body_file(contract.interface.transport, contract.name, self.directory)
         body      = code or tree
-        kept      = body_path.read_text() if not body and body_path and body_path.is_file() else ''   # a contract-only rewrite
-
-        if any(getattr(self.registry.get(part), 'needs_cloud', False)
-               for part in body_parts(contract.interface.transport, body or kept)[0]):
-            raw['needs_cloud'] = True          # the cloud is gone in the cabin: a composition is no better than its parts
 
         errors = self.registry.admit_errors(contract) or self.type_errors(contract)
 
