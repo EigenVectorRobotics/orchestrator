@@ -61,7 +61,7 @@ Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `orchestrator` | `integration` @ `42c2189` (`36b2a70` pulled and built 21:06 with `--symlink-install`; `5fd0b2f` and `42c2189` committed on the NUC, so its edits of 21:35 and 22:02 are now in `integration`) | **behind `origin/integration` by `6c60784`**, which adds `freight_call_elevator_step.xml` and `freight_call_elevator_up_down.xml`: the NUC has them as untracked files at the same paths, so move them aside before the pull (their content is the committed one). No tracked file changed. Two more untracked test trees, not in the repository: `freight_call_panel_up_down_loop.xml`, `freight_call_panel_up_down_recover.xml`. Stash "nuc uncommitted 2026-11-19 18:46": all of it is in `integration`, so it can be dropped |
+| `orchestrator` | `integration` @ `42c2189` (`36b2a70` pulled and built 21:06 with `--symlink-install`; `5fd0b2f` and `42c2189` committed on the NUC, so its edits of 21:35 and 22:02 are now in `main`) | **behind `origin/main` (which replaces `origin/integration`, deleted on GitHub on 2026-11-19) by `6c60784` and two documentation commits**, which adds `freight_call_elevator_step.xml` and `freight_call_elevator_up_down.xml`: the NUC has them as untracked files at the same paths, so move them aside before the pull (their content is the committed one). No tracked file changed. Two more untracked test trees, not in the repository: `freight_call_panel_up_down_loop.xml`, `freight_call_panel_up_down_recover.xml`. Stash "nuc uncommitted 2026-11-19 18:46": all of it is in `main`, so it can be dropped |
 
 #### Orin, `~/eigen_vector_ws/src`
 
@@ -83,7 +83,7 @@ Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
 | `~/eigen_vector_ws` | `track_anything` | `main` @ `4d1c755` | clean; updated and rebuilt from clean on 2026-11-19 |
 | | `vlm` | `main` @ `196d071` | clean; updated and rebuilt from clean on 2026-11-19. Nothing runs from this workspace (re-check question 5) |
-| `~/orchestrator_ws` | `orchestrator` | `ltx-dev` @ `8d8fe7d` | has no `orchestrator/orchestrator/vlm/server.py`, so `launch_thor_stack` cannot start `vlm_server` from it (item 12) |
+| `~/orchestrator_ws` | `orchestrator` | `ltx-dev` @ `8d8fe7d` (`ltx-dev` is deleted on GitHub; `8d8fe7d` is in `main`) | has no `orchestrator/orchestrator/vlm/server.py`, so `launch_thor_stack` cannot start `vlm_server` from it (item 12) |
 
 Running when checked (2026-11-19, 21:30): the tmux sessions `eigen_vector_bringup` and `cosmos_vlm`, both started at 19:42. Earlier that day the Thor had booted at 15:34 and ran no stack: no `eigen_vector_bringup` session, no `vlm_server` or `cosmos_vlm` session; the container `edgellm` came up with the bringup started by hand at 16:28. The VLM endpoint `http://vector-thor:8090/v1` was not started. The Thor also came back with no stack after it rebooted on its own on 2026-11-08 ([troubleshooting.md](troubleshooting.md), "Machines and processes").
 
@@ -152,11 +152,11 @@ The orchestrator on `main` expects some things from the NUC, the Orin and the Th
 
 Status words: **open** (not done), **check** (may already be done; confirm on the machine), **done**. Each item also says whether the repository side (contracts, trees, preflight, and the other repositories on GitHub) is done; that never makes the robot side done.
 
-Repository side checked against `ltx-reorg` and GitHub on 2026-11-17. Robot side last seen on 2026-11-19 at 21:30 (the snapshot above), by a Claude Code session that operated the first `integration` runs.
+Repository side checked against `ltx-reorg` (now in `main`) and GitHub on 2026-11-17. Robot side last seen on 2026-11-19 at 21:30 (the snapshot above), by a Claude Code session that operated the first `integration` runs.
 
 ### NUC
 
-#### 1. Stop depending on `/unitree_interface/ready_locomotion`. Status: done in this repository (2026-11-17, `ltx-reorg`)
+#### 1. Stop depending on `/unitree_interface/ready_locomotion`. Status: done in this repository (2026-11-17, now in `main`)
 
 - **Why:** preflight no longer stands the robot up (`852dcdc`), and the `ready_walk` skill that called this service is deleted. Nothing calls `ready_locomotion` any more.
 - **Done in this repository:** the `ready_walk` contract is deleted; `nuc_up` no longer lists the service (it still checks `/unitree_interface/fsm_id` and `/unitree_interface/current_mode`, which show that `unitree_interface` runs); the fake robot no longer serves it.
@@ -232,7 +232,7 @@ The NUC runs `fix/button-press-aim` (`e710393` since 19:37), built as `deploy.sh
 #### 12. `vlm_server` on the Thor: no longer required. Status: open (robot side only)
 
 - **Repository side:** done (`9ae7b2f`). `thor_up` checks only `/vlm_ground_server/ground_boxes`; it no longer requires `http://vector-thor:8090/v1/models`. No tree asks the VLM (only `ask_vlm` and the disabled `door_open_vlm` use it), so a Thor whose VLM is down no longer stops preflight.
-- **Still on the robot:** the Thor's `~/orchestrator_ws` is `ltx-dev` @ `8d8fe7d`, which has no `orchestrator/orchestrator/vlm/server.py`, so `launch_thor_stack` cannot start `vlm_server` (in the session `vlm_server`, `--model edgellm` by default) until that checkout is updated. No old `cosmos_vlm` session ran on 2026-11-19. Preflight passes either way.
+- **Still on the robot:** the Thor's `~/orchestrator_ws` is `ltx-dev` @ `8d8fe7d`, which has no `orchestrator/orchestrator/vlm/server.py`, so `launch_thor_stack` cannot start `vlm_server` (in the session `vlm_server`, `--model edgellm` by default) until that checkout moves to `main` (`ltx-dev` is deleted on GitHub). No old `cosmos_vlm` session ran on 2026-11-19. Preflight passes either way.
 
 ### Laptop (operator)
 
