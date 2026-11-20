@@ -31,7 +31,7 @@ from .knowledge import OPERATOR, Claim, KnowledgeError, KnowledgeStore, Sighting
 from .graduation import Graduation
 from .map_view import MapView
 from .run_browser import list_runs, run_detail
-from .session_log import SessionLog
+from .session_log import RunWords, SessionLog
 from .topics import TASK_OPTIONS
 
 
@@ -41,7 +41,6 @@ DECISION_WAIT  = 5.0                    # seconds to wait for the executor's rep
 TASK_FIELDS    = ('state', 'run_id', 'task', 'blind', 'discovery', 'end', 'limits')   # of the open message; not places, known or scratch
 STEPS_KEEP     = 200                    # steps of one task the page shows in the plan
 STEP_ENDS      = ('finished', 'halted', 'error')
-AFTER_CLOSE    = 5.0                    # seconds the agent's session log is still read after its mission closed
 
 
 class MissionState:
@@ -141,12 +140,10 @@ class MissionState:
 
 class SessionFollower:
     """Put what the agent thought and said since its mission opened in the feed. They do not go on
-    /orchestrator/trace: the page shows them, the recorder does not keep them. After the mission closes, it reads
-    for AFTER_CLOSE more: the agent's last words come after the last read, or just after the close"""
+    /orchestrator/trace: the recorder reads them itself, into the run's words.jsonl (RunWords says how long)"""
 
     def __init__(self, state: MissionState, log: SessionLog, clock=time.monotonic):
-        self.state, self.log, self.clock = state, log, clock
-        self._closed = {}                        # run_id -> when this saw it closed
+        self.state, self.words = state, RunWords(log, clock)
 
     def __call__(self) -> int:
         run = self.state.run()
@@ -154,19 +151,8 @@ class SessionFollower:
         if run is None:
             return 0
 
-        run_id, began, open_ = run
-
-        if not open_:
-            closed = self._closed.setdefault(run_id, self.clock())
-
-            if len(self._closed) > 1:            # only the last run is still read
-                self._closed = {run_id: closed}
-
-            if self.clock() - closed > AFTER_CLOSE:
-                return 0
-
-        items = self.log.new(began)
-        self.state.words(items, run_id)
+        items = self.words(*run)
+        self.state.words(items, run[0])
         return len(items)
 
 

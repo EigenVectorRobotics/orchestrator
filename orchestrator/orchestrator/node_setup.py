@@ -1,4 +1,4 @@
-"""Parameters and loading shared by the executor and recorder nodes"""
+"""Parameters and loading shared by the executor, recorder and mission control nodes"""
 
 import yaml
 
@@ -7,10 +7,11 @@ from typing import Callable
 
 from rclpy.node import Node
 
-from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry, missing_folder, skills_dir
+from skill_registry import DEFAULT_ESSENTIAL_DEVICES, Registry, agent_dir, missing_folder, skills_dir
 
 from .places import parse_places
 from .map_places import MapInfoPlaces
+from .session_log import CODEX_SESSIONS, SessionLog
 
 
 def load_places(path: str) -> dict:
@@ -30,6 +31,12 @@ def declare_sources(node: Node) -> tuple[str, str, str]:
     map_info    = node.declare_parameter('map_info', '/map_info').value
 
     return library, places_file, map_info
+
+
+def session_log(node: Node) -> SessionLog:
+    """Declare agent_folders and session_logs: the agent's sessions are the Codex logs of a session in these folders"""
+    folders = node.declare_parameter('agent_folders', [str(agent_dir()), str(agent_dir().parent / 'agent_discovery')]).value
+    return SessionLog(folders, node.declare_parameter('session_logs', str(CODEX_SESSIONS)).value)
 
 
 def load_skills(node: Node) -> tuple[Registry, Callable[[], dict], set[str]]:

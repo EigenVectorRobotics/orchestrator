@@ -1,6 +1,7 @@
 """Record every orchestrator run on the NUC (see recording.py); refuse runs when the disk is too full.
 
-Subscribes to the trace and the task topic; records a bag of the chosen topics for each task run; publishes
+Subscribes to the trace and the task topic; records a bag of the chosen topics for each task run; reads the agent's
+words from its Codex session logs (session_log.py) into the run; publishes
 /orchestrator/recorder/status (latched JSON: ready, reason, free_gb, session). The executor refuses a task while
 the status is not ready, when its require_recorder is true.
 """
@@ -8,6 +9,7 @@ the status is not ready, when its require_recorder is true.
 import json
 import time
 import signal
+import threading
 import subprocess
 
 from pathlib import Path
@@ -22,7 +24,8 @@ from std_msgs.msg import String
 from skill_registry.registry import CODE_FILE, CONTRACT_FILE
 from skill_registry.provenance import DEFAULT_REPO_ROOTS, directory_digests, file_digest, find_repos, git_state
 
-from .node_setup import declare_sources
+from .node_setup import declare_sources, session_log
+from .session_log import RunWords
 from .qos import LATCHED_QOS, TRACE_QOS
 from .topics import (COMMAND_TOPIC, OPEN_TOPIC, RECORDER_TOPIC, REPLY_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
                      STEP_REQUEST_TOPIC, TASK_TOPIC, TRACE_TOPIC)
@@ -94,7 +97,7 @@ class RunRecorderNode(Node):
 
         self.bag      = RosBag(self, bag_topics) if record_bag else None
         self.recorder = Recorder(RecorderConfig(root=root, min_free_gb=min_free_gb), provenance,
-                                 self.bag, library=digests)
+                                 self.bag, library=digests, words=RunWords(session_log(self)))
 
         self._status_publisher = self.create_publisher(String, RECORDER_TOPIC, LATCHED_QOS)
         self._subscriptions    = [       # not self._subscriptions of Node: that name is taken by rclpy
@@ -104,9 +107,19 @@ class RunRecorderNode(Node):
         self._was_ready   = None
         self._space_timer = self.create_timer(5.0, self._check_space)
         self._reap_timer  = self.create_timer(0.5, self.bag.reap) if self.bag else None
+        self._stop        = threading.Event()
+        self._words       = threading.Thread(target=self._read_words, daemon=True)   # not on the spin thread: a long log takes a while
+        self._words.start()
 
         self._check_space()
         self.get_logger().info(f'recording to {self.recorder.path}')
+
+    def _read_words(self):
+        while not self._stop.wait(2.0):
+            try:
+                self.recorder.read_words()
+            except Exception as error:                  # a bad log must not stop the words of the next runs
+                self.get_logger().warn(f'cannot read the agent\'s session log: {error!r}', throttle_duration_sec=60.0)
 
     def _json(self, handle):
         """A subscription callback that parses the message's JSON and hands it on"""
@@ -148,6 +161,8 @@ def main():
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        node._stop.set()
+        node._words.join()
         node.recorder.close()
 
         if node.bag is not None:

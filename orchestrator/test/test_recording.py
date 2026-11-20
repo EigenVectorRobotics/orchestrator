@@ -1,6 +1,7 @@
 import json
 
 from orchestrator.recording import Recorder, RecorderConfig
+from orchestrator.session_log import AFTER_END, RunWords
 
 
 class FakeBag:
@@ -162,3 +163,28 @@ def test_a_run_with_no_bag_records_none(tmp_path):
     recorder.on_event(executor('task_finished', end='done'))
 
     assert not any(call[0] == 'start' for call in bag.calls)
+
+
+def test_the_agent_words_of_a_run_and_just_after_it_go_to_its_words_file(tmp_path):
+    now, asked = [100.0], []
+    said       = [[{'text': 'before'}], [{'text': 'just after'}], [{'text': 'too late'}]]
+
+    class Log:
+        def new(self, since):
+            asked.append(since)
+            return said.pop(0)
+
+    recorder = Recorder(RecorderConfig(root=str(tmp_path / 'runs'), min_free_gb=0.0), {'git': []},
+                        words=RunWords(Log(), clock=lambda: now[0]))
+
+    recorder.on_event(executor('task_started', name='t', time=50.0))
+    recorder.read_words()
+    recorder.on_event(executor('task_finished', end='success'))
+    recorder.read_words()
+    now[0] += AFTER_END + 1
+    recorder.read_words()
+    recorder.read_words()
+
+    lines = (recorder.path / 'runs' / '001-t' / 'words.jsonl').read_text().splitlines()
+    assert [json.loads(line)['text'] for line in lines] == ['before', 'just after']
+    assert asked == [50.0, 50.0]

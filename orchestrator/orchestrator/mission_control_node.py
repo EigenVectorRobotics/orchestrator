@@ -45,7 +45,7 @@ from .map_places import MapInfoPlaces
 from .mission_control import (DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf,
                               SessionFollower, StaleSkills, live_names, token_ok)
 from .recording import RecorderConfig
-from .session_log import CODEX_SESSIONS, SessionLog
+from .node_setup import session_log
 
 
 MAX_BODY  = 64 * 1024
@@ -115,8 +115,7 @@ class MissionControlNode(Node):
 
         knowledge_dir      = self.declare_parameter('knowledge_dir', str(agent_knowledge_dir())).value
         library            = self.declare_parameter('skills_dir', str(skills_dir())).value
-        agent_folders      = self.declare_parameter('agent_folders', [str(agent_dir()), str(agent_dir().parent / 'agent_discovery')]).value
-        self.session_log   = SessionLog(agent_folders, self.declare_parameter('session_logs', str(CODEX_SESSIONS)).value)
+        self.session_log   = session_log(self)
         self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel),
                                        self.camera, token_needed=not off, outlines=self.outlines,
                                        skills=SkillShelf(library,

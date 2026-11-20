@@ -13,6 +13,7 @@ the agent thinks and says. No ROS here: the node calls new() about once a second
 """
 
 import json
+import time
 
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -23,6 +24,7 @@ MAX_TEXT       = 2000               # characters of one item; a longer item is c
 MAX_READ       = 4 * 1024 * 1024    # bytes of one file in one call: a long log is read over a few calls
 SEEN_KEEP      = 5000               # texts kept to drop a copy (a forked worker's log starts with its parent's items)
 DAYS_BACK      = 7                  # day folders read back from the mission's start: a resumed session stays in its first day
+AFTER_END      = 5.0                # seconds a run's words are still read after it ended: its last words come just after
 ITEMS          = {'reasoning': ('thought', 'summary'), 'message': ('said', 'content')}   # type -> (kind, field of the parts)
 
 
@@ -70,6 +72,29 @@ def _who(line: bytes, folders: set[str]) -> str | None:
 
     source = meta.get('source') if isinstance(meta.get('source'), dict) else {}
     return str(meta.get('agent_nickname') or source.get('agent_nickname') or 'agent')
+
+
+class RunWords:
+    """The words of the last run: from its start, and for AFTER_END after its end. The page and the recorder both
+    use it. A new run takes the words over; the run before it then loses its tail"""
+
+    def __init__(self, log: 'SessionLog', clock=time.monotonic):
+        self.log, self.clock = log, clock
+        self._run   = None                       # (key, began) of the last run
+        self._ended = None                       # when this saw it end
+
+    def __call__(self, key, began: float, open_: bool) -> list[dict]:
+        if (key, began) != self._run:
+            self._run, self._ended = (key, began), None
+
+        if not open_:
+            if self._ended is None:
+                self._ended = self.clock()
+
+            if self.clock() - self._ended > AFTER_END:
+                return []
+
+        return self.log.new(began)
 
 
 class SessionLog:

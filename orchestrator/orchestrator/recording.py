@@ -2,7 +2,8 @@
 
 A session folder holds provenance.json, every trace event in events.jsonl and finalization.json. Each task (the
 executor's `task_started` to `task_finished`) is one run and gets runs/<n>-<name>/ with its steps (each step's tree
-in steps/ and one line per step in steps.jsonl), its records, its plans, the agent's scratch folder, its bag, and outcome.json. Nothing is deleted here: the operator clears old runs by hand
+in steps/ and one line per step in steps.jsonl), its records, its plans, the agent's words (words.jsonl), the agent's scratch
+folder, its bag, and outcome.json. Nothing is deleted here: the operator clears old runs by hand
 (see `largest_runs`).
 
 This module needs no ROS: run_recorder feeds it messages and starts and stops the bag.
@@ -111,7 +112,7 @@ class NoBag:
 
 
 class Recorder:
-    def __init__(self, config: RecorderConfig, provenance: dict, bag=None, clock=time.time, library=dict):
+    def __init__(self, config: RecorderConfig, provenance: dict, bag=None, clock=time.time, library=dict, words=lambda run, since, open_: []):
         self.config   = config
         self.library  = library       # the skill library now: the agent writes contracts while the session runs
         self.bag      = bag or NoBag()
@@ -122,6 +123,8 @@ class Recorder:
         self.scratch  = None                     # the agent's scratch folder of the open run
         self.step     = None                     # the open step of the open run: its number, tree and start
         self.failure  = None
+        self.words    = words                    # (run, since, open) -> the agent's new words (session_log.RunWords)
+        self._said    = None                     # (folder, since) of the last run: read_words reads its words
 
         stamp     = datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')
         self.path = Path(config.root).expanduser() / f'{stamp}-{uuid.uuid4().hex[:6]}'
@@ -189,6 +192,19 @@ class Recorder:
         elif kind == 'record':
             self._append(self.run / 'records.jsonl', event.get('record', {}))
 
+    def read_words(self):
+        """What the agent thought and said, into words.jsonl of its run. The node calls it on its own thread, because a long
+        log takes a while: it reads _said and run once each, and it writes only words.jsonl"""
+        said, run = self._said, self.run
+
+        if said is None:
+            return
+
+        folder, since = said
+
+        if items := self.words(folder, since, folder == run):
+            self._append(folder / 'words.jsonl', *items)
+
     def close(self):
         self._safely(self._end_run, {'end': 'closed', 'text': 'the recorder stopped during the run'})
         self._events.close()
@@ -218,6 +234,7 @@ class Recorder:
         })
         self.task    = None
         self.scratch = event.get('scratch')
+        self._said   = (folder, event.get('time') or self.clock())
         if event.get('bag', True):                # a run with no step (discovery) can be long: no bag
             self.bag.start(self.run / 'bag')
 
@@ -263,10 +280,10 @@ class Recorder:
 
     # ========== Writes ==========
 
-    def _append(self, path: Path, value: dict):
+    def _append(self, path: Path, *values: dict):
         def append():
             with path.open('a') as file:
-                file.write(json.dumps(value, default=str) + '\n')
+                file.write(''.join(json.dumps(value, default=str) + '\n' for value in values))
 
         self._safely(append)
 

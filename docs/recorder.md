@@ -30,9 +30,10 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
     steps.jsonl                         one line per step: tree, start, end (finished, halted, error), status
     records.jsonl                       the full record of each call (feedback included)
     plans.jsonl                         each version of the task plan
+    words.jsonl                         what the agent thought and said (reasoning summaries, messages), from its Codex session logs; the recorder reads them every 2 s, and until 5 s after the end
     scratch/                            the agent's notes and checks of this run (moved from agent_scratch_dir/<run_id> at the end of the run)
     bag/                                ros2 bag (MCAP) of the chosen topics, for this task only
-    outcome.json                        how the task ended (done, gave_up, halted, cancelled, error), the step count; written last
+    outcome.json                        how the task ended (done, gave_up, halted, cancelled, error), the step count; written last, but words.jsonl can grow for about 7 s more
   finalization.json                     open | closed | failed, and why
 ```
 

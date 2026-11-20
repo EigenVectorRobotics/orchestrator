@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 
 from orchestrator import session_log
-from orchestrator.mission_control import AFTER_CLOSE, MissionState, SessionFollower
+from orchestrator.mission_control import MissionState, SessionFollower
 from orchestrator.session_log import SessionLog
 
 
@@ -116,6 +116,22 @@ def test_the_feed_gets_the_agent_s_words_while_its_mission_is_open_and_just_afte
     _log(root, 'main', [_meta(agent), _said(5, 'on my way'), _said(9, 'done')])
     assert follow() == 1                                     # the last words, read just after the close
 
-    now[0] += AFTER_CLOSE + 1
+    now[0] += session_log.AFTER_END + 1
     _log(root, 'main', [_meta(agent), _said(5, 'on my way'), _said(9, 'done'), _said(12, 'too late')])
     assert follow() == 0
+
+
+def test_a_new_run_gets_its_own_tail_after_its_end():
+    now = [0.0]
+
+    class Log:
+        def new(self, since):
+            return [{'since': since}]
+
+    words = session_log.RunWords(Log(), clock=lambda: now[0])
+
+    words('a', 1.0, False)
+    now[0] += session_log.AFTER_END + 1
+
+    assert words('a', 1.0, False) == []
+    assert words('b', 2.0, False) == [{'since': 2.0}]
