@@ -1,0 +1,32 @@
+<root BTCPP_format="4">
+  <!-- The main tree's call step (call_elevator in skill_registry/trees/subtrees/elevator.xml), run twice at the floor 2
+       call panel: first with the up button, then with the down button. Each walks to the panel through its
+       preapproach and presses through the press slot press_panel_button (stance check, press, judge, recovery until
+       pressed or the operator is asked). The panel places are set as floor_settings sets them for floor 2. No door
+       wait, no ride. Run with send_tree on floor 2. -->
+  <BehaviorTree ID="freight_call_elevator_up_down">
+    <Sequence>
+      <Fallback>                          <!-- a transition to the current mode fails -->
+        <in_high_level/>
+        <set_mode mode="high_level"/>
+      </Fallback>
+      <clear_stop/>
+      <at_floor floor="2"/>
+      <SetBlackboard output_key="call_panel_preapproach" value="{freight_elevator_call_panel_preapproach}"/>
+      <SetBlackboard output_key="call_panel"             value="{freight_elevator_call_panel}"/>
+      <SetBlackboard output_key="call_button"            value="up button"/>
+      <SubTree ID="call_elevator"/>
+      <SetBlackboard output_key="call_button"            value="down button"/>
+      <SubTree ID="call_elevator"/>
+      <ForceSuccess>                      <!-- the press slot releases the arms already -->
+        <release_arms/>
+      </ForceSuccess>
+      <set_autonomy enabled="false"/>
+      <say text="Call panel up and down done."/>
+    </Sequence>
+  </BehaviorTree>
+
+  <include path="../../skill_registry/trees/subtrees/elevator.xml"/>
+  <include path="../../skill_registry/trees/subtrees/press.xml"/>
+  <include path="../../skill_registry/trees/subtrees/walk.xml"/>
+</root>

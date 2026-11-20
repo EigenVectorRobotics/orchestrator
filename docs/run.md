@@ -127,6 +127,8 @@ Test trees, in `orchestrator/test_trees/`, to run a part of the task:
 | `freight_elevator_floor_press_repeat.xml` | on floor 2, with the cabin held open there | five cycles of walk in, floor 1, 2 and 3 presses, walk out; one press per button, never retried |
 | `freight_call_panel_press_loop.xml` | anywhere on floor 2 | until cancelled: walk to the call panel, up press, down press, each judged and never retried |
 | `freight_call_panel_up_down_press.xml` | anywhere on floor 2 | once: walk to the call panel, then the up and the down button, each through the press slot `press_panel_button` (stance check, press, judge, recovery until pressed or the operator is asked), then the arms released |
+| `freight_call_elevator_step.xml` | on floor 2 | the main tree's call step alone: `floor_settings` for floor 2 to floor 1, then `call_elevator` (walk to the call panel, the down button through `press_panel_button`), then the arms released; no door wait, no ride |
+| `freight_call_elevator_up_down.xml` | on floor 2 | the main tree's `call_elevator` twice at the floor 2 call panel, first with the up button, then the down button, each through `press_panel_button`; no door wait, no ride |
 | `freight_call_button_press_here.xml` | at the floor 2 call panel | look from where it stands, then the down press with its recovery |
 | `freight_call_button_floor1_press_here_loop.xml` | at the floor 1 call panel | until cancelled: look, one down press at zero offset, judged; no recovery, no walk |
 | `freight_elevator_ride_loop.xml` | on floor 1, localized | until cancelled: `ride_to_goal` to `{target_floor_2}`, then back to `{target_floor_1}` |

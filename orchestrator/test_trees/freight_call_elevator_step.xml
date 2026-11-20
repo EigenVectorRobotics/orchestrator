@@ -1,0 +1,27 @@
+<root BTCPP_format="4">
+  <!-- The call step of freight_elevator_go_to_place, alone: floor_settings for a ride from floor 2 to floor 1 (the
+       floor 2 call panel through its preapproach, the down button), then call_elevator from the library subtrees
+       (walk, then the press slot press_panel_button: stance check, press, judge, recovery until pressed or the
+       operator is asked), then the arms released. No door wait, no ride. Run with send_tree on floor 2. -->
+  <BehaviorTree ID="freight_call_elevator_step">
+    <Sequence>
+      <Fallback>                          <!-- a transition to the current mode fails -->
+        <in_high_level/>
+        <set_mode mode="high_level"/>
+      </Fallback>
+      <clear_stop/>
+      <SetBlackboard output_key="goal_floor" value="1"/>
+      <SubTree ID="floor_settings"/>
+      <SubTree ID="call_elevator"/>
+      <ForceSuccess>                      <!-- the press slot releases the arms already -->
+        <release_arms/>
+      </ForceSuccess>
+      <set_autonomy enabled="false"/>
+      <say text="Call step done."/>
+    </Sequence>
+  </BehaviorTree>
+
+  <include path="../../skill_registry/trees/subtrees/elevator.xml"/>
+  <include path="../../skill_registry/trees/subtrees/press.xml"/>
+  <include path="../../skill_registry/trees/subtrees/walk.xml"/>
+</root>
