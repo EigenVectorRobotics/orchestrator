@@ -10,7 +10,7 @@ What runs where: how to reach each machine, the workspace in use, the branch of 
 
 Three kinds of statement, marked as such:
 
-- **Checked (2026-11-19, 21:30):** seen on the machine then, read only. Since the clean rebuild of the workspaces (17:35 to 17:51) the NUC and the Orin rebooted at 19:40, the team restarted the three stacks at 19:42, moved `manipulation_stack` on and rebuilt `move_to_pose` (19:38), and pulled and rebuilt the orchestrator on the NUC (20:51 to 20:52). This is the only machine state in this part. Everything not marked otherwise is of this kind.
+- **Checked (2026-11-19, 21:30):** seen on the machine then, read only. Since the clean rebuild of the workspaces (17:35 to 17:51) the NUC and the Orin rebooted at 19:40, the team restarted the three stacks at 19:42, moved `manipulation_stack` on and rebuilt `move_to_pose` (19:38), and pulled and rebuilt the orchestrator on the NUC (20:51 to 20:52). The NUC `orchestrator` row was checked again later that night, after the edits of 21:35 and 22:02 were committed. This is the only machine state in this part. Everything not marked otherwise is of this kind.
 - **Checked (2026-11-08):** seen then and not looked at since; marked where it appears.
 - **GitHub (2026-11-17):** read from the repositories on GitHub, not from a machine.
 
@@ -61,7 +61,7 @@ Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `orchestrator` | `integration` @ `9e7a36e` (pulled 20:51, built 20:52 with `--symlink-install`) | **behind `origin/integration`**: it lacks the tilt places site file (`3c04eac`) and the baseline-frame fix (`42cbe5d`); pull and rebuild with the robot in the gantry. No tracked file changed; 4 untracked test trees in `orchestrator/test_trees/` (`freight_call_elevator_step.xml`, `freight_call_elevator_up_down.xml`, `freight_call_panel_up_down_loop.xml`, `freight_call_panel_up_down_recover.xml`). Stash "nuc uncommitted 2026-11-19 18:46": both its parts are now committed (`3c04eac`, `42cbe5d`), so it can be dropped. An orchestrator runs since 20:52 (session `20261120T015237Z-b6895c`, places given at launch as `fvd_map_callpanel_tilt.places.yaml`) |
+| `orchestrator` | `integration` @ `42c2189` (`36b2a70` pulled and built 21:06 with `--symlink-install`; `5fd0b2f` and `42c2189` committed on the NUC, so its edits of 21:35 and 22:02 are now in `integration`) | **behind `origin/integration` by `6c60784`**, which adds `freight_call_elevator_step.xml` and `freight_call_elevator_up_down.xml`: the NUC has them as untracked files at the same paths, so move them aside before the pull (their content is the committed one). No tracked file changed. Two more untracked test trees, not in the repository: `freight_call_panel_up_down_loop.xml`, `freight_call_panel_up_down_recover.xml`. Stash "nuc uncommitted 2026-11-19 18:46": all of it is in `integration`, so it can be dropped |
 
 #### Orin, `~/eigen_vector_ws/src`
 
@@ -120,7 +120,7 @@ Questions the next check must answer. Each is open until someone looks on the ma
 3. Orin: is `eigen_vector` `fix/orin-depth-848x480` meant to run there, rather than `main` (which has #6 and #7 and not these two commits)?
 4. NUC and Orin: when `deploy.sh` stops copying `bringup` to `src/bringup` (the note under "Machines"), can `deploy.sh build` be used again?
 5. Thor: should the stack move from `~/eigen_vector_ws_bringup` (copied `bringup`, `vlm` of 2026-10-29) to `~/eigen_vector_ws` with an `eigen_vector` checkout, as on the NUC and the Orin? Should it start on boot, and which `orchestrator` checkout should the Thor have for `vlm_server` (item 12)?
-6. NUC: pull `integration` and rebuild the orchestrator (with the robot in the gantry) so it runs the tilt places site file and the baseline-frame fix; then drop the orchestrator stash "nuc uncommitted 2026-11-19 18:46". The rebuilt workspaces ran on 2026-11-19 from 17:57: preflight passed in sessions `20261119T230051Z-fa6cae`, `20261119T234750Z-fd820c` and `20261119T235720Z-43f906`.
+6. NUC: move the two untracked test trees `freight_call_elevator_step.xml` and `freight_call_elevator_up_down.xml` aside, pull `integration` (`6c60784`), and drop the orchestrator stash "nuc uncommitted 2026-11-19 18:46". The tilt places site file and the baseline-frame fix are already on the NUC (pulled and built at 21:06); the install is a symlink install, so a pull of Python, contracts or trees needs no rebuild. The rebuilt workspaces ran on 2026-11-19 from 17:57: preflight passed in sessions `20261119T230051Z-fa6cae`, `20261119T234750Z-fd820c` and `20261119T235720Z-43f906`.
 
 ### Not in use
 
@@ -218,7 +218,7 @@ The NUC runs `fix/button-press-aim` (`e710393` since 19:37), built as `deploy.sh
 
 #### 10b. Build the `g1_skills` package. Status: done (2026-11-19)
 
-- **On the NUC:** the three packages are built from `integration` (`9e7a36e`, 20:52); on `00a6297` the executor logged `45 skills, 13 places` at start.
+- **On the NUC:** the three packages are built from `integration` (`36b2a70`, 21:06, `--symlink-install`); on `00a6297` the executor logged `45 skills, 13 places` at start.
 
 ### Orin
 
