@@ -1,6 +1,6 @@
-# Run recorder and retrospection (design, not built)
+# Run recorder and retrospection (design, partly built)
 
-Status: 2026-11-18. Built: `orchestrator/recording.py`, `orchestrator/run_recorder.py`. Not built yet: the clock offsets, `retrospect`. Model: HomeBody's `session/recorder.py` and `live_recorder.py` (Stanford-TML/homebody, 2388aa4).
+Status: 2026-11-19. Built: `orchestrator/recording.py`, `orchestrator/run_recorder.py`, `retrospect list` and `retrospect show` (`orchestrator/retrospect.py`). Not built yet: the clock offsets, `retrospect blame`, `draft-entry`, `counts` and `du`. Model: HomeBody's `session/recorder.py` and `live_recorder.py` (Stanford-TML/homebody, 2388aa4).
 
 ## Goal
 
@@ -80,8 +80,8 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 
 A tool `retrospect` (a CLI first; a session uses it, as `agent_cli`):
 
-- `retrospect list [--since]`: runs with their outcome, duration, failed skills, decisions.
-- `retrospect show <run>`: the timeline: each call with its status, inputs, elapsed time, agent decisions, and links to frames.
+- `retrospect list [--since]`: runs with their outcome, step count, failed steps and the task (built).
+- `retrospect show <run>` (a run_id or a key, built): it shows the plans. Then it shows each step with its calls and the agent's grade of the step. A call has its status, inputs, time and outputs, and a failure has its last feedback. Then come the refusals, what the run left, and its folder. Not yet: the agent's words and links to frames.
 - `retrospect blame <run>`: for a failed run, the chain from the first failed call to the end, with the evidence (feedback, frames, agent reasons). It proposes the cause; a person agrees or corrects it.
 - `retrospect draft-entry <run>`: drafts a claim for the knowledge store, with links to the run. The operator approves the exact text before it goes in.
 - **Who approves:** the operator, for now. Later, the agent: see `docs/knowledge.md`, "Approval by the agent".

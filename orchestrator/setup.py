@@ -31,6 +31,7 @@ setup(
             'cosmos_vlm_server = orchestrator.cosmos_vlm_server:main',
             'run_recorder = orchestrator.run_recorder:main',
             'knowledge = orchestrator.knowledge_cli:main',
+            'retrospect = orchestrator.retrospect:main',
             'mission_control = orchestrator.mission_control_node:main',
         ],
     },

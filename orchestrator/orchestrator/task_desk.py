@@ -99,6 +99,10 @@ STEP_GRADING = ('- After the task (or after a step), grade the skill of each ste
                 'gave wrong inputs; blocked: a device or the place was the cause. Only worked and failed count for '
                 'the skill, for its version at that step. `agent_cli commit` keeps them with the claim grades.')
 
+RETROSPECT   = ('- Read a run again: `retrospect show <run_id>` gives each step with its calls, their inputs, the '
+                'feedback of a failure, and its grade. `retrospect list` gives the earlier runs. Read them before you '
+                'write a tree or a "When ..., do ..." note.')
+
 
 def place_text(info: dict) -> str:
     """map_info's kind, floor and note of a place; empty for a places file"""
@@ -194,7 +198,7 @@ class TaskDesk:
 
     def known(self) -> str:
         """The knowledge store's guide, and how the task writes to it"""
-        parts = [self.knowledge.guide(), writing_text(self.knowledge.folder)] if self.knowledge else []
+        parts = [self.knowledge.guide(), writing_text(self.knowledge.folder), RETROSPECT] if self.knowledge else []
 
         if self.steps and self.limits['run']:             # a discovery task runs no step: nothing to grade
             parts.append(STEP_GRADING)

@@ -94,9 +94,9 @@ def _newest(folders: list[Path]) -> Path | None:
     return folders[0].parent.parent if folders else None
 
 
-def list_runs(root, limit: int = MAX_RUNS) -> list[dict]:
+def list_runs(root, limit: int | None = MAX_RUNS) -> list[dict]:
     """The newest runs, each as a summary. end is None while a run is open; 'lost' when its recorder stopped
-    before it ended (a crash, a power cut), so it will never end"""
+    before it ended (a crash, a power cut), so it will never end. limit None: all of them"""
     folders = _folders(root)
 
     return [_summary(run, _newest(folders)) for run in folders[:limit]]
@@ -109,11 +109,28 @@ def _size(path: Path) -> int:
         return 0
 
 
-def run_detail(root, key: str) -> dict | None:
-    """One run: its summary, steps, plans, the refusals and what it left (from its session's events), its bag and
-    scratch folder, and the code it ran on (the session's provenance). None when no listed run has this key"""
+def _calls(events: list[dict]) -> dict[int, list[dict]]:
+    """The record of each call, by its step; of the action feedback only the last item, so the page stays small"""
+    calls = {}
+
+    for event in events:
+        if isinstance(record := event.get('record'), dict):        # only a record event has one
+            checked = record.get('checked_call')
+            calls.setdefault(event.get('step'), []).append(
+                {**record, 'feedback': (record.get('feedback') or [])[-1:]}
+                | ({'checked_call': {**checked, 'feedback': (checked.get('feedback') or [])[-1:]}}
+                   if isinstance(checked, dict) else {}))
+
+    return calls
+
+
+def run_detail(root, ref: str) -> dict | None:
+    """One run: its summary, steps with the calls of each, plans, the refusals and what it left (from its session's
+    events), its bag and scratch folder, and the code it ran on (the session's provenance). ref is a key or a run_id
+    (the newest run with it). None when no listed run has it"""
     folders = _folders(root)
-    run     = next((folder for folder in folders if _key(folder) == key), None)
+    run     = next((folder for folder in folders
+                    if _key(folder) == ref or _json(folder / 'task.json').get('run_id') == ref), None)
 
     if run is None:
         return None
@@ -135,6 +152,7 @@ def run_detail(root, key: str) -> dict | None:
     return {**detail,
             'folder':   str(run),
             'steps':    steps,
+            'calls':    _calls(events),
             'plans':    read_lines(run / 'plans.jsonl'),
             'refused':  [{'skill': event.get('skill'), 'subgoal': event.get('subgoal'), 'reason': event.get('reason'),
                           'by': event.get('by'), 'time': event.get('time')}

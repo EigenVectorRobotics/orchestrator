@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 from .knowledge import KnowledgeError, StagedRuns
-from .recording import append_line
+from .recording import append_line, read_lines
 
 
 STEP_GRADES = {'worked': True, 'failed': False, 'misused': None, 'blocked': None}   # True: a success, False: a failure
@@ -89,6 +89,16 @@ class StepGrades(StagedRuns):
 
         self._staged_path(run_id).unlink(missing_ok=True)
         return said, ungraded
+
+    def grades(self, run_id: str) -> dict[int, str]:
+        """The grade of each step of a run, as text: committed to the log, or staged and not committed yet"""
+        grades = {entry.get('step'): f'{entry.get("grade")} (committed): {entry.get("reason")}'
+                  for entry in read_lines(self.log_path) if entry.get('run') == run_id}
+
+        for entry in self.staged(run_id).values():
+            grades[entry['step']] = f'{entry["grade"]} (staged): {entry["reason"]}' if entry['grade'] else 'not graded'
+
+        return grades
 
     def _logged(self, run_id: str) -> set[int]:
         """The steps of this run in the log already. A commit writes a run's lines together at the end, so a crash
