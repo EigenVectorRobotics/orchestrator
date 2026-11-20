@@ -291,6 +291,12 @@ def parse_contract(raw: dict) -> Contract:
     if interface.success_answer and interface.choices and interface.success_answer not in interface.choices:
         raise ContractError(f'{name}: success_answer {interface.success_answer} is not one of {interface.choices}')
 
+    for reference in contract.references:
+        if not NAME.match(str(reference)):
+            raise ContractError(f'{name}: "{reference}" is not a skill name: pre, effects, check and fallback give '
+                                f'skill names ({NAME_RULE}). For a condition in words, write it as its own skill; '
+                                f'use notes only when no interface can check it')
+
     return contract
 
 

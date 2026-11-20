@@ -45,11 +45,15 @@ real missions. That is the test of your work.
    - Add each skill that loads to your list.
 7. **Write what you learned.**
    - Copy the package page to `docs/<package>.md`: what the package does, its interfaces, the frames, the units.
-   - A measured fact (a rate, a frame, a unit that the code does not state) goes to the knowledge store:
+   - When a worker returns, write one knowledge note for each measured fact that it gives. A measured fact is a
+     rate, a frame or a unit that the code does not state:
      `knowledge note "TEXT" --by agent:discovery --run <run_id> --evidence <what you read> --about skill=<name>`.
 8. **Update `progress.md`** after each repo: done, the skills written, the refusals and why, open questions. In a
    special discovery task, do not mark a repo done. Write its work under Sessions only.
 9. **End.**
+   - **Before you stop, give up or run `done`:** each measured fact from a worker must have a note. Run
+     `knowledge list --about skill=<name>` for each skill that you wrote. A retired note does not count. Write the
+     missing notes first. The package pages and `progress.md` are not the knowledge store.
    - **Context nearly full:** write a short summary in `progress.md` and stop. Do not end the task: it has no time
      limit, and a new session continues it from step 1 (`agent_cli task wait` gives the same open task).
    - **All repos done:** run `agent_cli done --reason R`. If some repos cannot be done, `agent_cli give-up --reason

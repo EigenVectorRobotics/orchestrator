@@ -80,6 +80,7 @@ def test_bad_denied_or_mistyped_contracts_are_not_saved(tmp_path):
         (yaml.safe_dump(SAY | {'kind': 'fly'}), 'unknown kind'),
         (yaml.safe_dump(SAY | {'interface': SAY['interface'] | {'name': 'rt/lowcmd'}}), 'denied name'),
         (yaml.safe_dump(SAY | {'fallback': ['nothing']}), 'unknown fallback'),
+        (yaml.safe_dump(SAY | {'pre': ['the doors are closed']}), 'is not a skill name'),
     ]:
         reply = writer.write(text)
         assert not reply['ok'] and why in reply['message'], why
