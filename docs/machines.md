@@ -93,7 +93,7 @@ Running when checked (2026-11-19): the Thor had booted at 15:34 and ran no stack
 |---|---|---|---|
 | NUC | `~/eigen_vector_ws/src/elevator_states/config/elevator_door_state.yaml` | `places_file: /home/vector/maps/fvd_map.places.yaml`, the door areas (`freight elevator cabin`, `freight elevator hall`) of the map in use. Committed on `elevator_states` `main` @ `d71ad3d`: `two_floor_clean_cabin2.places.yaml`; the refactored `elevator_states` has no such file, so the value cannot be committed there | set and built 2026-11-19. Change it with the map ([The map](run.md#the-map)), then build `elevator_states` |
 | NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two (what ran on 2026-11-08) | not used on 2026-11-19: the stack ran from one `nuc.launch.py` |
-| NUC | `~/maps/<map>.pcd`, `~/maps/<map>.places.yaml` (backups `*.bak_*`) | the maps and their places files; the one in use: [The map](run.md#the-map). The freight elevator is `fvd_map` (its places come from `two_floor_clean_cabin2`); `fvd_map_clean_elevator1` and `fvd_map_clean_elevator2` are two other elevators | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
+| NUC | `~/maps/<map>.pcd`, `~/maps/<map>.places.yaml` (backups `*.bak_*`) | the maps and their places files; the one in use: [The map](run.md#the-map). The freight elevator is `fvd_map` (its places come from `two_floor_clean_cabin2`; the executor uses `fvd_map_callpanel_tilt.places.yaml`, item 8); `fvd_map_clean_elevator1` and `fvd_map_clean_elevator2` are two other elevators | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
 | NUC | `~/fake_button_pose.py` | fixed button poses for `press_button` with no Thor | still there (2026-11-19), disabled: do not start it |
 | NUC | `~/watch_records_20261108.sh`, `~/ekf_reset.sh` | an old EKF reset outside the trees | still there (2026-11-19), not used: `ekf_hold` calls `reset_ekf` (item 6) |
 | NUC | `~/run_viewer/` | the old hand copy of the Run Viewer | still there (2026-11-19); preflight starts the viewer from this repository (item 10) |
@@ -205,7 +205,7 @@ The NUC runs `fix/button-press-aim` @ `826c8d7` since 2026-11-19, built as `depl
 
 #### 8. The places file must have a `floors` table. Status: done (2026-11-19)
 
-- `fvd_map.places.yaml` has the `floors` table and the freight elevator's places; the site file names it (`orchestrator/config/sites/stanley.yaml`).
+- `fvd_map.places.yaml` has the `floors` table and the freight elevator's places. Since 2026-11-19 the site file (`orchestrator/config/sites/stanley.yaml`) names its copy `fvd_map_callpanel_tilt.places.yaml`, the same but for the floor 2 call panel place, re-recorded where the operator stood the robot after the press test (1.930, -0.902, yaw -14.1 deg; was 2.005, -1.036, -6.3 deg). `slam_elevatorlio` and `door_state_node` still read `fvd_map.places.yaml`, whose areas are the same.
 
 #### 9. Clear old press references after a map or place change. Status: open, when needed
 
