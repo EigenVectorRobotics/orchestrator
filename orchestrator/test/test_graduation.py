@@ -118,3 +118,9 @@ def test_a_composition_is_never_more_trusted_than_its_weakest_part(tmp_path):
     assert graduation.of('walk', 'wip')['maturity'] == 'deprecated'
     assert graduation.of('ride', 'tested')['maturity'] == 'untested'        # a deprecated part counts as untested
     assert graduation.of('ride', 'tested', {'say': 'tested'}.get)['maturity'] == 'tested'   # the caller's list: no walk
+
+    def unreadable(name):
+        raise UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'invalid start byte')
+
+    steps.version = unreadable                                               # one file: never the whole catalog
+    assert graduation.of('say', 'tested')['earned'] == 'untested'            # and no grade vouches for it

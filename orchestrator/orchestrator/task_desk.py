@@ -561,7 +561,9 @@ class TaskDesk:
             return found
 
         try:
-            parts  = (self.composition(skill) if seen is None else seen).get('calls', [])
+            seen    = self.composition(skill) if seen is None else seen
+            parts   = seen.get('calls', [])
+            unknown = bool(seen.get('unknown'))
             graded = {name: self._graded(name) for name in [skill, *parts]}
             reason = self._stale_reason(skill, parts, stale)
         except Exception as error:                       # a file that cannot be read, or decoded
@@ -571,7 +573,8 @@ class TaskDesk:
 
         return found | {
             'maturity':   at_run_time(graded[skill], contract.maturity, stale is None or bool(reason)),
-            'earned':     all(entry and entry['earned'] == 'tested' for entry in graded.values()),
+            # a call the code does not name can be any skill: grades of the code cannot vouch for it
+            'earned':     all(entry and entry['earned'] == 'tested' for entry in graded.values()) and not unknown,
             'deprecated': next((name for name, entry in graded.items() if entry and entry['maturity'] == 'deprecated'), ''),
             'stale':      reason,
         }

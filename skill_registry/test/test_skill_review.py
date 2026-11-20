@@ -6,7 +6,7 @@ import yaml
 from skill_registry import Registry
 from skill_registry.contract import AGENT_MARK
 from skill_registry.provenance import file_digest
-from skill_registry.skill_review import ReviewError, composition, grade_version, keep, library, remove
+from skill_registry.skill_review import ReviewError, composition, grade_version, keep, library, parts, remove
 from skill_registry.skill_writer import CODE_MARK, SkillWriter
 
 
@@ -158,6 +158,11 @@ def test_a_composition_names_every_skill_it_calls_and_the_version_of_each_code_s
     assert found['calls'] == ['walk', 'say', 'navigate_to'] and found['unknown'] is True
     assert found['versions'] == {'ride': grade_version(tmp_path, 'ride'), 'walk': grade_version(tmp_path, 'walk')}
     assert composition(tmp_path, 'say') == {'calls': [], 'versions': {}, 'unknown': False}
+
+    (tmp_path / 'walk' / 'code.py').write_bytes(b'\xff not text')        # a file that cannot be read: nothing vouches
+    assert parts(tmp_path, 'walk') == ([], True)
+    assert composition(tmp_path, 'walk')['unknown'] is True                  # and no caller sees an error
+    assert isinstance(Registry.from_directory(tmp_path).cloud_text('walk'), str)   # the catalog reads it too
 
 
 def test_a_tree_skill_is_reviewed_like_code_its_parts_are_its_uses_and_keep_keeps_its_version(tmp_path):

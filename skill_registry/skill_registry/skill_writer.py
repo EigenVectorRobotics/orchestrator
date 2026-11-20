@@ -92,10 +92,13 @@ class SkillWriter:
         if contract.name in errors:
             return _refused(errors[contract.name])
 
-        if self.stamps is not None:               # after the save: the stamp reads the files that are now on disk
-            self.stamps.write(contract)           # write_skill is the only thing that proves a skill
-
         message = f'{contract.name} {"replaced" if replaced else "added"}, maturity untested'
+
+        if self.stamps is not None:               # after the save: the stamp reads the files that are now on disk
+            try:
+                self.stamps.write(contract)       # write_skill is the only thing that proves a skill
+            except OSError as error:              # the skill is saved and loaded: say so, and that it is not stamped
+                message += f', not stamped (it shows as stale): {error}'
 
         return {'ok': True, 'message': message + (', with its code' if code else ', with its tree' if tree else ''),
                 'path': str(path.parent)}

@@ -48,7 +48,8 @@ from .recording import RecorderConfig
 from .node_setup import agent_folders, agent_sessions, session_log
 
 
-MAX_BODY  = 64 * 1024
+MAX_BODY   = 64 * 1024
+LOCAL      = ('127.0.0.1', 'localhost', '::1')   # the names of this host that a page may use, and the host parameter
 MATCH_WAIT = 2.0                        # seconds to wait until the executor is matched to the decision publisher
 
 
@@ -137,6 +138,7 @@ class MissionControlNode(Node):
         self.server.api    = self.api
         self.server.files  = files
         self.server.token  = token
+        self.server.names  = {*LOCAL, host}             # the link the node logs names its host
         self.server.log    = self.get_logger()
         self._web          = threading.Thread(target=self.server.serve_forever, daemon=True)
         self._web.start()
@@ -279,6 +281,18 @@ class Handler(BaseHTTPRequestHandler):
     server_version   = 'MissionControl'
     protocol_version = 'HTTP/1.1'
 
+    def parse_request(self) -> bool:
+        """Every request, of any method: refuse a name that is not this host's. DNS rebinding gives a page on another
+        site 127.0.0.1 under its own name; it could then read the state, the skills and the camera"""
+        if not super().parse_request():
+            return False
+
+        if self.headers.get('Host', '').rsplit(':', 1)[0].strip('[]') not in self.server.names:
+            self._refused(403, 'open the page as localhost or 127.0.0.1')
+            return False
+
+        return True
+
     def do_GET(self):
         url = urlparse(self.path)
 
@@ -321,11 +335,9 @@ class Handler(BaseHTTPRequestHandler):
         """While the ssh tunnel is open, any page in the operator's browser can reach this port. A form post
         cannot set this content type, and a page on another site cannot hide its origin"""
         origin = self.headers.get('Origin')
-        local  = ('127.0.0.1', 'localhost')
 
         return (self.headers.get('Content-Type', '').split(';')[0].strip() == 'application/json'
-                and self.headers.get('Host', '').rsplit(':', 1)[0].strip('[]') in local
-                and (origin is None or urlparse(origin).hostname in local))
+                and (origin is None or urlparse(origin).hostname in LOCAL))
 
     def _refused(self, code: int, message: str):
         """A refusal that leaves the body unread. The connection closes, because the body it did not read must not
@@ -334,8 +346,8 @@ class Handler(BaseHTTPRequestHandler):
         self._json(code, {'ok': False, 'message': message})
 
     def _json(self, code: int, payload: dict):
-        if self.command == 'POST' and code >= 400:   # log_message is quiet: a refused command must still be seen
-            self.server.log.warning(f'refused POST {urlparse(self.path).path} ({code}): {payload.get("message")}')
+        if code == 403 or (self.command == 'POST' and code >= 400):   # log_message is quiet: a refusal must still be seen
+            self.server.log.warning(f'refused {self.command} {urlparse(self.path).path} ({code}): {payload.get("message")}')
 
         self._send(code, json.dumps(finite(payload), default=str).encode(), 'application/json')
 

@@ -232,6 +232,20 @@ def test_a_written_skill_is_stamped_with_what_proved_it(tmp_path):
     assert stamp['self'] == stamps.digest('say_it')                  # the file it stamped is the file on disk
     assert stamps.reasons()['say_it']                                # no repo was found, so nothing proves it
 
+    stamps.path.write_text('not: [a stamps file')                    # saved and loaded all the same, and it says so
+    reply = writer.write(yaml.safe_dump(SAY))
+    assert reply['ok'] and 'not stamped' in reply['message']
+
+
+def test_a_loop_over_the_registry_survives_a_skill_loaded_in_it(tmp_path):
+    writer, registry, _ = _writer(tmp_path)
+    writer.write(yaml.safe_dump(SAY))
+
+    for _ in registry:                                               # a refresh on another thread does the same
+        writer.write(yaml.safe_dump(SAY | {'name': 'say_more'}))
+
+    assert {contract.name for contract in registry} == {'say_it', 'say_more'}
+
 
 def test_write_skill_writes_only_in_the_skills_own_folder_through_the_workspace_link(tmp_path):
     """The workspace reaches the library in git through a link; what write_skill saves lands there, and nowhere else"""

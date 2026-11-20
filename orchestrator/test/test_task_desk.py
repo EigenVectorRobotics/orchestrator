@@ -468,6 +468,8 @@ def test_only_a_tested_skill_that_earned_it_with_no_stale_part_passes_the_gate_w
     assert _asked(tmp_path, graduation=FakeGraduation(both, earned={'say': 'tested'}), composition=tree)   # its part's word
     assert _asked(tmp_path, graduation=FakeGraduation(both), composition=tree,
                   stale=lambda: {'track': 'its repo changed'})                                       # its part is stale
+    unnamed = lambda name: {**tree(name), 'unknown': True} if name == 'say' else {}
+    assert _asked(tmp_path, graduation=FakeGraduation(both), composition=unnamed)          # a call its code does not name
 
 
 def test_a_deprecated_part_or_unread_stale_skills_still_refuse_and_bad_grades_do_not_stop_a_step(tmp_path):

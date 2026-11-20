@@ -112,7 +112,7 @@ class Graduation:
     def _earned(self, skill: str) -> dict:
         try:
             version = self.steps.version(skill)
-        except OSError:                          # e.g. its folder went while it was read: no grade is of it
+        except (OSError, ValueError):            # its folder went while it was read, or a file is not text: no grade is of it
             version = None
 
         outcomes = self._read().get((skill, version), []) if version else []

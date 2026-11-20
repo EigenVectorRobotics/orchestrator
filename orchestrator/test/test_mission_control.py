@@ -1,5 +1,11 @@
 import json
+import threading
+import http.client
+
+from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
+
+import pytest
 
 import yaml
 
@@ -389,3 +395,27 @@ def test_the_state_is_strict_json_when_feedback_holds_inf():
     text = json.dumps(finite(feedback), allow_nan=False)    # the browser reads only strict JSON (2026-11-20)
 
     assert json.loads(text)['trace'][0]['feedback'][0] == {'distance_to_goal': None, 'error': None, 'ok': 1.5}
+
+
+def test_the_page_answers_only_under_a_local_name():
+    """DNS rebinding: a page on another site reaches 127.0.0.1 under its own name, and could then read the state"""
+    pytest.importorskip('rclpy')
+    from orchestrator.mission_control_node import LOCAL, Handler       # a ROS node module: not needed by the other tests
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    server.api, server.files, server.token = MissionApi(MissionState(), Commands(None, None, None)), {'index.html': (b'page', 'text/html')}, 't'
+    server.log, server.names = SimpleNamespace(warning=lambda text: None), {*LOCAL, '127.0.0.1'}
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def status(host, path):
+        connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=5)
+        connection.request('GET', path, headers={'Host': host})
+        return connection.getresponse().status
+
+    try:
+        assert status(f'localhost:{server.server_port}', '/api/state') == 200
+        assert status(f'127.0.0.1:{server.server_port}', '/') == 200
+        assert status(f'evil.example:{server.server_port}', '/api/state') == 403
+    finally:
+        server.shutdown()
+        server.server_close()

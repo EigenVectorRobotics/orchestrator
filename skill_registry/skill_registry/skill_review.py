@@ -110,7 +110,10 @@ def composition(directory: Path, name: str) -> dict:
         if skill in versions or found is None:
             continue
 
-        versions[skill]   = grade_version(directory, skill)
+        try:
+            versions[skill] = grade_version(directory, skill)
+        except (OSError, ValueError):             # a file that is not text: parts() found an unknown call in it
+            versions[skill] = None
         called, unclear   = found
         unknown          |= unclear
 
@@ -123,10 +126,14 @@ def composition(directory: Path, name: str) -> dict:
 
 
 def parts(directory: Path, name: str) -> tuple[list[str], bool] | None:
-    """The skills a composition runs directly (body_parts), from its code.py or its tree.xml; None: not a composition"""
+    """The skills a composition runs directly (body_parts), from its code.py or its tree.xml; None: not a composition.
+    A file that cannot be read has an unknown call, as a file that does not parse: nothing can vouch for it"""
     for kind, path in (('code', code_file(name, directory)), ('tree', tree_file(name, directory))):
         if path.is_file():
-            return body_parts(kind, path.read_text())
+            try:
+                return body_parts(kind, path.read_text())
+            except (OSError, ValueError):
+                return [], True
 
     return None
 

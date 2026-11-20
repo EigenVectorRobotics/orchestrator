@@ -261,7 +261,7 @@ class Registry:
 
         try:
             return path.read_text() if path else ''
-        except OSError:
+        except (OSError, ValueError):            # not there, or not text
             return ''
 
     @staticmethod
@@ -303,7 +303,8 @@ class Registry:
         return name in self._contracts
 
     def __iter__(self):
-        return iter(self._contracts.values())
+        """Over a copy: a refresh on another thread may add or remove a skill while the caller loops"""
+        return iter(list(self._contracts.values()))
 
     def __len__(self) -> int:
         return len(self._contracts)
