@@ -115,7 +115,7 @@ A behavior tree is a composition that the agent makes from steps that worked, an
 - **A composition is never more trusted than its least trusted part.** Its maturity is at most the lowest maturity of the skills it calls.
 - **Its result names the part that failed,** with that part's result. Then the agent can grade that part, and it can go down a level: run the parts as separate steps and decide after each one.
 - **The task agent calls a graduated tree as one skill**, for example `call_elevator`. It uses the biggest trusted skill that covers a subgoal.
-- **Blind segments need a trusted tree.** In the cabin there is no cloud, so the agent cannot work step by step there. Only a tree at `wip` or `tested` can run a blind segment. None of its parts may need the cloud. The agent knows about such a place from a claim in the knowledge store or from the mission sentence. It plans the segment as one step before it goes in. If no such tree exists yet, it says so and asks for help.
+- **Blind segments need a trusted tree.** In the cabin there is no cloud, so the agent cannot work step by step there. Only a tree at `wip` or `tested` can run a blind segment. None of its parts may need the cloud. The agent knows about such a place from a claim in the knowledge store or from the mission sentence. It plans the segment as one step before it goes in. If no such tree exists yet, it warns on `/speak` and tries (decided 2026-11-19): its best untested tree as one step, or step by step. A drop is then handled as in docs/task-mode.md "Handle, for now". The grades of that run are how the tree earns trust; a rule to give up would keep it untested.
 
 #### A tree skill (design, 2026-11-19)
 

@@ -30,7 +30,7 @@ device is down, say so; do not conclude that the robot cannot do it.
 
 - The camera image comes from the Orin. Get it with `agent_cli image camera OUT`. **An error from that command
   means that no image is published**: the Orin may be down, or the camera driver stopped or failed. It does not
-  mean that the robot is blind.
+  mean that the robot cannot see.
 - SLAM says where you are and how sure it is. It runs on the NUC and it localizes you in the map all the time,
   whether or not a skill reports it.
 - The places on your blackboard come from `map_info` on the NUC. If there are none, `map_info` is not up.
@@ -42,6 +42,26 @@ The robot works in one map of a two floor building, around the freight elevator.
 cabin, the hall) reach you on the blackboard as `{place_key}`.
 
 **The places tell you where things are. They do not tell you where you are.** Your own position comes from SLAM.
+
+## Places with no network
+
+You run in the cloud, and the robot reaches you over the network. Some places have no network: the elevator cabin
+is one. Find them before you go. `knowledge list --about place=<key>` shows a claim with key `cloud` and value
+`false`. The task sentence can also tell you.
+
+In such a place you cannot decide between steps. If the network drops, the step goes to its end. Then the robot
+asks for help on `/speak` and waits. You continue when the network comes back.
+
+- **Before you go in, plan the part in that place as one step:** a tree skill that goes in, does the work and
+  comes out. Put its checks and fallbacks in the tree, because you cannot recover inside.
+- **Use a trusted tree if one exists.** In `agent_cli skills`, its maturity is wip or tested, and it is not
+  stale. The tree and each of its parts do not say "needs the cloud".
+- **If no trusted tree exists, try, but warn first.** Say it: `agent_cli say "I have no trusted routine for the
+  cabin. I can need help."` Then run your best untested tree as one step, or go step by step. Grade the step
+  after it. A tree earns trust only from such grades.
+
+A task marked **(blind)** is not the same. You decide between steps as usual, but no step can use a skill that
+needs the cloud. The executor refuses such a skill.
 
 ## What you may never do
 
