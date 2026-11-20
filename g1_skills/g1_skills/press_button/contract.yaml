@@ -13,6 +13,8 @@ config:
     right_gripper_frame: right_dex1_base_link   # its depth fit, <frame>_estimate, moves the residual to the real tip
     left_gripper_frame: left_dex1_base_link
     approach_offset_m: 0.10
+    pregrasp_tolerance_m: 0.05               # the baseline's depth band about -approach_offset; 0.02 missed every up press (2026-11-19, the arm held at 6-7 cm)
+    pregrasp_lateral_tolerance_m: 0.08       # the hold's distance off the button axis; 0.03 missed up presses held 6.5 cm off
     press_delay_s: 0.005
     release_delay_s: 0.5
     box_topic: /track_3d/detections_2d       # the button's box per frame, for the crop

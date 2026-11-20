@@ -67,7 +67,7 @@ What the model sees is less than the call carries:
 
 **The frames** (`g1_skills/g1_skills/press_button/capture.py` and `skill.py`, configured by `config.capture` in `press_button`'s contract and the defaults of `CaptureConfig`). The phase tracker samples TF `right_ee` or `left_ee` in the goal's frame against the feedback's `current_goal`:
 
-- `baseline`: the first frame once the end effector reaches the pre-grasp, `approach_offset_m` before the offset goal.
+- `baseline`: the latest frame of the hold at the pre-grasp (`approach_offset_m` before the offset goal, within `pregrasp_tolerance_m` in depth and `pregrasp_lateral_tolerance_m` off the axis) that has its own button box (`own_box_s`); with none, the hold's last frame. It is fixed once the push begins, so it is as late as the button is still seen and never later than the hold; `baseline_from` in the press record says which. The first frame of the hold missed every up press of 2026-11-19, where the arm held 6 to 7 cm out or 6.5 cm off the axis (session `20261119T230051Z-fe5acf`).
 - `press`: the first frame at least `press_delay_s` after the deepest point along the button normal. The camera's frame rate bounds how late it can come.
 - `release`: the first frame at least `release_delay_s` after the retreat began (depth `retreat_drop_m` below its deepest, or the action ended).
 - `<name>_crop`: each frame cropped around track_anything's box for that frame, grown `crop_scale` times; a frame without its own box uses the baseline's, with neither there is no crop.

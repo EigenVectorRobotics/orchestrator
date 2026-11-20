@@ -31,6 +31,11 @@ class FrameBuffer:
         with self._lock:
             return next((frame for frame in self._frames if frame[0] >= t), None)
 
+    def between(self, start: float, end: float) -> list:
+        """The frames stamped from start to end, oldest first"""
+        with self._lock:
+            return [frame for frame in self._frames if start <= frame[0] <= end]
+
 
 class Camera:
     """The head camera: its latest frame as JPEG, its size, optical frame and intrinsics, and the last seconds of

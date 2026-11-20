@@ -70,7 +70,8 @@ def test_the_capture_chooses_the_three_frames_at_6_fps():
     tracker = capture.tracker
 
     assert set(times) == {'baseline', 'press', 'release'}
-    assert tracker.pregrasp_t <= times['baseline'] < tracker.pregrasp_t + 1 / 6
+    assert tracker.pregrasp_t <= times['baseline'] <= tracker.pregrasp_last_t       # no boxes: the hold's last frame
+    assert tracker.pregrasp_last_t - times['baseline'] < 1 / 6 and capture.baseline_from == 'last frame of the hold'
     assert tracker.deepest_t + 0.005 <= times['press'] < tracker.deepest_t + 0.005 + 1 / 6
     assert tracker.release_t + 0.5 <= times['release'] < tracker.release_t + 0.5 + 1 / 6
 
@@ -331,3 +332,37 @@ def test_the_held_median_keeps_only_the_last_fits():
     late    = [(deepest - 20.0 + i, (0.0, 0.004, 0.006)) for i in range(count)]
 
     assert press_with_tip_shifts(early + late).residual() == pytest.approx([-0.005, -0.004, 0.003], abs=1e-4)
+
+
+def _boxed_play(seen):
+    """The press with a button box on every frame for which seen(t) holds"""
+    buffer, boxes = FrameBuffer(keep_s=100), BoxBuffer(keep_s=100)
+    capture       = PressCapture(CaptureConfig(), buffer, left_arm=False, boxes=boxes)
+    original      = buffer.add
+
+    def add_frame(t, data):
+        original(t, data)
+
+        if seen(t):
+            boxes.add(t, (300, 200, 340, 220))
+
+    buffer.add = add_frame
+    _play(capture, buffer)
+
+    return capture, capture.frames['baseline'][0]
+
+
+def test_the_baseline_is_the_last_frame_of_the_hold_where_the_button_is_tracked():
+    # the hold at the pre-grasp is 1.2 s to 1.5 s; the button is lost at 1.35 s
+    capture, t = _boxed_play(lambda t: t < 1.35)
+    tracker    = capture.tracker
+
+    assert tracker.pregrasp_t <= t < 1.35 and 1.35 - t < 1 / 6 + 1e-9
+    assert capture.baseline_from == 'last tracked frame of the hold'
+
+
+def test_the_baseline_is_never_later_than_the_hold_though_the_button_stays_tracked():
+    capture, t = _boxed_play(lambda t: True)
+
+    assert t <= capture.tracker.pregrasp_last_t and capture.tracker.pregrasp_last_t - t < 1 / 6
+    assert capture.baseline_from == 'last tracked frame of the hold'

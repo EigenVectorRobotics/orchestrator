@@ -1,6 +1,9 @@
 """Three camera frames around one press, for the check after it.
 
-  baseline  the first frame once the end effector has reached the pre-grasp (the button is not pressed yet)
+  baseline  the latest frame of the hold at the pre-grasp (from the first sample there to the last before the push)
+            that has its own button box, so the button is still seen; with no such frame, the last frame of the hold.
+            Kept up to date during the hold and fixed once the push begins (or the action ends), so never on the swing up
+            and never later than the hold
   press     the first frame at least press_delay_s after the deepest point of the push
   release   the first frame at least release_delay_s after the retreat began
 
@@ -38,8 +41,10 @@ FRAMES = ('baseline', 'press', 'release')
 class CaptureConfig:
     approach_offset_m:    float = 0.10      # visual_servo_planner approach_offset
     pregrasp_tolerance_m: float = 0.02
-    lateral_tolerance_m:  float = 0.03
+    lateral_tolerance_m:  float = 0.03      # until the pre-grasp, only samples this close to the axis count (the swing passed 7.8 cm off)
+    pregrasp_lateral_tolerance_m: float = 0.03   # the pre-grasp hold's distance off the axis
     retreat_drop_m:       float = 0.005     # the depth below its maximum that marks the retreat
+    own_box_s:            float = 0.05      # a box this close to a frame's stamp is that frame's own: the button was seen
     press_delay_s:        float = 0.005
     release_delay_s:      float = 0.5
     buffer_s:             float = 8.0       # frames kept; covers the push and the release delay
@@ -96,6 +101,7 @@ class PhaseTracker:
         self.axis       = None
         self.shift      = np.zeros(3)
         self.pregrasp_t = None
+        self.pregrasp_last_t = None   # the last sample at the pre-grasp before the push: the end of the hold
         self.deepest_t  = None
         self.release_t  = None
         self.max_depth  = -math.inf
@@ -119,9 +125,12 @@ class PhaseTracker:
         planned = offset - self.shift
         plan_depth = float(planned @ self.axis)
 
-        if (self.pregrasp_t is None and abs(plan_depth + self.config.approach_offset_m) < self.config.pregrasp_tolerance_m
-                and float(np.linalg.norm(planned - plan_depth * self.axis)) < self.config.lateral_tolerance_m):
-            self.pregrasp_t = t
+        at_pregrasp = (abs(plan_depth + self.config.approach_offset_m) < self.config.pregrasp_tolerance_m
+                       and float(np.linalg.norm(planned - plan_depth * self.axis)) < self.config.pregrasp_lateral_tolerance_m)
+
+        if at_pregrasp and self.max_depth <= -self.config.approach_offset_m / 2:     # not once the push has begun
+            self.pregrasp_t      = self.pregrasp_t if self.pregrasp_t is not None else t
+            self.pregrasp_last_t = t
 
         # Before the pre-grasp the hand is still swinging up from its rest pose and can pass the goal depth far beside
         # the button (once -20.6 mm deep, 229 mm sideways), which ended the press there and froze the tracker
@@ -164,6 +173,8 @@ class PressCapture:
         self.camera_poses = []          # (ROS time, rotation, translation): the goal's frame into the camera's optical frame
         self.saved    = {}              # name -> path, once saved
         self.aimed    = None            # (k, the aim crops): made once per press, for the recovery
+        self.baseline_from = None       # which rule chose the baseline (baseline_pick)
+        self._baseline = None           # (frame, rule): the baseline so far, during the hold
         self._lock    = threading.Lock()
 
     def on_goal(self, position, quaternion_xyzw, frame: str | None = None):
@@ -251,9 +262,6 @@ class PressCapture:
         tracker = self.tracker
         wanted  = {}
 
-        if tracker.pregrasp_t is not None:
-            wanted['baseline'] = tracker.pregrasp_t
-
         if tracker.deepest_t is not None:
             wanted['press']   = tracker.deepest_t + self.config.press_delay_s
             wanted['release'] = tracker.release_t + self.config.release_delay_s
@@ -262,19 +270,52 @@ class PressCapture:
 
     def choose(self):
         with self._lock:
+            self._choose_baseline()
+
             for name, t in self.wanted_times().items():
                 if name not in self.frames:
                     frame = self.buffer.first_after(t)
 
                     if frame is not None:
-                        self.frames[name] = frame
-                        box = self.box_feed.at(frame[0], self.config.box_max_age_s) if self.box_feed else None
+                        self._take(name, frame)
 
-                        if box is not None:
-                            self.boxes[name] = box
+    def _choose_baseline(self):
+        """During the hold, keep its latest frame with its own button box (else its latest frame); fix it once the push
+        has begun or the action ended. The hold can end more than buffer_s before the deepest point, hence kept live"""
+        tracker = self.tracker
 
-                        if self.directory:
-                            self._write(name, self.directory)
+        if 'baseline' in self.frames or tracker.pregrasp_t is None:
+            return
+
+        hold = self.buffer.between(tracker.pregrasp_t, tracker.pregrasp_last_t)
+        seen = [frame for frame in hold if self.box_feed and self.box_feed.at(frame[0], self.config.own_box_s) is not None]
+
+        if seen:
+            self._baseline = (seen[-1], 'last tracked frame of the hold')
+        elif hold and (self._baseline is None or self._baseline[1] != 'last tracked frame of the hold'):
+            self._baseline = (hold[-1], 'last frame of the hold')
+
+        pushed = tracker.max_depth > -self.config.approach_offset_m / 2 or tracker.deepest_t is not None
+        if not (pushed or self.ended_t is not None):
+            return
+
+        if self._baseline is None:
+            frame = self.buffer.first_after(tracker.pregrasp_last_t)
+            self._baseline = (frame, 'first frame after the hold') if frame is not None else None
+
+        if self._baseline is not None:
+            self.baseline_from = self._baseline[1]
+            self._take('baseline', self._baseline[0])
+
+    def _take(self, name: str, frame):
+        self.frames[name] = frame
+        box = self.box_feed.at(frame[0], self.config.box_max_age_s) if self.box_feed else None
+
+        if box is not None:
+            self.boxes[name] = box
+
+        if self.directory:
+            self._write(name, self.directory)
 
     def crop(self, name: str) -> tuple[bytes, tuple | None]:
         """The frame cropped around its button box, or the baseline's box; the whole frame if neither exists"""
@@ -328,6 +369,8 @@ class PressCapture:
 
         return {
             'pregrasp_t': tracker.pregrasp_t,
+            'pregrasp_last_t': tracker.pregrasp_last_t,
+            'baseline_from': self.baseline_from,
             'deepest_t':  tracker.deepest_t,
             'release_t':  tracker.release_t,
             'max_depth_m': None if math.isinf(tracker.max_depth) else round(tracker.max_depth, 4),
