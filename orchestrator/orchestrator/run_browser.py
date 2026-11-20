@@ -87,7 +87,12 @@ def _summary(run: Path, newest: Path | None) -> dict:
     return {'key': _key(run), 'run_id': task.get('run_id'), 'name': task.get('name') or run.name.split('-', 1)[-1],
             'task': _sentence(task.get('task')), 'blind': bool(task.get('blind')), 'started': task.get('started'),
             'finished': outcome.get('finished'), 'end': end, 'reason': _reason(outcome, task.get('run_id')),
-            'steps': len(steps), 'failed': sum(1 for step in steps if step.get('status') != 'success')}
+            'steps': len(steps), 'failed': sum(map(step_failed, steps))}
+
+
+def step_failed(step: dict) -> bool:
+    """A step that ended and did not succeed: a failure, an error, a halt. A step that still runs has no end yet"""
+    return step.get('end') is not None and step.get('status') != 'success'
 
 
 def _newest(folders: list[Path]) -> Path | None:
@@ -109,25 +114,26 @@ def _size(path: Path) -> int:
         return 0
 
 
-def _calls(events: list[dict]) -> dict[int, list[dict]]:
-    """The record of each call, by its step; of the action feedback only the last item, so the page stays small"""
+def _calls(events: list[dict], full: bool) -> dict[int, list[dict]]:
+    """The record of each call, by its step, with the time of its end; of the action feedback all items when full,
+    else only the last, so the page stays small"""
+    keep  = 0 if full else -1
     calls = {}
 
     for event in events:
         if isinstance(record := event.get('record'), dict):        # only a record event has one
             checked = record.get('checked_call')
             calls.setdefault(event.get('step'), []).append(
-                {**record, 'feedback': (record.get('feedback') or [])[-1:]}
-                | ({'checked_call': {**checked, 'feedback': (checked.get('feedback') or [])[-1:]}}
-                   if isinstance(checked, dict) else {}))
+                {**record, 'time': event.get('time'), 'feedback': (record.get('feedback') or [])[keep:]}
+                | ({'checked_call': {**checked, 'feedback': (checked.get('feedback') or [])[keep:]}} if isinstance(checked, dict) else {}))
 
     return calls
 
 
-def run_detail(root, ref: str) -> dict | None:
+def run_detail(root, ref: str, full: bool = False) -> dict | None:
     """One run: its summary, steps with the calls of each, plans, the refusals and what it left (from its session's
     events), its bag and scratch folder, and the code it ran on (the session's provenance). ref is a key or a run_id
-    (the newest run with it). None when no listed run has it"""
+    (the newest run with it). None when no listed run has it. full: all the feedback, and the agent's words (None: no words.jsonl)"""
     folders = _folders(root)
     run     = next((folder for folder in folders
                     if _key(folder) == ref or _json(folder / 'task.json').get('run_id') == ref), None)
@@ -152,7 +158,8 @@ def run_detail(root, ref: str) -> dict | None:
     return {**detail,
             'folder':   str(run),
             'steps':    steps,
-            'calls':    _calls(events),
+            'calls':    _calls(events, full),
+            'words':    read_lines(run / 'words.jsonl') if full and (run / 'words.jsonl').exists() else None,
             'plans':    read_lines(run / 'plans.jsonl'),
             'refused':  [{'skill': event.get('skill'), 'subgoal': event.get('subgoal'), 'reason': event.get('reason'),
                           'by': event.get('by'), 'time': event.get('time')}

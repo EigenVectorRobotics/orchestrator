@@ -82,8 +82,8 @@ A new node `run_recorder` (package `orchestrator`) on the NUC. It is passive: it
 A tool `retrospect` (a CLI first; a session uses it, as `agent_cli`):
 
 - `retrospect list [--since]`: runs with their outcome, step count, failed steps and the task (built).
-- `retrospect show <run>` (a run_id or a key, built): it shows the plans. Then it shows each step with its calls and the agent's grade of the step. A call has its status, inputs, time and outputs, and a failure has its last feedback. Then come the refusals, what the run left, and its folder. Not yet: the agent's words and links to frames.
-- `retrospect blame <run>`: for a failed run, the chain from the first failed call to the end, with the evidence (feedback, frames, agent reasons). It proposes the cause; a person agrees or corrects it.
+- `retrospect show <run>` (a run_id or a key, built): it shows the plans. Then it shows each step with its calls and the agent's grade of the step. A call has its status, inputs, time and outputs, and a failure has its last feedback. Then come the refusals, what the run left, and its folder. Not yet: links to frames.
+- `retrospect blame <run>` (built): the evidence of a failure, in time order. It starts at the step before the first failed step (the decision that led there) and goes to the end. It gives each step, its calls and the agent's words from `words.jsonl`. Of the feedback of a call, it gives the state at each change and the last sample. The state is the sample with no fractions and no time fields. It does not say a cause: the agent finds the cause and grades the steps. Not yet: frames (the bag has no camera, and the clock offsets are not known).
 - `retrospect draft-entry <run>`: drafts a claim for the knowledge store, with links to the run. The operator approves the exact text before it goes in.
 - **Who approves:** the operator, for now. Later, the agent: see `docs/knowledge.md`, "Approval by the agent".
 - `retrospect counts`: success and failure counts per `skill@version`, per decision, per place, for `docs/knowledge.md`.
