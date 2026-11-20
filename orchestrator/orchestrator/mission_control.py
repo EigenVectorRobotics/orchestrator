@@ -28,7 +28,7 @@ from skill_registry.skill_stamps import SkillClock
 
 from .images import Camera, Outlines
 from .knowledge import OPERATOR, Claim, KnowledgeError, KnowledgeStore, Sighting
-from .graduation import Graduation
+from .graduation import Graduation, shown_maturity
 from .map_view import MapView
 from .run_browser import list_runs, run_detail
 from .session_log import RunWords, SessionLog
@@ -304,7 +304,7 @@ class SkillShelf:
             if not item['error']:
                 item['earned']   = (self.graduation.of(item['name'], item['contract']['maturity'], written.get)
                                     if self.graduation else None)
-                item['maturity'] = item['earned']['maturity'] if item['earned'] else item['contract']['maturity']
+                item['maturity'] = shown_maturity(item['earned'], item['contract']['maturity'])
 
         return 200, {'skills': skills, 'problem': missing_folder(self.directory), 'stale_unknown': unknown, 'deny': deny,
                      'directory': str(self.directory)}

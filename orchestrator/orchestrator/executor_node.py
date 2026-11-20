@@ -162,6 +162,7 @@ class ExecutorNode(Node):
             steps=steps,
             graduation=Graduation(steps, composition=lambda name: composition(self.skills_dir, name),
                                   written_of=lambda name: getattr(self.registry.get(name), 'maturity', None)),
+            trust_tested=self.declare_parameter('gate_trusts_tested', True).value,
         )
 
         def on_command(message: String):                # a run blocks until its step ends: not on the spin thread

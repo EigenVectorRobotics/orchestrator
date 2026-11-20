@@ -61,6 +61,18 @@ def effective(written: str, earned: str) -> str:
     return earned if earned == 'deprecated' else max(written, earned, key=ORDER.index)
 
 
+def shown_maturity(found: dict | None, written: str) -> str:
+    """The maturity to show: found is Graduation.of(); None (no grades read) shows the contract's word"""
+    return found['maturity'] if found else written
+
+
+def at_run_time(found: dict | None, written: str, stale: bool) -> str:
+    """What run time trusts a skill as: the maturity to show, but a stale skill counts as untested, because its code
+    changed under it. deprecated stays. The catalog order, the gate and the refusal of a deprecated skill use it"""
+    maturity = shown_maturity(found, written)
+    return 'untested' if stale and maturity != 'deprecated' else maturity
+
+
 def rank(maturity: str) -> int:
     """How far up a maturity is; a deprecated part counts as untested, because a composition earns its own"""
     return ORDER.index(maturity) if maturity in ORDER else 0

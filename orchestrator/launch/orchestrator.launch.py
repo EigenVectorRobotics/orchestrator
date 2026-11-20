@@ -69,6 +69,8 @@ def generate_launch_description():
         DeclareLaunchArgument('map_info', default_value='/map_info', description='the map_info node the places come from, live, when places_file is empty'),
         DeclareLaunchArgument('step_gate', default_value='auto',
                               description='a person approves each step; auto: on unless fake (true | false | auto)'),
+        DeclareLaunchArgument('gate_trusts_tested', default_value='true',
+                              description='a tested skill that is not stale runs with no question at the gate; false: the gate asks for every step'),
         DeclareLaunchArgument('mission_control', default_value='false',
                               description='serve the Mission Control page: see the run and drive it from a browser'),
         DeclareLaunchArgument('mission_control_port', default_value='8080',
@@ -84,6 +86,7 @@ def generate_launch_description():
             output='screen',
             parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]),
                                   'step_gate': step_gate, 'write_skill': LaunchConfiguration('write_skill'),
+                                  'gate_trusts_tested': PythonExpression(["'", LaunchConfiguration('gate_trusts_tested'), "' == 'true'"]),
                                   'on_robot': PythonExpression(["'", fake, "' != 'true'"]),
                                   'runbook': LaunchConfiguration('runbook')}]
         ),

@@ -52,7 +52,7 @@ from skill_registry import contract_grammar
 from .places import PLACE_INFO
 from .knowledge import KnowledgeError, KnowledgeStore, StagedRuns
 from .step_grades import StepGrades
-from .graduation import Graduation
+from .graduation import Graduation, at_run_time
 from .tasks import Task, Tasks
 from .tasks import describe_catalog
 from skill_registry.skill_writer import SkillWriter
@@ -63,6 +63,8 @@ from .behavior_tree import Context
 DISCOVERY_LIMITS = {'max_task_s': None, 'idle_s': None, 'run': False}   # a discovery task: see the module text
 
 LOST_SPEECH   = 'I lost the connection to my planner. I will wait here. Please help me if you can.'
+TRUSTED       = {'approve': True, 'state': 'approved', 'reason': 'it is tested, so the gate did not ask', 'by': 'maturity'}
+UNREAD        = 'the stale skills could not be read'
 
 TRACE_LEVELS     = ('warn', 'error')   # the events a reply carries: what went wrong, not what went well
 MAX_TRACE_EVENTS = 12                  # the last ones; a step that fails many times says the same thing
@@ -139,7 +141,7 @@ class TaskDesk:
                  gate: StepGate | None = None, writer: SkillWriter | None = None,
                  stale: Callable[[], dict[str, str]] = dict, ran: Callable[[str, str], None] = lambda name, run: None,
                  steps: StepGrades | None = None, composition: Callable[[str], dict] = lambda name: {},
-                 graduation: Graduation | None = None):
+                 graduation: Graduation | None = None, trust_tested: bool = True):
         self.tasks         = tasks
         self.writer        = writer                  # None: write_skill is refused
         self.gate          = gate                    # None: steps run without a person's approval (sim)
@@ -151,6 +153,7 @@ class TaskDesk:
         self.ran           = ran                     # a step that succeeded: kept with the skill's stamp as evidence
         self.steps         = steps                   # the grades of each step's skill; None: steps are not graded
         self.graduation    = graduation              # what each skill earned (graduation.py); None: the catalog says no grades
+        self.trust_tested  = trust_tested            # a tested skill that is not stale runs with no question at the gate
         self.composition   = composition             # what a code skill calls, and its versions (skill_review.composition)
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
         self.task_limits   = {'max_steps': max_steps, 'max_task_s': max_task_s, 'idle_s': idle_s, 'run': True}
@@ -297,8 +300,13 @@ class TaskDesk:
             return self._write_skill(str(message['yaml']), str(message.get('code', '')), str(message.get('tree', '')))
 
         if op == 'skills':
-            return {'ok': True, 'catalog': describe_catalog(self.tasks.registry, self.tasks.essential_devices, self.stale(),
-                                                                self.graduation and self.graduation.of)}
+            stale = self._stale_now('the catalog')
+            trust = {contract.name: self._trust(contract.name, stale) for contract in self.tasks.registry}
+            return {'ok': True, 'catalog': describe_catalog(
+                self.tasks.registry, self.tasks.essential_devices,
+                {name: reason for name, found in trust.items() if (reason := found['stale'] or (UNREAD if stale is None else ''))},
+                self.graduation and self.graduation.of,
+                refused={name: found['deprecated'] for name, found in trust.items() if found['deprecated']})}
 
         if op in ('done', 'give_up'):
             return self._end(task, 'done' if op == 'done' else 'gave_up', str(message.get('reason', '')))
@@ -336,11 +344,22 @@ class TaskDesk:
         if applies and (problem := self._not_live(applies)):
             return {'ok': False, 'message': f'the step did not run: {problem}'}
 
+        seen  = self.composition(skill)                  # one read: the trust, the gate and the check after it
+        trust = self._trust(skill, self._stale_now(skill), seen)
+
+        if bad := trust['deprecated']:
+            self.tasks.tracer.emit('step_gate', f'{skill}: refused, {bad} is deprecated', level='warn', skill=skill,
+                                   subgoal=subgoal, step=task.steps + 1, run_id=task.run_id, state='refused',
+                                   reason=f'{bad} is deprecated', by='maturity')
+            return {'ok': False, 'status': 'refused',
+                    'message': f'{bad} is deprecated: its grades on the robot show that it fails. The step did not run: '
+                               f'write a new version (write_skill), or use another skill'}
+
         if self.gate is not None:
-            seen     = self.composition(skill)           # one approval covers all of it: the operator sees what it calls
+            trusted  = self.trust_tested and trust['maturity'] == 'tested' and trust['earned']
             decision = self.ask_step({'skill': skill, 'inputs': inputs, 'subgoal': subgoal,
                                       **({'calls': seen['calls'], 'unknown_calls': seen['unknown']} if seen.get('versions') else {})},
-                                     lambda: self.task is task)
+                                     lambda: self.task is task, decided=TRUSTED if trusted else None)
 
             if not decision['approve']:
                 return {'ok': False, 'status': 'refused', 'message': f'the operator refused the step: {decision["reason"]}'}
@@ -351,7 +370,12 @@ class TaskDesk:
                 return {'ok': False, 'status': 'refused',
                         'message': f'{skill} changed after the operator approved it: the step did not run; run it again'}
 
-        self._note_stale(skill)
+            if not trusted and (again := self._stale_now(skill)) is not None:    # a person may have waited a while
+                trust['stale'] = self._stale_reason(skill, seen.get('calls', []), again)
+
+        if reason := trust['stale']:                     # in the trace and the bundle, not only in the catalog
+            self.tasks.tracer.emit('stale_skill', f'{skill}: {reason}', level='warn', skill=skill)
+
         version = self._version(skill)                   # before the step: the version that runs, not a write during it
         result  = self.tasks.run_skill(skill, inputs, subgoal=subgoal)
 
@@ -482,13 +506,13 @@ class TaskDesk:
         except (OSError, KnowledgeError) as error:
             self.tasks.tracer.emit('knowledge', f'could not set {run_id} aside: {error!r}', level='warn', run_id=run_id)
 
-    def _note_stale(self, skill: str) -> None:
-        """Say in the trace and the bundle that a step used a stale skill, not only in the catalog that the session reads"""
+    def _stale_now(self, about: str) -> dict | None:
+        """The stale skills, read once for a step or the catalog; None when they cannot be read, and the trace says so"""
         try:
-            if reason := self.stale().get(skill):
-                self.tasks.tracer.emit('stale_skill', f'{skill}: {reason}', level='warn', skill=skill)
-        except OSError as error:                     # bookkeeping must never decide whether a step runs
-            self.tasks.tracer.emit('stale_skill', f'{skill}: could not be checked: {error!r}', level='warn')
+            return self.stale()
+        except OSError as error:
+            self.tasks.tracer.emit('stale_skill', f'{about}: could not be checked: {error!r}', level='warn')
+            return None
 
     def _keep(self, skill: str, run_id: str) -> None:
         """Keep that the skill ran. The step HAS happened: a failure to write it down must not be reported as a
@@ -498,14 +522,62 @@ class TaskDesk:
         except OSError as error:
             self.tasks.tracer.emit('stamp_error', f'{skill}: the run was not kept: {error!r}', level='warn')
 
-    def ask_step(self, request: dict, still_open=None) -> dict:
-        """Ask a person about one step and trace the answer. A code skill or a tree is one step: its parts never ask"""
+    @staticmethod
+    def _stale_reason(skill: str, parts: list[str], stale: dict | None) -> str:
+        """Why the skill is stale: its own reason, or that of a part at any depth. '' when the stale skills are not
+        known (None)"""
+        if not stale:
+            return ''
+
+        if skill in stale:
+            return stale[skill]
+
+        return next((f'its part {part} is stale: {stale[part]}' for part in parts if part in stale), '')
+
+    def _trust(self, skill: str, stale: dict | None, seen: dict | None = None) -> dict:
+        """What run time does with the skill. seen: its composition, when the caller read it already.
+          maturity    graduation.at_run_time, where a stale part makes it stale too
+          earned      it and every part earned tested on the robot: only that, not a contract's word, passes the gate
+                      with no question
+          deprecated  the skill, or a part, that run refuses
+          stale       why it is stale
+        A file that cannot be read gives untested, so the gate asks, and the trace says why: bookkeeping never stops a
+        step"""
+        found = {'maturity': 'untested', 'earned': False, 'deprecated': '', 'stale': ''}
+
+        if (contract := self.tasks.registry.get(skill)) is None:
+            return found
+
+        try:
+            parts  = (self.composition(skill) if seen is None else seen).get('calls', [])
+            graded = {name: self._graded(name) for name in [skill, *parts]}
+            reason = self._stale_reason(skill, parts, stale)
+        except Exception as error:                       # a file that cannot be read, or decoded
+            self.tasks.tracer.emit('maturity', f'{skill}: maturity not read, so it counts as untested: {error!r}',
+                                   level='warn', skill=skill)
+            return found
+
+        return found | {
+            'maturity':   at_run_time(graded[skill], contract.maturity, stale is None or bool(reason)),
+            'earned':     all(entry and entry['earned'] == 'tested' for entry in graded.values()),
+            'deprecated': next((name for name, entry in graded.items() if entry and entry['maturity'] == 'deprecated'), ''),
+            'stale':      reason,
+        }
+
+    def _graded(self, skill: str) -> dict | None:
+        """Graduation.of the skill; None when the library does not have it, or nothing reads grades"""
+        contract = self.tasks.registry.get(skill)
+        return self.graduation.of(skill, contract.maturity) if contract and self.graduation else None
+
+    def ask_step(self, request: dict, still_open=None, decided: dict | None = None) -> dict:
+        """Ask a person about one step and trace the answer. A code skill or a tree is one step: its parts never ask.
+        decided: an answer known already (TRUSTED), traced the same way, with no question"""
         if self.gate is None:
             return {'approve': True, 'state': 'approved', 'reason': ''}
 
         task     = self.task
         full     = {'run_id': task.run_id if task else None, 'step': task.steps + 1 if task else 0} | request
-        decision = self.gate.ask(full, still_open or (lambda: self.task is task))
+        decision = decided or self.gate.ask(full, still_open or (lambda: self.task is task))
         self.tasks.tracer.emit('step_gate', f'{request.get("skill")}: {decision["state"]} {decision["reason"]}'.strip(),
                                skill=request.get('skill'), subgoal=request.get('subgoal', ''), step=full['step'],
                                run_id=full['run_id'], **decision)   # its own run: a late refusal of a closed task

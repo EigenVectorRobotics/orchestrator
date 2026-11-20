@@ -19,6 +19,7 @@ from skill_registry import Contract, Issue, Registry, TreeValidator, ValidatorCo
 
 from .behavior_tree import BehaviorTree, Context, Status, TreeError
 from .topics import TASK_OPTIONS
+from .graduation import at_run_time, rank
 
 
 def parse_task_request(text: str) -> tuple[str, dict]:
@@ -316,17 +317,33 @@ def describe_contract(contract: Contract, essential_devices: set[str], stale: st
         + (f' (held down by its part {earned["capped_by"]})' if earned and earned.get('capped_by') else ''))
 
     if stale:                     # its own line, as 'needs the cloud' is: maturity is the agent's word, not ours
-        lines.append(f'stale, test it before you trust it: {stale}')
+        lines.append(f'stale, so it counts as untested; test it before you trust it: {stale}')
 
     return '\n'.join(line for line in lines if line)
 
 
 def describe_catalog(registry: Registry, essential_devices: set[str], stale: dict[str, str] | None = None,
-                     earned: Callable[[str, str], dict] | None = None) -> str:
+                     earned: Callable[[str, str], dict] | None = None, refused: dict[str, str] | None = None) -> str:
     """stale: skill -> why its code no longer proves it (skill_stamps.Stamps.reasons), read once for the catalog.
-    earned: (skill, its contract's maturity) -> what it earned (graduation.Graduation.of)"""
-    return '\n\n'.join(
-        describe_contract(contract, essential_devices, (stale or {}).get(contract.name, ''),
-                          earned(contract.name, contract.maturity) if earned else None, registry.cloud_text(contract.name))
-        for contract in sorted(registry, key=lambda contract: contract.name)
-    )
+    earned: (skill, its contract's maturity) -> what it earned (graduation.Graduation.of).
+    The most trusted skills come first, as run time trusts them (graduation.at_run_time): tested, wip, untested. A
+    deprecated skill is left out, because run refuses it, and so is one in refused (skill -> its deprecated part).
+    The last line names them"""
+    stale, found, trust = stale or {}, {}, {}
+
+    for contract in registry:
+        found[contract.name] = earned(contract.name, contract.maturity) if earned else None
+        trust[contract.name] = at_run_time(found[contract.name], contract.maturity, contract.name in stale)
+
+    refused = {name: name for name, maturity in trust.items() if maturity == 'deprecated'} | (refused or {})
+    listed  = sorted((contract for contract in registry if contract.name not in refused),
+                     key=lambda contract: (-rank(trust[contract.name]), contract.name))
+    gone    = [name if part == name else f'{name} (calls {part})' for name, part in sorted(refused.items())]
+    blocks = [describe_contract(contract, essential_devices, stale.get(contract.name, ''), found[contract.name],
+                                registry.cloud_text(contract.name)) for contract in listed]
+
+    if gone:
+        blocks.append(f'Not listed, deprecated (their grades on the robot show that they fail; run refuses them; write a '
+                      f'new version to use one again): {", ".join(gone)}')
+
+    return '\n\n'.join(blocks)

@@ -1,6 +1,6 @@
 # Skill package and skill graduation (design, partly built)
 
-Status: draft for review, 2026-11-05. Changed on 2026-11-05: one skill package on the NUC, not one package per device (see "Per-device packages (deferred)"). Changed on 2026-11-19: why compositions exist ("Where the agent decides"), and a skill's evidence is the agent's grade of each step ("Credit assignment"). Built since: one package, live skills, agent-written skills, code skills, the grades of steps, graduation (computed, shown), tree skills. Changed on 2026-11-20: no tool only for trees; the agent writes a tree like any skill.
+Status: draft for review, 2026-11-05. Changed on 2026-11-05: one skill package on the NUC, not one package per device (see "Per-device packages (deferred)"). Changed on 2026-11-19: why compositions exist ("Where the agent decides"), and a skill's evidence is the agent's grade of each step ("Credit assignment"). Built since: one package, live skills, agent-written skills, code skills, the grades of steps, graduation (computed, shown), tree skills. Changed on 2026-11-20: no tool only for trees; the agent writes a tree like any skill. Maturity at run time is built ("Graduation").
 
 ## Goal
 
@@ -62,11 +62,11 @@ A skill goes up in maturity as it is used more and is reliable.
 | Maturity | Planner | Real robot | How it gets here |
 |---|---|---|---|
 | `untested` | yes, shown last | yes, a person approves each step at the gate | new skill or new version |
-| `wip` | yes, shown after `tested` skills | yes, in a tree with a fallback | robot: n ≥ 5 and reliability ≥ 0.6 |
-| `tested` | yes, shown first | yes | robot: n ≥ 10, reliability ≥ 0.8, and no failure in the last 10 |
-| `deprecated` | hidden | no | robot: n ≥ 10 and the upper bound ≤ 0.2; earned only, a contract cannot say it |
+| `wip` | yes, shown after `tested` skills | yes, a person approves each step at the gate | robot: n ≥ 5 and reliability ≥ 0.6 |
+| `tested` | yes, shown first | yes; earned on the robot, it runs with no question at the gate (`gate_trusts_tested`, default true) | robot: n ≥ 10, reliability ≥ 0.8, and no failure in the last 10 |
+| `deprecated` | hidden; the last catalog line names it | no, `run` refuses it | robot: n ≥ 10 and the upper bound ≤ 0.2; earned only, a contract cannot say it |
 
-The planner order and the robot column are the plan for when maturity is used at run time ("Not yet" below).
+Run time uses the planner order and the robot column ("At run time" below).
 
 - **Reliability** is the Wilson lower bound of the success rate at 80 % (decided 2026-11-19). A skill does not go up after a few lucky successes. At 80 %, 5 of 5 gives 0.75 and 10 of 10 gives 0.86. At 95 %, `tested` would need 16 successes in a row.
 - **`deprecated`** needs n ≥ 10 and the upper Wilson bound ≤ 0.2: the skill is reliably bad. 1 of 10 is not yet deprecated (upper bound 0.28).
@@ -77,7 +77,9 @@ The planner order and the robot column are the plan for when maturity is used at
 - **The earned maturity is computed, not written** (decided 2026-11-19). `orchestrator/graduation.py` makes it from the log when the catalog or the Skills tab is read. No file changes.
 - **What is shown** is the higher of the contract's `maturity` (a person's word) and the earned one. `deprecated` always wins. The catalog says `maturity: wip (graded on the robot, this version: 6 worked, 0 failed)`, and the Skills tab shows `wip 6/6`.
 - The names stay `untested`, `wip` and `tested`. `deprecated` is an earned value only.
-- **Not yet:** maturity changes nothing at run time: not the planner order, and not the rule that only a `wip` or `tested` tree runs a blind segment. Built: the shown maturity of a composition is at most that of its lowest part.
+- **At run time (built 2026-11-20, `graduation.at_run_time`):** the catalog order, the gate and the refusal of a deprecated skill use the shown maturity. A stale skill counts as `untested` there, because its code changed under it; a stale part makes its composition stale too. A tree is `tested` only when all its parts are: the shown maturity of a composition is at most that of its lowest part. Only an earned `tested` passes the gate with no question, not a contract's word. `run` refuses a skill with a deprecated part too.
+- **No `wip` rule (decided 2026-11-20):** a `wip` skill runs as its own step, with the gate. A rule to run it only in a tree with a fallback would stop it from earning `tested`.
+- **No blind rule:** the agent warns and tries when no trusted tree exists ("Compositions"), so run time does not refuse an untested tree in a blind segment.
 
 ### Credit assignment: the agent grades each step
 

@@ -299,3 +299,144 @@ def test_a_discovery_task_runs_no_skill_and_has_no_time_limit_or_idle_speech(tmp
     assert not d.replies[0]['ok'] and 'never moves the robot' in d.replies[0]['message'] and d.tasks.task.steps == 0
     assert d.opened[-1]['discovery'] and 'discovery' in task_summary(d.opened[-1]) and d.said == []
     assert d.desk.task is not None                                          # still open after max_task_s
+
+
+class FakeGraduation:
+    """What each skill earned, as Graduation.of gives it"""
+
+    def __init__(self, maturities: dict, earned: dict | None = None, broken: Exception | None = None):
+        self.maturities = maturities
+        self.earned     = maturities if earned is None else earned      # what the grades gave; maturities: what is shown
+        self.broken     = broken
+
+    def of(self, skill, written):
+        if self.broken:
+            raise self.broken
+
+        return {'maturity': self.maturities.get(skill, written), 'earned': self.earned.get(skill, 'untested'),
+                'worked': 0, 'failed': 0, 'capped_by': ''}
+
+
+def _say(d):
+    _command(d, op='run', skill='say', inputs={'text': 'hi'}, subgoal='greet')
+
+
+def test_a_tested_skill_runs_with_no_question_unless_it_is_stale_or_the_switch_is_off(tmp_path):
+    requests = []
+    d        = _desk(FakeRunner(), tmp_path, gate=StepGate(requests.append), graduation=FakeGraduation({'say': 'tested'}),
+                     trust_tested=True)
+    _say(d)
+
+    assert d.replies[0]['status'] == 'success' and requests == []
+    passed = next(event for event in d.tracer.events if event['kind'] == 'step_gate')
+    assert (passed['state'], passed['by'], passed['step']) == ('approved', 'maturity', 1)
+
+    for limits in ({'trust_tested': True, 'stale': lambda: {'say': 'its own contract was edited'}}, {'trust_tested': False}):
+        asked = []
+        d     = _desk(FakeRunner(), tmp_path, gate=StepGate(asked.append), graduation=FakeGraduation({'say': 'tested'}), **limits)
+        _gated_run(d, lambda request: d.desk.gate.decide({'id': request['id'], 'approve': True}))
+        assert asked[0]['skill'] == 'say'
+
+
+def test_a_deprecated_skill_does_not_run_and_the_catalog_leaves_it_out(tmp_path):
+    runner = FakeRunner()
+    d      = _desk(runner, tmp_path, graduation=FakeGraduation({'say': 'deprecated'}),
+                    stale=lambda: {'say': 'its repo changed'})             # stale too: still deprecated, not untested
+    _say(d)
+
+    assert not d.replies[0]['ok'] and 'say is deprecated' in d.replies[0]['message'] and runner.calls == []
+
+    _command(d, op='skills')
+    catalog = d.replies[1]['catalog']
+    assert '## say' not in catalog and catalog.endswith('write a new version to use one again): say')
+
+
+def test_the_catalog_lists_the_most_trusted_first_and_a_stale_skill_as_untested(tmp_path):
+    d     = _desk(FakeRunner(), tmp_path, graduation=FakeGraduation({'say': 'tested', 'navigate_to': 'wip', 'track': 'tested'}),
+                  stale=lambda: {'track': 'its repo changed'})
+    _command(d, op='skills')
+    heads = [line.split()[1] for line in d.replies[0]['catalog'].splitlines() if line.startswith('## ')]
+
+    assert heads[:2] == ['say', 'navigate_to'] and heads.index('track') > 1
+    assert heads[2:] == sorted(heads[2:])                                     # the untested ones by name
+
+
+def _asked(tmp_path, **limits) -> list:
+    """The requests of the gate for one say step: [] when it ran with no question"""
+    asked = []
+    d     = _desk(FakeRunner(), tmp_path, gate=StepGate(asked.append), trust_tested=True, **limits)
+    thread = threading.Thread(target=_say, args=(d,))
+    thread.start()
+
+    while d.desk.gate.request is None and thread.is_alive():
+        thread.join(0.01)
+
+    if d.desk.gate.request is not None:
+        d.desk.gate.decide({'id': d.desk.gate.request['id'], 'approve': True})
+
+    thread.join(5.0)
+    assert not thread.is_alive()
+    return asked
+
+
+def test_only_a_tested_skill_that_earned_it_with_no_stale_part_passes_the_gate_with_no_question(tmp_path):
+    tree = lambda name: {'calls': ['track'], 'versions': {'say': 'v', 'track': 'v'}, 'unknown': False} if name == 'say' else {}
+
+    both = {'say': 'tested', 'track': 'tested'}
+
+    assert _asked(tmp_path, graduation=FakeGraduation(both), composition=tree) == []
+    assert _asked(tmp_path, graduation=FakeGraduation({'say': 'tested'}, earned={}))             # a person's word only
+    assert _asked(tmp_path, graduation=FakeGraduation(both, earned={'say': 'tested'}), composition=tree)   # its part's word
+    assert _asked(tmp_path, graduation=FakeGraduation(both), composition=tree,
+                  stale=lambda: {'track': 'its repo changed'})                                       # its part is stale
+
+
+def test_a_deprecated_part_or_unread_stale_skills_still_refuse_and_bad_grades_do_not_stop_a_step(tmp_path):
+    tree = lambda name: {'calls': ['track']} if name == 'say' else {}
+    d    = _desk(FakeRunner(), tmp_path, graduation=FakeGraduation({'track': 'deprecated'}), composition=tree)
+    _say(d)
+    assert d.replies[0]['status'] == 'refused' and d.replies[0]['message'].startswith('track is deprecated')
+    assert [event['state'] for event in d.tracer.events if event['kind'] == 'step_gate'] == ['refused']
+    _command(d, op='skills')
+    assert '## say' not in d.replies[1]['catalog'] and d.replies[1]['catalog'].endswith('say (calls track), track')
+
+    def unread():
+        raise OSError('stamps')
+
+    d = _desk(FakeRunner(), tmp_path, graduation=FakeGraduation({'say': 'deprecated'}), stale=unread)
+    _say(d)
+    assert d.replies[0]['status'] == 'refused'
+
+    d = _desk(FakeRunner(), tmp_path, graduation=FakeGraduation({}, broken=UnicodeDecodeError('utf-8', b'', 0, 1, 'bad')))
+    _say(d)
+    assert d.replies[0]['status'] == 'success'
+    assert any(event['kind'] == 'maturity' and 'counts as untested' in event['text'] for event in d.tracer.events)
+
+    d = _desk(FakeRunner(), tmp_path, graduation=FakeGraduation({'say': 'tested'}), stale=unread)
+    _command(d, op='skills')                                                   # the catalog still comes
+    assert d.replies[0]['ok'] and 'counts as untested; test it before you trust it: the stale skills could not be read' in d.replies[0]['catalog']
+
+
+def test_unread_stale_skills_make_the_gate_ask_and_a_stale_part_moves_its_tree_down_the_catalog(tmp_path):
+    def unread():
+        raise OSError('stamps')
+
+    assert _asked(tmp_path, graduation=FakeGraduation({'say': 'tested'}), stale=unread)
+
+    tree = lambda name: {'calls': ['track']} if name == 'say' else {}
+    d    = _desk(FakeRunner(), tmp_path, graduation=FakeGraduation({'say': 'tested', 'navigate_to': 'wip'}), composition=tree,
+                 stale=lambda: {'track': 'its repo changed'})
+    _command(d, op='skills')
+    catalog = d.replies[0]['catalog']
+    heads   = [line.split()[1] for line in catalog.splitlines() if line.startswith('## ')]
+
+    assert heads[0] == 'navigate_to' and 'counts as untested; test it before you trust it: its part track is stale' in catalog
+
+
+def test_a_stale_deprecated_skill_stays_out_of_the_catalog(tmp_path):
+    from orchestrator.tasks import describe_catalog
+
+    d       = _desk(FakeRunner(), tmp_path)
+    catalog = describe_catalog(d.tasks.registry, set(), {'say': 'its repo changed'}, FakeGraduation({'say': 'deprecated'}).of)
+
+    assert '## say' not in catalog and catalog.endswith('use one again): say')
