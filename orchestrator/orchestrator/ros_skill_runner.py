@@ -379,8 +379,8 @@ class RosSkillRunner:
             if interface.transport == 'compare':
                 value, equals = str(inputs['value']), str(inputs['equals'])
                 return _DoneHandle(value == equals, f'{value} {"==" if value == equals else "!="} {equals}')
-        except (AttributeError, ValueError, TypeError, KeyError, ModuleNotFoundError) as error:
-            return _DoneHandle(False, f'cannot call {contract.name}: {error}')
+        except (AttributeError, ValueError, TypeError, KeyError, AssertionError, ModuleNotFoundError) as error:
+            return _DoneHandle(False, f'cannot call {contract.name}: {error}')     # AssertionError: a field's type
 
         return _DoneHandle(False, f'transport {interface.transport} is not supported by this runner')
 

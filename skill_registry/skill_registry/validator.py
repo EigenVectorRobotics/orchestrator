@@ -2,7 +2,7 @@ import xml.etree.ElementTree as ElementTree
 
 from dataclasses import dataclass, field
 
-from .contract import DEFAULT_ESSENTIAL_DEVICES
+from .contract import DEFAULT_ESSENTIAL_DEVICES, RESERVED_PORTS
 from .registry import Registry
 
 
@@ -28,7 +28,6 @@ REQUIRED_ATTRIBUTES = {
 }
 FALLBACK_NODES = {'Fallback', 'ReactiveFallback'}
 GENERIC_LEAVES = {'Action', 'Condition'}             # <Action ID="skill"/> form
-RESERVED_PORTS = {'name', 'ID', '_description', '_skipIf', '_successIf', '_failureIf', '_while', '_onSuccess', '_onFailure', '_onHalted', '_post'}
 
 
 NOT_SKILLS = CONTROL_NODES | DECORATOR_NODES | BUILTIN_LEAVES | {'SubTree'}

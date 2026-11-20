@@ -29,6 +29,7 @@ def test_the_grammar_names_every_transport_and_default_and_its_example_is_a_cont
     ({'inputs': 'text'},                                       'lists of ports'),
     ({'inputs': ['text']},                                     'a port is a mapping'),
     ({'inputs': [{'type': 'string'}]},                         'a port needs name'),
+    ({'inputs': [{'name': 'name', 'type': 'string'}]},         'set field: name'),            # a tree never sets it
     ({'device': None},                                         'needs device'),               # YAML null, not 'None'
     ({'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String', 'fixed': 'data'}},
                                                                'fixed is a dict'),            # it reached ROS as an

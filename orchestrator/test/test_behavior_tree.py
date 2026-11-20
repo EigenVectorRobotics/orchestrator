@@ -124,6 +124,18 @@ def test_missing_blackboard_entry_fails_the_skill():
     assert 'nowhere' in tree.root.message
 
 
+def test_a_blackboard_value_of_another_type_fails_the_skill_before_it_reaches_ros():
+    runner = FakeRunner()                       # 2026-11-20: a place's pose on a string port stopped the executor
+    tree   = _tree('<say text="{panel}"/>', runner, blackboard={'panel': {'x': 3.0, 'y': 4.0, 'yaw': 0.0}})
+
+    assert tree.tick() == Status.FAILURE
+    assert 'text takes a string' in tree.root.message and runner.calls == []
+
+    tree = _tree('<say text="{floor}"/>', runner, blackboard={'floor': 2})   # a number on a text port goes as text
+
+    assert _run(tree) == Status.SUCCESS and runner.calls[0][1]['text'] == '2'
+
+
 def test_subtree_and_events():
     events   = []
     xml_text = (

@@ -84,6 +84,9 @@ def generate_launch_description():
             package='orchestrator',
             executable='executor_node',
             output='screen',
+            # With this, each message setter checks the type of its field and gives a Python error. Without it, only the
+            # C code of rosidl checks, and its assert stops the executor (2026-11-20). A message type reads it on import
+            additional_env={'ROS_PYTHON_CHECK_FIELDS': '1'},
             parameters=[*shared, {'require_recorder': PythonExpression(["'", record, "' == 'true'"]),
                                   'step_gate': step_gate, 'write_skill': LaunchConfiguration('write_skill'),
                                   'gate_trusts_tested': PythonExpression(["'", LaunchConfiguration('gate_trusts_tested'), "' == 'true'"]),

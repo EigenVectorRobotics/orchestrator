@@ -93,9 +93,27 @@ def parse_pose(text: str) -> dict:
     return pose
 
 
+TYPED = {'int': (int,), 'float': (int, float), 'bool': (bool,), 'pose': (dict,)}     # exact types: True is not an int
+
+
+def _typed(value, port_type: str, port_name: str):
+    """A value from the blackboard or a code skill, checked against its port. A pose on a text field reached the C code
+    of rosidl, and its assert stopped the executor (2026-11-20). So a mismatch fails the step here, with a clear message"""
+    if port_type in ('string', 'enum'):
+        if isinstance(value, dict):
+            raise InputError(f'{port_name} takes a {port_type}, not {value!r}')
+
+        return str(value) if type(value) in (bool, int, float) else value     # a message passes: ground's detections
+
+    if type(value) not in TYPED.get(port_type, (type(value),)) or port_type == 'pose' and not ('x' in value and 'y' in value):
+        raise InputError(f'{port_name} takes a {port_type}, not {value!r}')
+
+    return value
+
+
 def _convert(value, port_type: str, port_name: str):
     if not isinstance(value, str):
-        return value                            # from the blackboard, already typed
+        return _typed(value, port_type, port_name)
 
     try:
         if port_type == 'int':

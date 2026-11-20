@@ -20,6 +20,9 @@ PORT_TYPES    = ('string', 'int', 'float', 'bool', 'pose', 'enum')
 WHOLE_MESSAGE = '.'                  # Port.field value: the port is the whole message, e.g. a PoseStamped goal
 NAME          = re.compile(r'^[a-z][a-z0-9_]{0,62}$')
 NAME_RULE     = 'a skill name is snake_case (a-z, 0-9, _), at most 63 characters'
+# BehaviorTree.CPP keeps these attributes of a node for itself: name is the label of the node. A port with one of
+# these names never gets a value. The validator also leaves them out
+RESERVED_PORTS = {'name', 'ID', '_description', '_skipIf', '_successIf', '_failureIf', '_while', '_onSuccess', '_onFailure', '_onHalted', '_post'}
 AGENT_MARK    = '# written by the agent with write_skill; a person may edit it, and then remove this line\n'
 # A contract file that starts with AGENT_MARK loads at maturity untested: the agent does not grade its own skills
 
@@ -210,6 +213,10 @@ def _parse_ports(raw_ports: list | None, skill_name: str) -> list[Port]:
     for port in ports:
         if port.values and not port.choices:
             port.choices = list(port.values)
+
+        if isinstance(port.name, str) and port.name in RESERVED_PORTS:
+            raise ContractError(f'{skill_name}: port {port.name} has a name that a behavior tree keeps for itself, so '
+                                f'it never gets a value; give it another name and set field: {port.name}')
 
         if port.type not in PORT_TYPES:
             raise ContractError(f'{skill_name}: port {port.name} has unknown type {port.type}; use {one_of(PORT_TYPES)}')
