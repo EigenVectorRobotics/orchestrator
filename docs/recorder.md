@@ -1,11 +1,11 @@
 # Run recorder and retrospection (design, partly built)
 
-Status: 2026-11-19. Built: `orchestrator/recording.py`, `orchestrator/run_recorder.py`, `retrospect list` and `retrospect show` (`orchestrator/retrospect.py`). Not built yet: the clock offsets, `retrospect blame`, `draft-entry`, `counts` and `du`. Model: HomeBody's `session/recorder.py` and `live_recorder.py` (Stanford-TML/homebody, 2388aa4).
+Status: 2026-11-20. Built: `orchestrator/recording.py`, `orchestrator/run_recorder.py`, the agent's words in each run, and `retrospect list`, `show` and `blame` (`orchestrator/retrospect.py`). Not built yet: the clock offsets, `counts` and `du`. Model: HomeBody's `session/recorder.py` and `live_recorder.py` (Stanford-TML/homebody, 2388aa4).
 
 ## Goal
 
 - Every run on the robot leaves one folder on the NUC that has everything needed to understand it later: what code and contracts ran, what the agent saw and decided, what each skill did, and the sensor data around it.
-- A **retrospection operator** (a person, a session, or both) reads these folders after the runs. It finds what caused each failure, drafts claims, and makes the counts for skill and observation graduation (`docs/knowledge.md`).
+- A **retrospection operator** (a person, a session, or both) reads these folders after the runs. It finds what caused each failure, writes claims as knowledge notes, and makes the counts for skill and observation graduation (`docs/knowledge.md`).
 - It works with no cloud link (the elevator): it writes only to the NUC's disk.
 
 ## What we have now
@@ -84,8 +84,8 @@ A tool `retrospect` (a CLI first; a session uses it, as `agent_cli`):
 - `retrospect list [--since]`: runs with their outcome, step count, failed steps and the task (built).
 - `retrospect show <run>` (a run_id or a key, built): it shows the plans. Then it shows each step with its calls and the agent's grade of the step. A call has its status, inputs, time and outputs, and a failure has its last feedback. Then come the refusals, what the run left, and its folder. Not yet: links to frames.
 - `retrospect blame <run>` (built): the evidence of a failure, in time order. It starts at the step before the first failed step (the decision that led there) and goes to the end. It gives each step, its calls and the agent's words from `words.jsonl`. Of the feedback of a call, it gives the state at each change and the last sample. The state is the sample with no fractions and no time fields. It does not say a cause: the agent finds the cause and grades the steps. Not yet: frames (the bag has no camera, and the clock offsets are not known).
-- `retrospect draft-entry <run>`: drafts a claim for the knowledge store, with links to the run. The operator approves the exact text before it goes in.
-- **Who approves:** the operator, for now. Later, the agent: see `docs/knowledge.md`, "Approval by the agent".
+- No `draft-entry`: after `blame`, the agent writes what it found with `knowledge note "TEXT" --by agent:task --run <run_id> --evidence step:<n> --about skill=<name>`. The claim then links to the run. It goes in the store at once, as an observation.
+- **Who approves a fact:** the operator (`knowledge approve`), for now. Later, the agent: see `docs/knowledge.md`, "Approval by the agent".
 - `retrospect counts`: success and failure counts per `skill@version`, per decision, per place, for `docs/knowledge.md`.
 
 ## Open questions

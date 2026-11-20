@@ -101,8 +101,8 @@ STEP_GRADING = ('- After the task (or after a step), grade the skill of each ste
 
 RETROSPECT   = ('- Read a run again: `retrospect show <run_id>` gives each step with its calls, their inputs, the '
                 'feedback of a failure, and its grade. `retrospect blame <run_id>` gives the evidence of a failure in time '
-                'order: the calls with their feedback, and your words then; you find the cause. `retrospect list` gives '
-                'the earlier runs. Read them before you write a tree or a "When ..., do ..." note.')
+                'order: the calls with their feedback, and your words then; you find the cause and write it as a note. '
+                '`retrospect list` gives the earlier runs. Read them before you write a tree or a "When ..., do ..." note.')
 
 
 def place_text(info: dict) -> str:
