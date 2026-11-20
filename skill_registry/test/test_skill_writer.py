@@ -245,3 +245,48 @@ def test_write_skill_writes_only_in_the_skills_own_folder_through_the_workspace_
     assert written == ['repo/skills/greet/code.py', 'repo/skills/greet/contract.yaml',
                        'repo/skills/greet/old/code.1.py', 'repo/skills/greet/old/contract.1.yaml']
     assert Registry.from_directory(tmp_path / 'agent' / 'skills').get('greet') == registry.get('greet')
+
+
+TREE = {'name': 'greet_twice', 'kind': 'action', 'device': 'nuc', 'timeout_s': 10, 'interface': {'transport': 'tree'},
+        'inputs': [{'name': 'text', 'type': 'string'}]}
+
+
+def _xml(*leaves):
+    return f'<root BTCPP_format="4"><BehaviorTree ID="main"><Sequence>{"".join(leaves)}</Sequence></BehaviorTree></root>'
+
+
+def test_a_tree_skill_saves_its_checked_tree_and_needs_the_cloud_when_a_part_does(tmp_path):
+    from skill_registry.skill_writer import TREE_MARK
+
+    writer, registry, _ = _writer(tmp_path)
+    assert writer.write(yaml.safe_dump(SAY))['ok']
+    assert writer.write(yaml.safe_dump(SAY | {'name': 'ask_cloud', 'needs_cloud': True}))['ok']
+
+    assert 'needs its tree too' in writer.write(yaml.safe_dump(TREE))['message']
+    assert 'only for a skill with transport tree' in writer.write(yaml.safe_dump(SAY), tree=_xml('<say_it text="hi"/>'))['message']
+    assert 'unknown' in writer.write(yaml.safe_dump(TREE), tree=_xml('<fly_away/>'))['message']
+    assert 'cannot run itself' in writer.write(yaml.safe_dump(TREE), tree=_xml('<greet_twice text="hi"/>'))['message']
+    assert not (tmp_path / 'greet_twice').exists()                       # nothing refused is kept
+
+    reply = writer.write(yaml.safe_dump(TREE), tree=_xml('<say_it text="{text}"/>', '<say_it text="again"/>'))
+
+    assert reply['ok'] and reply['message'].endswith('with its tree') and not registry.get('greet_twice').needs_cloud
+    assert (tmp_path / 'greet_twice' / 'tree.xml').read_text().startswith(TREE_MARK)
+    assert writer.write(yaml.safe_dump(TREE | {'name': 'ask_twice'}), tree=_xml('<ask_cloud text="hi"/>'))['ok']
+    assert registry.get('ask_twice').needs_cloud                          # in the cabin it is no better than its part
+    assert writer.write(yaml.safe_dump(TREE | {'name': 'ask_code', 'interface': {'transport': 'code'}}),
+                        code='def run(skills, inputs):\n    return skills.run("ask_cloud", text="hi")\n')['ok']
+    assert registry.get('ask_code').needs_cloud                           # a code skill too
+    assert writer.write(yaml.safe_dump(TREE | {'name': 'ask_twice', 'timeout_s': 20}))['ok']    # the contract only
+    assert registry.get('ask_twice').needs_cloud                          # its tree on disk still calls the cloud
+
+
+def test_a_tree_may_use_a_skill_that_can_drop_out_and_a_new_transport_moves_the_old_body_aside(tmp_path):
+    writer, registry, _ = _writer(tmp_path)
+    assert writer.write(yaml.safe_dump(SAY | {'device': 'thor'}))['ok']
+    assert writer.write(yaml.safe_dump(TREE), tree=_xml('<say_it text="{text}"/>'))['ok']     # as a step: the agent recovers
+    assert not writer.write('name: broken\ninterface: action\n')['ok']                    # refused, not a crash
+
+    assert writer.write(yaml.safe_dump(TREE | {'interface': {'transport': 'code'}}),
+                        code='def run(skills, inputs):\n    return {}\n')['ok']
+    assert not (tmp_path / 'greet_twice' / 'tree.xml').exists() and (tmp_path / 'greet_twice' / 'code.py').exists()

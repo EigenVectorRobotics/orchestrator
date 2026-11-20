@@ -36,22 +36,38 @@ class SkillRunner(Protocol):
     def start(self, contract: Contract, inputs: dict) -> SkillHandle: ...
 
 
-class Transports:
-    """The one place a call goes by its transport: a code skill to the code runner (code_skill.py), every other
-    transport to the skill runner (ros_skill_runner.py)"""
+MAX_DEPTH = 3              # code skills and tree skills, one inside another: enough to build on, not enough to run away
 
-    def __init__(self, runner: SkillRunner, code=None):
-        self.runner = runner
-        self.code   = code                  # None: this executor runs no code skills
+
+class Transports:
+    """The one place a call goes by its transport: a code skill to the code runner (code_skill.py), a tree skill to
+    the tree runner (tree_skill.py), every other transport to the skill runner (ros_skill_runner.py)"""
+
+    def __init__(self, runner: SkillRunner, code=None, tree=None):
+        self.runner      = runner
+        self.composites  = {'code': code, 'tree': tree}     # None: this executor runs no skill of that transport
 
     def check(self, contract: Contract, path: str):
         """At build time: a call that no runner here can start is a tree error, not a failure later"""
-        if contract.interface.transport == 'code' and self.code is None:
-            raise TreeError(f'{path}: {contract.name} is a code skill, and this executor runs none')
+        transport = contract.interface.transport
 
-    def start(self, contract: Contract, inputs: dict, context: Context, path: str) -> SkillHandle:
-        if contract.interface.transport == 'code':
-            return self.code.start(contract, inputs, context, chain=path)
+        if transport in self.composites and self.composites[transport] is None:
+            raise TreeError(f'{path}: {contract.name} is a {transport} skill, and this executor runs none')
+
+    def start(self, contract: Contract, inputs: dict, context: Context, path: str, inside: tuple = ()) -> SkillHandle:
+        """inside: the compositions this call runs in, outermost first (each composition gives it to its leaves)"""
+        if composite := self.composites.get(contract.interface.transport):
+            chain = (*inside, contract.name)                # the one check for code and trees, at their start
+
+            if contract.name in inside:
+                return DoneHandle(False, f'{contract.name} is already running ({" -> ".join(chain)}): '
+                                         'a composition cannot call itself')
+
+            if len(chain) > MAX_DEPTH:
+                return DoneHandle(False, f'{len(chain)} compositions deep ({" -> ".join(chain)}), too deep: '
+                                         f'the limit is {MAX_DEPTH}; call plain skills from here')
+
+            return composite.start(contract, inputs, context, chain=path, inside=chain)
 
         return self.runner.start(contract, inputs)
 
@@ -151,6 +167,7 @@ class SkillLeaf(TreeNode):
         self.start_time = 0.0
         self.inputs     = {}
         self.outputs    = {}                # the last call's outputs, for whoever asked for the call
+        self.inside     = ()                # the compositions this leaf runs in; the one that builds it sets it
 
     def _tick(self) -> Status:
         if self.handle is None:
@@ -162,7 +179,7 @@ class SkillLeaf(TreeNode):
 
             self.message    = ''
             self.start_time = self.context.clock()
-            self.handle     = self.transports.start(self.contract, self.inputs, self.context, self.path)
+            self.handle     = self.transports.start(self.contract, self.inputs, self.context, self.path, self.inside)
 
         status = self.handle.poll()
 
@@ -257,8 +274,8 @@ class SkillLeaf(TreeNode):
                 self.context.blackboard[key] = outputs[port.name]
 
 
-def make_leaf_factory(registry: Registry, runner: SkillRunner, code=None):
-    transports = Transports(runner, code)
+def make_leaf_factory(registry: Registry, runner: SkillRunner, code=None, tree=None):
+    transports = Transports(runner, code, tree)
 
     def build_leaf(skill_name: str, path: str, attributes: dict, context: Context) -> TreeNode:
         contract = registry.get(skill_name)

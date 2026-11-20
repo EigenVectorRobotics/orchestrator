@@ -10,12 +10,16 @@ count, and only for the version that is on disk now (step_grades.py). Reliabilit
   deprecated  n >= 10 and the upper bound <= 0.2: it is reliably bad
 
 The catalog and the Skills tab show effective(). It is the higher of the contract's maturity (a person's word) and the
-earned one. deprecated always wins, and only a skill can earn it: a contract cannot say it.
+earned one. deprecated always wins, and only a skill can earn it: a contract cannot say it. A composition (a code
+skill or a tree skill) is never more trusted than its weakest part: what it shows is at most the lowest that its
+parts show, and a deprecated part counts as untested there.
 
 "The last 10" are the last 10 grades by the time the agent gave them, not by the order of the commits.
 """
 
 import threading
+
+from typing import Callable
 
 from skill_registry.contract import MATURITIES
 
@@ -57,28 +61,50 @@ def effective(written: str, earned: str) -> str:
     return earned if earned == 'deprecated' else max(written, earned, key=ORDER.index)
 
 
+def rank(maturity: str) -> int:
+    """How far up a maturity is; a deprecated part counts as untested, because a composition earns its own"""
+    return ORDER.index(maturity) if maturity in ORDER else 0
+
+
 class Graduation:
     """The earned maturity of each skill, from the step grade log; grouped again only when the log changes"""
 
-    def __init__(self, steps: StepGrades):
-        self.steps   = steps                     # its log, and the version of a skill on disk now: only its grades count
-        self._lock   = threading.Lock()
-        self._lines  = None                      # the list read_lines gave last: the same list while the log is the same
-        self._grades = {}                        # (skill, version) -> [True | False], oldest first
+    def __init__(self, steps: StepGrades, composition: Callable[[str], dict] = lambda name: {},
+                 written_of: Callable[[str], str | None] = lambda name: None):
+        self.steps       = steps                 # its log, and the version of a skill on disk now: only its grades count
+        self.composition = composition           # a composition's parts at every depth (skill_review.composition)
+        self.written_of  = written_of            # a part's contract maturity; None: the library does not have it
+        self._lock       = threading.Lock()
+        self._lines      = None                  # the list read_lines gave last: the same list while the log is the same
+        self._grades     = {}                    # (skill, version) -> [True | False], oldest first
 
-    def of(self, skill: str, written: str) -> dict:
-        """{maturity (to show), earned, worked, failed} of the skill's version now, on the robot. written: the
-        contract's maturity"""
+    def of(self, skill: str, written: str, written_of: Callable[[str], str | None] | None = None) -> dict:
+        """{maturity (to show), earned, worked, failed, capped_by} of the skill's version now, on the robot. written:
+        the contract's maturity. capped_by: the weakest part of a composition, when it holds the composition down.
+        written_of: the parts' contract maturities, when the caller has them already"""
+        found = self._earned(skill)
+        shown = effective(written, found['earned'])
+        found |= {'maturity': shown, 'capped_by': ''}
+
+        for part in self.composition(skill).get('calls', []):
+            if (part_written := (written_of or self.written_of)(part)) is None:
+                continue                         # a part the library does not have: it holds nothing down
+
+            part_shown = effective(part_written, self._earned(part)['earned'])
+
+            if rank(part_shown) < rank(found['maturity']):
+                found |= {'maturity': ORDER[rank(part_shown)], 'capped_by': part}
+
+        return found
+
+    def _earned(self, skill: str) -> dict:
         try:
             version = self.steps.version(skill)
         except OSError:                          # e.g. its folder went while it was read: no grade is of it
             version = None
 
         outcomes = self._read().get((skill, version), []) if version else []
-        earned   = earn(outcomes)
-
-        return {'maturity': effective(written, earned), 'earned': earned, 'worked': sum(outcomes),
-                'failed': len(outcomes) - sum(outcomes)}
+        return {'earned': earn(outcomes), 'worked': sum(outcomes), 'failed': len(outcomes) - sum(outcomes)}
 
     def _read(self) -> dict:
         with self._lock:                         # read inside: a thread with an older list must not build from it

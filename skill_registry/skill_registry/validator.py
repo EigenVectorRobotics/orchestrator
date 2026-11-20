@@ -31,6 +31,35 @@ GENERIC_LEAVES = {'Action', 'Condition'}             # <Action ID="skill"/> form
 RESERVED_PORTS = {'name', 'ID', '_description', '_skipIf', '_successIf', '_failureIf', '_while', '_onSuccess', '_onFailure', '_onHalted', '_post'}
 
 
+NOT_SKILLS = CONTROL_NODES | DECORATOR_NODES | BUILTIN_LEAVES | {'SubTree'}
+
+
+def skill_name(element: ElementTree.Element) -> str | None:
+    """The skill a tree element runs: its tag, or the ID of an <Action ID=".."/>; None for a node of the engine"""
+    if element.tag in NOT_SKILLS:
+        return None
+
+    return element.get('ID') if element.tag in GENERIC_LEAVES else element.tag
+
+
+def tree_skills(xml_text: str) -> list[str]:
+    """The skills a tree runs, each once, in the order they first appear: the leaves of its BehaviorTree elements,
+    not the declarations of a TreeNodesModel. A tree that does not parse runs nothing"""
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError:
+        return []
+
+    names = []
+
+    for tree in root.findall('BehaviorTree'):
+        for element in tree.iter():
+            if element is not tree and (name := skill_name(element)) and name not in names:
+                names.append(name)
+
+    return names
+
+
 @dataclass
 class Issue:
     level:   str                 # 'error' or 'warning'
@@ -148,50 +177,48 @@ class TreeValidator:
 
             return self._walk(_Frame(subtree_root, f'{frame.path}:{tree_id}/{subtree_root.tag}', [*frame.parents, frame]))
 
-        skill_name = element.get('ID') if tag in GENERIC_LEAVES else tag
+        return self._check_skill(frame, skill_name(element))
 
-        return self._check_skill(frame, skill_name)
-
-    def _check_skill(self, frame: _Frame, skill_name: str) -> list[Issue]:
-        contract = self.registry.get(skill_name)
+    def _check_skill(self, frame: _Frame, name: str) -> list[Issue]:
+        contract = self.registry.get(name)
 
         if contract is None:
-            return [Issue('error', frame.path, f'unknown skill {skill_name}')]
+            return [Issue('error', frame.path, f'unknown skill {name}')]
 
         issues     = []
         attributes = {key: value for key, value in frame.element.attrib.items() if key not in RESERVED_PORTS}
 
         for port_name in contract.required_inputs:
             if port_name not in attributes:
-                issues.append(Issue('error', frame.path, f'{skill_name}: missing input {port_name}'))
+                issues.append(Issue('error', frame.path, f'{name}: missing input {port_name}'))
 
         known_ports = {port.name for port in [*contract.inputs, *contract.outputs]}
 
         for port_name, value in attributes.items():
             if port_name not in known_ports:
-                issues.append(Issue('error', frame.path, f'{skill_name}: unknown port {port_name}'))
+                issues.append(Issue('error', frame.path, f'{name}: unknown port {port_name}'))
                 continue
 
             port        = contract.input(port_name)
             is_variable = value.startswith('{') and value.endswith('}')   # blackboard entry, its type checked at run time
 
             if port and is_variable and not self._is_known_key(value[1:-1]):
-                issues.append(Issue('error', frame.path, f'{skill_name}: {port_name}={value} reads a key that is not a named place and that the tree never writes'))
+                issues.append(Issue('error', frame.path, f'{name}: {port_name}={value} reads a key that is not a named place and that the tree never writes'))
 
             if port and port.type == 'enum' and not is_variable and value not in port.choices:
-                issues.append(Issue('error', frame.path, f'{skill_name}: {port_name}={value} is not one of {port.choices}'))
+                issues.append(Issue('error', frame.path, f'{name}: {port_name}={value} is not one of {port.choices}'))
 
         if self.config.blind and contract.needs_cloud:
-            issues.append(Issue('error', frame.path, f'{skill_name} needs the cloud, but this tree must run blind'))
+            issues.append(Issue('error', frame.path, f'{name} needs the cloud, but this tree must run blind'))
 
         if self.config.require_fallback and contract.device not in self.config.essential_devices and not self._is_protected(frame):
-            issues.append(Issue('error', frame.path, f'{skill_name} runs on {contract.device}, which can drop out; put it in a Fallback with a recovery after it'))
+            issues.append(Issue('error', frame.path, f'{name} runs on {contract.device}, which can drop out; put it in a Fallback with a recovery after it'))
 
-        if self.config.live_skills is not None and skill_name not in self.config.live_skills:
-            issues.append(Issue('error', frame.path, f'{skill_name} is not live now'))
+        if self.config.live_skills is not None and name not in self.config.live_skills:
+            issues.append(Issue('error', frame.path, f'{name} is not live now'))
 
         if contract.maturity != 'tested':
-            issues.append(Issue('warning', frame.path, f'{skill_name} is {contract.maturity}', 'maturity'))
+            issues.append(Issue('warning', frame.path, f'{name} is {contract.maturity}', 'maturity'))
 
         return issues
 
@@ -210,7 +237,7 @@ class TreeValidator:
                     written.add(element.get('output_key', '').strip('{}'))
                     continue
 
-                contract = self.registry.get(element.get('ID') if element.tag in GENERIC_LEAVES else element.tag)
+                contract = self.registry.get(skill_name(element))
 
                 for port in contract.outputs if contract else []:
                     value = element.get(port.name, '')
@@ -258,8 +285,7 @@ class TreeValidator:
 
             return set().union(*(self._resources(child, visited_trees | {tree_id}) for child in self._trees[tree_id]))
 
-        skill_name = element.get('ID') if element.tag in GENERIC_LEAVES else element.tag
-        contract   = self.registry.get(skill_name)
+        contract   = self.registry.get(skill_name(element))
         resources  = set(contract.resources) if contract else set()
 
         for child in element:

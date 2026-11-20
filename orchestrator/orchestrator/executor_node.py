@@ -18,10 +18,12 @@ from skill_registry import agent_knowledge_dir, agent_runbook_file, stamps_file
 from .trace import Tracer
 from .knowledge import KnowledgeStore
 from .step_grades import StepGrades
+from .graduation import Graduation
 from .node_setup import load_skills
 from .vlm_client import VlmClient, VlmClientConfig
 from .skill_leaf import SkillLeaf, make_leaf_factory
 from .code_skill import CodeRunner
+from .tree_skill import TreeRunner
 from .sandbox import SandboxConfig
 from .tasks import Tasks, parse_task_request
 from skill_registry.provenance import DEFAULT_REPO_ROOTS
@@ -82,8 +84,9 @@ class ExecutorNode(Node):
         self.knowledge = KnowledgeStore(knowledge_dir)        # the task desk's; its code clock comes with the stamps
         self.gate  = self._make_gate() if self.declare_parameter('step_gate', True).value else None
         self.code  = self._make_code()
-        build_leaf = make_leaf_factory(self.registry, self.runner, self.code)
-        self.code.build_leaf = build_leaf              # a call inside a code skill is a leaf of its own
+        self.trees = TreeRunner(self.registry, str(self.skills_dir))
+        build_leaf = make_leaf_factory(self.registry, self.runner, self.code, self.trees)
+        self.code.build_leaf = self.trees.build_leaf = build_leaf   # a call inside a code skill or a tree is a leaf too
         self.tasks = Tasks(self.registry, build_leaf, self.tracer,
                            self._publish_status, self.essential_devices, make_scratch=self._run_scratch,
                            on_error=self.get_logger().error)
@@ -139,6 +142,8 @@ class ExecutorNode(Node):
             self.get_logger().info(f'write_skill on: the agent saves contracts in {self.writer.directory}')
         else:
             self.get_logger().warning('write_skill off: the agent cannot save a contract; a file put in by hand still loads')
+        steps           = StepGrades(self.knowledge.folder, version=lambda name: grade_version(self.skills_dir, name),
+                                     robot=self.declare_parameter('on_robot', False).value)   # the launch sets it; off: no grade graduates
         desk            = TaskDesk(
             self.tasks,
             lambda message: open_publisher.publish(String(data=json.dumps(message, default=str))),
@@ -154,8 +159,9 @@ class ExecutorNode(Node):
             stale=self._stale,
             ran=self.stamps.ran,
             composition=lambda name: composition(self.skills_dir, name),
-            steps=StepGrades(self.knowledge.folder, version=lambda name: grade_version(self.skills_dir, name),
-                             robot=self.declare_parameter('on_robot', False).value),   # the launch file sets it; off: no grade graduates
+            steps=steps,
+            graduation=Graduation(steps, composition=lambda name: composition(self.skills_dir, name),
+                                  written_of=lambda name: getattr(self.registry.get(name), 'maturity', None)),
         )
 
         def on_command(message: String):                # a run blocks until its step ends: not on the spin thread

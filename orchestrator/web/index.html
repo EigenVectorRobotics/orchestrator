@@ -816,8 +816,9 @@ async function loadSkills() {
 // The maturity it shows: the higher of the contract's and what it earned from the agent's grades on the robot
 function maturityPill(item) {
   const m = item.maturity, e = item.earned, n = e ? e.worked + e.failed : 0;
-  const said = n ? `graded on the robot, this version: ${e.worked} worked, ${e.failed} failed; earned ${e.earned}; the contract says ${item.contract.maturity}`
-    : `no grades on the robot for this version; the contract says ${item.contract.maturity}`;
+  const said = (n ? `graded on the robot, this version: ${e.worked} worked, ${e.failed} failed; earned ${e.earned}; the contract says ${item.contract.maturity}`
+    : `no grades on the robot for this version; the contract says ${item.contract.maturity}`)
+    + (e && e.capped_by ? `; held down by its part ${e.capped_by}` : '');
   return `<span class="tagp ${m === 'tested' ? 'tested' : m === 'deprecated' ? 'bad' : ''}" title="${said}">${m}${n ? ` ${e.worked}/${n}` : ''}</span>`;
 }
 
@@ -825,7 +826,7 @@ function pills(item) {
   const c = item.contract;
   return (toReview(item) ? '<span class="tagp">to review</span>' : '')
     + (item.error ? '<span class="tagp bad">does not load</span>' : maturityPill(item))
-    + (item.code ? '<span class="tagp">code</span>' : '')
+    + (item.code ? '<span class="tagp">code</span>' : '') + (item.tree ? '<span class="tagp">tree</span>' : '')
     + (item.stale ? `<span class="tagp warn" title="${item.stale}">stale</span>` : '')
     + (item.live === false ? '<span class="tagp off" title="Its interface is not in the ROS graph now">not live</span>' : '');
 }
@@ -873,6 +874,7 @@ function renderSkills() {
     <div class="two">${ports('Inputs', c.inputs)}${ports('Outputs', c.outputs)}</div>`}
     <details class="file"><summary>contract.yaml</summary><pre>${item.text}</pre></details>
     ${item.code ? `<details class="file"><summary>code.py</summary><pre>${item.code}</pre></details>` : ''}
+    ${item.tree ? `<details class="file"><summary>tree.xml</summary><pre>${item.tree}</pre></details>` : ''}
     <p class="hint">Keep takes the agent's mark away: the skill becomes a person's, and the agent may no longer replace it. It stays untested.
       Remove moves the folder out of the library. To change a skill, edit its file in git.</p>`;
 }

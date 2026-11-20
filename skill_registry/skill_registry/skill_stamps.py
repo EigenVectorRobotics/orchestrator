@@ -33,7 +33,8 @@ from pathlib import Path
 import yaml
 
 from .contract import Contract
-from .registry import Registry, code_file, contract_file
+from .registry import Registry, body_file, contract_file
+from .validator import tree_skills
 from .provenance import file_digest, repo_states
 
 
@@ -59,10 +60,19 @@ def called_skills(code: str) -> tuple[list[str], bool]:
     return names, unknown
 
 
+def body_parts(transport: str, body: str) -> tuple[list[str], bool]:
+    """The skills a composition runs: the calls of a code skill's Python, or the leaves of a tree skill's XML. The flag
+    says a call did not name its skill, so the list may be short"""
+    if not body:
+        return [], False
+
+    return (tree_skills(body), False) if transport == 'tree' else called_skills(body)
+
+
 def uses_of(contract: Contract, code: str = '') -> tuple[list[str], bool]:
-    """Every skill that runs as part of this one: its conditions (pre, effects, check) and, for a code skill, the
-    skills its Python calls. fallback is NOT one: it is a suggestion to the agent, not something this skill runs"""
-    names, unknown = called_skills(code) if code else ([], False)
+    """Every skill that runs as part of this one: its conditions (pre, effects, check) and, for a code skill or a
+    tree skill, its parts (code: its code.py or its tree.xml). fallback is NOT one: it is a suggestion to the agent"""
+    names, unknown = body_parts(contract.interface.transport, code)
 
     return sorted({*contract.conditions, *names}), unknown
 
@@ -129,10 +139,10 @@ class Stamps:
         return repo_states(self.repo_roots, exclude=[self.skills, *links])
 
     def code_of(self, contract: Contract) -> str:
-        """The Python of a code skill, where the runner and write_skill agree it is; '' for another transport"""
-        path = code_file(contract.name, self.skills)
-
-        return path.read_text() if contract.interface.transport == 'code' and path.is_file() else ''
+        """The Python of a code skill or the XML of a tree skill, where the runner and write_skill agree it is; '' for
+        another transport"""
+        path = body_file(contract.interface.transport, contract.name, self.skills)
+        return path.read_text() if path and path.is_file() else ''
 
     def _save(self, stamps: dict) -> None:
         """Called under the lock. A temp file per writer, then one rename, so a reader never sees half a file"""

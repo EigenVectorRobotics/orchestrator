@@ -1,6 +1,6 @@
 # Skill package and skill graduation (design, partly built)
 
-Status: draft for review, 2026-11-05. Changed on 2026-11-05: one skill package on the NUC, not one package per device (see "Per-device packages (deferred)"). Changed on 2026-11-19: why compositions exist ("Where the agent decides"), and a skill's evidence is the agent's grade of each step ("Credit assignment"). Built since: one package, live skills, agent-written skills, code skills, the grades of steps, graduation (computed, shown). Not built: trees.
+Status: draft for review, 2026-11-05. Changed on 2026-11-05: one skill package on the NUC, not one package per device (see "Per-device packages (deferred)"). Changed on 2026-11-19: why compositions exist ("Where the agent decides"), and a skill's evidence is the agent's grade of each step ("Credit assignment"). Built since: one package, live skills, agent-written skills, code skills, the grades of steps, graduation (computed, shown), tree skills. Not built: the agent's tool to write a tree from run bundles.
 
 ## Goal
 
@@ -122,17 +122,18 @@ A behavior tree is a composition that the agent makes from steps that worked, an
 - **Files:** a folder with `contract.yaml` (`interface: {transport: tree}`, its inputs and outputs) and `tree.xml`, a BehaviorTree.CPP v4 file. The tree can use only skills that the library knows, and the control nodes the engine has (Sequence, Fallback, RetryUntilSuccessful, and others).
 - **The agent writes it** with `agent_cli write-skill FILE --tree T.xml`. The tree validator checks it at once: known skills, their ports, the deny list, no loop through itself.
 - **Ports:** the tree reads its inputs as blackboard keys with the port names, for example `{goal}`. It also sees the places of the task. When it ends, each output port takes the blackboard key with its name. Nothing else goes back to the step's blackboard.
-- **It runs as one step,** in its own thread, as a code skill does. Each part is a leaf, so the contracts, the timeouts and the recorder see each part.
+- **It runs as one step.** The step's tick also ticks the tree, because nothing inside it waits for a person. Each part is a leaf, so the contracts, the timeouts and the recorder see each part.
 - **The gate (decided 2026-11-19):** a tree is just a skill. The whole tree gets the gate once, as a step: the operator runs the whole tree or not. Its parts do not ask. A code skill is the same: its calls do not ask (`gate.yaml` is gone).
 - **The result of a failed tree** says the part that failed, its path in the tree and its message. The outputs carry it as `failed_part`. The agent grades the tree, and it can grade that part.
-- **Maturity:** the shown maturity of a tree is at most the lowest shown maturity of its parts. The agent may use untested parts (decided 2026-11-19): then the tree earns nothing until its parts do.
+- **Maturity:** the shown maturity of a tree, or of a code skill, is at most the lowest shown maturity of its parts. A deprecated part counts as untested there. The agent may use untested parts (decided 2026-11-19): then the tree earns nothing until its parts do.
 - **The cloud:** a tree needs the cloud when one of its parts does.
-- **Limits:** a tree inside a tree, or inside a code skill, counts toward the same depth limit as code skills (3).
+- **Limits:** a tree inside a tree, or inside a code skill, counts toward the same depth limit as code skills (3). A tree cannot run itself, also through another tree.
+- **Built** (`orchestrator/tree_skill.py`, 2026-11-19): all of the above. The Skills tab shows the tree and a `tree` pill. The catalog says when a part holds a composition down.
 - **The cabin:** the operator approves the tree once, before the robot goes in. Nothing inside it asks, so it can run with no network.
 
 Experiment: can the agent find the compositions alone? For the test, the agent must not see trees or procedures that people wrote. Keep them outside the agent's view (the session's permissions, the code sandbox), to compare with what the agent makes.
 
-Built: task mode and one run per task (`docs/task-mode.md`), code skills, the grades of steps (`step_grades.py`, `agent_cli grade-step`), graduation (`graduation.py`). Not built yet: the maturity limit of a composition, the failed part in a composition's result, a contract for a tree (`transport: tree`), and the agent's tool to write a tree from run bundles.
+Built: task mode and one run per task (`docs/task-mode.md`), code skills, the grades of steps (`step_grades.py`, `agent_cli grade-step`), graduation (`graduation.py`), tree skills (`tree_skill.py`) with the failed part in the result and the maturity limit of a composition. Not built yet: the failed part in a code skill's result, and the agent's tool to write a tree from run bundles.
 
 ### Similar work
 

@@ -1,4 +1,4 @@
-"""A code skill: the sandbox decides, the executor does every call, and the gate list still stops the ones that move"""
+"""A code skill: the sandbox decides, and the executor does every call"""
 
 import time
 

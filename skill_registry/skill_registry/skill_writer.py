@@ -3,7 +3,9 @@ references, the ROS types), saved in its own folder of the library with AGENT_MA
 the same way in as a file that changes on disk, so the next step can run it.
 
 A code skill (transport code) is two files in its folder: the contract, and the Python that calls other skills. Both are saved
-together and both go back if either is refused, so the library never holds a contract without its code.
+together and both go back if either is refused, so the library never holds a contract without its code. A tree skill
+(transport tree) is the same, with tree.xml: a BehaviorTree of skills the library knows, checked by the tree validator.
+A tree needs the cloud when one of its parts does.
 
 The agent does not grade its own skills: a file with the mark loads at maturity untested. It may write a new version
 of a skill it wrote (the old files go to old/ in the skill's folder), never one that a person wrote. This module needs no ROS: the
@@ -19,9 +21,13 @@ from pathlib import Path
 import yaml
 
 from .contract import AGENT_MARK, Contract, ContractError, parse_contract
-from .registry import Registry, code_file, contract_file
+from .registry import CODE_FILE, TREE_FILE, Registry, body_file, code_file, contract_file, tree_file
+from .skill_stamps import body_parts
+from .validator import TreeValidator, ValidatorConfig, tree_skills
 
 CODE_MARK = '# written by the agent with write_skill; it runs in the sandbox and calls skills through the executor\n'
+TREE_MARK = '<!-- written by the agent with write_skill; it runs as one step, and each leaf is a skill -->\n'
+BODY_MARKS = {CODE_FILE: CODE_MARK, TREE_FILE: TREE_MARK}     # the agent's mark at the top of each body file
 
 
 class SkillWriter:
@@ -34,7 +40,7 @@ class SkillWriter:
         self.stamps      = stamps                 # skill_stamps.Stamps: what this skill was proved against; None: off
         self._lock       = threading.Lock()       # the timer's refresh must not read a file between its save and its check
 
-    def write(self, text: str, code: str = '') -> dict:
+    def write(self, text: str, code: str = '', tree: str = '') -> dict:
         try:
             raw = yaml.safe_load(text)
         except yaml.YAMLError as error:
@@ -57,9 +63,18 @@ class SkillWriter:
             return _refused(f'{contract.name} was written by a person; choose another name')
 
         code_path = code_file(contract.name, self.directory)
+        tree_path = tree_file(contract.name, self.directory)
 
-        if problem := _code_problem(contract, code, code_path):
+        if problem := _code_problem(contract, code, code_path) or self._tree_problem(contract, tree, tree_path):
             return _refused(problem)
+
+        body_path = body_file(contract.interface.transport, contract.name, self.directory)
+        body      = code or tree
+        kept      = body_path.read_text() if not body and body_path and body_path.is_file() else ''   # a contract-only rewrite
+
+        if any(getattr(self.registry.get(part), 'needs_cloud', False)
+               for part in body_parts(contract.interface.transport, body or kept)[0]):
+            raw['needs_cloud'] = True          # the cloud is gone in the cabin: a composition is no better than its parts
 
         errors = self.registry.admit_errors(contract) or self.type_errors(contract)
 
@@ -67,8 +82,9 @@ class SkillWriter:
             return _refused('; '.join(errors))
 
         with self._lock:
-            saved = [(code_path, self._save_code(code_path, code))] if code else []      # the code first, so a
-            saved.append((path, self._save(path, raw)))                                  # contract never loads alone
+            saved = [(body_path, self._save_body(body_path, body))] if body else []    # the body first, so a contract
+            saved += [(other, _move_aside(other)) for other in self._other_bodies(contract)]   # a new transport's old body
+            saved.append((path, self._save(path, raw)))                                # never loads alone
 
             changed, errors = self.registry.refresh(self.directory, self.type_errors)
 
@@ -87,7 +103,8 @@ class SkillWriter:
 
         message = f'{contract.name} {"replaced" if replaced else "added"}, maturity untested'
 
-        return {'ok': True, 'message': f'{message}, with its code' if code else message, 'path': str(path.parent)}
+        return {'ok': True, 'message': message + (', with its code' if code else ', with its tree' if tree else ''),
+                'path': str(path.parent)}
 
     def type_errors(self, contract: Contract) -> list[str]:
         try:
@@ -107,13 +124,38 @@ class SkillWriter:
 
         return changed
 
-    def _save_code(self, path: Path, code: str) -> Path | None:
-        """The Python of a code skill, beside its contract; an earlier version goes to old/"""
+    def _save_body(self, path: Path, body: str) -> Path | None:
+        """The Python of a code skill or the XML of a tree skill, beside its contract, with the agent's mark; an
+        earlier version goes to old/"""
         path.parent.mkdir(parents=True, exist_ok=True)
         moved = _move_aside(path)
-        path.write_text(CODE_MARK + code.removeprefix(CODE_MARK))
+        mark  = BODY_MARKS[path.name]
+        path.write_text(mark + body.removeprefix(mark))
 
         return moved
+
+    def _other_bodies(self, contract: Contract) -> list[Path]:
+        """The body files of the other transports: after code became a tree (or back), the old one must not stay, or
+        the gate, the version and the parts would still read it"""
+        own = body_file(contract.interface.transport, contract.name, self.directory)
+        return [path for name in BODY_MARKS if (path := contract_file(contract.name, self.directory).parent / name) != own
+                and path.is_file()]
+
+    def _tree_problem(self, contract: Contract, tree: str, tree_path: Path) -> str:
+        """Why the tree of a tree skill is not usable; '' if it is, or if the skill needs none"""
+        if contract.interface.transport != 'tree':
+            return 'a tree is only for a skill with transport tree' if tree else ''
+
+        if not tree:
+            return '' if tree_path.is_file() else f'{contract.name} is a tree skill, so it needs its tree too (--tree)'
+
+        if contract.name in tree_skills(tree):
+            return f'the tree of {contract.name} runs {contract.name}: a tree cannot run itself'
+
+        config = ValidatorConfig(require_fallback=False)   # as for a step: the agent sees the tree's result and recovers
+        errors = [issue for issue in TreeValidator(self.registry, config).validate(tree) if issue.level == 'error']
+
+        return '; '.join(f'{issue.path}: {issue.message}' for issue in errors)
 
     def _save(self, path: Path, raw: dict) -> Path | None:
         """Write the file; an earlier version goes to old/. Returns where it went"""

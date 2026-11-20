@@ -310,7 +310,8 @@ def describe_contract(contract: Contract, essential_devices: set[str], stale: st
 
     graded = earned and earned['worked'] + earned['failed']
     lines.append(f'maturity: {earned["maturity"] if earned else contract.maturity}' + (
-        f' (graded on the robot, this version: {earned["worked"]} worked, {earned["failed"]} failed)' if graded else ''))
+        f' (graded on the robot, this version: {earned["worked"]} worked, {earned["failed"]} failed)' if graded else '')
+        + (f' (held down by its part {earned["capped_by"]})' if earned and earned.get('capped_by') else ''))
 
     if stale:                     # its own line, as 'needs the cloud' is: maturity is the agent's word, not ours
         lines.append(f'stale, test it before you trust it: {stale}')

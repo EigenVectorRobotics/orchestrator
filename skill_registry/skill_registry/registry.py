@@ -13,6 +13,8 @@ from .contract import Contract, ContractError, load_contract
 
 CONTRACT_FILE = 'contract.yaml'          # each skill is a folder: <skills_dir>/<name>/contract.yaml
 CODE_FILE     = 'code.py'                # and, for a code skill, <skills_dir>/<name>/code.py
+TREE_FILE     = 'tree.xml'               # and, for a tree skill, <skills_dir>/<name>/tree.xml
+BODY_FILES    = {'code': CODE_FILE, 'tree': TREE_FILE}   # a composition's body, by its transport
 
 # The agent folder's names; the launch file and scripts/link_agent_dir.sh use the same
 SKILLS     = 'skills'
@@ -56,6 +58,16 @@ def agent_runbook_file() -> Path:
 
 def contract_file(name: str, directory) -> Path:
     return Path(directory) / name / CONTRACT_FILE
+
+
+def body_file(transport: str, name: str, directory) -> Path | None:
+    """The body of a composition (a code skill's Python, a tree skill's XML) by its transport; None: it has none"""
+    return Path(directory) / name / BODY_FILES[transport] if transport in BODY_FILES else None
+
+
+def tree_file(name: str, directory) -> Path:
+    """Where the BehaviorTree of a tree skill lives; the runner and write_skill must agree on it"""
+    return Path(directory) / name / TREE_FILE
 
 
 def code_file(name: str, directory) -> Path:
@@ -207,15 +219,17 @@ class Registry:
 
     @staticmethod
     def _uses(contract: Contract, directory: Path) -> list[str]:
-        """The skills this one names, and for a code skill the skills its Python calls"""
-        from .skill_stamps import called_skills      # skill_stamps imports this module
+        """The skills this one names, and for a code skill or a tree skill its parts"""
+        from .skill_stamps import body_parts         # skill_stamps imports this module
+
+        path = body_file(contract.interface.transport, contract.name, directory)
 
         try:
-            code = code_file(contract.name, directory).read_text() if contract.interface.transport == 'code' else ''
+            body = path.read_text() if path else ''
         except OSError:
-            code = ''
+            body = ''
 
-        return [*contract.references, *called_skills(code)[0]] if code else list(contract.references)
+        return [*contract.references, *body_parts(contract.interface.transport, body)[0]]
 
     def _admit_all(self, pending: dict[str, Contract], check, errors: dict[str, str]) -> list[str]:
         """Admit in passes, so a contract may name another one of the same batch"""

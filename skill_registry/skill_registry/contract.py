@@ -263,8 +263,8 @@ def parse_contract(raw: dict) -> Contract:
     if contract.maturity not in MATURITIES:
         raise ContractError(f'{name}: unknown maturity {contract.maturity}; use {one_of(MATURITIES)}')
 
-    if contract.timeout_s <= 0 and (contract.kind == 'action' or interface.transport == 'code'):
-        raise ContractError(f'{name}: an action or code skill needs a timeout_s above 0')
+    if contract.timeout_s <= 0 and (contract.kind == 'action' or interface.transport in ('code', 'tree')):
+        raise ContractError(f'{name}: an action, code or tree skill needs a timeout_s above 0')
 
     if contract.kind == 'condition' and interface.transport not in READ_ONLY:
         raise ContractError(f'{name}: a condition must only read ({one_of(READ_ONLY)}), not {interface.transport}')

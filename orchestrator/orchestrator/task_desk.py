@@ -133,7 +133,8 @@ class TaskDesk:
                  max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
                  gate: StepGate | None = None, writer: SkillWriter | None = None,
                  stale: Callable[[], dict[str, str]] = dict, ran: Callable[[str, str], None] = lambda name, run: None,
-                 steps: StepGrades | None = None, composition: Callable[[str], dict] = lambda name: {}):
+                 steps: StepGrades | None = None, composition: Callable[[str], dict] = lambda name: {},
+                 graduation: Graduation | None = None):
         self.tasks         = tasks
         self.writer        = writer                  # None: write_skill is refused
         self.gate          = gate                    # None: steps run without a person's approval (sim)
@@ -144,7 +145,7 @@ class TaskDesk:
         self.stale         = stale                   # every stale skill and why, in one read (skill_stamps.reasons)
         self.ran           = ran                     # a step that succeeded: kept with the skill's stamp as evidence
         self.steps         = steps                   # the grades of each step's skill; None: steps are not graded
-        self.graduation    = Graduation(steps) if steps else None
+        self.graduation    = graduation              # what each skill earned (graduation.py); None: the catalog says no grades
         self.composition   = composition             # what a code skill calls, and its versions (skill_review.composition)
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
         self.task_limits   = {'max_steps': max_steps, 'max_task_s': max_task_s, 'idle_s': idle_s, 'run': True}
@@ -288,7 +289,7 @@ class TaskDesk:
                              list(dict.fromkeys(map(str, applies))))
 
         if op == 'write_skill':
-            return self._write_skill(str(message['yaml']), str(message.get('code', '')))
+            return self._write_skill(str(message['yaml']), str(message.get('code', '')), str(message.get('tree', '')))
 
         if op == 'skills':
             return {'ok': True, 'catalog': describe_catalog(self.tasks.registry, self.tasks.essential_devices, self.stale(),
@@ -299,11 +300,11 @@ class TaskDesk:
 
         return {'ok': False, 'message': f'unknown op {op}; use plan, run, grade, grade_step, write_skill, skills, done, give_up or commit'}
 
-    def _write_skill(self, text: str, code: str = '') -> dict:
+    def _write_skill(self, text: str, code: str = '', tree: str = '') -> dict:
         if self.writer is None:
             return {'ok': False, 'message': 'write_skill is off here (no skill folder)'}
 
-        reply = self.writer.write(text, code)
+        reply = self.writer.write(text, code, tree)
         self.tasks.tracer.emit('write_skill', reply['message'], level='info' if reply['ok'] else 'warn', ok=reply['ok'])
 
         return reply

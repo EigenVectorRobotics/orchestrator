@@ -24,7 +24,6 @@ from .skill_leaf import DoneHandle
 CHILD_PATH = Path(__file__).with_name('code_child.py')
 POLL_S     = 0.05
 HALTED     = 'the code skill was halted'
-MAX_DEPTH  = 3             # code skills inside code skills: enough to build on a policy, not enough to run away
 
 
 class CodeRunner:
@@ -39,26 +38,21 @@ class CodeRunner:
     def path_of(self, contract: Contract) -> Path:
         return code_file(contract.name, self.skills_dir)
 
-    def start(self, contract: Contract, inputs: dict, context, chain: str = ''):
-        """chain: the path of leaves down to this call, so a policy can see which policies it is already inside"""
+    def start(self, contract: Contract, inputs: dict, context, chain: str = '', inside: tuple = ()):
+        """chain: the path of leaves down to this call; inside: the compositions it runs in, this one last
+        (skill_leaf.Transports checks its depth)"""
         path = self.path_of(contract)
 
         if not path.is_file():
             return DoneHandle(False, f'no code file {path}')
 
-        return CodeHandle(self, contract, inputs, context, chain or contract.name)
-
-    def code_skills_in(self, chain: str) -> list[str]:
-        """The code skills of a chain of leaves, oldest first"""
-        named = [self.registry.get(part) for part in chain.split('/')]
-
-        return [contract.name for contract in named if contract is not None and contract.interface.transport == 'code']
+        return CodeHandle(self, contract, inputs, context, chain or contract.name, inside or (contract.name,))
 
 
 class CodeHandle:
     """One run of a code skill. The child does the deciding; this side does every call it asks for"""
 
-    def __init__(self, code: CodeRunner, contract: Contract, inputs: dict, context, chain: str):
+    def __init__(self, code: CodeRunner, contract: Contract, inputs: dict, context, chain: str, inside: tuple):
         self.status  = Status.RUNNING
         self.message = ''
         self.outputs = {}
@@ -68,7 +62,7 @@ class CodeHandle:
         self._context  = context
         self._inputs   = inputs
         self._chain    = chain                      # every leaf down to this one, e.g. approach_panel/press_button
-        self._callers  = code.code_skills_in(chain)  # the code skills it is inside, this one last
+        self._inside   = inside                     # the compositions it runs in, this one last
         self._stop     = threading.Event()
         self._starting = threading.Lock()   # cancel must not race the child's start
         self._process  = None
@@ -181,15 +175,6 @@ class CodeHandle:
         if contract is None:
             return {'ok': False, 'message': f'unknown skill {name}; it is not loaded or the deny list refused it'}
 
-        if contract.interface.transport == 'code':
-            if name in self._callers:
-                return {'ok': False, 'message': f'{name} is already running ({" -> ".join(self._callers)}): '
-                                                'a code skill cannot call itself'}
-
-            if len(self._callers) >= MAX_DEPTH:
-                return {'ok': False, 'message': f'{MAX_DEPTH} code skills deep ({" -> ".join(self._callers)}): '
-                                                f'call plain skills from here, or let {self._contract.name} end first'}
-
         return self._run_inner(name, call.get('inputs') or {})
 
     def _run_inner(self, name: str, inputs: dict) -> dict:
@@ -198,6 +183,8 @@ class CodeHandle:
             leaf = self._code.build_leaf(name, f'{self._chain}/{name}', inputs, self._context)
         except TreeError as error:
             return {'ok': False, 'message': str(error)}
+
+        leaf.inside = self._inside                  # a call that runs this code again, or goes too deep, is refused
 
         while (status := leaf.tick()) == Status.RUNNING:
             if self._stop.is_set():

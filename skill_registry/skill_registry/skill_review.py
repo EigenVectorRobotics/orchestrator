@@ -4,11 +4,12 @@ Mission Control's Skills tab uses this. It works on the files only. The executor
 refresh: a kept skill loads the same (write_skill saves it at maturity untested), and a removed one unloads
 (Registry.refresh). Git is the person's own step: Keep and Remove change files, and the person commits them.
 
-- Keep takes the agent's mark lines away (AGENT_MARK, CODE_MARK). Then the skill is a person's: write_skill may no
+- Keep takes the agent's mark lines away (AGENT_MARK, CODE_MARK, TREE_MARK). Then the skill is a person's: write_skill may no
   longer replace it, and a contract without the mark loads at the maturity it gives. The stamps follow the new
   bytes, because only a comment changed: the skill and the skills that use it do not go stale.
 - Remove moves the skill's folder out of the library, into removed_dir with the time in its name, and drops its
-  stamp. It never deletes. It refuses a skill that another skill uses (pre, effects, check, fallback, a call in code).
+  stamp. It never deletes. It refuses a skill that another skill uses (pre, effects, check, fallback, a call in code,
+  a leaf of a tree).
 """
 
 import os
@@ -23,9 +24,9 @@ import yaml
 
 from .contract import AGENT_MARK, ContractError, load_contract
 from .provenance import file_digest
-from .registry import CODE_FILE, code_file, contract_file, contract_files
-from .skill_stamps import called_skills
-from .skill_writer import CODE_MARK
+from .registry import CODE_FILE, TREE_FILE, code_file, contract_file, contract_files, tree_file
+from .skill_stamps import body_parts
+from .skill_writer import BODY_MARKS
 
 
 class ReviewError(ValueError):
@@ -49,15 +50,15 @@ def library(directory: Path, stamps_path: Path | None = None) -> list[dict]:
     runs, skills = _runs(stamps_path), []
 
     for path in contract_files(directory):
-        item = {'name': path.parent.name, 'agent': False, 'text': '', 'code': '', 'runs': runs.get(path.parent.name, 0),
-                'contract': {}, 'error': '', 'version': ''}
+        item = {'name': path.parent.name, 'agent': False, 'text': '', 'code': '', 'tree': '',
+                'runs': runs.get(path.parent.name, 0), 'contract': {}, 'error': '', 'version': ''}
 
         try:                                         # one file that cannot be read must not hide the others
             item['text'] = path.read_text()
             item['agent'] = item['text'].startswith(AGENT_MARK)
-            code = path.parent / CODE_FILE
-            item['code'] = code.read_text() if code.is_file() else ''
-            item['version'] = _version(item['text'], item['code'])
+            item['code'] = _read(path.parent / CODE_FILE)
+            item['tree'] = _read(path.parent / TREE_FILE)
+            item['version'] = _version(item['text'], _body(path.parent))
             item['contract'] = asdict(load_contract(path))
         except (ContractError, OSError, ValueError, TypeError, yaml.YAMLError) as error:   # UnicodeDecodeError too
             item['error'] = str(error)
@@ -71,11 +72,12 @@ def library(directory: Path, stamps_path: Path | None = None) -> list[dict]:
 
 
 def _uses(item: dict) -> list[str]:
-    """The skills one skill names or calls: pre, effects, check, fallback, and the skills.run calls in its code"""
+    """The skills one skill names or calls: pre, effects, check, fallback, the skills.run calls in its code, and the
+    leaves of its tree"""
     contract = item['contract']
 
     return [*contract.get('pre', []), *contract.get('effects', []), *([contract['check']] if contract.get('check') else []),
-            *contract.get('fallback', []), *(called_skills(item['code'])[0] if item['code'] else [])]
+            *contract.get('fallback', []), *body_parts('code', item['code'])[0], *body_parts('tree', item['tree'])[0]]
 
 
 def _folder(directory: Path, name: str) -> Path:
@@ -95,25 +97,32 @@ def _write(path: Path, text: str):
     temporary.replace(path)
 
 
-def _version(text: str, code: str) -> str:
-    return hashlib.sha256(f'{text}\0{code}'.encode()).hexdigest()[:16]
+def _version(text: str, body: str) -> str:
+    return hashlib.sha256(f'{text}\0{body}'.encode()).hexdigest()[:16]
+
+
+def _body(folder: Path, marks: bool = True) -> str:
+    """A composition's body for its version: its code.py and its tree.xml, with the agent's marks or without"""
+    return ''.join(text if marks else text.removeprefix(mark) for text, mark in
+                   ((_read(folder / name), mark) for name, mark in BODY_MARKS.items()))
 
 
 def composition(directory: Path, name: str) -> dict:
     """What the operator approves with one step (decided 2026-11-19: a composition gets the gate once): the skills
-    that a code skill calls, also through the code skills it calls, and the version of each code skill in it. A
-    step whose versions changed after the approval must not run. unknown: a call that does not name its skill"""
+    that a code skill or a tree skill runs, also through the compositions it runs, and the version of each
+    composition in it. A step whose versions changed after the approval must not run. unknown: a call that does
+    not name its skill"""
     calls, versions, unknown, stack = [], {}, False, [name]
 
     while stack:
         skill = stack.pop()
-        code  = _read(code_file(skill, directory))
+        found = parts(directory, skill)
 
-        if skill in versions or not code:
+        if skill in versions or found is None:
             continue
 
         versions[skill]   = grade_version(directory, skill)
-        called, unclear   = called_skills(code)
+        called, unclear   = found
         unknown          |= unclear
 
         for part in called:
@@ -122,6 +131,23 @@ def composition(directory: Path, name: str) -> dict:
                 stack.append(part)
 
     return {'calls': calls, 'versions': versions, 'unknown': unknown}
+
+
+def parts(directory: Path, name: str) -> tuple[list[str], bool] | None:
+    """The skills a composition runs directly (body_parts), from its code.py or its tree.xml; None: not a composition"""
+    for kind, path in (('code', code_file(name, directory)), ('tree', tree_file(name, directory))):
+        if path.is_file():
+            return body_parts(kind, path.read_text())
+
+    return None
+
+
+def written_maturity(directory: Path, name: str) -> str | None:
+    """The maturity a skill's contract gives (a person's word); None: no such skill, or its contract does not load"""
+    try:
+        return load_contract(contract_file(name, directory)).maturity
+    except (ContractError, OSError, ValueError, TypeError, yaml.YAMLError):
+        return None
 
 
 def grade_version(directory: Path, name: str) -> str | None:
@@ -133,7 +159,7 @@ def grade_version(directory: Path, name: str) -> str | None:
     if not contract.is_file():
         return None
 
-    return _version(contract.read_text().removeprefix(AGENT_MARK), _read(code_file(name, directory)).removeprefix(CODE_MARK))
+    return _version(contract.read_text().removeprefix(AGENT_MARK), _body(contract.parent, marks=False))
 
 
 def _read(path: Path) -> str:
@@ -142,7 +168,7 @@ def _read(path: Path) -> str:
 
 def _seen(folder: Path, name: str, version: str | None):
     """The files are still the version that the person read; None: no page, no check (a script, a test)"""
-    if version is not None and _version((folder / 'contract.yaml').read_text(), _read(folder / CODE_FILE)) != version:
+    if version is not None and _version((folder / 'contract.yaml').read_text(), _body(folder)) != version:
         raise ReviewError(f'{name} changed since you read it (the agent saved a new version): read it again')
 
 
@@ -163,17 +189,17 @@ def _stamps(stamps_path: Path | None, change):
 def keep(directory: Path, name: str, stamps_path: Path | None = None, version: str | None = None) -> str:
     """Take the agent's marks away: the person has read the skill and keeps it"""
     folder        = _folder(directory, name)
-    contract      = folder / 'contract.yaml'
-    code          = folder / CODE_FILE
-    text, program = contract.read_text(), _read(code)
+    contract = folder / 'contract.yaml'
+    text     = contract.read_text()
 
     if not text.startswith(AGENT_MARK):
         raise ReviewError(f'{name} is not waiting for review: a person wrote it, or kept it already')
 
     _seen(folder, name, version)
 
-    if program.startswith(CODE_MARK):
-        _write(code, program.removeprefix(CODE_MARK))
+    for body, mark in BODY_MARKS.items():
+        if (found := _read(folder / body)).startswith(mark):
+            _write(folder / body, found.removeprefix(mark))
 
     _write(contract, text.removeprefix(AGENT_MARK))
     digest = file_digest(contract)

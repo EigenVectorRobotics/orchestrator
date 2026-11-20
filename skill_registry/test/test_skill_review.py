@@ -158,3 +158,23 @@ def test_a_composition_names_every_skill_it_calls_and_the_version_of_each_code_s
     assert found['calls'] == ['walk', 'say', 'navigate_to'] and found['unknown'] is True
     assert found['versions'] == {'ride': grade_version(tmp_path, 'ride'), 'walk': grade_version(tmp_path, 'walk')}
     assert composition(tmp_path, 'say') == {'calls': [], 'versions': {}, 'unknown': False}
+
+
+def test_a_tree_skill_is_reviewed_like_code_its_parts_are_its_uses_and_keep_keeps_its_version(tmp_path):
+    from skill_registry.skill_writer import TREE_MARK
+
+    _write(tmp_path, 'say_it')
+    _write(tmp_path, 'greet', interface={'transport': 'tree'}, inputs=[])
+    (tmp_path / 'greet' / 'tree.xml').write_text(TREE_MARK + '<root BTCPP_format="4"><BehaviorTree ID="main">'
+                                                 '<Sequence><say_it text="hi"/><Action ID="say_it"/></Sequence></BehaviorTree>'
+                                                 '<TreeNodesModel><Action ID="only_declared"/></TreeNodesModel></root>')
+    graded = grade_version(tmp_path, 'greet')
+
+    assert composition(tmp_path, 'greet') == {'calls': ['say_it'], 'versions': {'greet': graded}, 'unknown': False}
+    assert next(item for item in library(tmp_path) if item['name'] == 'say_it')['named_by'] == ['greet']
+
+    with pytest.raises(ReviewError, match='greet'):
+        remove(tmp_path, 'say_it', tmp_path / 'removed')
+
+    keep(tmp_path, 'greet')
+    assert not (tmp_path / 'greet' / 'tree.xml').read_text().startswith(TREE_MARK) and grade_version(tmp_path, 'greet') == graded

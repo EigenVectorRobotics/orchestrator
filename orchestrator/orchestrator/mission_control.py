@@ -309,12 +309,15 @@ class SkillShelf:
         stale, unknown = self.stale()
         live           = self.live()
 
+        written = {item['name']: item['contract']['maturity'] for item in skills if not item['error']}   # read once, here
+
         for item in skills:
             item['stale'] = None if stale is None else stale.get(item['name'], '')   # None: not known
             item['live']  = None if live is None else item['name'] in live
 
             if not item['error']:
-                item['earned']   = self.graduation.of(item['name'], item['contract']['maturity']) if self.graduation else None
+                item['earned']   = (self.graduation.of(item['name'], item['contract']['maturity'], written.get)
+                                    if self.graduation else None)
                 item['maturity'] = item['earned']['maturity'] if item['earned'] else item['contract']['maturity']
 
         return 200, {'skills': skills, 'problem': missing_folder(self.directory), 'stale_unknown': unknown, 'deny': deny,

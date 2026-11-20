@@ -39,7 +39,7 @@ from .topics import (CANCEL_TOPIC, LIVE_SKILLS_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC,
 from .images import Camera, Outlines
 from .graduation import Graduation
 from .step_grades import StepGrades
-from skill_registry.skill_review import grade_version
+from skill_registry.skill_review import composition, grade_version, written_maturity
 from .map_view import MapView
 from .map_places import MapInfoPlaces
 from .mission_control import (DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf,
@@ -124,7 +124,9 @@ class MissionControlNode(Node):
                                                          self.declare_parameter('removed_dir', str(agent_dir() / REMOVED)).value,
                                                          stale=StaleSkills(knowledge_dir, library), live=lambda: self._live,
                                                          graduation=Graduation(StepGrades(
-                                                             knowledge_dir, version=lambda name: grade_version(library, name)))),
+                                                             knowledge_dir, version=lambda name: grade_version(library, name)),
+                                                             composition=lambda name: composition(library, name),
+                                                             written_of=lambda name: written_maturity(library, name))),
                                        knowledge=KnowledgeShelf(knowledge_dir),
                                        runs=RunShelf(self.declare_parameter('runs_root', RecorderConfig.root).value),
                                        map_view=self.map_view, session_log=self.session_log)

@@ -34,7 +34,7 @@ interface: {field_text(Interface)}
 a port, an item of inputs or outputs: {field_text(Port)}
 success_when: {field_text(Watch)}
 failure_when: {field_text(HeldValue)}
-Rules: {NAME_RULE}. An action or code skill needs a timeout_s above 0.
+Rules: {NAME_RULE}. An action, code or tree skill needs a timeout_s above 0.
 pre, effects and check give names of condition skills that the library knows, and fallback gives names of skills
 that the library knows: never prose. Write a named skill before the skill that names it. A condition that other
 skills name stays a condition.
@@ -50,6 +50,12 @@ A code skill is a skill whose body is Python: the contract has interface: {{tran
 in code, as `def run(skills, inputs)`. It calls skills.run("<skill>", input=value), which gives back a result with
 .ok, .message and .outputs, and it returns a dict of its own outputs. Use it for a policy that needs a loop, a
 branch or arithmetic over several skills. It runs in a sandbox: no ROS, no network, no files of its own. The robot
-moves only through the skills it calls, and a person is asked again before any of those that move it.
+moves only through the skills it calls. A person approves the whole code skill once, as one step.
+A tree skill is a skill whose body is a BehaviorTree (BehaviorTree.CPP v4 XML): the contract has interface:
+{{transport: tree}}, and the XML goes in tree. Its leaves are skills the library knows; its control nodes are
+Sequence, Fallback, RetryUntilSuccessful and the others of the engine. The tree reads its inputs as {{port}} and
+the places of the task; each output port takes the blackboard key of its name. Use a tree when the skills only
+need an order, checks and fallbacks; use code when you need arithmetic between them. A person approves the whole
+tree once, as one step, and its parts do not ask. When it fails, the result names the part that failed.
 Example:
 {EXAMPLE}'''

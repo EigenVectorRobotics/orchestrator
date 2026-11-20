@@ -46,6 +46,13 @@ class Context:
         self.last_call    = None    # the last finished action call, with its feedback
         self.last_failure = None    # the last failed action call or failed check, with its feedback
 
+    def child(self, blackboard: dict, on_event=None) -> 'Context':
+        """A context for a tree inside this one (a tree skill): its own blackboard, history and failures, the same
+        clock and run. Its records go to the recorder (on_record), not into this history: the tree's own call is
+        this context's record, so a failure that a Fallback inside recovered is not the step's failure"""
+        return Context(blackboard=blackboard, clock=self.clock, on_event=on_event or self.on_event,
+                       on_record=self.on_record, run_id=self.run_id, scratch_dir=self.scratch_dir)
+
     def record(self, summary: dict, full: dict | None = None):
         """Keep a finished call: the summary in the history, the full record (feedback included) as the last call,
         and as the last failure when it failed"""
