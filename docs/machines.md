@@ -1,6 +1,6 @@
 # Machines
 
-The Stanley G1's computers in two parts: what runs where, as last checked on the machines (a snapshot), and what the NUC, the Orin, the Thor and the operator laptop must change for the orchestrator on `integration`, with the contracts in this repository that check each change. How to bring the machines up and run a task is in [run.md](run.md).
+The Stanley G1's computers in two parts: what runs where, as last checked on the machines (a snapshot), and what the NUC, the Orin, the Thor and the operator laptop must change for the orchestrator on `main`, with the contracts in this repository that check each change. How to bring the machines up and run a task is in [run.md](run.md).
 
 ## What runs where (snapshot)
 
@@ -100,9 +100,9 @@ Running when checked (2026-11-19, 21:30): the tmux sessions `eigen_vector_bringu
 | NUC | `~/places_markers.py` | publishes the places as markers for Foxglove (`tmux -L places`) | optional; stops with a reboot |
 | NUC | `~/orch_runs/` | run records: one folder per bring-up session, `runs/<n>-<tree>/` each | the operator clears old runs by hand |
 
-### After the `integration` deploy
+### After the `main` deploy
 
-Paths the orchestrator on `integration` creates or uses on the NUC.
+Paths the orchestrator on `main` creates or uses on the NUC.
 
 | Path | What | Seen (2026-11-19) |
 |---|---|---|
@@ -120,7 +120,7 @@ Questions the next check must answer. Each is open until someone looks on the ma
 3. Orin: is `eigen_vector` `fix/orin-depth-848x480` meant to run there, rather than `main` (which has #6 and #7 and not these two commits)?
 4. NUC and Orin: when `deploy.sh` stops copying `bringup` to `src/bringup` (the note under "Machines"), can `deploy.sh build` be used again?
 5. Thor: should the stack move from `~/eigen_vector_ws_bringup` (copied `bringup`, `vlm` of 2026-10-29) to `~/eigen_vector_ws` with an `eigen_vector` checkout, as on the NUC and the Orin? Should it start on boot, and which `orchestrator` checkout should the Thor have for `vlm_server` (item 12)?
-6. NUC: move the two untracked test trees `freight_call_elevator_step.xml` and `freight_call_elevator_up_down.xml` aside, pull `integration` (`6c60784`), and drop the orchestrator stash "nuc uncommitted 2026-11-19 18:46". The tilt places site file and the baseline-frame fix are already on the NUC (pulled and built at 21:06); the install is a symlink install, so a pull of Python, contracts or trees needs no rebuild. The rebuilt workspaces ran on 2026-11-19 from 17:57: preflight passed in sessions `20261119T230051Z-fa6cae`, `20261119T234750Z-fd820c` and `20261119T235720Z-43f906`.
+6. NUC: move the two untracked test trees `freight_call_elevator_step.xml` and `freight_call_elevator_up_down.xml` aside, switch the checkout from `integration` to `main` and pull it (`main` holds everything in `integration`, `6c60784` included), and drop the orchestrator stash "nuc uncommitted 2026-11-19 18:46". The tilt places site file and the baseline-frame fix are already on the NUC (pulled and built at 21:06); the install is a symlink install, so a pull of Python, contracts or trees needs no rebuild. The rebuilt workspaces ran on 2026-11-19 from 17:57: preflight passed in sessions `20261119T230051Z-fa6cae`, `20261119T234750Z-fd820c` and `20261119T235720Z-43f906`.
 
 ### Not in use
 
@@ -145,7 +145,7 @@ Then change the date under "How to read it", update the tables, remove the quest
 
 ## What the machines must change
 
-The orchestrator on `integration` expects some things from the NUC, the Orin and the Thor that are not in this repository: other repositories' branches, files deployed by hand, and processes started by hand. This part lists what has to change on those machines, and the contracts in this repository that check them, so the two stay in step.
+The orchestrator on `main` expects some things from the NUC, the Orin and the Thor that are not in this repository: other repositories' branches, files deployed by hand, and processes started by hand. This part lists what has to change on those machines, and the contracts in this repository that check them, so the two stay in step.
 
 - When an item is done on the robot, mark it **done** with the date and who did it. When it is no longer needed, delete it.
 - Every item names the contract or tree that depends on it, so a check on the robot can be tied back to the code.
