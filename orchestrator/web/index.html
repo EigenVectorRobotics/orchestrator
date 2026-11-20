@@ -508,7 +508,7 @@ function nowBand() {
       $('gate-facts').innerHTML = [
         ...Object.entries(step.inputs || {}).map(([key, value]) => `<span>${key} = ${typeof value === 'string' ? value : JSON.stringify(value)}</span>`),
         `<span>run ${step.run_id}</span>`,
-        step.in_code ? '<span>inside a code skill that you approved</span>' : '',
+        step.calls ? `<span>it calls: ${step.calls.join(', ') || 'nothing'}${step.unknown_calls ? ', and calls its code does not name' : ''}</span>` : '',
       ].join('');
       $('why').value = '';
       ['approve', 'refuse'].forEach(name => $(name).disabled = false);

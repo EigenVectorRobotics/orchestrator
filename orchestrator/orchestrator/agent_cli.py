@@ -174,7 +174,8 @@ def _step_summary(request: dict) -> str:
     return (f'step {request.get("step")} of task {request.get("run_id")} ({request.get("state")}'
             + (f': {request["reason"]}' if request.get('reason') else '') + f'), for "{request.get("subgoal", "")}":\n'
             f'  {request.get("skill")} {json.dumps(request.get("inputs", {}))}'
-            + ('\n  this call is inside a code skill, which was approved already' if request.get('in_code') else ''))
+            + (f'\n  it calls: {", ".join(request["calls"]) or "nothing"}' if 'calls' in request else '')
+            + ('\n  and some calls that its code does not name' if request.get('unknown_calls') else ''))
 
 
 def _step(node, arguments) -> int:

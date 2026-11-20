@@ -58,13 +58,13 @@ def _context(blackboard=None):
     return context
 
 
-def _runner(tmp_path, code: str, runner=None, approve=None) -> CodeRunner:
+def _runner(tmp_path, code: str, runner=None) -> CodeRunner:
     (tmp_path / 'skills' / 'where_am_i').mkdir(parents=True, exist_ok=True)
     (tmp_path / 'skills' / 'where_am_i' / 'code.py').write_text(code)
 
     registry = Registry([parse_contract(SAY), parse_contract(WALK), parse_contract(CODE)])
     skills   = CodeRunner(registry, SandboxConfig(scratch_dir=str(tmp_path / 'scratch'), timeout_s=20),
-                          skills_dir=str(tmp_path / 'skills'), **({'approve': approve} if approve else {}))
+                          skills_dir=str(tmp_path / 'skills'))
     skills.runner     = runner or FakeRunner()
     skills.build_leaf = make_leaf_factory(registry, skills.runner, code=skills)
 
@@ -115,29 +115,12 @@ def test_a_failed_call_comes_back_to_the_code_which_decides_what_to_do(tmp_path)
 def test_the_code_reads_a_place_from_the_blackboard(tmp_path):
     code    = _runner(tmp_path, 'def run(skills, inputs):\n'
                                 '    skills.run("navigate_to", goal="{panel}")\n'
-                                '    return {}\n',
-                      approve=lambda contract, inputs, reasons: (True, ''))
+                                '    return {}\n')
     context = _context({'panel': {'x': 1.0, 'y': 2.0, 'yaw': 0.0, 'frame': 'map'}})
     handle  = code.start(code.registry.get('where_am_i'), {}, context)
 
     assert _finish(handle) == Status.SUCCESS
     assert code.runner.calls[0][1]['goal']['x'] == 1.0
-
-
-def test_a_skill_the_gate_list_names_asks_again_inside_the_code(tmp_path):
-    asked = []
-    code  = _runner(tmp_path, 'def run(skills, inputs):\n'
-                              '    walked = skills.run("navigate_to", goal="1 2 0")\n'
-                              '    skills.run("say", text="done")\n'
-                              '    return {"walked": walked.ok, "why": walked.message}\n',
-                    approve=lambda contract, inputs, reasons: (asked.append(contract.name), (False, 'not now'))[1])
-    handle = code.start(code.registry.get('where_am_i'), {}, _context())
-
-    assert _finish(handle) == Status.SUCCESS
-    assert asked == ['navigate_to']                        # say moves nothing, so it is not asked
-    assert handle.outputs['walked'] is False
-    assert 'not now' in handle.outputs['why']
-    assert [name for name, _ in code.runner.calls] == ['say']
 
 
 def test_the_code_cannot_reach_ros_or_call_itself(tmp_path):
@@ -161,8 +144,7 @@ def test_one_code_skill_builds_on_another(tmp_path):
     code = _runner(tmp_path, 'def run(skills, inputs):\n'
                              '    skills.run("navigate_to", goal="1 2 0")\n'
                              '    pressed = skills.run("servo_press")\n'
-                             '    return {"pressed": pressed.ok, "tries": pressed.outputs.get("tries")}\n',
-                   approve=lambda contract, inputs, reasons: (True, ''))
+                             '    return {"pressed": pressed.ok, "tries": pressed.outputs.get("tries")}\n')
     code.registry.add(parse_contract(SERVO))
     (tmp_path / 'skills' / 'servo_press').mkdir()
     (tmp_path / 'skills' / 'servo_press' / 'code.py').write_text('def run(skills, inputs):\n'
@@ -243,8 +225,7 @@ def test_the_code_passes_numbers_and_poses_not_only_text(tmp_path):
     code = _runner(tmp_path, 'def run(skills, inputs):\n'
                              '    done = skills.run("set_offset", depth=0.05 * 2, tries=3, left=True,\n'
                              '                      goal={"x": 1.0, "y": 2.0, "yaw": 0.0, "frame": "map"})\n'
-                             '    return {"ok": done.ok, "why": done.message}\n',
-                   approve=lambda contract, inputs, reasons: (True, ''))
+                             '    return {"ok": done.ok, "why": done.message}\n')
     code.registry.add(parse_contract(OFFSET))
     handle = code.start(code.registry.get('where_am_i'), {}, _context())
 

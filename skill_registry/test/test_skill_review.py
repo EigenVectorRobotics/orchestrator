@@ -6,7 +6,7 @@ import yaml
 from skill_registry import Registry
 from skill_registry.contract import AGENT_MARK
 from skill_registry.provenance import file_digest
-from skill_registry.skill_review import ReviewError, grade_version, keep, library, remove
+from skill_registry.skill_review import ReviewError, composition, grade_version, keep, library, remove
 from skill_registry.skill_writer import CODE_MARK, SkillWriter
 
 
@@ -143,3 +143,18 @@ def test_remove_moves_only_an_agent_skill_that_nothing_names(tmp_path):
     assert yaml.safe_load(stamps.read_text()) == {'a': {'self': 'y'}}       # no stale stamp of a skill that is gone
     assert not (library_dir / 'b').exists() and [path.name.split('-')[0] for path in removed.iterdir()] == ['b']
     assert (next(removed.iterdir()) / 'contract.yaml').is_file()          # moved, not deleted
+
+
+def test_a_composition_names_every_skill_it_calls_and_the_version_of_each_code_skill(tmp_path):
+    for name, code in (('ride', 'def run(skills, inputs):\n    skills.run("walk")\n    skills.run("say", text="up")\n'),
+                       ('walk', 'def run(skills, inputs):\n    skills.run("navigate_to")\n    skills.run(inputs["any"])\n'),
+                       ('navigate_to', ''), ('say', '')):
+        _write(tmp_path, name, interface={'transport': 'code'} if code else SAY['interface'], inputs=[])
+        if code:
+            (tmp_path / name / 'code.py').write_text(code)
+
+    found = composition(tmp_path, 'ride')
+
+    assert found['calls'] == ['walk', 'say', 'navigate_to'] and found['unknown'] is True
+    assert found['versions'] == {'ride': grade_version(tmp_path, 'ride'), 'walk': grade_version(tmp_path, 'walk')}
+    assert composition(tmp_path, 'say') == {'calls': [], 'versions': {}, 'unknown': False}

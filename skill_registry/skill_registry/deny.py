@@ -1,6 +1,6 @@
-"""The operator's lists of skills, by ROS name or type: the deny list (never), and the gate list (ask again).
+"""The operator's list of skills, by ROS name or type, that never run: the deny list.
 
-Both are files beside this one that the agent never writes, so a contract cannot talk its way past them.
+It is a file beside this one that the agent never writes, so a contract cannot talk its way past it.
 """
 
 from fnmatch import fnmatch

@@ -164,15 +164,15 @@ def test_the_steps_of_the_open_task_come_from_the_trace():
     assert api.get('/api/state', {})[1]['steps'] == []
 
 
-def test_a_late_event_of_a_closed_task_and_a_refusal_inside_a_code_skill_stay_out_of_the_steps():
+def test_a_late_event_of_a_closed_task_and_a_refusal_with_no_step_number_stay_out_of_the_steps():
     api, state, _ = _api()
 
     state.put('task', {'state': 'open', 'run_id': 'r1'})                           # the open message may come first
     state.trace({'kind': 'task_started', 'time': 10.0, 'run_id': 'r1'})
     state.trace({'kind': 'plan', 'run_id': 'r1', 'version': 1, 'subgoals': ['walk there']})
     state.trace({'kind': 'started', 'time': 11.0, 'run_id': 'r1', 'step': 1, 'tree_id': 'code_skill', 'subgoal': 'walk there'})
-    state.trace({'kind': 'step_gate', 'time': 12.0, 'run_id': 'r1', 'state': 'refused', 'skill': 'navigate_to',
-                 'step': 'inside the code'})
+    state.trace({'kind': 'step_gate', 'time': 12.0, 'run_id': 'r1', 'state': 'refused', 'skill': 'code_skill'})
+    # the desk's word that code changed after an approval: the approved step's answer is in the plan already
     state.trace({'kind': 'finished', 'time': 13.0, 'run_id': 'r1', 'status': 'failure'})
 
     snapshot = api.get('/api/state', {})[1]

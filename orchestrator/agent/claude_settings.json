@@ -19,7 +19,6 @@
       "Read(~/orchestrator_ws/**)",
       "Edit(~/orchestrator_ws/**)",
       "Edit(**/skill_registry/deny.yaml)",
-      "Edit(**/skill_registry/gate.yaml)",
       "Edit(**/runbook.md)",
       "Edit(**/claude_settings*.json)",
       "Edit(**/.claude/settings.json)",

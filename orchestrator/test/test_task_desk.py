@@ -133,6 +133,24 @@ def test_the_step_gate_runs_an_approved_step_and_not_a_refused_one(tmp_path):
     assert (refused['state'], refused['subgoal'], refused['step']) == ('refused', 'greet', 2)
 
 
+def test_a_composition_gets_the_gate_once_shows_what_it_calls_and_does_not_run_when_it_changed_after(tmp_path):
+    runner, requests, version = FakeRunner(), [], ['v1']
+    d = _desk(runner, tmp_path, gate=StepGate(requests.append),
+              composition=lambda name: {'calls': ['navigate_to'], 'versions': {name: version[0]}, 'unknown': False})
+
+    def change_then_approve(request):
+        version[0] = 'v2'                                                 # the agent saves new code while it waits
+        d.desk.gate.decide({'id': request['id'], 'approve': True})
+
+    _gated_run(d, change_then_approve)
+    _gated_run(d, lambda request: d.desk.gate.decide({'id': request['id'], 'approve': True}))
+
+    assert [reply['status'] for reply in d.replies] == ['refused', 'success'] and len(runner.calls) == 1
+    assert 'changed after the operator approved it' in d.replies[0]['message']
+    assert requests[0]['calls'] == ['navigate_to'] and requests[0]['unknown_calls'] is False
+    assert [request['state'] for request in requests] == ['open', 'approved', 'open', 'approved']   # once each
+
+
 def test_a_step_waiting_at_the_gate_is_refused_when_the_task_ends(tmp_path):
     d = _desk(FakeRunner(), tmp_path, gate=StepGate(lambda request: None))
 

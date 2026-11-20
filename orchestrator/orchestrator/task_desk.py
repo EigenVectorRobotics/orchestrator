@@ -133,7 +133,7 @@ class TaskDesk:
                  max_task_s: float = 900.0, idle_s: float = 120.0, clock: Callable[[], float] = time.monotonic,
                  gate: StepGate | None = None, writer: SkillWriter | None = None,
                  stale: Callable[[], dict[str, str]] = dict, ran: Callable[[str, str], None] = lambda name, run: None,
-                 steps: StepGrades | None = None):
+                 steps: StepGrades | None = None, composition: Callable[[str], dict] = lambda name: {}):
         self.tasks         = tasks
         self.writer        = writer                  # None: write_skill is refused
         self.gate          = gate                    # None: steps run without a person's approval (sim)
@@ -145,6 +145,7 @@ class TaskDesk:
         self.ran           = ran                     # a step that succeeded: kept with the skill's stamp as evidence
         self.steps         = steps                   # the grades of each step's skill; None: steps are not graded
         self.graduation    = Graduation(steps) if steps else None
+        self.composition   = composition             # what a code skill calls, and its versions (skill_review.composition)
         self.runbook       = runbook                 # what the robot is, the operator's file; read again at each open
         self.task_limits   = {'max_steps': max_steps, 'max_task_s': max_task_s, 'idle_s': idle_s, 'run': True}
         self.limits        = self.task_limits        # the open task's: set at open
@@ -330,11 +331,19 @@ class TaskDesk:
             return {'ok': False, 'message': f'the step did not run: {problem}'}
 
         if self.gate is not None:
-            decision = self.ask_step({'skill': skill, 'inputs': inputs, 'subgoal': subgoal},
+            seen     = self.composition(skill)           # one approval covers all of it: the operator sees what it calls
+            decision = self.ask_step({'skill': skill, 'inputs': inputs, 'subgoal': subgoal,
+                                      **({'calls': seen['calls'], 'unknown_calls': seen['unknown']} if seen.get('versions') else {})},
                                      lambda: self.task is task)
 
             if not decision['approve']:
                 return {'ok': False, 'status': 'refused', 'message': f'the operator refused the step: {decision["reason"]}'}
+
+            if self.composition(skill).get('versions') != seen.get('versions'):
+                self.tasks.tracer.emit('step_gate', f'{skill}: refused, its code changed after the approval', level='warn',
+                                       skill=skill, state='refused', run_id=task.run_id)
+                return {'ok': False, 'status': 'refused',
+                        'message': f'{skill} changed after the operator approved it: the step did not run; run it again'}
 
         self._note_stale(skill)
         version = self._version(skill)                   # before the step: the version that runs, not a write during it
@@ -483,13 +492,13 @@ class TaskDesk:
         except OSError as error:
             self.tasks.tracer.emit('stamp_error', f'{skill}: the run was not kept: {error!r}', level='warn')
 
-    def ask_step(self, request: dict, still_open=None, step=None) -> dict:
-        """Ask a person about one step and trace the answer; also used for a call inside a code skill"""
+    def ask_step(self, request: dict, still_open=None) -> dict:
+        """Ask a person about one step and trace the answer. A code skill or a tree is one step: its parts never ask"""
         if self.gate is None:
             return {'approve': True, 'state': 'approved', 'reason': ''}
 
         task     = self.task
-        full     = {'run_id': task.run_id if task else None, 'step': step or (task.steps + 1 if task else 0)} | request
+        full     = {'run_id': task.run_id if task else None, 'step': task.steps + 1 if task else 0} | request
         decision = self.gate.ask(full, still_open or (lambda: self.task is task))
         self.tasks.tracer.emit('step_gate', f'{request.get("skill")}: {decision["state"]} {decision["reason"]}'.strip(),
                                skill=request.get('skill'), subgoal=request.get('subgoal', ''), step=full['step'],

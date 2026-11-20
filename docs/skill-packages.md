@@ -117,6 +117,19 @@ A behavior tree is a composition that the agent makes from steps that worked, an
 - **The task agent calls a graduated tree as one skill**, for example `call_elevator`. It uses the biggest trusted skill that covers a subgoal.
 - **Blind segments need a trusted tree.** In the cabin there is no cloud, so the agent cannot work step by step there. Only a tree at `wip` or `tested` can run a blind segment. None of its parts may need the cloud. The agent knows about such a place from a claim in the knowledge store or from the mission sentence. It plans the segment as one step before it goes in. If no such tree exists yet, it says so and asks for help.
 
+#### A tree skill (design, 2026-11-19)
+
+- **Files:** a folder with `contract.yaml` (`interface: {transport: tree}`, its inputs and outputs) and `tree.xml`, a BehaviorTree.CPP v4 file. The tree can use only skills that the library knows, and the control nodes the engine has (Sequence, Fallback, RetryUntilSuccessful, and others).
+- **The agent writes it** with `agent_cli write-skill FILE --tree T.xml`. The tree validator checks it at once: known skills, their ports, the deny list, no loop through itself.
+- **Ports:** the tree reads its inputs as blackboard keys with the port names, for example `{goal}`. It also sees the places of the task. When it ends, each output port takes the blackboard key with its name. Nothing else goes back to the step's blackboard.
+- **It runs as one step,** in its own thread, as a code skill does. Each part is a leaf, so the contracts, the timeouts and the recorder see each part.
+- **The gate (decided 2026-11-19):** a tree is just a skill. The whole tree gets the gate once, as a step: the operator runs the whole tree or not. Its parts do not ask. A code skill is the same: its calls do not ask (`gate.yaml` is gone).
+- **The result of a failed tree** says the part that failed, its path in the tree and its message. The outputs carry it as `failed_part`. The agent grades the tree, and it can grade that part.
+- **Maturity:** the shown maturity of a tree is at most the lowest shown maturity of its parts. The agent may use untested parts (decided 2026-11-19): then the tree earns nothing until its parts do.
+- **The cloud:** a tree needs the cloud when one of its parts does.
+- **Limits:** a tree inside a tree, or inside a code skill, counts toward the same depth limit as code skills (3).
+- **The cabin:** the operator approves the tree once, before the robot goes in. Nothing inside it asks, so it can run with no network.
+
 Experiment: can the agent find the compositions alone? For the test, the agent must not see trees or procedures that people wrote. Keep them outside the agent's view (the session's permissions, the code sandbox), to compare with what the agent makes.
 
 Built: task mode and one run per task (`docs/task-mode.md`), code skills, the grades of steps (`step_grades.py`, `agent_cli grade-step`), graduation (`graduation.py`). Not built yet: the maturity limit of a composition, the failed part in a composition's result, a contract for a tree (`transport: tree`), and the agent's tool to write a tree from run bundles.

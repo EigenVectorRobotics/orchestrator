@@ -27,7 +27,7 @@ from .tasks import Tasks, parse_task_request
 from skill_registry.provenance import DEFAULT_REPO_ROOTS
 from skill_registry.skill_stamps import SkillClock, Stamps
 from skill_registry.skill_writer import SkillWriter
-from skill_registry.skill_review import grade_version
+from skill_registry.skill_review import composition, grade_version
 from skill_registry.contract_check import check_ros_types
 from .step_gate import StepGate
 from .task_desk import TaskDesk
@@ -153,6 +153,7 @@ class ExecutorNode(Node):
             writer=self.writer if writes else None,
             stale=self._stale,
             ran=self.stamps.ran,
+            composition=lambda name: composition(self.skills_dir, name),
             steps=StepGrades(self.knowledge.folder, version=lambda name: grade_version(self.skills_dir, name),
                              robot=self.declare_parameter('on_robot', False).value),   # the launch file sets it; off: no grade graduates
         )
@@ -192,17 +193,7 @@ class ExecutorNode(Node):
         timeout  = self.declare_parameter('code_cpu_s', 60.0).value
 
         return CodeRunner(self.registry, SandboxConfig(scratch_dir=scratch, timeout_s=timeout),
-                          skills_dir=self.skills_dir, approve=self._approve_inside_code)
-
-    def _approve_inside_code(self, contract, inputs: dict, reasons: list[str]) -> tuple[bool, str]:
-        """A code skill is approved once; a skill the operator's gate.yaml names asks again, inside the code"""
-        if self.gate is None:
-            return True, ''
-
-        decision = self.desk.ask_step({'skill': contract.name, 'inputs': inputs, 'in_code': True,
-                                       'subgoal': '; '.join(reasons)}, step='inside the code')
-
-        return decision['approve'], decision['reason']
+                          skills_dir=self.skills_dir)
 
     def _make_gate(self) -> StepGate:
         """The real robot, at first: a person approves each step (agent_cli step approve|refuse, at a terminal)"""

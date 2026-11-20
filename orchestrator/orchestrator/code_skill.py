@@ -2,7 +2,8 @@
 
 The code runs in the agent sandbox, so it reaches no ROS of its own. Every call it makes comes back here and runs
 through the same runner as any other skill, so the deny list, the contracts, the step gate and the recorder all
-still see it. A skill the gate list names (gate.yaml) asks the operator again, inside the code.
+still see it. Like any skill, a code skill gets the step gate once, as a step: its own calls do not ask (decided
+2026-11-19: a composition is just a skill).
 """
 
 import os
@@ -13,7 +14,7 @@ import subprocess
 
 from pathlib import Path
 
-from skill_registry import Contract, GateList, Registry, code_file
+from skill_registry import Contract, Registry, code_file
 
 from .behavior_tree import Status, TreeError
 from .sandbox import GUARD_PATH, SandboxConfig, sandbox_env
@@ -26,19 +27,13 @@ HALTED     = 'the code skill was halted'
 MAX_DEPTH  = 3             # code skills inside code skills: enough to build on a policy, not enough to run away
 
 
-def _approved(contract, inputs, reasons):
-    return True, ''
-
-
 class CodeRunner:
-    """Starts code skills; it holds what one needs: the library, the runner under it, and the operator's gate"""
+    """Starts code skills; it holds what one needs: the library and the runner under it"""
 
-    def __init__(self, registry: Registry, sandbox: SandboxConfig, skills_dir: str, approve=_approved):
+    def __init__(self, registry: Registry, sandbox: SandboxConfig, skills_dir: str):
         self.registry   = registry
         self.sandbox    = sandbox
         self.skills_dir = Path(skills_dir)
-        self.gate       = GateList.load()
-        self.approve    = approve          # (contract, inputs, reasons) -> (approved, reason)
         self.build_leaf = None             # set once the leaf factory exists: a call inside the code is a leaf too
 
     def path_of(self, contract: Contract) -> Path:
@@ -194,12 +189,6 @@ class CodeHandle:
             if len(self._callers) >= MAX_DEPTH:
                 return {'ok': False, 'message': f'{MAX_DEPTH} code skills deep ({" -> ".join(self._callers)}): '
                                                 f'call plain skills from here, or let {self._contract.name} end first'}
-
-        if reasons := self._code.gate.check(contract):
-            approved, why = self._code.approve(contract, call.get('inputs') or {}, reasons)
-
-            if not approved:
-                return {'ok': False, 'message': f'the operator refused {name}: {why}'}
 
         return self._run_inner(name, call.get('inputs') or {})
 

@@ -99,7 +99,6 @@ class MissionState:
             elif kind in STEP_ENDS and self._steps and self._steps[-1]['status'] == 'running':
                 self._steps[-1].update(status=event.get('status') if kind == 'finished' else kind, end=event.get('time'))
             elif kind == 'step_gate' and event.get('state') == 'refused' and isinstance(event.get('step'), int):
-                # not a refusal inside a code skill (step 'inside the code'): that one comes while its step runs
                 self._steps.append({'step': event.get('step'), 'skill': event.get('skill'), 'subgoal': event.get('subgoal') or '',
                                     'status': 'refused', 'reason': event.get('reason', ''), 'start': event.get('time'),
                                     'end': event.get('time')})

@@ -4,7 +4,7 @@ Agentic task planning for the G1. A task is one sentence. An agent does it step 
 
 | Package | Holds |
 |---|---|
-| `skill_registry` | The skill library (`skills/`, one folder per skill) and what a skill is: the contract schema and grammar, the deny list, the step gate's quiet list, the tree validator, `write_skill`, the ROS type checks, the message conversion, and the skill stamps |
+| `skill_registry` | The skill library (`skills/`, one folder per skill) and what a skill is: the contract schema and grammar, the deny list, the tree validator, `write_skill`, the ROS type checks, the message conversion, and the skill stamps |
 | `orchestrator` | Executor, task desk, step gate, ROS skill runner, code skills and their sandbox, knowledge store, recorder, Mission Control, fake robot. The agent's runbook and codebase docs (`agent/`) |
 
 `<agent_dir>` is `$EIGEN_VECTOR_WS/agent` (launch argument `agent_dir`). `scripts/link_agent_dir.sh` makes it. It holds links to what is in git (`skills/`, `runbook.md`, `docs/`). It also holds what changes on each run (`knowledge/`, `stamps.yaml`). Thus, a skill or a doc that the agent writes is a change in git. A person reviews it and commits it.
@@ -14,7 +14,7 @@ Agentic task planning for the G1. A task is one sentence. An agent does it step 
 1. A task comes in on `/orchestrator/task` (or `POST /api/task` from Mission Control): a plain sentence, or `{"task": "...", "blind": true}`.
 2. The executor opens it: one task is one run, one bundle, one scratch folder, one blackboard. The open message gives the sentence and the places from `map_info`. It also gives the runbook (what the robot is), the contract grammar (how to write a skill) and the knowledge store's guide.
 3. The agent plans (a list of subgoals), then runs ONE skill per step. It sees each result and plans again when something fails. It ends with `done` or `give_up`.
-4. On the robot, a person approves each step that can move it (the step gate, `step_gate:=auto`: on unless `fake:=true`). `skill_registry/gate.yaml` lists the few acting skills that do not ask (`quiet:`).
+4. On the robot, a person approves each step (the step gate, `step_gate:=auto`: on unless `fake:=true`). A code skill or a tree is one step: its parts do not ask.
 5. The trace goes to `/orchestrator/trace` (JSON) and `/orchestrator/log` (`rcl_interfaces/Log`, for Foxglove). The recorder keeps each run in a bundle (`docs/recorder.md`).
 
 Limits: `task_max_steps` 40, `task_max_s` 900, `task_idle_s` 120. Design: `docs/task-mode.md`.
@@ -62,7 +62,7 @@ def run(skills, inputs):
 ```
 
 - **It reaches no ROS.** The code runs in a sandbox under an audit hook: no ROS, no network, no new processes, writes only in its scratch folder, and no reads of `~/orchestrator_ws`. This is a guard against mistakes, not a security boundary: the NUC allows no user namespaces. `skills.run` sends each call back to the executor, which runs it like any step. So the deny list, the contract, the places and the recorder all still see it.
-- **The gate.** Every call it makes that can act on the robot asks again; a call that only reads never does.
+- **The gate.** A code skill is one step, so it gets the gate once. Its calls do not ask. The gate shows the skills it calls, and a step whose code changed after the approval does not run.
 - **Writing one.** `write_skill` takes the contract and the code together and checks both (the code must parse and define `run`); if either is refused, neither is kept.
 - **Building on a policy.** A code skill may call another, but not one that is already running in that chain. Three code skills deep is the limit (`MAX_DEPTH`), because each one is a process.
 - **Limits.** The contract's `timeout_s` ends the whole policy, the inner calls with it.
@@ -117,6 +117,6 @@ The NUC builds this repo in `~/eigen_vector_orch_ws`, from the deploy repo `eige
 ## Not done yet
 
 - Nothing committed after 2026-11-11 has run on the robot.
-- A Codex session gets the shell rules (`.codex/rules/agent.rules`), but no file rules: it can read the stack repos and edit the skills folder, `deny.yaml`, `gate.yaml` and the runbook. On the NUC, the Codex sandbox does not start (bubblewrap); run Codex with `-s danger-full-access`.
+- A Codex session gets the shell rules (`.codex/rules/agent.rules`), but no file rules: it can read the stack repos and edit the skills folder, `deny.yaml` and the runbook. On the NUC, the Codex sandbox does not start (bubblewrap); run Codex with `-s danger-full-access`.
 - The knowledge store follows a claim's `skill` tag only: a value measured through a skill but tagged only with a place is not reset when the skill's code moves. A code skill's `skills.run(variable)` calls are not followed.
 - The executor reads the raw camera topic (`image_topic`), because the Orin has no compressed image transport installed: about 17 MB/s at 6 fps.

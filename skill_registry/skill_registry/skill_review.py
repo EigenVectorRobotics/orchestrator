@@ -99,6 +99,31 @@ def _version(text: str, code: str) -> str:
     return hashlib.sha256(f'{text}\0{code}'.encode()).hexdigest()[:16]
 
 
+def composition(directory: Path, name: str) -> dict:
+    """What the operator approves with one step (decided 2026-11-19: a composition gets the gate once): the skills
+    that a code skill calls, also through the code skills it calls, and the version of each code skill in it. A
+    step whose versions changed after the approval must not run. unknown: a call that does not name its skill"""
+    calls, versions, unknown, stack = [], {}, False, [name]
+
+    while stack:
+        skill = stack.pop()
+        code  = _read(code_file(skill, directory))
+
+        if skill in versions or not code:
+            continue
+
+        versions[skill]   = grade_version(directory, skill)
+        called, unclear   = called_skills(code)
+        unknown          |= unclear
+
+        for part in called:
+            if part not in calls and part != name:
+                calls.append(part)
+                stack.append(part)
+
+    return {'calls': calls, 'versions': versions, 'unknown': unknown}
+
+
 def grade_version(directory: Path, name: str) -> str | None:
     """The version of a skill that a grade of its step belongs to: its contract and code, without the agent's marks.
     Keep takes only the marks away, so a kept skill keeps its grades; any other change is a new version. It is not
