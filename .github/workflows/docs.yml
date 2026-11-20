@@ -6,14 +6,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: docs-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  site:
+  build:
     runs-on: ubuntu-latest
     env:
       BUNDLE_GEMFILE: ${{ github.workspace }}/docs/tools/Gemfile
@@ -31,13 +33,16 @@ jobs:
           bundler-cache: true
       - name: Build with Jekyll
         run: bundle exec jekyll build --source _site_src --destination site --baseurl "/${GITHUB_REPOSITORY#*/}"
-      - name: Push the site to github-pages/<branch>
-        working-directory: site
-        run: |
-          touch .nojekyll
-          git init -q -b pages
-          git add -A
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-            commit -qm "docs: site for ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}"
-          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" \
-            "HEAD:refs/heads/github-pages/${GITHUB_REF_NAME}"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
