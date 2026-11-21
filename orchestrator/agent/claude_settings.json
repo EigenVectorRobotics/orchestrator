@@ -1,6 +1,7 @@
 {
-  "$comment": "The task session's deny rules, and the base of the discovery session's. A template: scripts/link_agent_dir.sh makes the settings from it. A guard against mistakes, not a security boundary: a wrapped command (bash -c, a Python script with rclpy) is not matched. showThinkingSummaries: the session log holds the reasoning, for the Mission feed.",
+  "$comment": "The task session's deny rules, and the base of the discovery session's. A template: scripts/link_agent_dir.sh makes the settings from it. A guard against mistakes, not a security boundary: a wrapped command (bash -c, a Python script with rclpy) is not matched. showThinkingSummaries: the session log holds the reasoning, for the Mission feed. autoMemoryEnabled false: what the agent learns goes in the knowledge store, where it is graded; on 2026-11-20 Claude Code's own memory kept 'look before walking' outside it.",
   "showThinkingSummaries": true,
+  "autoMemoryEnabled": false,
   "permissions": {
     "deny": [
       "Bash(ros2 topic pub:*)",
