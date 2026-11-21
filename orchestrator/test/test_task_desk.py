@@ -241,6 +241,50 @@ def test_a_step_waiting_at_the_gate_is_refused_when_the_task_ends(tmp_path):
     assert d.replies[0]['status'] == 'refused' and 'the task ended' in d.replies[0]['message']
 
 
+def _gated_end(d, op, decide):
+    """done or give_up while the gate is on: decide(request) answers it once the request is out"""
+    thread = threading.Thread(target=d.desk.command, args=({'id': 'e', 'run_id': 'r1', 'op': op, 'reason': 'no button'},))
+    thread.start()
+
+    while d.desk.gate.request is None and thread.is_alive():
+        thread.join(0.01)
+
+    decide(d.desk.gate.request)
+    thread.join(5.0)
+    assert not thread.is_alive(), 'the end still waits at the gate'
+
+
+def test_the_operator_can_refuse_the_end_of_a_task_and_it_stays_open(tmp_path):
+    requests = []
+    d        = _desk(FakeRunner(), tmp_path, gate=StepGate(requests.append))
+
+    _gated_end(d, 'give_up', lambda request: d.desk.gate.decide({'id': request['id'], 'approve': False,
+                                                                 'reason': 'look at the door frames'}))
+
+    assert (d.replies[0]['status'], d.replies[0]['reason']) == ('refused', 'look at the door frames')
+    assert d.desk.task is not None and not any(event['kind'] == 'task_finished' for event in d.tracer.events)
+    assert (requests[0]['end'], requests[0]['subgoal'], requests[0]['step']) == ('gave_up', 'no button', None)
+
+    _gated_end(d, 'done', lambda request: d.desk.gate.decide({'id': request['id'], 'approve': True}))
+
+    assert d.replies[1]['ok'] and d.desk.task is None
+    assert d.tracer.events[-1]['kind'] == 'task_finished' and d.tracer.events[-1]['end'] == 'done'
+
+
+def test_an_end_waiting_at_the_gate_is_refused_when_the_task_ends_and_ends_it_once(tmp_path):
+    d = _desk(FakeRunner(), tmp_path, gate=StepGate(lambda request: None), max_task_s=300.0)
+
+    def time_limit(request):
+        d.clock.now = 301.0
+        d.desk.check()
+
+    _gated_end(d, 'done', time_limit)
+
+    assert d.replies[0]['status'] == 'refused' and 'the task ended' in d.replies[0]['message']
+    assert 'still open' not in d.replies[0]['message']
+    assert [event['end'] for event in d.tracer.events if event['kind'] == 'task_finished'] == ['gave_up']
+
+
 def test_a_new_task_closes_the_old_one_and_refuses_its_waiting_step(tmp_path):
     d = _desk(FakeRunner(), tmp_path, gate=StepGate(lambda request: None))
 

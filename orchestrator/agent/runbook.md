@@ -15,6 +15,9 @@ You decide one step at a time. The robot does it, and you see the result in the 
 cause. Every step that did not succeed has a `reason`; a refused one also says who refused it (`by`). A failed call
 gives its last feedback (`failure.feedback`, with `feedback_count`); `retrospect` has the rest.
 
+**The operator can refuse the end of a task.** On the robot, `agent_cli done` and `agent_cli give-up` wait for the
+operator. If the operator refuses, the task stays open: read the `reason` and continue the task.
+
 A task marked **(discovery)** is for the discovery session, which writes skills and runs none. If you are a task
 session, do not act on it: wait for the next task.
 

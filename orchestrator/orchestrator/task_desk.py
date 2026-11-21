@@ -14,7 +14,8 @@ commands on COMMAND_TOPIC:
   not-applicable); the last grade of a claim wins. Also after the task ends, until the next task opens
 - grade_step: stage the agent's grade of a step's skill (worked, failed, misused, blocked; step_grades.py), the same
   way: it is the evidence a skill graduates on
-- done, give_up: end the task; the reply names the applied claims with no grade
+- done, give_up: end the task; the reply names the applied claims with no grade. With the step gate on, a person
+  approves the end first; a refused end keeps the task open, and the reply gives the person's reason
 - commit: after the task ends, its staged grades go into the knowledge store and the step grade log together
 
 Each task has its limits, set when it opens (self.limits). A discovery task (discovery: true in the request) has
@@ -32,7 +33,8 @@ Each command gets one reply on REPLY_TOPIC with its id. Limits: max_steps and ma
 When no command comes for idle_s between steps (the session or its cloud link is gone), the robot says so once on
 /speak and waits.
 
-With the step gate on (step_gate.py), a run waits for a person's approval. A refused step does not run.
+With the step gate on (step_gate.py), a run, done and give_up wait for a person's approval. A refused step does not
+run.
 
 This module needs no ROS: the executor wires the topics, calls command() from a worker thread (a run blocks until
 its step ends) and check() from its timer.
@@ -346,7 +348,7 @@ class TaskDesk:
                 refused={name: found['deprecated'] for name, found in trust.items() if found['deprecated']})}
 
         if op in ('done', 'give_up'):
-            return self._end(task, 'done' if op == 'done' else 'gave_up', str(message.get('reason', '')))
+            return self._ask_end(task, op, str(message.get('reason', '')))
 
         return {'ok': False, 'message': f'unknown op {op}; use plan, run, grade, grade_step, write_skill, skills, done, give_up or commit'}
 
@@ -636,6 +638,25 @@ class TaskDesk:
                                run_id=full['run_id'], **decision)   # its own run: a late refusal of a closed task
 
         return decision
+
+    def _ask_end(self, task: Task, op: str, reason: str) -> dict:
+        """done or give_up. With the gate on, a person approves the end first, or refuses it with a reason and the task
+        stays open: on 2026-11-20 run 25bd4daf gave up in front of the call button, and nobody could say "look at the
+        door frames". The time limit ends a task with no question"""
+        end = 'done' if op == 'done' else 'gave_up'
+
+        if self.gate is not None:
+            decision = self.ask_step({'skill': op, 'end': end, 'subgoal': reason, 'inputs': {}, 'step': None})
+
+            if self.task is not task:                    # it ended while the person decided: the time limit, a cancel
+                return _refused('the task ended while the end waited at the gate', decision['reason'],
+                                decision.get('by', EXECUTOR))
+
+            if not decision['approve']:
+                return _refused(f'the operator refused the end: {decision["reason"]}. The task is still open: go on',
+                                decision['reason'], decision.get('by', EXECUTOR))
+
+        return self._end(task, end, reason)
 
     def _end(self, task: Task, end: str, reason: str) -> dict:
         self._close(task, end)                           # first: else check() sees it end and closes it as 'ended'

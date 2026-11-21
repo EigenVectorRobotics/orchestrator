@@ -1,10 +1,11 @@
-"""The step gate: with it on (the real robot, at first), each run of the task desk waits for a person.
+"""The step gate: with it on (the real robot, at first), each run of the task desk, and each done or give_up, waits
+for a person.
 
 The request goes out latched on STEP_REQUEST_TOPIC, and a decision comes back on STEP_DECISION_TOPIC (reply on
 STEP_REPLY_TOPIC). The gate takes the decision from any client on that topic, and keeps the client's name (`by`) in
 the trace. Two clients exist: agent_cli step approve|refuse, which answers only at a terminal (a tty), so the
 session that asked cannot answer itself by mistake; and Mission Control, where a person clicks in a browser. A
-refused step does not run.
+refused step does not run; a refused end keeps the task open.
 
 This module needs no ROS: the executor wires the topics.
 """

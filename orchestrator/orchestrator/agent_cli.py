@@ -25,6 +25,8 @@ Task mode (docs/task-mode.md): the session does a task step by step.
                                         type (std_srvs/srv/Trigger): its types and their fields
   agent_cli done --reason R             the task is done
   agent_cli give-up --reason R          the task cannot be done
+                                        (with the step gate on, a person approves the end first: a refused end
+                                        keeps the task open, and the reply gives the person's reason)
   agent_cli run ... --applies ID        the step follows that claim of the knowledge store (again for each claim)
   agent_cli grade ID useful|misleading|wrong|not-applicable --reason R
                                         stage a grade of a claim that a step followed (the last one wins; also after
@@ -173,6 +175,11 @@ def _task_command(node, command: dict, timeout_s: float,
 
 
 def _step_summary(request: dict) -> str:
+    if request.get('end'):                              # done or give_up: the agent asks to end the task
+        return (f'the end of task {request.get("run_id")} ({request.get("state")}'
+                + (f': {request["reason"]}' if request.get('reason') else '') + f'): {request.get("end")}, '
+                f'because "{request.get("subgoal", "")}"')
+
     return (f'step {request.get("step")} of task {request.get("run_id")} ({request.get("state")}'
             + (f': {request["reason"]}' if request.get('reason') else '') + f'), for "{request.get("subgoal", "")}":\n'
             f'  {request.get("skill")} {json.dumps(request.get("inputs", {}))}'
@@ -298,7 +305,9 @@ def main():
     grade_step.add_argument('--reason', required=True)
     commands.add_parser('commit')
     for name in ('done', 'give-up'):
-        commands.add_parser(name).add_argument('--reason', required=True)
+        end = commands.add_parser(name)
+        end.add_argument('--reason', required=True)
+        end.add_argument('--timeout', type=float, default=3600.0, help='how long to wait for the operator (the gate)')
     arguments = parser.parse_args()
 
     if arguments.command == 'skills' and arguments.dir:     # a folder: no ROS needed
@@ -380,7 +389,8 @@ def _run(node, arguments) -> int:
         return _task_command(node, {'op': 'commit'}, 30.0, ended=True)
 
     if arguments.command in ('done', 'give-up'):
-        return _task_command(node, {'op': arguments.command.replace('-', '_'), 'reason': arguments.reason}, 10.0)
+        return _task_command(node, {'op': arguments.command.replace('-', '_'), 'reason': arguments.reason},
+                             arguments.timeout)        # with the gate on, a person approves the end first
 
     # Reads wait in this thread while an executor spins the node in another, as in the executor node
     executor = SingleThreadedExecutor()
