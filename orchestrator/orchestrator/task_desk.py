@@ -133,6 +133,42 @@ def task_summary(task: dict) -> str:
     return '\n'.join(lines + [text for text in (task.get('known'), task.get('grammar')) if text])
 
 
+EXECUTOR       = 'the executor'      # who refused a step that no person saw
+REPLY_FEEDBACK = 5         # feedback samples of a failed call in a step reply; the trace and the run keep them all
+
+
+def _step_reply(result) -> dict:
+    """The reply to a step. One that did not succeed has a reason; a failed call keeps only its last feedback, with a
+    count: on 2026-11-20 a walk's reply held 180 s of feedback, and the agent cut it with grep and lost the cause"""
+    reply   = {'ok': result.status != 'error', **asdict(result)}
+    failure = reply['failure']
+
+    for record in (failure, failure and failure.get('checked_call')):
+        if isinstance(record, dict) and record.get('feedback'):
+            record.update(feedback=record['feedback'][-REPLY_FEEDBACK:], feedback_count=len(record['feedback']))
+
+    if result.status != 'success':
+        reply['reason'] = _failure_reason(failure) if failure else result.message
+
+    return reply
+
+
+def _failure_reason(failure: dict) -> str:
+    """The failed call's message; a call with none is named, with the call it checks, so a reason is never only
+    'stepN_skill: failure'"""
+    if failure.get('message'):
+        return failure['message']
+
+    checks = f' (the check of {failure["checks"]})' if failure.get('checks') else ''
+    return f'{failure.get("skill")}{checks} ended {failure.get("status")} with no message: see failure'
+
+
+def _refused(message: str, reason: str, by: str) -> dict:
+    """A step that did not run. The reason has its own field: on 2026-11-20 an agent kept only "status" and "reason"
+    of the reply (grep), lost the operator's reason inside the message, and sent the same step again"""
+    return {'ok': False, 'status': 'refused', 'message': message, 'reason': reason, 'by': by}
+
+
 class TaskDesk:
     def __init__(self, tasks: Tasks, publish_open: Callable[[dict], None], publish_reply: Callable[[dict], None],
                  speak: Callable[[str], None], knowledge: KnowledgeStore | None = None,
@@ -286,13 +322,13 @@ class TaskDesk:
 
         if op == 'run':
             if not self.limits['run']:
-                return {'ok': False, 'message': 'a discovery task runs no skill: it never moves the robot. Write skills; '
-                                                'a task session tries them'}
+                return _refused('a discovery task runs no skill: it never moves the robot. Write skills; a task session '
+                                'tries them', 'a discovery task runs no skill', EXECUTOR)
 
             applies = message.get('applies') or []
 
             if not isinstance(applies, list):
-                return {'ok': False, 'message': 'applies is a list of claim ids; the step did not run'}
+                return _refused('applies is a list of claim ids; the step did not run', 'applies is not a list', EXECUTOR)
 
             return self._run(task, message['skill'], dict(message.get('inputs') or {}), str(message.get('subgoal', '')),
                              list(dict.fromkeys(map(str, applies))))
@@ -340,28 +376,29 @@ class TaskDesk:
 
     def _run(self, task: Task, skill: str, inputs: dict, subgoal: str, applies: list[str] = ()) -> dict:
         if task.steps >= self.limits['max_steps']:
-            return {'ok': False, 'message': f'max_steps {self.limits["max_steps"]} reached: end the task with done or give_up'}
+            return _refused(f'max_steps {self.limits["max_steps"]} reached: end the task with done or give_up',
+                            f'max_steps {self.limits["max_steps"]} reached', EXECUTOR)
 
         if applies and (problem := self._not_live(applies)):
-            return {'ok': False, 'message': f'the step did not run: {problem}'}
+            return _refused(f'the step did not run: {problem}', problem, EXECUTOR)
 
         seen  = self.composition(skill)                  # one read: the trust, the gate and the check after it
         trust = self._trust(skill, self._stale_now(skill), seen)
 
         if bad := trust['deprecated']:
-            self.tasks.tracer.emit('step_gate', f'{skill}: refused, {bad} is deprecated', level='warn', skill=skill,
+            reason = f'{bad} is deprecated'
+            self.tasks.tracer.emit('step_gate', f'{skill}: refused, {reason}', level='warn', skill=skill,
                                    subgoal=subgoal, step=task.steps + 1, run_id=task.run_id, state='refused',
-                                   reason=f'{bad} is deprecated', by='maturity')
-            return {'ok': False, 'status': 'refused',
-                    'message': f'{bad} is deprecated: its grades on the robot show that it fails. The step did not run: '
-                               f'write a new version (write_skill), or use another skill'}
+                                   reason=reason, by='maturity')
+            return _refused(f'{reason}: its grades on the robot show that it fails. The step did not run: '
+                            f'write a new version (write_skill), or use another skill', reason, 'maturity')
 
         if self.gate is not None:
             if problem := self.tasks.check_step(task, skill, inputs):
                 # a person sees only a step that can run: on 2026-11-20 the operator approved three that then did not validate
                 self.ask_step({'skill': skill, 'inputs': inputs, 'subgoal': subgoal},
                               decided={'approve': False, 'state': 'refused', 'reason': problem, 'by': 'validator', 'level': 'warn'})
-                return {'ok': False, 'status': 'refused', 'message': f'{problem}. The step did not run, and the operator was not asked'}
+                return _refused(f'{problem}. The step did not run, and the operator was not asked', problem, 'validator')
 
             trusted  = self.trust_tested and trust['maturity'] == 'tested' and trust['earned']
             decision = self.ask_step({'skill': skill, 'inputs': inputs, 'subgoal': subgoal,
@@ -369,18 +406,19 @@ class TaskDesk:
                                      lambda: self.task is task, decided=TRUSTED if trusted else None)
 
             if not decision['approve']:
-                return {'ok': False, 'status': 'refused', 'message': f'the operator refused the step: {decision["reason"]}'}
+                return _refused(f'the operator refused the step: {decision["reason"]}', decision['reason'],
+                                decision.get('by', EXECUTOR))
 
             if problem := self.tasks.check_step(task, skill, inputs):      # a skill written while the person decided
                 self.tasks.tracer.emit('step_gate', f'{skill}: refused after the approval, {problem}', level='warn',
                                        skill=skill, state='refused', run_id=task.run_id)
-                return {'ok': False, 'status': 'refused', 'message': f'{problem}, after the operator approved it: the step did not run'}
+                return _refused(f'{problem}, after the operator approved it: the step did not run', problem, 'validator')
 
             if self.composition(skill).get('versions') != seen.get('versions'):
                 self.tasks.tracer.emit('step_gate', f'{skill}: refused, its code changed after the approval', level='warn',
                                        skill=skill, state='refused', run_id=task.run_id)
-                return {'ok': False, 'status': 'refused',
-                        'message': f'{skill} changed after the operator approved it: the step did not run; run it again'}
+                return _refused(f'{skill} changed after the operator approved it: the step did not run; run it again',
+                                f'{skill} changed after the approval', EXECUTOR)
 
             if not trusted and (again := self._stale_now(skill)) is not None:    # a person may have waited a while
                 trust['stale'] = self._stale_reason(skill, seen.get('calls', []), again)
@@ -394,7 +432,7 @@ class TaskDesk:
         if result.status == 'success':
             self._keep(skill, task.run_id)
 
-        reply = {'ok': result.status != 'error', **asdict(result)}
+        reply = _step_reply(result)
 
         if result.status not in ('success', 'failure'):           # an error never ran: there is nothing to grade
             return reply

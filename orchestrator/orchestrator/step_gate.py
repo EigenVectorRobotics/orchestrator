@@ -30,7 +30,8 @@ class StepGate:
         """Block until a person decides, or the task ends (cancel); returns {approve, state, reason}"""
         with self._lock:
             if self.request is not None:
-                return {'approve': False, 'state': 'refused', 'reason': 'another step already waits for approval'}
+                return {'approve': False, 'state': 'refused', 'reason': 'another step already waits for approval',
+                        'by': 'the executor'}
 
             self.request  = {'id': uuid.uuid4().hex[:8], 'state': 'open', 'opened': time.time(), **request}
             self.decision = None

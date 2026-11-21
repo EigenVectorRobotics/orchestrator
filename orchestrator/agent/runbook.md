@@ -11,6 +11,10 @@ ride a freight elevator between two floors by itself.
 
 You decide one step at a time. The robot does it, and you see the result in the next turn.
 
+**Read each step reply in full.** Do not filter or cut it (`grep`, `head`, `jq`): the part you cut can be the
+cause. Every step that did not succeed has a `reason`; a refused one also says who refused it (`by`). A failed call
+gives its last feedback (`failure.feedback`, with `feedback_count`); `retrospect` has the rest.
+
 A task marked **(discovery)** is for the discovery session, which writes skills and runs none. If you are a task
 session, do not act on it: wait for the next task.
 

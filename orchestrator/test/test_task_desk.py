@@ -7,7 +7,8 @@ from types import SimpleNamespace
 from skill_registry import contract_grammar
 
 from orchestrator.knowledge import KnowledgeStore, Sighting
-from orchestrator.task_desk import LOST_SPEECH, task_summary
+from orchestrator.task_desk import LOST_SPEECH, REPLY_FEEDBACK, _step_reply, task_summary
+from orchestrator.tasks import StepResult
 from orchestrator.step_gate import StepGate
 from orchestrator.behavior_tree import Status, TreeError
 
@@ -49,6 +50,7 @@ def test_commands_for_another_run_or_past_max_steps_are_refused(tmp_path):
 
     assert [reply['ok'] for reply in d.replies] == [True, False, False]
     assert 'max_steps' in d.replies[1]['message'] and 'no open task' in d.replies[2]['message']
+    assert (d.replies[1]['reason'], d.replies[1]['by']) == ('max_steps 1 reached', 'the executor')
 
 
 def test_a_quiet_session_is_said_once_and_the_time_limit_gives_up(tmp_path):
@@ -137,6 +139,7 @@ def test_the_step_gate_runs_an_approved_step_and_not_a_refused_one(tmp_path):
 
     assert [reply['status'] for reply in d.replies] == ['success', 'refused']
     assert len(runner.calls) == 1 and 'too close' in d.replies[1]['message']
+    assert d.replies[1]['reason'] == 'too close'          # its own field: a filter on "reason" keeps it
     assert [request['state'] for request in requests] == ['open', 'approved', 'open', 'refused']
     assert requests[0]['skill'] == 'say' and requests[0]['step'] == 1
     refused = [event for event in d.tracer.events if event['kind'] == 'step_gate'][-1]  # the page puts it in the plan
@@ -521,3 +524,23 @@ def test_a_stale_deprecated_skill_stays_out_of_the_catalog(tmp_path):
     catalog = describe_catalog(d.tasks.registry, set(), {'say': 'its repo changed'}, FakeGraduation({'say': 'deprecated'}).of)
 
     assert '## say' not in catalog and catalog.endswith('use one again): say')
+
+
+def test_a_step_reply_says_why_and_keeps_only_the_last_feedback():
+    samples = [{'t': index / 10, 'state': 'routing'} for index in range(40)] + [{'t': 4.0, 'state': 'blocked'}]
+    failure = {'skill': 'navigate_to', 'message': 'timeout after 180 s', 'feedback': samples}
+    reply   = _step_reply(StepResult('failure', 'step1_navigate_to: failure', {}, failure))
+
+    assert reply['reason'] == 'timeout after 180 s'                  # its own field: a filter on "reason" keeps it
+    assert reply['failure']['feedback'] == samples[-REPLY_FEEDBACK:] and reply['failure']['feedback_count'] == 41
+    assert len(failure['feedback']) == 41                             # the record itself keeps all of it
+    assert _step_reply(StepResult('error', 'no skill fly'))['reason'] == 'no skill fly'
+    assert 'reason' not in _step_reply(StepResult('success', 'step1_say: success'))
+
+    check = {'skill': 'arrived', 'checks': 'navigate_to', 'message': '', 'status': 'failure',
+             'checked_call': {'skill': 'navigate_to', 'feedback': samples}}
+    reply = _step_reply(StepResult('failure', 'step1_navigate_to: failure', {}, check))
+
+    assert reply['failure']['checked_call']['feedback'] == samples[-REPLY_FEEDBACK:]
+    assert 'feedback' not in reply['failure']                         # no empty list on a record that had none
+    assert reply['reason'] == 'arrived (the check of navigate_to) ended failure with no message: see failure'
