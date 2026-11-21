@@ -183,10 +183,11 @@ class Commands:
     """What a click does. Every command answers (code, payload)."""
 
     def __init__(self, send_task: Callable[[dict], bool], decide_step: Callable[[dict], dict | None],
-                 send_cancel: Callable[[], bool]):
-        self.send_task   = send_task
-        self.decide_step = decide_step               # publishes the decision and waits for the executor's reply
-        self.send_cancel = send_cancel
+                 send_cancel: Callable[[], bool], send_stop_step: Callable[[dict], bool]):
+        self.send_task      = send_task
+        self.decide_step    = decide_step            # publishes the decision and waits for the executor's reply
+        self.send_cancel    = send_cancel
+        self.send_stop_step = send_stop_step
 
     def task(self, body: dict) -> tuple[int, dict]:
         sentence = ' '.join(str(body.get('task') or '').split())
@@ -224,6 +225,18 @@ class Commands:
         accepted = bool(reply.get('accepted'))
 
         return (200 if accepted else 409), {'ok': accepted, 'message': reply.get('message', '')}
+
+    def stop_step(self, body: dict) -> tuple[int, dict]:
+        """Halt one running step; the task stays open. It names the run and the step the page showed"""
+        step = body.get('step')
+
+        if not isinstance(step, int) or isinstance(step, bool) or not body.get('run_id'):
+            return 400, {'ok': False, 'message': 'a stop names the run and the step it is for'}
+
+        if not self.send_stop_step({'run_id': str(body['run_id']), 'step': step, 'reason': str(body.get('reason') or '')}):
+            return 504, {'ok': False, 'message': 'the executor does not listen for a stop; is it running?'}
+
+        return 200, {'ok': True, 'message': f'stop of step {step} sent'}
 
     def cancel(self, body: dict) -> tuple[int, dict]:
         if not self.send_cancel():
@@ -490,6 +503,7 @@ class MissionApi:
         self.session_log  = session_log
         self.agents       = agents
         self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel,
+                             '/api/stop_step': commands.stop_step,
                              **({'/api/skill/keep': skills.keep, '/api/skill/remove': skills.remove} if skills else {}),
                              **({'/api/knowledge/approve': knowledge.approve, '/api/knowledge/retire': knowledge.retire,
                                  '/api/knowledge/seen': knowledge.seen} if knowledge else {}),

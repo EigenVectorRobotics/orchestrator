@@ -4,7 +4,8 @@ The QoS profiles are in qos.py"""
 TASK_TOPIC   = '/orchestrator/task'                 # a task sentence in, from a session, a script or Mission Control
 TASK_OPTIONS = ('blind', 'discovery')                # the options of a task request; TaskDesk.open takes them by name
 STATUS_TOPIC = '/orchestrator/status'               # the executor's state, latched
-CANCEL_TOPIC = '/orchestrator/cancel'               # halt the running step
+CANCEL_TOPIC = '/orchestrator/cancel'               # cancel the open task, and halt its running step
+STOP_STEP_TOPIC = '/orchestrator/stop_step'         # halt one running step, the task stays open: JSON run_id, step, reason
 TRACE_TOPIC  = '/orchestrator/trace'                # every executor step, as JSON
 LOG_TOPIC    = '/orchestrator/log'                  # the same steps, as lines for the Foxglove Log panel
 

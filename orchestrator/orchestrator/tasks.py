@@ -213,8 +213,27 @@ class Tasks:
         """Halt this step, if it still runs"""
         with self._lock:
             if self.step is step:
-                self.step.tree.halt()
-                self._end_step('halted', f'{self.step.tree.id}: {reason}', 'warn', StepResult('halted', reason))
+                self._halt(reason)
+
+    def stop_step(self, run_id: str, number: int, reason: str) -> bool:
+        """The operator halts step number of run_id; the task stays open, and the agent's reply says why. Only the step
+        the operator saw: a click that comes late must not halt the next step. False when that step does not run"""
+        with self._lock:
+            if self.step is None or not self.task or self.task.run_id != run_id or self.task.steps != number:
+                # it ended, or a later step runs: nothing halts, and the page's feed says so. Its own step, not the
+                # running one's
+                self.tracer.emit('stop_step', f'stop of step {number}: that step does not run', level='warn',
+                                 step=number, tree_id=None)
+                return False
+
+            self._halt(f'the operator stopped the step: {reason or "no reason given"}')
+
+        return True
+
+    def _halt(self, reason: str):
+        """Halt the running step; the caller holds _lock"""
+        self.step.tree.halt()
+        self._end_step('halted', f'{self.step.tree.id}: {reason}', 'warn', StepResult('halted', reason))
 
     # ========== Ticks ==========
 

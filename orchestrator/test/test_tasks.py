@@ -81,6 +81,35 @@ def test_a_stopped_agent_halts_its_step():
     assert results[0].status == 'halted' and 'halted' in tracer.kinds()
 
 
+def test_the_operator_stops_only_the_step_on_the_page_and_the_task_stays_open():
+    tasks, tracer, _ = _tasks(FakeRunner({'navigate_to': [Status.RUNNING]}))
+    results          = []
+
+    tasks.start_task('walk', _context('r1'))
+    thread = threading.Thread(target=lambda: results.append(tasks.run_skill('navigate_to', {'goal': '{call_panel}'})))
+    thread.start()
+    tasks.tick()
+
+    assert not tasks.stop_step('r1', 2, 'late click') and not tasks.stop_step('r0', 1, 'old run')   # not this step
+    late = [event for event in tracer.events if event['kind'] == 'stop_step']   # the page's feed says it
+    assert [(event['step'], event['tree_id'], event['level']) for event in late] == [(2, None, 'warn'), (1, None, 'warn')]
+    assert tasks.stop_step('r1', 1, 'the route goes through the atrium')
+    _tick_until(tasks, thread)
+    thread.join()
+
+    assert results[0].status == 'halted' and results[0].message == 'the operator stopped the step: the route goes through the atrium'
+    assert tasks.task is not None and not tasks.stop_step('r1', 1, 'again')                       # it ended already
+
+    thread = threading.Thread(target=lambda: results.append(tasks.run_skill('navigate_to', {'goal': '{call_panel}'})))
+    thread.start()
+    tasks.tick()
+    tasks.stop_step('r1', 2, '')
+    _tick_until(tasks, thread)
+    thread.join()
+
+    assert results[1].message == 'the operator stopped the step: no reason given'
+
+
 def test_a_replaced_task_is_not_ended_by_its_old_agent():
     tasks, tracer, _ = _tasks(FakeRunner())
     task             = tasks.start_task('walk', _context('r1'))

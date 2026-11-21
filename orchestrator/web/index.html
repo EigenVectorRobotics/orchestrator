@@ -70,6 +70,7 @@ main.wrap { padding-block: 16px 40px; display: grid; gap: 16px; }
 .big { padding: 10px 18px; font-weight: 700; border: 2px solid var(--on-lime); }
 .approve { background: var(--on-lime); color: var(--lime); flex: 1; }
 .refuse { background: transparent; color: var(--bad); border-color: var(--bad); }
+#stop-why { flex: 1; }
 .decide input { border: 1px solid var(--on-lime); background: var(--bg); color: var(--ink); padding: 8px 10px; width: 100%; }
 .run-row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
 .bar { height: 6px; background: var(--rule); flex: 1; min-width: 160px; }
@@ -305,6 +306,10 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
     <div class="eyebrow" id="open-eyebrow"></div>
     <h1 id="open-title"></h1>
     <div class="run-row"><div class="bar" id="open-bar" aria-label="Time used"><i></i></div><span class="wait" id="open-text"></span></div>
+    <div class="row" id="stop-row" hidden>
+      <button class="btn bad" id="stop-step" title="Halt the running step only; the mission stays open">Stop step</button>
+      <input class="search" id="stop-why" type="text" placeholder="Reason (the agent gets it)" aria-label="Reason to stop the step">
+    </div>
     <div class="row" id="agent-row" hidden><button class="btn" id="start-agent">Start agent</button><span class="hint" id="agent-hint"></span></div>
   </div>
 
@@ -432,6 +437,7 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
 <script>
 const $ = id => document.getElementById(id);
 let opened = new Set(), words = [], events = [], seq = 0, keep = 400, filter = 'all', state = {}, drawn = {}, polling = false, masks = true, deciding = null;
+let stopping = null;      // the running step that Stop step halts: the one on the page
 
 // Every value from the adapter is escaped once, where it comes in: the agent writes much of it, and this page
 // holds the operator's token. After this, a value can go into innerHTML as it is
@@ -501,6 +507,7 @@ function nowBand() {
   const mode = gate ? 'gate' : open ? 'open' : 'idle';
 
   ['gate', 'open', 'idle'].forEach(name => $('now-' + name).hidden = name !== mode);
+  if (mode !== 'open') stopping = null;                  // no step runs: an old run's step must not stay
 
   if (gate) {
     once('gate', JSON.stringify(step), () => {
@@ -530,6 +537,13 @@ function nowBand() {
     const used = state.began ? (state.time || 0) - state.began : null, limit = (task.limits || {}).max_task_s;
     const refused = steps.filter(s => s.status === 'refused').length, ran = steps.length - refused;
     $('open-eyebrow').innerHTML = `${task.discovery ? 'Discovery · never moves the robot' : running ? 'Mission running' : 'Mission open · waiting for the agent'} · run ${task.run_id}`;
+    const now = running ? {run_id: task.run_id, step: running.step} : null;
+    if (JSON.stringify(now) !== JSON.stringify(stopping)) {       // a new step, or a new mission: a new reason, one stop
+      $('stop-why').value = '';
+      $('stop-step').disabled = false;
+    }
+    stopping = now;
+    $('stop-row').hidden = !stopping;
     once('open-title', JSON.stringify([running, task.task]), () =>
       $('open-title').innerHTML = running ? `Step ${running.step}: ${running.subgoal || running.skill}` : task.task);
     $('open-bar').hidden = !(used !== null && limit);
@@ -549,6 +563,14 @@ function decide(approve) {
     if (!ok && deciding === step.id) { deciding = null; ['approve', 'refuse'].forEach(name => $(name).disabled = false); }
   });
 }
+$('stop-step').addEventListener('click', () => {
+  if (!stopping || $('stop-step').disabled) return;       // one stop for each step
+  const stop = stopping;
+  $('stop-step').disabled = true;
+  send('/api/stop_step', {...stop, reason: $('stop-why').value}).then(ok => {
+    if (!ok && JSON.stringify(stopping) === JSON.stringify(stop)) $('stop-step').disabled = false;   // not sent: try again
+  });
+});
 $('approve').addEventListener('click', () => decide(true));
 $('refuse').addEventListener('click', () => decide(false));
 // No keyboard shortcuts: each decision is a click on its button
@@ -702,6 +724,7 @@ const FEED = {
   started:       e => ['run', `Step ${e.step}: ${e.tree_id}`, e.subgoal],
   finished:      e => [e.status === 'success' ? 'ok' : 'fail', `${e.tree_id}: ${e.status}`, ''],
   halted:        e => ['fail', `${e.tree_id || 'step'}: halted`, e.text],
+  stop_step:     e => ['warn', `Step ${e.step} not stopped`, 'it had ended: the step that runs now goes on'],
   error:         e => ['fail', `${e.tree_id || 'step'}: error`, e.text],
   step_gate:     e => e.state === 'open' ? null : [e.state === 'approved' ? 'ok' : 'fail', `${e.state === 'approved' ? 'Approved' : 'Refused'} ${e.skill}`, [e.reason, e.by && `by ${e.by}`].filter(Boolean).join(' · ')],
   write_skill:   e => [e.ok ? 'ok' : 'warn', e.ok ? 'Skill written' : 'Skill refused', e.text],

@@ -84,7 +84,7 @@ def test_one_run_has_its_steps_refusals_what_it_left_and_its_code(tmp_path):
 
 def test_the_runs_tab_lists_and_opens_a_run(tmp_path):
     _session(tmp_path)
-    api = MissionApi(MissionState(), Commands(None, None, None), runs=RunShelf(tmp_path))
+    api = MissionApi(MissionState(), Commands(None, None, None, None), runs=RunShelf(tmp_path))
 
     code, listing = api.get('/api/runs', {})
     key           = listing['runs'][1]['key']

@@ -62,7 +62,7 @@ def test_no_tool_starts_nothing_and_a_wrong_tool_stops_the_node(tmp_path):
 
 def test_starting_an_agent_needs_the_page_token(tmp_path):
     host = Host()
-    api  = MissionApi(MissionState(), Commands(None, None, None), token_needed=False,
+    api  = MissionApi(MissionState(), Commands(None, None, None, None), token_needed=False,
                       agents=AgentSessions('claude', '', {'task': tmp_path}, run=host))
 
     assert api.post('/api/agent', {})[0] == 403 and host.calls == []
