@@ -41,14 +41,14 @@ def image_to_rgb(message) -> np.ndarray:
 
 
 def _png(rgb: np.ndarray) -> bytes:
-    """A minimal PNG writer, for when neither Pillow nor OpenCV is there"""
-    height, width, _ = rgb.shape
-    raw              = b''.join(b'\0' + rgb[row].tobytes() for row in range(height))
+    """A minimal PNG writer, for when neither Pillow nor OpenCV is there; RGB, or RGBA with a fourth channel"""
+    height, width, channels = rgb.shape
+    raw                     = b''.join(b'\0' + rgb[row].tobytes() for row in range(height))
 
     def chunk(kind: bytes, data: bytes) -> bytes:
         return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
 
-    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 6 if channels == 4 else 2, 0, 0, 0))
             + chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b''))
 
 

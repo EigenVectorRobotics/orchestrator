@@ -88,7 +88,7 @@ main.wrap { padding-block: 16px 40px; display: grid; gap: 16px; }
 
 /* Body grid */
 .grid { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 380px); gap: 24px; align-items: start; }
-@media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .grid .camera { grid-column: 1 / -1; order: -1; } }
+@media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .grid .mid { grid-column: 1 / -1; order: -1; } }
 @media (max-width: 700px)  { .grid { grid-template-columns: minmax(0, 1fr); } .gate-body { grid-template-columns: 1fr; } .decide { min-width: 0; } }
 section h2 { font: 600 15px/1.2 var(--sans); text-transform: uppercase; letter-spacing: .6px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 section h2 small { font: 400 11px var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; }
@@ -114,9 +114,13 @@ section h2 small { font: 400 11px var(--mono); color: var(--muted); text-transfo
 .cap { font: 400 11px var(--mono); color: var(--muted); margin-top: 6px; }
 .cap .stale { color: var(--warn); font-weight: 500; }
 .cap .track { display: inline-block; width: 9px; height: 9px; margin: 0 4px 0 10px; vertical-align: -1px; }
-.minimap { position: absolute; right: 10px; bottom: 10px; width: 26%; min-width: 150px; max-width: 240px; aspect-ratio: 4 / 3; background: var(--surface); border: 1px solid var(--rule); opacity: .94; }
-.minimap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.minimap .mapcap { position: absolute; left: 6px; right: 6px; bottom: 4px; font: 400 10px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mid { display: grid; gap: 24px; min-width: 0; }
+.mapframe { position: relative; background: var(--surface); border: 1px solid var(--rule); aspect-ratio: 4 / 3; max-width: 100%; overflow: hidden; touch-action: none; cursor: grab; }
+.mapframe canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.mapframe .none { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font: 400 12px var(--mono); padding: 20px; text-align: center; }
+.maphead { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font: 400 11px var(--mono); color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; border: 1px solid var(--rule); }
 .toggles { display: flex; gap: 6px; }
 .toggle { background: transparent; border: 1px solid var(--rule); padding: 3px 9px; font: 500 11px var(--mono); color: var(--muted); }
 .toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
@@ -336,15 +340,27 @@ details pre { background: var(--surface); padding: 12px; font: 400 12px/1.55 var
       <ol class="plan" id="plan"></ol>
     </section>
 
+    <div class="mid">
     <section class="camera" aria-labelledby="h-cam">
-      <h2 id="h-cam">Head camera <span class="toggles"><button class="toggle" id="t-masks" aria-pressed="true" title="EdgeTAM mask outlines (/track_3d/mask_outlines)">masks</button><button class="toggle" id="t-map" aria-pressed="true" title="The places of the robot's floor, the robot and its route">map</button></span></h2>
+      <h2 id="h-cam">Head camera <span class="toggles"><button class="toggle" id="t-masks" aria-pressed="true" title="EdgeTAM mask outlines (/track_3d/mask_outlines)">masks</button></span></h2>
       <div class="frame">
         <canvas id="cam" aria-label="Head camera frame with the EdgeTAM mask outlines"></canvas>
         <span class="none" id="camnone">No camera frame yet. The Orin publishes the colour image; with the fake robot there is none.</span>
-        <div class="minimap" id="minimap" hidden><canvas id="mapc" aria-label="Map: the places of the robot's floor, the robot and its route"></canvas><span class="mapcap" id="mapcap"></span></div>
       </div>
       <div class="cap" id="camcap"></div>
     </section>
+
+    <section aria-labelledby="h-map">
+      <h2 id="h-map" class="maphead">Map <span class="toggles" id="floors"></span>
+        <span class="toggles"><button class="toggle" id="t-follow" aria-pressed="true" title="Keep the robot in the middle">follow robot</button></span></h2>
+      <div class="mapframe" id="mapframe">
+        <canvas id="map" aria-label="Map of the floor: where the route planner can walk, the places, the robot, its route and the goal of a step that waits"></canvas>
+        <span class="none" id="mapnone"></span>
+      </div>
+      <div class="cap" id="mapcap"></div>
+      <div class="legend" id="maplegend"></div>
+    </section>
+    </div>
 
     <section aria-labelledby="h-feed">
       <h2 id="h-feed">Agent <small id="feednote">newest first</small></h2>
@@ -681,52 +697,165 @@ $('t-masks').addEventListener('click', () => {
   renderCamera(); drawCamera();
 });
 
-// ---------- The small map: to scale, the map frame with +y up, the robot's floor only ----------
+// ---------- The Map: the route planner's floor plan, to scale, +y up; the places, robot, route and waiting goal ----------
 
-let showMap = true;
+const view = {s: 8, cx: null, cy: null, follow: true, pick: null};   // px per metre, the centre, the floor you picked
+let floorPlan = {key: null, img: null, meta: null, problem: '', failed: 0};
+
+function mapFloor() {
+  const p = (state.map || {}).plan || {};
+  return view.pick && (p.floors || {})[view.pick] ? view.pick : p.floor;
+}
+
+const PLAN_RETRY_S = 10;                                   // a plan that failed (the cache not ready yet) is asked again
+function loadPlan(floor, key) {
+  if (floorPlan.img) URL.revokeObjectURL(floorPlan.img.src);
+  floorPlan = {key, img: null, meta: null, problem: '', failed: 0};
+  if (!floor) return;
+  const failed = problem => { if (floorPlan.key === key) { floorPlan.problem = problem; floorPlan.failed = Date.now(); drawMap(); } };
+  fetch('/api/floor.png?floor=' + encodeURIComponent(plain(floor))).then(async answer => {
+    if (floorPlan.key !== key) return;
+    if (!answer.ok) return failed(safe((await answer.json()).message || 'no floor plan'));
+    const meta = JSON.parse(answer.headers.get('X-Floor-Plan')), img = new Image();      // where the image lies
+    img.onload = () => { if (floorPlan.key === key) { floorPlan.img = img; floorPlan.meta = meta; drawMap(); } };
+    img.src = URL.createObjectURL(await answer.blob());
+  }).catch(error => failed(escapeText(String(error))));
+}
+
+function waitingGoal(places) {
+  // a step at the gate: the first input that is a pose (x, y), or the name of a place on this floor
+  const step = state.step || {};
+  if (step.state !== 'open' || step.end) return null;
+  for (const value of Object.values(step.inputs || {})) {
+    if (value && typeof value === 'object' && isFinite(value.x) && isFinite(value.y)) return {x: +value.x, y: +value.y, yaw: value.yaw, name: step.skill};
+    if (typeof value === 'string') {
+      const place = places.find(p => p.name === value.replace(/^\{|\}$/g, ''));
+      if (place) return {x: place.x, y: place.y, name: place.name, place: true};
+    }
+  }
+  return null;
+}
+
+let drawPending = false;
+function requestDraw() {                                   // pointer and wheel events: one draw for each frame
+  if (drawPending) return;
+  drawPending = true;
+  requestAnimationFrame(() => { drawPending = false; drawMap(); });
+}
 
 function drawMap() {
-  const map = state.map || {}, box = $('minimap');
-  box.hidden = !showMap || !(map.places || []).length && !map.robot;
-  if (box.hidden) return;
-  const {ctx, W, H} = fitCanvas($('mapc'));
-  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const points = [...map.places.map(p => [p.x, p.y]), ...(map.robot ? [[map.robot.x, map.robot.y]] : []), ...map.route];
-  const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
-  const pad = 14, bottom = 16;                            // room for the caption
-  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 4);
-  const s = Math.min((W - 2 * pad) / span, (H - 2 * pad - bottom) / span);
-  const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
-  const at = (x, y) => [W / 2 + (x - cx) * s, (H - bottom) / 2 - (y - cy) * s];     // y up, as on a plan
-  if (map.route.length > 1) {
-    ctx.strokeStyle = css('--accent'); ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]); ctx.beginPath();
-    map.route.forEach(([x, y], i) => ctx[i ? 'lineTo' : 'moveTo'](...at(x, y))); ctx.stroke(); ctx.setLineDash([]);
-  }
-  const nearest = map.robot && map.robot.nearest && map.robot.nearest.name;
-  map.places.forEach(place => {
-    const [x, y] = at(place.x, place.y), near = place.name === nearest;
-    ctx.fillStyle = near ? css('--accent') : css('--muted');
-    ctx.beginPath(); ctx.arc(x, y, near ? 4 : 2.5, 0, 2 * Math.PI); ctx.fill();
+  const map = state.map || {}, p = map.plan || {}, floor = mapFloor(), floors = Object.keys(p.floors || {}).sort();
+  const key = JSON.stringify([floor, p.version]);          // a new map, cache or floor range: load the image again
+  if (key !== floorPlan.key || (floorPlan.failed && Date.now() - floorPlan.failed > PLAN_RETRY_S * 1000)) loadPlan(floor, key);
+  once('floors', JSON.stringify([floors, floor, p.floor, p.colors]), () => {
+    $('floors').innerHTML = floors.map((name, index) =>      // an index: the name in the state is escaped, an attribute's is not
+      `<button class="toggle" data-floor="${index}" aria-pressed="${name === floor}" title="${name === p.floor ? 'the robot is on this floor' : 'show this floor'}">${name}${name === p.floor ? ' ●' : ''}</button>`).join('');
+    const c = p.colors || {}, swatch = (key, text) => c[key] ? `<span><i style="background:rgb(${c[key].join(',')})"></i>${text}</span>` : '';
+    $('maplegend').innerHTML = [swatch('open', 'open floor'), swatch('costly', 'costly (near a wall)'), swatch('blocked', 'blocked'),
+                                '<span>grid 5 m; 1 m when you zoom in</span>'].join('');
   });
-  if (map.robot) {
-    const [x, y] = at(map.robot.x, map.robot.y), yaw = map.robot.yaw;
-    ctx.save(); ctx.translate(x, y); ctx.rotate(-yaw);
-    ctx.fillStyle = map.robot.old ? css('--muted') : css('--ink');
-    ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(-6, -5); ctx.lineTo(-6, 5); ctx.closePath(); ctx.fill(); ctx.restore();
+  $('t-follow').setAttribute('aria-pressed', view.follow);
+  // the floor shown: its places and route points. With no floor plans, the robot's floor (SLAM's number)
+  const number = id => { const m = String(id || '').match(/(-?\d+)\s*$/); return m ? +m[1] : null; };
+  const onFloor = id => floor ? !id || id === floor : map.floor == null || number(id) == null || number(id) === map.floor;
+  const places = (map.places || []).filter(place => onFloor(place.floor));
+  const route = (map.route || []).filter(point => point[2] === null || point[2] === 'robot' || (floor && point[2] === floor));
+  const {ctx, W, H} = fitCanvas($('map'));
+  const robot = map.robot, goal = waitingGoal(places), meta = floorPlan.meta;
+  const none = !meta && !robot && !places.length;
+  $('mapnone').hidden = !none;
+  $('mapnone').innerHTML = floorPlan.problem || p.problem || 'No map yet: map_info has not sent its places.';
+  if (none) return;
+  if (view.follow && robot) { view.cx = robot.x; view.cy = robot.y; }
+  if (view.cx === null) {                                  // first draw: the middle of the plan, or of the places
+    view.cx = meta ? meta.x0 + meta.w * meta.cell / 2 : places.reduce((sum, q) => sum + q.x, 0) / (places.length || 1);
+    view.cy = meta ? meta.y0 + meta.h * meta.cell / 2 : places.reduce((sum, q) => sum + q.y, 0) / (places.length || 1);
   }
-  const robot = map.robot;
-  $('mapcap').innerHTML = [map.floor !== null && map.floor !== undefined ? `floor ${map.floor}` : '',
-    robot && robot.nearest ? `${robot.nearest.name} ${robot.nearest.distance} m` : '',
-    robot && robot.old ? `pose ${robot.age_s} s old` : '', !robot ? 'no pose' : ''].filter(Boolean).join(' · ');
-  $('mapcap').title = plain($('mapcap').innerHTML);       // the whole caption, when a long name is cut
+  const s = view.s, at = (x, y) => [W / 2 + (x - view.cx) * s, H / 2 - (y - view.cy) * s];
+  const style = getComputedStyle(document.documentElement), C = {};          // the colours, read once for this draw
+  ['--ink', '--muted', '--accent', '--warn', '--surface', '--bg', '--sans'].forEach(name => C[name] = style.getPropertyValue(name).trim());
+  if (floorPlan.img && meta) {
+    const [x, y] = at(meta.x0 - meta.cell / 2, meta.y0 + (meta.h - 0.5) * meta.cell);   // the top left of the top left pixel
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(floorPlan.img, x, y, meta.w * meta.cell * s, meta.h * meta.cell * s);
+  }
+  const left = view.cx - W / 2 / s, right = view.cx + W / 2 / s, low = view.cy - H / 2 / s, high = view.cy + H / 2 / s;
+  const grid = (step, width, alpha) => {
+    ctx.strokeStyle = C['--muted']; ctx.globalAlpha = alpha; ctx.lineWidth = width; ctx.beginPath();
+    for (let x = Math.ceil(left / step) * step; x <= right; x += step) { const [px] = at(x, 0); ctx.moveTo(px, 0); ctx.lineTo(px, H); }
+    for (let y = Math.ceil(low / step) * step; y <= high; y += step) { const [, py] = at(0, y); ctx.moveTo(0, py); ctx.lineTo(W, py); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+  };
+  if (s >= 14) grid(1, 0.5, 0.25);                         // 1 m lines only when they are 14 px apart or more
+  grid(5, 1, 0.4);
+  if (route.length > 1) {
+    ctx.strokeStyle = C['--accent']; ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.beginPath();
+    route.forEach(([x, y], i) => ctx[i ? 'lineTo' : 'moveTo'](...at(x, y))); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.textBaseline = 'middle';
+  const taken = [];                                        // label boxes drawn: a label that overlaps one is left out
+  const label = (text, x, y, font, color) => {
+    ctx.font = font;
+    const w = ctx.measureText(text).width, lx = x + 9 + w > W ? x - 9 - w : x + 9, box = [lx - 2, y - 8, lx + w + 2, y + 8];
+    if (taken.some(b => b[0] < box[2] && box[0] < b[2] && b[1] < box[3] && box[1] < b[3])) return;
+    taken.push(box);
+    ctx.fillStyle = C['--surface']; ctx.globalAlpha = 0.8; ctx.fillRect(box[0], box[1], box[2] - box[0], box[3] - box[1]); ctx.globalAlpha = 1;
+    ctx.fillStyle = color; ctx.fillText(text, lx, y);
+  };
+  const nearest = robot && robot.nearest && robot.nearest.name;
+  places.forEach(place => {
+    const [x, y] = at(place.x, place.y);
+    ctx.fillStyle = place.name === nearest ? C['--accent'] : C['--ink'];
+    ctx.beginPath(); ctx.arc(x, y, place.name === nearest ? 5 : 3.5, 0, 2 * Math.PI); ctx.fill();
+  });
+  if (goal) {
+    const [x, y] = at(goal.x, goal.y);
+    ctx.strokeStyle = C['--warn']; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(x, y, 10, 0, 2 * Math.PI); ctx.stroke();
+    if (isFinite(goal.yaw)) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 18 * Math.cos(goal.yaw), y - 18 * Math.sin(goal.yaw)); ctx.stroke(); }
+    label('goal: waits for you' + (goal.place ? ' · ' + plain(goal.name) : ''), x, y + 16, '600 11px ' + C['--sans'], C['--warn']);
+  }
+  [...places].sort((a, b) => (b.name === nearest) - (a.name === nearest))     // the nearest first
+    .forEach(place => label(plain(place.name), ...at(place.x, place.y), '500 11px ' + C['--sans'], C['--ink']));
+  if (robot && (!floor || floor === p.floor)) {            // the robot only on its own floor
+    const [x, y] = at(robot.x, robot.y);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-robot.yaw);
+    ctx.fillStyle = robot.old ? C['--muted'] : C['--ink']; ctx.strokeStyle = C['--bg']; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(-8, -7); ctx.lineTo(-8, 7); ctx.closePath(); ctx.stroke(); ctx.fill(); ctx.restore();
+  }
+  $('mapcap').innerHTML = [floor || '', robot && robot.nearest ? `nearest: ${robot.nearest.name}, ${robot.nearest.distance} m` : '',
+    robot && robot.old ? `<span class="stale">pose ${robot.age_s} s old</span>` : '', !robot ? 'no robot pose' : '',
+    goal ? `goal ${goal.place ? goal.name : goal.x.toFixed(1) + ', ' + goal.y.toFixed(1)} (waits for you)` : '',
+    floorPlan.problem || (!meta && p.problem) || ''].filter(Boolean).join(' · ');
 }
-new ResizeObserver(drawMap).observe($('minimap'));
+new ResizeObserver(requestDraw).observe($('mapframe'));
 
-$('t-map').addEventListener('click', () => {
-  showMap = !showMap;
-  $('t-map').setAttribute('aria-pressed', showMap);
+$('floors').addEventListener('click', event => {
+  const button = event.target.closest('[data-floor]');
+  if (!button) return;
+  const p = (state.map || {}).plan || {}, name = Object.keys(p.floors || {}).sort()[+button.dataset.floor];
+  if (name === undefined) return;
+  view.pick = name === p.floor ? null : name;              // the robot's floor: follow it again
+  view.follow = !view.pick; view.cx = null;
   drawMap();
 });
+$('t-follow').addEventListener('click', () => { view.follow = !view.follow; if (view.follow) view.pick = null; drawMap(); });
+$('mapframe').addEventListener('wheel', event => {        // zoom around the pointer
+  event.preventDefault();
+  const box = $('map').getBoundingClientRect(), k = Math.exp(-event.deltaY * 0.0015);
+  const s = Math.min(60, Math.max(1, view.s * k)), mx = event.clientX - box.left - box.width / 2, my = event.clientY - box.top - box.height / 2;
+  if (!view.follow) { view.cx += mx / view.s - mx / s; view.cy -= my / view.s - my / s; }
+  view.s = s; requestDraw();
+}, {passive: false});
+let dragging = null;
+$('mapframe').addEventListener('pointerdown', event => { dragging = {x: event.clientX, y: event.clientY}; $('mapframe').setPointerCapture(event.pointerId); });
+$('mapframe').addEventListener('pointermove', event => {
+  if (!dragging || view.cx === null) return;
+  view.follow = false;
+  view.cx -= (event.clientX - dragging.x) / view.s; view.cy += (event.clientY - dragging.y) / view.s;
+  dragging = {x: event.clientX, y: event.clientY}; requestDraw();
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(kind => $('mapframe').addEventListener(kind, () => { dragging = null; }));
 
 // ---------- Agent feed ----------
 
@@ -827,10 +956,10 @@ async function poll() {
     if (state.words && state.words.length) words = words.concat(state.words).slice(-keep);
     if ((state.trace && state.trace.length) || (state.words && state.words.length)) renderFeed();
     health(); nowBand(); renderPlan(); renderCamera(); feedNote();
-    once('map', JSON.stringify(state.map || {}), drawMap);
+    once('map', JSON.stringify([state.map || {}, state.step || {}]), drawMap);
   } catch (error) {
     $('health').innerHTML = '<span class="issue">' + escapeText(trouble + ': ' + (error && error.message || String(error))) + '</span>';
-    $('minimap').hidden = true;                          // a pose that no longer comes must not look fresh
+    if (state.map && state.map.robot) { state.map.robot.old = true; drawMap(); }   // a pose that no longer comes must not look fresh
     drawn = {};
   } finally {
     polling = false;

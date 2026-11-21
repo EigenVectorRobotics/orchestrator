@@ -42,6 +42,7 @@ from .step_grades import StepGrades
 from skill_registry.skill_review import composition, grade_version, written_maturity
 from .map_view import MapView
 from .map_places import MapInfoPlaces
+from .floor_plan import FloorPlans
 from .mission_control import (DECISION_WAIT, Commands, KnowledgeShelf, MissionApi, MissionState, RunShelf, SkillShelf,
                               SessionFollower, StaleSkills, finite, live_names, token_ok)
 from .recording import RecorderConfig
@@ -87,6 +88,7 @@ class MissionControlNode(Node):
         self.camera   = Camera(image_topic, max_side=self.declare_parameter('camera_max_side', 960).value, quality=80)
         self.outlines = Outlines()
         self.map_view = MapView()
+        self.floor_plans = FloorPlans()
         self._live    = None                         # the live skills, from registry_node; None until it says
         self._outline_subscription = None            # only while the page shows the masks
         self._waiting = {}                           # step id -> (Event, [reply]) for each decision in flight
@@ -131,7 +133,7 @@ class MissionControlNode(Node):
                                                              written_of=lambda name: written_maturity(library, name))),
                                        knowledge=KnowledgeShelf(knowledge_dir),
                                        runs=RunShelf(self.declare_parameter('runs_root', RecorderConfig.root).value),
-                                       map_view=self.map_view, session_log=self.session_log,
+                                       map_view=self.map_view, floor_plans=self.floor_plans, session_log=self.session_log,
                                        agents=agent_sessions(self, folders))
         self._places = self._map_places(self.declare_parameter('map_info', '/map_info').value)
         self.create_timer(1.0, self._follow_outlines)
@@ -165,7 +167,7 @@ class MissionControlNode(Node):
     def _map_places(self, prefix: str):
         """The places of map_info, as the executor reads them; nothing when there is no map_info here"""
         try:
-            places = MapInfoPlaces(self, prefix, without='the small map shows no places')
+            places = MapInfoPlaces(self, prefix, without='the map shows no places', on_places=self.floor_plans.use)
         except ImportError:                         # navigation_interfaces is not built here
             self.get_logger().warn('no navigation_interfaces: the map shows no places')
             return None
@@ -314,6 +316,13 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._send(200, *frame) if frame else self._json(503, {'ok': False, 'message': 'no camera frame yet'})
 
+        if url.path == '/api/floor.png':
+            code, made = self.server.api.floor_png(parse_qs(url.query).get('floor', [''])[0])
+
+            # where the image lies goes with it, so one request draws it
+            return self._send(200, made[0], 'image/png', {'X-Floor-Plan': json.dumps(made[1])}) if code == 200 \
+                else self._json(code, made)
+
         if url.path.startswith('/api/'):
             return self._json(*self.server.api.get(url.path, {key: value[0] for key, value in parse_qs(url.query).items()}))
 
@@ -364,9 +373,13 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send(code, json.dumps(finite(payload), default=str).encode(), 'application/json')
 
-    def _send(self, code: int, body: bytes, media_type: str):
+    def _send(self, code: int, body: bytes, media_type: str, headers: dict | None = None):
         self.send_response(code)
         self.send_header('Content-Type', media_type)
+
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()

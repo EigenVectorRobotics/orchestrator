@@ -30,6 +30,7 @@ from .images import Camera, Outlines
 from .knowledge import OPERATOR, Claim, KnowledgeError, KnowledgeStore, Sighting
 from .graduation import Graduation, shown_maturity
 from .map_view import MapView
+from .floor_plan import FloorPlanError, FloorPlans
 from .agent_session import AgentSessions
 from .run_browser import list_runs, run_detail
 from .session_log import RunWords, SessionLog
@@ -505,6 +506,7 @@ class MissionApi:
     def __init__(self, state: MissionState, commands: Commands, camera: Camera | None = None,
                  token_needed: bool = True, outlines: Outlines | None = None, skills: SkillShelf | None = None,
                  knowledge: KnowledgeShelf | None = None, runs: RunShelf | None = None, map_view: MapView | None = None,
+                 floor_plans: FloorPlans | None = None,
                  session_log: SessionLog | None = None, agents: AgentSessions | None = None):
         self.state        = state
         self.camera       = camera or Camera()
@@ -514,6 +516,7 @@ class MissionApi:
         self.knowledge    = knowledge
         self.runs         = runs
         self.map_view     = map_view or MapView()
+        self.floor_plans  = floor_plans or FloorPlans()
         self.session_log  = session_log
         self.agents       = agents
         self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel,
@@ -548,10 +551,23 @@ class MissionApi:
             self.outlines.ask()
 
         return 200, {**self.state.snapshot(after), 'camera': self.camera.state(), 'outlines': self.outlines.state(),
-                     'map': self.map_view.state(),
+                     'map': self.map_view.state(self.floor_plans.floors()),
                      'reasoning': self.session_log.status() if self.session_log else None,
                      'agent': self.agents.state() if self.agents else None,
                      'token_needed': self.token_needed}
+
+    def floor_png(self, name: str) -> tuple[int, tuple[bytes, dict] | dict]:
+        """/api/floor.png: (200, (the PNG, where it lies: x0, y0 of its lower left pixel, cell, w, h)), or an error
+        code and why"""
+        try:
+            made = self.floor_plans.image(name)
+        except (OSError, ValueError, KeyError, FloorPlanError) as error:     # a terrain file that cannot be read
+            return 503, {'ok': False, 'message': f'no floor plan for {name}: {error}'}
+
+        if made is None:
+            return 404, {'ok': False, 'message': f'no floor plan for {name!r}: {self.floor_plans.problem or "no such floor"}'}
+
+        return 200, made
 
     def post(self, path: str, body: dict) -> tuple[int, dict]:
         command = self.posts.get(path)

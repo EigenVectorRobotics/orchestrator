@@ -15,11 +15,13 @@ from skill_registry.geometry import pose_dict
 class MapInfoPlaces:
     """The places of map_info at `prefix` (e.g. /map_info); call it for the places now"""
 
-    def __init__(self, node: Node, prefix: str, without: str = 'Tasks have no named places'):
+    def __init__(self, node: Node, prefix: str, without: str = 'Tasks have no named places', on_places=None):
         from navigation_interfaces.msg import Places
 
         self.places        = {}
         self.heard         = False
+        self.annotations_path = ''                  # map_info's places file: it names the map and its floors
+        self._on_file      = on_places              # called with that file at each message (Mission Control's map)
         self._topic        = f'{prefix}/places'
         self._without      = without                # what is missing without the places, for the warning
         self._logger       = node.get_logger()
@@ -50,4 +52,8 @@ class MapInfoPlaces:
         except PlacesError as error:                    # two names with one key: rename one in map_info
             return self._logger.error(f'map_info places not used, the earlier ones stay: {error}')
 
+        self.annotations_path = message.annotations_path
+
+        if self._on_file:
+            self._on_file(message.annotations_path)
         self._logger.info(f'map_info: {len(self.places)} places from {message.annotations_path}')

@@ -1,4 +1,5 @@
-"""The small map of Mission Control: the places of the robot's floor, the robot, and the route it follows.
+"""The Map panel of Mission Control: the floor plan of the robot's floor (floor_plan.py), its places, the robot, and
+the route it follows.
 
 No ROS here: the node gives the places (map_places.MapInfoPlaces), the pose ({x, y, yaw}, geometry.pose_dict of
 /odom_base_link), the floor (/slam_elevatorlio/floor) and the route (/route_planner/path, as (x, y) points). The page
@@ -57,37 +58,58 @@ class MapView:
         with self._lock:
             self._route = [list(point) for point in points]
 
-    def state(self) -> dict:
-        """The places of the robot's floor (all places while the floor is not known), the robot with the age of its
-        pose and the nearest place of its floor, and the route on its floor, thinned. {} while there is nothing"""
-        now = self.clock()
+    def state(self, plans: dict | None = None) -> dict:
+        """Every place with its floor, the robot with the age of its pose and the nearest place of its floor, the route
+        thinned with the floor of each point, and the floor plan to show (plans: FloorPlans.floors()). The page shows
+        one floor, the robot's or one you pick: it keeps the places and route points of that floor"""
+        now   = self.clock()
+        plans = plans or {'floors': {}, 'problem': ''}
 
         with self._lock:
             places, pose, floor, route = self._places, self._pose, self._floor, self._route
 
-        shown = [{'name': name, 'x': place['x'], 'y': place['y'], 'kind': place.get('kind', '')}
-                 for name, place in places.items()
-                 if floor is None or floor_number(place.get('floor')) in (None, floor)]
-
-        if not shown and pose is None:
-            return {}
-
-        robot = None
+        where  = pose and pose[1]
+        shown  = [{'name': name, 'x': place['x'], 'y': place['y'], 'kind': place.get('kind', ''),
+                   'floor': place.get('floor') or ''} for name, place in places.items()]
+        robot  = None
 
         if pose is not None:
-            at, where = pose
             # while the floor is not known, a place right above or below would read as near: name none
-            nearest   = min(shown, key=lambda place: math.dist((place['x'], place['y']), (where['x'], where['y'])),
-                            default=None) if floor is not None else None
-            robot     = {'x': where['x'], 'y': where['y'], 'yaw': where['yaw'], 'age_s': round(now - at, 1),
-                         'old': now - at > STALE_POSE,
-                         'nearest': nearest and {'name': nearest['name'], 'distance': round(math.dist(
-                             (nearest['x'], nearest['y']), (where['x'], where['y'])), 2)}}
-
-            if where.get('z') is not None:          # the route on the robot's floor only
-                route = [point for point in route if len(point) < 3 or abs(point[2] - where['z']) <= SAME_FLOOR]
+            ours    = [place for place in shown if floor_number(place['floor']) in (None, floor)]
+            nearest = min(ours, key=lambda place: math.dist((place['x'], place['y']), (where['x'], where['y'])),
+                          default=None) if floor is not None else None
+            robot   = {'x': where['x'], 'y': where['y'], 'yaw': where['yaw'], 'age_s': round(now - pose[0], 1),
+                       'old': now - pose[0] > STALE_POSE,
+                       'nearest': nearest and {'name': nearest['name'], 'distance': round(math.dist(
+                           (nearest['x'], nearest['y']), (where['x'], where['y'])), 2)}}
 
         step  = max(1, math.ceil(len(route) / MAX_ROUTE))
-        route = [point[:2] for point in route[::step]] + ([route[-1][:2]] if route and (len(route) - 1) % step else [])
+        route = route[::step] + ([route[-1]] if route and (len(route) - 1) % step else [])
 
-        return {'places': shown, 'robot': robot, 'floor': floor, 'route': route}
+        return {'places': shown, 'robot': robot, 'floor': floor,
+                'route': [[point[0], point[1], _floor_of(plans['floors'], point, where)] for point in route],
+                'plan': {**plans, 'floor': _plan_floor(plans['floors'], floor, where)}}
+
+
+def _floor_of(floors: dict, point: list, where: dict | None) -> str | None:
+    """The floor of a route point: the floor whose z range holds it (z_min <= z <= z_max, as map_info's floor_of), ''
+    in none (the elevator shaft). With no floor ranges: 'robot' when it is near the robot's height, '' when it is not,
+    None when z or the robot is not known"""
+    if len(point) < 3:
+        return None
+
+    if floors:
+        return next((name for name, (low, high) in floors.items() if low <= point[2] <= high), '')
+
+    return None if not where or where.get('z') is None else 'robot' if abs(point[2] - where['z']) <= SAME_FLOOR else ''
+
+
+def _plan_floor(floors: dict, number: int | None, where: dict | None) -> str | None:
+    """The floor plan to show: the one SLAM says the robot is on, else the one whose z range holds the robot, else the
+    first"""
+    names     = sorted(floors)
+    by_number = [name for name in names if floor_number(name) == number] if number is not None else []
+    by_z      = [name for name in names if floors[name][0] <= where['z'] <= floors[name][1]] \
+                if where and where.get('z') is not None else []
+
+    return next(iter(by_number + by_z + names), None)
