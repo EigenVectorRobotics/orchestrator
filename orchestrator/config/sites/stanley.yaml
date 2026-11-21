@@ -9,7 +9,7 @@ places_file: /home/vector/maps/fvd_map_callpanel_tilt.places.yaml   # the map in
 planner_backend: external        # a session or `planner_cli run` answers the planner
 
 agent_bridge:                    # the operator laptop that runs mission_control/agent_bridge.py, on Tailscale
-  host: 100.75.136.24
+  host: 100.107.208.25
   port: 8771
 
 raw_bag:                         # recorded beside the orchestrator from launch to shutdown, for SLAM and EKF replay
