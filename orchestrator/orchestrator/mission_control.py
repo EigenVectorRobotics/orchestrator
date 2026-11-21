@@ -183,11 +183,13 @@ class Commands:
     """What a click does. Every command answers (code, payload)."""
 
     def __init__(self, send_task: Callable[[dict], bool], decide_step: Callable[[dict], dict | None],
-                 send_cancel: Callable[[], bool], send_stop_step: Callable[[dict], bool]):
+                 send_cancel: Callable[[], bool], send_stop_step: Callable[[dict], bool],
+                 send_note: Callable[[dict], bool]):
         self.send_task      = send_task
         self.decide_step    = decide_step            # publishes the decision and waits for the executor's reply
         self.send_cancel    = send_cancel
         self.send_stop_step = send_stop_step
+        self.send_note      = send_note
 
     def task(self, body: dict) -> tuple[int, dict]:
         sentence = ' '.join(str(body.get('task') or '').split())
@@ -237,6 +239,18 @@ class Commands:
             return 504, {'ok': False, 'message': 'the executor does not listen for a stop; is it running?'}
 
         return 200, {'ok': True, 'message': f'stop of step {step} sent'}
+
+    def note(self, body: dict) -> tuple[int, dict]:
+        """A note for the agent of the open mission; it gets it in its next reply (TaskDesk.note)"""
+        text = str(body.get('text') or '')         # the desk makes it one line and cuts it (TaskDesk.note)
+
+        if not text.strip() or not body.get('run_id'):
+            return 400, {'ok': False, 'message': 'a note has text, and names the mission it is for'}
+
+        if not self.send_note({'run_id': str(body['run_id']), 'text': text}):
+            return 504, {'ok': False, 'message': 'the executor does not listen for a note; is it running?'}
+
+        return 200, {'ok': True, 'message': 'note sent: the agent gets it in its next reply'}
 
     def cancel(self, body: dict) -> tuple[int, dict]:
         if not self.send_cancel():
@@ -503,7 +517,7 @@ class MissionApi:
         self.session_log  = session_log
         self.agents       = agents
         self.posts        = {'/api/task': commands.task, '/api/step': commands.step, '/api/cancel': commands.cancel,
-                             '/api/stop_step': commands.stop_step,
+                             '/api/stop_step': commands.stop_step, '/api/note': commands.note,
                              **({'/api/skill/keep': skills.keep, '/api/skill/remove': skills.remove} if skills else {}),
                              **({'/api/knowledge/approve': knowledge.approve, '/api/knowledge/retire': knowledge.retire,
                                  '/api/knowledge/seen': knowledge.seen} if knowledge else {}),

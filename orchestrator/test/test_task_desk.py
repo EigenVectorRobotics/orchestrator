@@ -318,6 +318,39 @@ def test_a_new_task_closes_the_old_one_and_refuses_its_waiting_step(tmp_path):
     assert {'state': 'closed', 'run_id': 'r1', 'end': 'replaced'} in d.opened and d.opened[-1]['state'] == 'open'
 
 
+def test_an_operator_note_goes_in_the_next_reply_once_and_only_for_its_task(tmp_path):
+    d = _desk(FakeRunner({'navigate_to': [Status.RUNNING, Status.SUCCESS]}), tmp_path)
+
+    assert not d.desk.note('r0', 'old run') and not d.desk.note('r1', '  ')
+    thread = threading.Thread(target=d.desk.command, args=({'id': 'c', 'run_id': 'r1', 'op': 'run', 'skill': 'navigate_to',
+                                                            'inputs': {'goal': '{call_panel}'}, 'subgoal': 'walk'},))
+    thread.start()
+    d.tasks.tick()
+    assert d.desk.note('r1', 'look at the   door frames') and d.desk.note('r1', 'x' * 600)  # while the step runs
+    _tick_until(d.tasks, thread)
+    thread.join()
+    d.desk.command({'id': 'k', 'run_id': 'r1', 'op': 'skills'})
+
+    assert d.replies[0]['operator_notes'] == ['look at the door frames', 'x' * 500]          # the step's own reply
+    assert 'operator_notes' not in d.replies[1]                                               # once
+    notes = [(event['state'], event.get('step')) for event in d.tracer.events if event['kind'] == 'operator_note']
+    assert notes == [('refused', None), ('refused', None), ('queued', 1), ('queued', 1), ('given', None)]
+
+    d.desk.note('r1', 'also check the second door')                                          # between steps
+    assert [event for event in d.tracer.events if event['kind'] == 'operator_note'][-1]['step'] == 1
+    d.desk.command({'id': 'e', 'run_id': 'r1', 'op': 'done', 'reason': 'arrived'})
+
+    assert d.replies[-1]['operator_notes'] == ['also check the second door']                 # the end's reply has it
+
+    d.desk.open('Walk', _context('r2'))
+    d.desk.note('r2', 'never read')
+    d.desk.open('Say hello', _context('r3'))                                                 # a new task: not its note
+    d.desk.command({'id': 'k', 'run_id': 'r3', 'op': 'skills'})
+
+    assert 'operator_notes' not in d.replies[-1]
+    assert [event['state'] for event in d.tracer.events if event['kind'] == 'operator_note'][-1] == 'dropped'
+
+
 def test_the_session_gets_the_skills_the_executor_has(tmp_path):
     d = _desk(FakeRunner(), tmp_path)
 

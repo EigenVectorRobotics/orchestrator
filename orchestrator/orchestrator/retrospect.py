@@ -117,6 +117,7 @@ def show_lines(detail: dict, knowledge: Path) -> list[str]:
     lines += [failed] if failed else []
 
     lines += [f'refused: {item["skill"]} ({item["subgoal"]}): {item["reason"]}' for item in detail['refused']]
+    lines += [f'operator note after step {item["step"]}: {item["text"]}' for item in detail.get('notes', [])]
     lines += [f'left: {item["kind"]}: {item["text"]}' for item in detail['left']]
 
     if detail['scratch']:

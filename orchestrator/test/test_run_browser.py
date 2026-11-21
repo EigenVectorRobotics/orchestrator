@@ -23,6 +23,8 @@ def _session(root):
                  event('finished', 'r1', 132.0, status='failure'),
                  event('step_gate', 'r1', 140.0, state='refused', skill='cancel_navigation', subgoal='walk there',
                        reason='clear the map', by='mission_control'),
+                 event('operator_note', 'r1', 145.0, state='queued', note='look at the door frames', step=1),
+                 event('operator_note', 'r1', 146.0, state='given', notes=['look at the door frames']),
                  event('write_skill', 'r1', 150.0, text='wait_for_lio saved, untested'),
                  event('step_gate', 'r9', 151.0, state='refused', skill='say'),          # another run's
                  event('task_finished', 'r1', 160.0, end='gave_up', text='the map stays stale', steps=1),
@@ -65,6 +67,7 @@ def test_one_run_has_its_steps_refusals_what_it_left_and_its_code(tmp_path):
     assert run['refused'] == [{'skill': 'cancel_navigation', 'subgoal': 'walk there', 'reason': 'clear the map',
                                'by': 'mission_control', 'time': 140.0}]                  # not r9's
     assert [item['kind'] for item in run['left']] == ['write_skill']
+    assert run['notes'] == [{'text': 'look at the door frames', 'step': 1, 'time': 145.0}]    # once: a nudge, for the count
     assert run['skills'] == 2 and run['git'][0]['dirty'] and run['bag'] is None
     assert run_detail(tmp_path, '../' + key) is None and run_detail(tmp_path, 'nothing') is None   # never a path
 
@@ -84,7 +87,7 @@ def test_one_run_has_its_steps_refusals_what_it_left_and_its_code(tmp_path):
 
 def test_the_runs_tab_lists_and_opens_a_run(tmp_path):
     _session(tmp_path)
-    api = MissionApi(MissionState(), Commands(None, None, None, None), runs=RunShelf(tmp_path))
+    api = MissionApi(MissionState(), Commands(None, None, None, None, None), runs=RunShelf(tmp_path))
 
     code, listing = api.get('/api/runs', {})
     key           = listing['runs'][1]['key']

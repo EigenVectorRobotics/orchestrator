@@ -164,6 +164,8 @@ def run_detail(root, ref: str, full: bool = False) -> dict | None:
             'refused':  [{'skill': event.get('skill'), 'subgoal': event.get('subgoal'), 'reason': event.get('reason'),
                           'by': event.get('by'), 'time': event.get('time')}
                          for event in events if event.get('kind') == 'step_gate' and event.get('state') == 'refused'],
+            'notes':    [{'text': event.get('note'), 'step': event.get('step'), 'time': event.get('time')}   # nudges
+                         for event in events if event.get('kind') == 'operator_note' and event.get('state') == 'queued'],
             'left':     [{'kind': event.get('kind'), 'text': event.get('text'), 'level': event.get('level'),
                           'time': event.get('time')} for event in events if event.get('kind') in LEFT],
             'bag':      _size(run / 'bag') if (run / 'bag').is_dir() else None,

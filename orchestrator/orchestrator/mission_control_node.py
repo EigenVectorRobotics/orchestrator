@@ -34,7 +34,7 @@ from std_msgs.msg import Int32
 from skill_registry.geometry import pose_dict
 
 from .qos import COMMAND_QOS, LATCHED_QOS, SENSOR_QOS, TRACE_QOS
-from .topics import (CANCEL_TOPIC, LIVE_SKILLS_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
+from .topics import (CANCEL_TOPIC, LIVE_SKILLS_TOPIC, NOTE_TOPIC, OPEN_TOPIC, OUTLINE_TOPIC, RECORDER_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC, STEP_REPLY_TOPIC,
                      STEP_REQUEST_TOPIC, STOP_STEP_TOPIC, TASK_TOPIC, TRACE_TOPIC)
 from .images import Camera, Outlines
 from .graduation import Graduation
@@ -96,6 +96,7 @@ class MissionControlNode(Node):
         self._decision_publisher = self.create_publisher(String, STEP_DECISION_TOPIC, COMMAND_QOS)
         self._cancel_publisher   = self.create_publisher(Empty, CANCEL_TOPIC, COMMAND_QOS)
         self._stop_publisher     = self.create_publisher(String, STOP_STEP_TOPIC, COMMAND_QOS)
+        self._note_publisher     = self.create_publisher(String, NOTE_TOPIC, COMMAND_QOS)
         self.create_subscription(String, STATUS_TOPIC, self._reader('status'), LATCHED_QOS)
         self.create_subscription(String, OPEN_TOPIC, self._reader('task'), LATCHED_QOS)
         self.create_subscription(String, STEP_REQUEST_TOPIC, self._reader('step'), LATCHED_QOS)
@@ -117,7 +118,8 @@ class MissionControlNode(Node):
         library            = self.declare_parameter('skills_dir', str(skills_dir())).value
         folders            = agent_folders(self)
         self.session_log   = session_log(self, folders)
-        self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel, self._send_stop_step),
+        self.api           = MissionApi(self.state, Commands(self._send_task, self._decide_step, self._send_cancel, self._send_stop_step,
+                                                         self._send_note),
                                        self.camera, token_needed=not off, outlines=self.outlines,
                                        skills=SkillShelf(library,
                                                          self.declare_parameter('stamps_file', str(stamps_file())).value,
@@ -227,6 +229,9 @@ class MissionControlNode(Node):
 
     def _send_stop_step(self, stop: dict) -> bool:
         return self._send_json(self._stop_publisher, stop)
+
+    def _send_note(self, note: dict) -> bool:
+        return self._send_json(self._note_publisher, note)
 
     def _send_json(self, publisher, payload: dict) -> bool:
         """Publish payload as JSON; False when no executor listens"""

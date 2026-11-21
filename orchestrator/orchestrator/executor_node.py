@@ -38,7 +38,7 @@ from .behavior_tree import Context, Status
 from .ros_skill_runner import RosSkillRunner
 from .sensing import CameraStream
 from .qos import COMMAND_QOS, LATCHED_QOS
-from .topics import (CANCEL_TOPIC, COMMAND_TOPIC, OPEN_TOPIC, RECORDER_TOPIC, REPLY_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC,
+from .topics import (CANCEL_TOPIC, COMMAND_TOPIC, NOTE_TOPIC, OPEN_TOPIC, RECORDER_TOPIC, REPLY_TOPIC, STATUS_TOPIC, STEP_DECISION_TOPIC,
                      STEP_REPLY_TOPIC, STEP_REQUEST_TOPIC, STOP_STEP_TOPIC, TASK_TOPIC)
 
 
@@ -95,6 +95,7 @@ class ExecutorNode(Node):
         self._status_publisher   = self.create_publisher(String, STATUS_TOPIC, LATCHED_QOS)
         self.create_subscription(Empty, CANCEL_TOPIC, self._on_cancel, 10)
         self.create_subscription(String, STOP_STEP_TOPIC, self._on_stop_step, 10)
+        self.create_subscription(String, NOTE_TOPIC, self._on_note, 10)
         self.create_subscription(String, RECORDER_TOPIC, self._on_recorder_status, LATCHED_QOS)
         # skills that change on disk load while it runs, checked as write_skill checks them (skill_writer.py)
         self.stamps              = self._make_stamps(self.skills_dir)
@@ -261,6 +262,13 @@ class ExecutorNode(Node):
 
     def _on_cancel(self, message: Empty):
         self.tasks.cancel()
+
+    def _on_note(self, message: String):
+        try:
+            note = json.loads(message.data)
+            self.desk.note(str(note['run_id']), str(note['text']))
+        except (ValueError, TypeError, KeyError) as error:
+            self.get_logger().warn(f'a note that cannot be read: {error!r}')
 
     def _on_stop_step(self, message: String):
         try:

@@ -29,7 +29,8 @@ are weak evidence (knowledge.OUTCOME). Each grade keeps the code under the claim
 that the agent rewrote later counts for no version. A task that opens commits the grades the last one left. The
 agent writes claims itself, with the knowledge CLI (a session).
 
-Each command gets one reply on REPLY_TOPIC with its id. Limits: max_steps and max_task_s (when set) end the task as gave_up.
+Each command gets one reply on REPLY_TOPIC with its id. A note that the operator sent for the open task (note()) goes
+in the next reply, as operator_notes; the trace keeps when it came and when the agent got it. Limits: max_steps and max_task_s (when set) end the task as gave_up.
 When no command comes for idle_s between steps (the session or its cloud link is gone), the robot says so once on
 /speak and waits.
 
@@ -52,6 +53,7 @@ from dataclasses import asdict
 from skill_registry import contract_grammar
 
 from .places import PLACE_INFO
+from .topics import MAX_NOTE
 from .knowledge import KnowledgeError, KnowledgeStore, StagedRuns
 from .step_grades import StepGrades
 from .graduation import Graduation, at_run_time
@@ -204,6 +206,7 @@ class TaskDesk:
         self.heard         = 0.0
         self.spoke_lost    = False
         self.plans         = 0
+        self.notes         = []                      # the operator's notes for the open task, not yet in a reply
         self.busy          = 0                       # commands in progress: a session waiting for a step is not quiet
         self._lock         = threading.Lock()        # open and check on the spin thread, commands on worker threads
         self._grading      = threading.Lock()        # the staged files of a run: each command runs on its own thread
@@ -217,7 +220,13 @@ class TaskDesk:
         task = self.tasks.start_task('discovery' if discovery else 'task', context, blind, bag=not discovery)
 
         with self._lock:
+            left, last            = self.notes, self.ended
             self.task, self.ended = task, None
+            self.notes            = []
+
+        if left:                                         # never in a reply: the trace says so, for the nudge count
+            self.tasks.tracer.emit('operator_note', f'{len(left)} note(s) not given: a new task opened', level='warn',
+                                   state='dropped', run_id=last, notes=left)
 
         self.opened     = self.heard = self.clock()
         self.spoke_lost = False
@@ -284,9 +293,45 @@ class TaskDesk:
         if trace:
             reply['trace'] = trace
 
+        if notes := self._take_notes(run):
+            reply['operator_notes'] = notes
+
         self.publish_reply(reply)
 
         return reply
+
+    def note(self, run_id: str, text: str) -> bool:
+        """An operator's note for the open task: it goes in the next reply to the agent. The agent waits on a command
+        most of the time, so it gets the note when that command ends. False when run_id is not the open task"""
+        text = ' '.join(text.split())[:MAX_NOTE]
+
+        with self._lock:
+            task = self.task
+            ok   = task is not None and task.run_id == run_id and bool(text)
+
+            if ok:
+                self.notes.append(text)
+
+        if not ok:
+            self.tasks.tracer.emit('operator_note', f'note not given: {"it is empty" if text else "no open task " + run_id}',
+                                   level='warn', state='refused', run_id=run_id, note=text)
+            return False
+
+        self.tasks.tracer.emit('operator_note', f'note for the agent: {text}', state='queued', run_id=run_id, note=text,
+                               step=task.steps)
+        return True
+
+    def _take_notes(self, run_id: str) -> list[str]:
+        """The task's notes for a reply to it, once; also the reply that ends it (done), and a grade after it"""
+        with self._lock:
+            if not self.notes or run_id not in (self.task and self.task.run_id, self.ended):
+                return []
+
+            notes, self.notes = self.notes, []
+
+        self.tasks.tracer.emit('operator_note', f'the agent got {len(notes)} note(s)', state='given', run_id=run_id,
+                               notes=notes)
+        return notes
 
     def check(self):
         """From the executor's timer: the time limit, a session that went quiet, and a task that ended elsewhere"""

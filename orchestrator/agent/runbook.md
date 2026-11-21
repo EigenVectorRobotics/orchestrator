@@ -18,6 +18,9 @@ gives its last feedback (`failure.feedback`, with `feedback_count`); `retrospect
 **The operator can refuse the end of a task.** On the robot, `agent_cli done` and `agent_cli give-up` wait for the
 operator. If the operator refuses, the task stays open: read the `reason` and continue the task.
 
+**A reply can carry `operator_notes`:** what the operator wrote to you while you worked, oldest first. Read them
+before your next step.
+
 **The operator can stop a running step.** The step then ends `halted`, and its `reason` starts with "the operator
 stopped the step". The task stays open. Read the reason before you select the next step.
 

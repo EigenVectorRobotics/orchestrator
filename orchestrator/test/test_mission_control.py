@@ -19,7 +19,7 @@ from orchestrator.mission_control import (Commands, KnowledgeShelf, MissionApi, 
 
 def _api(reply: dict | None = {'accepted': True, 'message': 'approved'}, listening: bool = True):
     state = MissionState(keep=3)
-    sent  = SimpleNamespace(tasks=[], decisions=[], cancels=0, stops=[])
+    sent  = SimpleNamespace(tasks=[], decisions=[], cancels=0, stops=[], notes=[])
 
     def task(request):
         sent.tasks.append(request)
@@ -37,7 +37,20 @@ def _api(reply: dict | None = {'accepted': True, 'message': 'approved'}, listeni
         sent.stops.append(request)
         return listening
 
-    return MissionApi(state, Commands(task, decide, cancel, stop)), state, sent
+    def note(request):
+        sent.notes.append(request)
+        return listening
+
+    return MissionApi(state, Commands(task, decide, cancel, stop, note)), state, sent
+
+
+def test_a_note_has_text_and_names_its_mission():
+    api, _, sent = _api()
+
+    assert api.post('/api/note', {'run_id': 'r1', 'text': 'look at the door frames'})[0] == 200
+    assert [api.post('/api/note', body)[0] for body in ({'run_id': 'r1', 'text': ' '}, {'text': 'hi'})] == [400] * 2
+    assert sent.notes == [{'run_id': 'r1', 'text': 'look at the door frames'}]   # the desk makes it one line, cuts it
+    assert _api(listening=False)[0].post('/api/note', {'run_id': 'r1', 'text': 'hi'})[0] == 504
 
 
 def test_a_stop_names_the_run_and_the_step_on_the_page():
@@ -225,7 +238,7 @@ def _marker(points, colors=(), color=(0.0, 1.0, 0.0)):
 
 def test_the_mask_outlines_are_segments_with_a_colour_each_and_only_while_a_page_asks():
     outlines = Outlines(keep_s=60.0)
-    api      = MissionApi(MissionState(), Commands(None, None, None, None), outlines=outlines)
+    api      = MissionApi(MissionState(), Commands(None, None, None, None, None), outlines=outlines)
 
     assert not outlines.wanted() and api.get('/api/state', {})[1]['outlines'] == {}
 
@@ -259,7 +272,7 @@ def test_the_skills_tab_lists_the_library_and_keeps_or_removes_an_agent_skill(tm
     (library / 'say_it' / 'contract.yaml').write_text(AGENT_MARK + yaml.safe_dump(
         {'name': 'say_it', 'kind': 'action', 'device': 'nuc', 'timeout_s': 5,
          'interface': {'transport': 'topic', 'name': '/speak', 'ros_type': 'std_msgs/msg/String'}}))
-    api = MissionApi(MissionState(), Commands(None, None, None, None),
+    api = MissionApi(MissionState(), Commands(None, None, None, None, None),
                      skills=SkillShelf(library, tmp_path / 'stamps.yaml', tmp_path / 'removed'))
 
     code, shelf = api.get('/api/skills', {})
@@ -273,9 +286,9 @@ def test_the_skills_tab_lists_the_library_and_keeps_or_removes_an_agent_skill(tm
     assert api.post('/api/skill/keep', {'name': 'say_it', 'version': version})[0] == 200
     assert api.post('/api/skill/remove', {'name': 'say_it', 'version': version}) == (409, {'ok': False, 'message':
         'say_it was written or kept by a person: remove it in git'})
-    assert MissionApi(MissionState(), Commands(None, None, None, None)).get('/api/skills', {})[0] == 404   # no shelf, no tab
+    assert MissionApi(MissionState(), Commands(None, None, None, None, None)).get('/api/skills', {})[0] == 404   # no shelf, no tab
 
-    gone = MissionApi(MissionState(), Commands(None, None, None, None),
+    gone = MissionApi(MissionState(), Commands(None, None, None, None, None),
                       skills=SkillShelf(tmp_path / 'nowhere', None, tmp_path / 'removed'))
 
     assert gone.get('/api/skills', {})[1]['skills'] == [] and 'no folder' in gone.get('/api/skills', {})[1]['problem']
@@ -291,7 +304,7 @@ def test_the_knowledge_tab_shows_the_store_and_the_operator_acts_on_it(tmp_path)
 
     store.stage_applied('done1', [claim.id], 'press_button', 3)
     store.stage('done1', claim.id, 'useful', 'it did not light, as said')
-    api = MissionApi(MissionState(), Commands(None, None, None, None), knowledge=KnowledgeShelf(tmp_path))
+    api = MissionApi(MissionState(), Commands(None, None, None, None, None), knowledge=KnowledgeShelf(tmp_path))
 
     code, shown = api.get('/api/knowledge', {})
 
@@ -313,7 +326,7 @@ def test_the_knowledge_tab_shows_the_store_and_the_operator_acts_on_it(tmp_path)
     assert api.post('/api/knowledge/retire', {'id': claim.id})[0] == 200 and store.get(claim.id).tier == 'retired'
     assert api.post('/api/knowledge/retire', {'id': claim.id})[0] == 409            # retired already
 
-    off = MissionApi(MissionState(), Commands(None, None, None, None), knowledge=KnowledgeShelf(tmp_path), token_needed=False)
+    off = MissionApi(MissionState(), Commands(None, None, None, None, None), knowledge=KnowledgeShelf(tmp_path), token_needed=False)
 
     assert off.post('/api/knowledge/seen', {'id': claim.id})[0] == 403               # no token: no act as the operator
     assert off.get('/api/knowledge', {})[0] == 200                                   # reading needs none
@@ -419,7 +432,7 @@ def test_the_page_answers_only_under_a_local_name():
     from orchestrator.mission_control_node import LOCAL, Handler       # a ROS node module: not needed by the other tests
 
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-    server.api, server.files, server.token = MissionApi(MissionState(), Commands(None, None, None, None)), {'index.html': (b'page', 'text/html')}, 't'
+    server.api, server.files, server.token = MissionApi(MissionState(), Commands(None, None, None, None, None)), {'index.html': (b'page', 'text/html')}, 't'
     server.log, server.names = SimpleNamespace(warning=lambda text: None), {*LOCAL, '127.0.0.1'}
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
