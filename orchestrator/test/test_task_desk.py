@@ -114,10 +114,11 @@ def test_ending_an_old_task_does_not_close_the_new_one(tmp_path):
     assert d.desk.task is not None and d.desk.task is not old and d.opened[-1]['state'] == 'open'
 
 
-def _gated_run(d, decide):
-    """A run command while the gate is on: decide(request) answers it once the request is out"""
-    thread = threading.Thread(target=d.desk.command, args=({'id': 'c', 'run_id': 'r1', 'op': 'run', 'skill': 'say',
-                                                            'inputs': {'text': 'hi'}, 'subgoal': 'greet'},))
+def _gated_run(d, decide, command: dict | None = None):
+    """A command while the gate is on (a run of say, or the one given): decide(request) answers it once the request
+    is out"""
+    command = command or {'op': 'run', 'skill': 'say', 'inputs': {'text': 'hi'}, 'subgoal': 'greet'}
+    thread  = threading.Thread(target=d.desk.command, args=({'id': 'c', 'run_id': 'r1', **command},))
     thread.start()
 
     while d.desk.gate.request is None and thread.is_alive():
@@ -242,16 +243,7 @@ def test_a_step_waiting_at_the_gate_is_refused_when_the_task_ends(tmp_path):
 
 
 def _gated_end(d, op, decide):
-    """done or give_up while the gate is on: decide(request) answers it once the request is out"""
-    thread = threading.Thread(target=d.desk.command, args=({'id': 'e', 'run_id': 'r1', 'op': op, 'reason': 'no button'},))
-    thread.start()
-
-    while d.desk.gate.request is None and thread.is_alive():
-        thread.join(0.01)
-
-    decide(d.desk.gate.request)
-    thread.join(5.0)
-    assert not thread.is_alive(), 'the end still waits at the gate'
+    _gated_run(d, decide, {'op': op, 'reason': 'no button'})
 
 
 def test_the_operator_can_refuse_the_end_of_a_task_and_it_stays_open(tmp_path):
@@ -263,12 +255,31 @@ def test_the_operator_can_refuse_the_end_of_a_task_and_it_stays_open(tmp_path):
 
     assert (d.replies[0]['status'], d.replies[0]['reason']) == ('refused', 'look at the door frames')
     assert d.desk.task is not None and not any(event['kind'] == 'task_finished' for event in d.tracer.events)
-    assert (requests[0]['end'], requests[0]['subgoal'], requests[0]['step']) == ('gave_up', 'no button', None)
+    assert (requests[0]['end'], requests[0]['subgoal']) == ('gave_up', 'no button')
+    refused = next(event for event in d.tracer.events if event['kind'] == 'step_gate')   # the page: not a step
+    assert (refused['state'], refused['end']) == ('refused', 'gave_up')
 
     _gated_end(d, 'done', lambda request: d.desk.gate.decide({'id': request['id'], 'approve': True}))
 
     assert d.replies[1]['ok'] and d.desk.task is None
     assert d.tracer.events[-1]['kind'] == 'task_finished' and d.tracer.events[-1]['end'] == 'done'
+
+
+def test_an_end_with_no_reason_or_with_no_person_says_so_and_one_with_no_step_left_ends_at_once(tmp_path):
+    requests = []
+    d        = _desk(FakeRunner(), tmp_path, gate=StepGate(requests.append), max_steps=1)
+
+    _gated_end(d, 'give_up', lambda request: d.desk.gate.decide({'id': request['id'], 'approve': False}))
+    _gated_run(d, lambda request: (d.desk.command({'id': 'e', 'run_id': 'r1', 'op': 'give_up', 'reason': 'x'}),
+                                   d.desk.gate.cancel('free it')))   # an end while a request waits: no person sees it
+
+    assert d.replies[0]['reason'] == 'no reason given'
+    assert d.replies[1]['by'] == 'the executor' and 'did not go to the operator' in d.replies[1]['message']
+
+    _gated_run(d, lambda request: d.desk.gate.decide({'id': request['id'], 'approve': True}))
+    d.desk.command({'id': 'e', 'run_id': 'r1', 'op': 'done', 'reason': 'arrived'})      # max_steps: no step can run
+
+    assert d.replies[-1]['ok'] and d.desk.task is None and d.desk.gate.request is None
 
 
 def test_an_end_waiting_at_the_gate_is_refused_when_the_task_ends_and_ends_it_once(tmp_path):
@@ -282,6 +293,17 @@ def test_an_end_waiting_at_the_gate_is_refused_when_the_task_ends_and_ends_it_on
 
     assert d.replies[0]['status'] == 'refused' and 'the task ended' in d.replies[0]['message']
     assert 'still open' not in d.replies[0]['message']
+    assert [event['end'] for event in d.tracer.events if event['kind'] == 'task_finished'] == ['gave_up']
+
+
+def test_an_end_after_the_time_limit_ended_the_task_does_not_end_it_again(tmp_path):
+    d    = _desk(FakeRunner(), tmp_path, max_task_s=300.0)
+    task = d.desk.task
+
+    d.clock.now = 301.0
+    d.desk.check()                                       # the time limit, between an approval and its end
+
+    assert not d.desk._end(task, 'done', 'arrived')['ok']
     assert [event['end'] for event in d.tracer.events if event['kind'] == 'task_finished'] == ['gave_up']
 
 

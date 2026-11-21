@@ -175,13 +175,14 @@ def _task_command(node, command: dict, timeout_s: float,
 
 
 def _step_summary(request: dict) -> str:
-    if request.get('end'):                              # done or give_up: the agent asks to end the task
-        return (f'the end of task {request.get("run_id")} ({request.get("state")}'
-                + (f': {request["reason"]}' if request.get('reason') else '') + f'): {request.get("end")}, '
-                f'because "{request.get("subgoal", "")}"')
+    end    = request.get('end')                     # done or give_up: the agent asks to end the task
+    status = (f'{"the end" if end else "step " + str(request.get("step"))} of task {request.get("run_id")} '
+              f'({request.get("state")}' + (f': {request["reason"]}' if request.get('reason') else '') + ')')
 
-    return (f'step {request.get("step")} of task {request.get("run_id")} ({request.get("state")}'
-            + (f': {request["reason"]}' if request.get('reason') else '') + f'), for "{request.get("subgoal", "")}":\n'
+    if end:
+        return f'{status}: {end}, because "{request.get("subgoal", "")}"'
+
+    return (f'{status}, for "{request.get("subgoal", "")}":\n'
             f'  {request.get("skill")} {json.dumps(request.get("inputs", {}))}'
             + (f'\n  it calls: {", ".join(request["calls"]) or "nothing"}' if 'calls' in request else '')
             + ('\n  and some calls that its code does not name' if request.get('unknown_calls') else ''))

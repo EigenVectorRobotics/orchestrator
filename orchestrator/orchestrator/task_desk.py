@@ -635,31 +635,42 @@ class TaskDesk:
         decision = decided or self.gate.ask(full, still_open or (lambda: self.task is task))
         self.tasks.tracer.emit('step_gate', f'{request.get("skill")}: {decision["state"]} {decision["reason"]}'.strip(),
                                skill=request.get('skill'), subgoal=request.get('subgoal', ''), step=full['step'],
-                               run_id=full['run_id'], **decision)   # its own run: a late refusal of a closed task
+                               run_id=full['run_id'], **{key: request[key] for key in ('end',) if key in request},
+                               **decision)   # its own run: a late refusal of a closed task; end: not a step
 
         return decision
 
     def _ask_end(self, task: Task, op: str, reason: str) -> dict:
         """done or give_up. With the gate on, a person approves the end first, or refuses it with a reason and the task
         stays open: on 2026-11-20 run 25bd4daf gave up in front of the call button, and nobody could say "look at the
-        door frames". The time limit ends a task with no question"""
+        door frames". The time limit ends a task with no question, and so does the end of a task that cannot run a
+        step: one at max_steps, or a discovery task, where nobody may watch"""
         end = 'done' if op == 'done' else 'gave_up'
 
-        if self.gate is not None:
-            decision = self.ask_step({'skill': op, 'end': end, 'subgoal': reason, 'inputs': {}, 'step': None})
+        if task.steps >= self.limits['max_steps'] or not self.limits['run']:
+            return self._end(task, end, reason)
 
-            if self.task is not task:                    # it ended while the person decided: the time limit, a cancel
-                return _refused('the task ended while the end waited at the gate', decision['reason'],
-                                decision.get('by', EXECUTOR))
+        decision = self.ask_step({'skill': op, 'end': end, 'subgoal': reason})   # no gate: approved
 
-            if not decision['approve']:
-                return _refused(f'the operator refused the end: {decision["reason"]}. The task is still open: go on',
-                                decision['reason'], decision.get('by', EXECUTOR))
+        if self.task is not task:                        # it ended while the person decided: the time limit, a cancel
+            return _refused('the task ended while the end waited at the gate', decision['reason'],
+                            decision.get('by', EXECUTOR))
+
+        if decision.get('by') == EXECUTOR:              # no person saw it: a request waits at the gate already
+            return _refused(f'the end did not go to the operator: {decision["reason"]}. Wait, then send it again',
+                            decision['reason'], EXECUTOR)
+
+        if not decision['approve']:
+            why = decision['reason'] or 'no reason given'
+            return _refused(f'the operator refused the end: {why}. The task is still open: continue the task', why,
+                            decision.get('by', EXECUTOR))
 
         return self._end(task, end, reason)
 
     def _end(self, task: Task, end: str, reason: str) -> dict:
-        self._close(task, end)                           # first: else check() sees it end and closes it as 'ended'
+        if not self._close(task, end):                   # first: else check() sees it end and closes it as 'ended'
+            return {'ok': False, 'message': 'the task ended already'}   # a time limit at the same time: end it once
+
         self.tasks.end_task(task, end, reason)
         message  = f'the task ended: {end}'
 
@@ -683,10 +694,11 @@ class TaskDesk:
 
         return staged
 
-    def _close(self, task: Task, end: str):
+    def _close(self, task: Task, end: str) -> bool:
+        """Close the task; False when it was closed already"""
         with self._lock:                                 # check() and a command can both close it; a new task may be open
             if self.task is not task:
-                return
+                return False
 
             self.task, self.ended = None, task.run_id
 
@@ -694,3 +706,5 @@ class TaskDesk:
             self.gate.cancel('the task ended')
 
         self.publish_open({'state': 'closed', 'run_id': task.run_id, 'end': end})
+
+        return True

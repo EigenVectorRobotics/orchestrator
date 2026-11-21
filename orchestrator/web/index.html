@@ -505,14 +505,18 @@ function nowBand() {
   if (gate) {
     once('gate', JSON.stringify(step), () => {
       deciding = null;
-      $('gate-title').innerHTML = step.end ? `${step.end === 'done' ? 'The agent says the mission is done' : 'The agent wants to give up'}`
-        : `${step.subgoal || step.skill} <code>${step.skill}</code>`;
-      $('gate-facts').innerHTML = step.end ? [`<span>its reason: ${step.subgoal || 'none'}</span>`, `<span>run ${step.run_id}</span>`,
-                                              '<span>refuse to keep the mission open: the agent gets your reason</span>'].join('') : [
-        ...Object.entries(step.inputs || {}).map(([key, value]) => `<span>${key} = ${typeof value === 'string' ? value : JSON.stringify(value)}</span>`),
-        `<span>run ${step.run_id}</span>`,
-        step.calls ? `<span>it calls: ${step.calls.join(', ') || 'nothing'}${step.unknown_calls ? ', and calls its code does not name' : ''}</span>` : '',
-      ].join('');
+      if (step.end) {                                     // done or give_up: the agent asks to end the mission
+        $('gate-title').innerHTML = step.end === 'done' ? 'The agent says the mission is done' : 'The agent wants to stop the mission (give up)';
+        $('gate-facts').innerHTML = [`<span>its reason: ${step.subgoal || 'none'}</span>`, `<span>run ${step.run_id}</span>`,
+                                     '<span>refuse to keep the mission open: the agent gets your reason</span>'].join('');
+      } else {
+        $('gate-title').innerHTML = `${step.subgoal || step.skill} <code>${step.skill}</code>`;
+        $('gate-facts').innerHTML = [
+          ...Object.entries(step.inputs || {}).map(([key, value]) => `<span>${key} = ${typeof value === 'string' ? value : JSON.stringify(value)}</span>`),
+          `<span>run ${step.run_id}</span>`,
+          step.calls ? `<span>it calls: ${step.calls.join(', ') || 'nothing'}${step.unknown_calls ? ', and calls its code does not name' : ''}</span>` : '',
+        ].join('');
+      }
       $('why').value = '';
       ['approve', 'refuse'].forEach(name => $(name).disabled = false);
     });

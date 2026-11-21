@@ -99,7 +99,8 @@ class MissionState:
                                     'status': 'running', 'start': event.get('time')})
             elif kind in STEP_ENDS and self._steps and self._steps[-1]['status'] == 'running':
                 self._steps[-1].update(status=event.get('status') if kind == 'finished' else kind, end=event.get('time'))
-            elif kind == 'step_gate' and event.get('state') == 'refused' and isinstance(event.get('step'), int):
+            elif kind == 'step_gate' and event.get('state') == 'refused' and isinstance(event.get('step'), int) \
+                    and not event.get('end'):            # a refused end of the task is not a step
                 self._steps.append({'step': event.get('step'), 'skill': event.get('skill'), 'subgoal': event.get('subgoal') or '',
                                     'status': 'refused', 'reason': event.get('reason', ''), 'start': event.get('time'),
                                     'end': event.get('time')})

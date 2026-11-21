@@ -150,6 +150,8 @@ def test_the_steps_of_the_open_task_come_from_the_trace():
     state.trace({'kind': 'finished', 'time': 20.0, 'status': 'failure'})
     state.trace({'kind': 'step_gate', 'time': 21.0, 'state': 'refused', 'skill': 'cancel_navigation', 'subgoal': 'walk there',
                  'step': 2, 'reason': 'clear the map'})
+    state.trace({'kind': 'step_gate', 'time': 21.5, 'state': 'refused', 'skill': 'give_up', 'end': 'gave_up', 'step': 2,
+                 'reason': 'look at the door frames'})                            # a refused end is not a step
     state.trace({'kind': 'step_gate', 'time': 22.0, 'state': 'approved', 'skill': 'clear_terrain_map', 'step': 2})
     state.trace({'kind': 'started', 'time': 22.0, 'step': 2, 'tree_id': 'clear_terrain_map', 'subgoal': 'clear the map'})
 
