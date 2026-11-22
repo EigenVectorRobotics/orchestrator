@@ -108,7 +108,7 @@ stateDiagram-v2
   Here --> Press : both checks pass
   Here --> Look : a check failed, next round
   StanceRec --> Look : reposition or no decision, next round
-  StanceRec --> Ask : 4 rounds failed
+  StanceRec --> Ask : 10 rounds failed
   StanceRec --> Abort : abort
   Press --> [*] : press_judge says pressed
   Press --> Diagnose : failed or not_pressed, presses 1 to 3

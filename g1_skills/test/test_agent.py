@@ -870,18 +870,18 @@ def test_the_stance_loop_walks_again_after_a_reposition_until_the_button_is_in_v
     assert walks[2]['x'] == 0.7
 
 
-def test_the_stance_loop_gives_up_after_three_repositions_and_asks_for_help():
+def test_the_stance_loop_gives_up_after_nine_repositions_and_asks_for_help():
     goal   = {'decision': 'reposition', 'left_arm': False, 'goal': {'x': 0.7, 'y': 2.0, 'z': -0.46, 'yaw': 0.0}}
-    runner = LibraryRideRunner([(True, 'Controller reached target', [])], stance=[False] * 4, decisions=[goal] * 4)
+    runner = LibraryRideRunner([(True, 'Controller reached target', [])], stance=[False] * 10, decisions=[goal] * 10)
     tree   = _library_ride(runner)
 
-    _run(tree, max_ticks=40000)
+    _run(tree, max_ticks=100000)
     names  = runner.names()
     stance = [inputs for name, inputs in runner.calls if name == 'manipulation_recovery' and inputs['phase'] == 'stance_check']
     says   = [inputs['text'] for name, inputs in runner.calls if name == 'say']
     ask    = next(index for index, (name, inputs) in enumerate(runner.calls) if name == 'say' and inputs['text'].startswith('Please press'))
-    assert len(stance) == 4                                             # one after each of the four looks
-    assert names[:ask].count('navigate_to') == 5                        # panel, offset 0, 3 repositions
+    assert len(stance) == 10                                            # one after each of the ten looks
+    assert names[:ask].count('navigate_to') == 11                       # panel, offset 0, 9 repositions
     assert 'Please press the call button for me.' in says
     assert names.index('release_arms') < ask
     assert 'press_button' not in names[:names.index('release_arms')]    # no blind press at the call panel

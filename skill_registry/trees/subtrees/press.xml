@@ -80,7 +80,7 @@
         <Sequence>
             <SetBlackboard output_key="recovery_goal" value="{press_panel}"/>
             <SetBlackboard output_key="stance_reset" value="no"/>
-            <RetryUntilSuccessful num_attempts="4">
+            <RetryUntilSuccessful num_attempts="10">
                 <Fallback>
                     <SubTree ID="look"/>
                     <Sequence>
