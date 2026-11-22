@@ -147,24 +147,13 @@
               <release_arms/>
             </ForceSuccess>
             <Sequence>                  <!-- the walk once z is on the goal floor -->
-              <RetryUntilSuccessful num_attempts="20">   <!-- slam_elevatorlio ends LIO's elevator mode at the open door -->
-                <Delay delay_msec="500">
+              <RetryUntilSuccessful num_attempts="50">   <!-- slam_elevatorlio ends LIO's elevator mode at the open door; 10 s -->
+                <Delay delay_msec="200">
                   <Inverter>
                     <in_elevator/>
                   </Inverter>
                 </Delay>
               </RetryUntilSuccessful>
-              <Sleep msec="1500"/>      <!-- the snap resets localized; ~/status comes once a second -->
-              <Fallback>
-                <RetryUntilSuccessful num_attempts="20">
-                  <Delay delay_msec="500">
-                    <localized/>
-                  </Delay>
-                </RetryUntilSuccessful>
-                <ForceFailure>
-                  <say text="I could not relocalize on my floor."/>
-                </ForceFailure>
-              </Fallback>
               <SubTree ID="walk_out"/>
             </Sequence>
           </Parallel>

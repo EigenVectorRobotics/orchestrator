@@ -12,7 +12,7 @@
           press is halted, the arms are released and, 1 s later, the robot walks straight to the inside panel.
        2. In the cabin: press the goal floor button (each look resets the EKF). Checked on every tick: inside_cabin, at_floor
           {goal_floor} and door_open. Once all three hold, the press or the wait is halted and the arms are released;
-          LIO leaves elevator mode and, once localized, the robot walks out: the door-out place of the goal floor, a
+          once LIO leaves elevator mode, the robot walks out on its own pose: the door-out place of the goal floor, a
           relocalization there, then {goal}.
        Both presses use the press slot press_panel_button (stance_check, press_button, press_judge, recover_once).
        Each press slot starts from its panel's base offset (elevator.xml); an offset_retry sets the next one.
