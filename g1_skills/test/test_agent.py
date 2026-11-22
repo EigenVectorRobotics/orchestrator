@@ -15,8 +15,8 @@ from orchestrator.agent.link import PushAgentBackend
 from orchestrator.tree.engine import BehaviorTree, BTContext, Status
 from orchestrator.tree.leaf import make_leaf_factory
 
-from g1_skills.manipulation_recovery.agent import ManipulationRecovery
-from g1_skills.manipulation_recovery.rules import decision_outputs, offset_goal, rule_reach, rule_stance
+from g1_skills.manipulation_recovery.agent import RULE_SPEECH, ManipulationRecovery
+from g1_skills.manipulation_recovery.rules import decision_outputs, offset_goal, rule_reach, rule_repress, rule_stance
 
 from fakes import press_ctx
 
@@ -751,7 +751,7 @@ def test_each_press_checks_the_stance_then_presses_and_judges():
     presses = [inputs for name, inputs in runner.calls if name == 'press_button']
     assert [press['target_description'] for press in presses] == ['down button', 'floor 2']
     offsets = [inputs for name, inputs in runner.calls if name == 'set_press_offset']
-    assert [(o['x'], o['y'], o['z']) for o in offsets] == [(0.0, 0.0, 0.0)] * 2 + [(0.003, 0.003, 0.003)] * 2  # each panel's base offset before its looks, then before its first press
+    assert [(o['x'], o['y'], o['z']) for o in offsets] == [(0.0, 0.0, 0.0)] * 2 + [(0.005, 0.003, 0.003)] * 2  # each panel's base offset before its looks, then before its first press
     says  = [(index, inputs['text']) for index, (name, inputs) in enumerate(runner.calls) if name == 'say']
     holds = [index for index, text in says if text == 'Holding still to reset my balance estimate.']
     assert len(holds) == 2                                                                  # before each press
@@ -805,7 +805,7 @@ def test_an_offset_retry_presses_again_with_the_offset_the_agent_gave():
 
     assert _run(_library_ride(runner), max_ticks=20000) == Status.SUCCESS
     offsets = [(o['x'], o['y'], o['z']) for name, o in runner.calls if name == 'set_press_offset']
-    assert offsets == [(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.012, 0.0126, 0.0032), (0.003, 0.003, 0.003), (0.003, 0.003, 0.003)]   # call panel looks, its press, its retry; floor panel looks, its press
+    assert offsets == [(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.012, 0.0126, 0.0032), (0.005, 0.003, 0.003), (0.005, 0.003, 0.003)]   # call panel looks, its press, its retry; floor panel looks, its press
     assert runner.names().count('press_button') == 3
 
 
@@ -821,17 +821,18 @@ def test_a_reposition_after_a_press_looks_again_and_presses_without_asking_the_a
     assert after.index('release_arms') < after.index('navigate_to') < after.index('button_in_view') < after.index('press_button')
 
 
-def test_a_reposition_whose_three_looks_fail_ends_the_task_without_asking():
+def test_a_reposition_whose_three_looks_fail_asks_for_help():
     goal   = {'decision': 'reposition', 'left_arm': False, 'goal': {'x': 0.7, 'y': 2.0, 'z': -0.46, 'yaw': 0.0}}
     runner = LibraryRideRunner([(True, 'Controller reached target', [])], judges=[False], decisions=[goal], stance=[True, False, False, False])
 
-    assert _run(_library_ride(runner), max_ticks=20000) == Status.FAILURE
+    _run(_library_ride(runner), max_ticks=20000)
     names = runner.names()
     says  = [inputs['text'] for name, inputs in runner.calls if name == 'say']
     assert names.count('button_in_view') == 4                           # the stance check, then three looks after the reposition
-    assert 'Please press the call button for me.' not in says
-    assert names.count('press_button') == 1
-    assert says[-1] == 'I lost the button after moving. Stopping the task.'   # the failure is said, not silent
+    assert names.count('press_button') == 1                             # no press after the button is lost
+    lost  = says.index('I lost the button after moving.')
+    assert says[lost + 1] == 'Please press the call button for me.'     # then the slot asks, as after ask_help
+    assert names.count('manipulation_recovery') == 1
 
 
 def test_a_failed_stance_check_keeps_the_arm_the_rule_chose():
@@ -1028,3 +1029,44 @@ def test_a_judged_miss_by_millimetres_goes_to_the_model_with_its_aim_crops(tmp_p
 
     link.answer({'decision': 'ask_help', 'reason': 'r'})
     assert _run(tree) == Status.FAILURE
+
+
+MISSED  = {'skill': 'press_judge', 'status': 'failure', 'outputs': {'decision': 'not_pressed'}}
+SOUND   = {'reach': {'reachable': True, 'message': 'in reach', 'target_moved_since_check_m': {'xyz': [0.004, 0.0, 0.0], 'norm': 0.004}},
+           'stance_from_base_goal': {'forward_m': -0.186, 'left_m': 0.017, 'yaw_rad': -0.056}}    # run 006: 0.187 m off
+
+
+def test_a_press_missed_from_a_sound_stance_is_pressed_again_from_there_once():
+    rule = rule_repress(SOUND, [], MISSED)
+    assert rule['decision'] == 'retry' and rule['rule_name'] == 'repress'
+
+    repressed = {'skill': 'manipulation_recovery', 'rule': True, 'rule_name': 'repress'}
+    pressed   = {'skill': 'press_judge', 'decision': 'pressed'}
+    assert rule_repress(SOUND, [repressed], MISSED) is None
+    assert rule_repress(SOUND, [repressed, pressed], MISSED) is not None
+
+
+def test_the_repress_rule_needs_a_judged_miss_from_a_passed_reach_check_and_an_unmoved_target():
+    moved   = {**SOUND, 'reach': {**SOUND['reach'], 'target_moved_since_check_m': {'xyz': [0.05, 0.0, 0.0], 'norm': 0.05}}}
+    failed  = {**SOUND, 'reach': {**SOUND['reach'], 'reachable': False}}
+    timeout = {'skill': 'press_button', 'status': 'failure', 'outputs': {}}
+
+    assert rule_repress(moved, [], MISSED) is None
+    assert rule_repress(failed, [], MISSED) is None
+    assert rule_repress(SOUND, [], timeout) is None
+    assert rule_repress({'error': 'no transform'}, [], MISSED) is None
+
+
+def test_a_diagnosis_after_a_miss_from_a_sound_stance_never_walks_by_the_stance_rule():
+    skill = Agent(None, press_ctx(None)).skill(Registry.from_directory(CONTRACTS).get('manipulation_recovery'))
+    call  = AgentCall(Registry.from_directory(CONTRACTS).get('manipulation_recovery'), {'base_goal': PANEL}, BTContext(), 'diagnose')
+
+    found, speech = skill.rule(call, {'stance': SOUND, 'history': [], 'last_failure': MISSED})
+    assert found['decision'] == 'retry' and speech == RULE_SPEECH['repress']
+
+    repressed = {'skill': 'manipulation_recovery', 'rule': True, 'rule_name': 'repress'}
+    assert skill.rule(call, {'stance': SOUND, 'history': [repressed], 'last_failure': MISSED}) is None   # the model decides
+
+    timeout = {'skill': 'press_button', 'status': 'failure', 'outputs': {}}
+    found, _ = skill.rule(call, {'stance': SOUND, 'history': [], 'last_failure': timeout})
+    assert found['rule_name'] == 'stance'                                     # not a judged miss: the stance rule as before

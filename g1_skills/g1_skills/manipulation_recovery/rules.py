@@ -5,9 +5,10 @@ from ..lib.walk import offset_goal
 from .spec import STANCE_CHANGED_M, STANCE_TOLERANCE_M, STANCE_TOLERANCE_RAD
 
 
-# The executor's own rules for a plain stance; a missed press always goes to the model, with its aim crops
+# The executor's own rules for a plain stance and for a press missed from a sound stance
 STANCE_RULE_MAX     = 2                 # stances re-sent per press before the agent decides
 REACH_RULE_MAX      = 2                 # reach moves per press before the agent decides
+REPRESS_RULE_MAX    = 1                 # in-place re-presses per press before the agent decides
 
 
 def _rule_records(history: list[dict], rule_name: str) -> list[dict]:
@@ -85,6 +86,33 @@ def stance_unchanged(evidence: dict | None) -> str:
     return (f'check_reach passed from this stance ({reach.get("message", "")}), and the press target has moved only '
             f'{moved["norm"] * 1000:.0f} mm in pelvis since (under {STANCE_CHANGED_M * 1000:.0f} mm): the stance did not '
             'change, so walking does not fix this press. Look at tracking, the target, aim or a step instead')
+
+
+def missed_from_sound_stance(evidence: dict | None, last_failure: dict | None) -> bool:
+    """press_judge said not_pressed, and check_reach passed from this stance with the press target unmoved in pelvis
+    since (stance_unchanged): the stance was not the cause, so no rule walks the robot off it (run 006 of
+    20261122T202416Z-64ce58: the stance rule walked 0.19 m to the base goal, and the button then sat at the image's edge)"""
+    failure = last_failure or {}
+    judged  = failure.get('skill') == 'press_judge' and (failure.get('outputs') or {}).get('decision') == 'not_pressed'
+
+    return judged and bool(stance_unchanged(evidence))
+
+
+def rule_repress(evidence: dict | None, history: list[dict], last_failure: dict | None) -> dict | None:
+    """retry without the agent: press again from where the robot stands, with the offset in force, after a press missed
+    from a sound stance (missed_from_sound_stance). At most REPRESS_RULE_MAX times since the last press judged pressed;
+    then the agent decides, with the aim crops"""
+    if not missed_from_sound_stance(evidence, last_failure) or len(_rule_records(history, 'repress')) >= REPRESS_RULE_MAX:
+        return None
+
+    moved = evidence['reach']['target_moved_since_check_m']['norm']
+
+    return {
+        'decision':  'retry',
+        'rule_name': 'repress',
+        'reason':   f'rule: press_judge said not_pressed, check_reach passed from this stance and the target moved only '
+                    f'{moved * 1000:.0f} mm in pelvis since: pressing again from here',
+    }
 
 
 def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None) -> dict:

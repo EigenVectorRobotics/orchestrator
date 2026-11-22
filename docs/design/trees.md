@@ -100,7 +100,6 @@ stateDiagram-v2
   state "reposition: release arms, walk and look, up to 3 times" as Repo
   state "release arms and say press_ask" as Ask
   state "the tree fails" as Abort
-  state "say the button is lost, the slot fails" as Lost
   [*] --> Base
   Base --> Look
   Look --> Press : button_in_view and check_reach pass
@@ -117,11 +116,10 @@ stateDiagram-v2
   Diagnose --> Press : retry, offset_retry or switch_arm
   Diagnose --> Repo : reposition
   Repo --> Press : a look passes
-  Repo --> Lost : every look failed
+  Repo --> Ask : every look failed, after saying the button is lost
   Diagnose --> Ask : ask_help or no decision
   Ask --> [*]
   Abort --> [*]
-  Lost --> [*]
 ```
 
 `continue` reruns `look_here` where the robot stands, and `reposition` walks to the new goal first. The full rules are in [Agent skills](../agents.md#the-press-slot).

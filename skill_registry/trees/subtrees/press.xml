@@ -2,7 +2,6 @@
 <root BTCPP_format="4">
     <BehaviorTree ID="press_panel_button">
         <Sequence>
-            <SetBlackboard output_key="stance_lost" value="no"/>
             <Fallback>
                 <Sequence>
                     <ForceSuccess>          <!-- the panel's base offset before the looks, so check_reach checks the goal this panel presses; a failure here leaves it to the press slot's own set_press_offset -->
@@ -12,8 +11,7 @@
                     <SubTree ID="press_and_recover"/>
                     <release_arms/>
                 </Sequence>
-                <Sequence>
-                    <decision_is value="{stance_lost}" equals="no"/>
+                <Sequence>                  <!-- every failed slot asks for help, a lost button too (run 006 of 20261122T202416Z-64ce58) -->
                     <release_arms/>
                     <say text="{press_ask}"/>
                 </Sequence>
@@ -65,8 +63,7 @@
                                 <SubTree ID="look"/>
                             </RetryUntilSuccessful>
                             <Sequence>
-                                <say text="I lost the button after moving. Stopping the task."/>   <!-- the tree fails next, with no other say -->
-                                <SetBlackboard output_key="stance_lost" value="yes"/>
+                                <say text="I lost the button after moving."/>   <!-- then recovery_stop: no more presses, press_ask -->
                                 <AlwaysFailure/>
                             </Sequence>
                         </Fallback>

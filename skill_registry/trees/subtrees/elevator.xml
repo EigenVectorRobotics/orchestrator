@@ -84,8 +84,9 @@
       <SetBlackboard output_key="button" value="{floor_button}"/>
       <SetBlackboard output_key="press_panel" value="{inside_panel}"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>   <!-- inside: the right arm; the left failed IK for floor buttons -->
-      <!-- the inside panel needs the press 3 mm deeper, left and up (2026-11-14) -->
-      <SetBlackboard output_key="press_base_offset_x" value="0.003"/>
+      <!-- the inside panel needs the press deeper, left and up: 3 mm each (2026-11-14); 5 mm deeper since 2026-11-22,
+           not yet tested on the robot (run 006 of 20261122T202416Z-64ce58: fingertip on the face, light dark) -->
+      <SetBlackboard output_key="press_base_offset_x" value="0.005"/>
       <SetBlackboard output_key="press_base_offset_y" value="0.003"/>
       <SetBlackboard output_key="press_base_offset_z" value="0.003"/>
       <SetBlackboard output_key="press_ask" value="Please press my floor button for me."/>

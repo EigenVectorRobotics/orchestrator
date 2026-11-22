@@ -2,7 +2,7 @@ from orchestrator.agent.api import AgentCall, AgentSkill, CallImage
 
 from ..lib.press import offset_in_force, press_images, press_state
 from . import stance
-from .rules import decision_outputs, rule_reach, rule_stance, stance_unchanged
+from .rules import decision_outputs, missed_from_sound_stance, rule_reach, rule_repress, rule_stance, stance_unchanged
 from .spec import MAX_PRESS_OFFSET_M, REPOSITION_LIMITS_M
 
 
@@ -10,13 +10,15 @@ PRESS_FRAME = 'foot_world'              # press_button's goal frame (move_to_pos
 RULE_SPEECH = {
     'stance': 'I am not standing where I should. Walking to my spot again.',
     'reach':  'The button is just out of my reach. Stepping closer to it.',
+    'repress': 'I am standing in the right place. Pressing again from here.',
 }
 
 
 class ManipulationRecovery(AgentSkill):
     """Why a press failed and what the tree does next (diagnose), or whether the stance before the first press is fine
-    (stance_check). The executor's rules answer a plain stance first (rules.py); a missed press always goes to the model,
-    with crops of the press around the button for its offset_retry"""
+    (stance_check). The executor's rules answer first (rules.py): a press missed from a stance check_reach passed is
+    pressed again once from there (rule_repress, never rule_stance), else a plain stance is re-sent; then the model
+    decides, with crops of the press around the button for its offset_retry"""
 
     phase_speech = {
         'diagnose':     'The press did not work. Checking why.',
@@ -58,10 +60,16 @@ class ManipulationRecovery(AgentSkill):
             evidence['stance'] = {'error': str(error)}
 
     def rule(self, call: AgentCall, evidence: dict) -> tuple[dict, str] | None:
-        found = rule_stance(evidence.get('stance'), evidence['history'])
+        stance_evidence = evidence.get('stance')
+
+        if call.phase == 'diagnose' and missed_from_sound_stance(stance_evidence, evidence['last_failure']):
+            found = rule_repress(stance_evidence, evidence['history'], evidence['last_failure'])     # never rule_stance here
+            return (found, RULE_SPEECH[found['rule_name']]) if found is not None else None
+
+        found = rule_stance(stance_evidence, evidence['history'])
 
         if found is None and call.phase == 'stance_check':
-            found = rule_reach(evidence.get('stance'), evidence['history'], evidence['last_failure'])
+            found = rule_reach(stance_evidence, evidence['history'], evidence['last_failure'])
 
         return (found, RULE_SPEECH[found['rule_name']]) if found is not None else None
 

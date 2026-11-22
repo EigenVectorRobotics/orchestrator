@@ -87,11 +87,12 @@ The phase tracker counts only samples within `lateral_tolerance_m` of the button
 
 ### Executor rules: decided without the model
 
-Answers go in the history with `rule: true`, `rule_name`, and a reason starting `rule:`; they do not count toward `max_rounds`. In `diagnose` the executor tries `rule_stance`; in `stance_check`, `rule_stance`, then `rule_reach`. A missed press always goes to the model, with its aim crops. The rules and their thresholds are in `g1_skills/g1_skills/manipulation_recovery/rules.py`.
+Answers go in the history with `rule: true`, `rule_name`, and a reason starting `rule:`; they do not count toward `max_rounds`. In `diagnose`, after a press missed from a sound stance (`missed_from_sound_stance`: `press_judge` said `not_pressed`, and `stance_unchanged` holds), the executor tries only `rule_repress`, never `rule_stance`: the stance was not the cause, and walking off it can lose the button (run 006 of session `20261122T202416Z-64ce58`). Otherwise `diagnose` tries `rule_stance`; `stance_check` tries `rule_stance`, then `rule_reach`. Once the rules are spent, a missed press goes to the model, with its aim crops. Not yet tested on the robot. The rules and their thresholds are in `g1_skills/g1_skills/manipulation_recovery/rules.py`.
 
 | Rule | Phase | When | Decision |
 |---|---|---|---|
 | `rule_stance` | both | The robot stands more than `STANCE_TOLERANCE_M` or `STANCE_TOLERANCE_RAD` off its target stance (the last reposition since the last press judged pressed, else the base goal; the base goal again after a `continue` that came after that reposition, as the tree walks there); at most `STANCE_RULE_MAX` times since the last press judged pressed | `reposition` to that stance |
+| `rule_repress` | `diagnose` | `press_judge` said `not_pressed`, and `check_reach` passed from this stance with the press target moved under `STANCE_CHANGED_M` in `pelvis` since (`stance_unchanged`); at most `REPRESS_RULE_MAX` times since the last press judged pressed | `retry`: press again from here with the offset in force |
 | `rule_reach` | `stance_check` | `check_reach` failed and its `reach_move` is `fixable` and `within_limits`; at most `REACH_RULE_MAX` times since the last press judged pressed | `reposition` to `reach_move` |
 
 The aim error repeats per panel and arm, so the model corrects a miss with the offset in force minus the miss it reads off `contact_aim` (O1 to O4 below); floor buttons also lose a few mm to the waist giving on contact, hence deeper when short. `reach_move` is not fixable when the horizontal miss is at most `REACH_TOLERANCE_M` (an orientation miss) or the vertical miss passes `REACH_MAX_Z_M` (`stance.py`).
@@ -119,7 +120,7 @@ The aim error repeats per panel and arm, so the model corrects a miss with the o
 |---|---|---|
 | `continue` | `stance_check` | Runs `look_here` from where the robot stands (the EKF reset only if this stance has none); presses only if both checks pass, else the round counts as failed. `goal` is the base goal again, so the next round walks there, and `rule_stance` takes the base goal as the target stance |
 | `reposition` | `stance_check` | Ends the round; the next round walks to the new goal and looks again |
-| `reposition` | `diagnose` | Releases the arms and runs up to 3 looks at the new goal, then presses again. When all 3 fail the robot says it lost the button and is stopping, and the slot fails without asking for help |
+| `reposition` | `diagnose` | Releases the arms and runs up to 3 looks at the new goal, then presses again. When all 3 fail the robot says it lost the button, the presses stop as after `ask_help`, and the slot asks for help (`press_ask`) |
 | `offset_retry` | `diagnose` | Presses again with the new offset |
 | `retry` | `diagnose` | Presses again with the same offset and arm |
 | `switch_arm` | `diagnose` | Presses again with the other arm; a later look chooses the arm again |
