@@ -33,8 +33,6 @@ outputs:
 - {name: decision, type: string}
 - {name: reason, type: string}
 - {name: goal, type: pose, description: 'base_goal moved by the reposition, or base_goal'}
-- {name: approach, type: pose, description: 'reposition: where to walk first; 0.15 m behind goal when walk_in is yes, else goal'}
-- {name: walk_in, type: string, description: 'yes when goal is under 0.10 m from the robot: walk to approach, then to goal'}
 - {name: left_arm, type: bool, description: 'the arm for the next press'}
 - {name: offset_x, type: float, description: 'offset_retry: the press offset along the button normal, m (set_press_offset x)'}
 - {name: offset_y, type: float, description: 'offset_retry: sideways, m, positive left'}

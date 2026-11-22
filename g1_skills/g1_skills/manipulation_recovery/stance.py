@@ -17,7 +17,7 @@ from pathlib import Path
 from orchestrator.common.geometry import rotate, turn_2d, wrap
 from orchestrator.common.config import STATE_DIR
 
-from .spec import WALK_MIN_M       # navigate_to ends a shorter walk without a step
+from ..lib.walk import WALK_MIN_M   # navigate_to ends a shorter walk without a step
 
 
 REACH_TOLERANCE_M    = 0.005    # ik_server's goal_position_tolerance: a smaller miss is an orientation miss

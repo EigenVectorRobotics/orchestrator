@@ -1,32 +1,13 @@
 import math
 
-from orchestrator.common.geometry import turn_2d, wrap
-
 from ..lib.press import since_last_pressed
-from .spec import APPROACH_BACK_M, STANCE_CHANGED_M, STANCE_TOLERANCE_M, STANCE_TOLERANCE_RAD, WALK_MIN_M
+from ..lib.walk import offset_goal
+from .spec import STANCE_CHANGED_M, STANCE_TOLERANCE_M, STANCE_TOLERANCE_RAD
 
 
 # The executor's own rules for a plain stance; a missed press always goes to the model, with its aim crops
 STANCE_RULE_MAX     = 2                 # stances re-sent per press before the agent decides
 REACH_RULE_MAX      = 2                 # reach moves per press before the agent decides
-
-
-def offset_goal(base: dict, dx: float, dy: float, dyaw: float) -> dict:
-    """base moved by (dx, dy) in its own frame (x along its yaw) and turned by dyaw"""
-    yaw            = float(base.get('yaw', 0.0))
-    step_x, step_y = turn_2d(yaw, dx, dy)
-
-    goal = {
-        'x':     float(base['x']) + step_x,
-        'y':     float(base['y']) + step_y,
-        'yaw':   wrap(yaw + dyaw),
-        'frame': base.get('frame', 'map'),
-    }
-
-    if 'z' in base:                     # the same storey as the base goal
-        goal['z'] = float(base['z'])
-
-    return goal
 
 
 def _rule_records(history: list[dict], rule_name: str) -> list[dict]:
@@ -106,8 +87,9 @@ def stance_unchanged(evidence: dict | None) -> str:
             'change, so walking does not fix this press. Look at tracking, the target, aim or a step instead')
 
 
-def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None, robot: dict | None = None) -> dict:
-    """What the tree gets: decision, reason, goal (base_goal, moved for a reposition), approach, walk_in, left_arm, offset"""
+def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None) -> dict:
+    """What the tree gets: decision, reason, goal (base_goal, moved for a reposition), left_arm, offset. Whether a walk
+    to goal needs a walk-out first is decided before each look, from where the robot stands then (near_pose)"""
     failed_call   = (last_failure or {}).get('checked_call') or last_failure or {}     # a failed check: the call it checked
     failed_inputs = failed_call.get('inputs', {})
     base_goal     = inputs.get('base_goal')
@@ -115,7 +97,6 @@ def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None, ro
         'decision': decision['decision'],
         'reason':   decision['reason'],
         'left_arm': bool(failed_inputs.get('left_arm', False)),
-        'walk_in':  'no',
     }
 
     if base_goal is not None:
@@ -125,11 +106,6 @@ def decision_outputs(decision: dict, inputs: dict, last_failure: dict | None, ro
         offset              = {key: float(decision.get(key) or 0.0) for key in ('dx', 'dy', 'dyaw')}
         outputs['offset']   = offset
         outputs['goal']     = offset_goal(base_goal, offset['dx'], offset['dy'], offset['dyaw'])
-        outputs['approach'] = outputs['goal']
-
-        if robot is not None and math.hypot(outputs['goal']['x'] - robot['x'], outputs['goal']['y'] - robot['y']) < WALK_MIN_M:
-            outputs['walk_in']  = 'yes'
-            outputs['approach'] = offset_goal(outputs['goal'], -APPROACH_BACK_M, 0.0, 0.0)
 
     if decision['decision'] == 'switch_arm':
         outputs['left_arm'] = bool(decision['use_left_arm'])

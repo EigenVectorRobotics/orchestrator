@@ -194,13 +194,9 @@ def test_a_reposition_keeps_the_storey_of_its_base_goal():
 
 def test_decision_outputs_keep_the_arm_unless_switched():
     failure = {'inputs': {'left_arm': True}}
-    near    = decision_outputs({'decision': 'reposition', 'reason': 'r', 'dx': 0.05, 'dy': 0.0}, {'base_goal': PANEL}, failure,
-                               {'x': PANEL['x'], 'y': PANEL['y'], 'yaw': PANEL['yaw']})
-    far     = decision_outputs({'decision': 'reposition', 'reason': 'r', 'dx': 0.4, 'dy': 0.0}, {'base_goal': PANEL}, failure,
-                               {'x': PANEL['x'], 'y': PANEL['y'], 'yaw': PANEL['yaw']})
-    assert near['walk_in'] == 'yes' and math.isclose(math.dist((near['approach']['x'], near['approach']['y']),
-                                                             (near['goal']['x'], near['goal']['y'])), 0.15)
-    assert far['walk_in'] == 'no' and far['approach'] == far['goal']
+    moved   = decision_outputs({'decision': 'reposition', 'reason': 'r', 'dx': 0.05, 'dy': 0.0}, {'base_goal': PANEL}, failure)
+    assert math.isclose(math.dist((moved['goal']['x'], moved['goal']['y']), (PANEL['x'], PANEL['y'])), 0.05)
+    assert 'walk_in' not in moved and 'approach' not in moved      # the look asks near_pose before each walk
     retry   = decision_outputs({'decision': 'retry', 'reason': 'r'}, {'base_goal': PANEL}, failure)
     switch  = decision_outputs({'decision': 'switch_arm', 'reason': 'r', 'use_left_arm': False}, {'base_goal': PANEL}, failure)
 

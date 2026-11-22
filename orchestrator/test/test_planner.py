@@ -222,7 +222,7 @@ def test_system_prompt_lists_subtrees_with_their_keys():
 
     assert '  - subtree walk_out (reads door_out, goal; writes exiting)' in prompt
     assert '  - subtree press_panel_button (reads press_base_offset_x, press_base_offset_y, press_base_offset_z, press_ask, press_panel, button; ' in prompt
-    assert '  - subtree stance_check (reads press_panel, button; writes recovery_goal, recovery_walk_in, stance_reset, decision, recovery_approach, press_left_arm)' in prompt
+    assert '  - subtree stance_check (reads press_panel, button; writes recovery_goal, stance_reset, decision, recovery_approach, press_left_arm)' in prompt
 
 
 def test_use_tree_replaces_a_subtree_with_another_tree():

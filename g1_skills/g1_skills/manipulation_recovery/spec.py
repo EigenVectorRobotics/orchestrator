@@ -1,3 +1,5 @@
+from ..lib.walk import APPROACH_BACK_M, WALK_MIN_M       # limits() carries them: the prompt says how a near stance is reached
+
 PHASES = {                              # the decisions each phase may end with
     'diagnose':     ('reposition', 'switch_arm', 'offset_retry', 'retry', 'ask_help'),    # no D step ends the task: ask_help
     'stance_check': ('continue', 'reposition', 'abort'),       # button_in_view chooses the arm
@@ -16,8 +18,6 @@ MAX_PRESS_OFFSET_M   = 0.05             # per axis: an offset_retry corrects mil
 STANCE_CHANGED_M     = 0.03             # the press target moved this much in pelvis since a passed check_reach: the stance changed
 STANCE_TOLERANCE_M   = 0.06             # farther than this from the target stance, the executor walks there again by itself
 STANCE_TOLERANCE_RAD = 0.15             # or turned more than this from it (8.6 deg)
-WALK_MIN_M           = 0.10             # navigate_to ends a shorter walk without a step
-APPROACH_BACK_M      = 0.15             # so a stance closer than WALK_MIN_M walks out this far behind it first, then onto it
 
 
 def limits() -> dict:

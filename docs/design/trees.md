@@ -92,7 +92,7 @@ Every button press runs this slot (`press_panel_button`, `subtrees/press.xml`). 
 ```mermaid
 stateDiagram-v2
   state "set_press_offset with the panel base offset" as Base
-  state "look: walk to goal, settle, look_here" as Look
+  state "look: walk to goal (out behind it first when already on it, near_pose), settle, look_here" as Look
   state "manipulation_recovery in phase stance_check, or an executor rule" as StanceRec
   state "look_here from where the robot stands" as Here
   state "press: set_press_offset, reset_filters, press_button, press_judge" as Press

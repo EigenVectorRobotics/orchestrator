@@ -1,0 +1,27 @@
+name: near_pose
+kind: condition
+device: nuc
+description: >-
+  Whether the robot (pelvis in map) stands closer to goal than the shortest walk navigate_to takes a step for (WALK_MIN_M
+  in g1_skills/g1_skills/lib/walk.py), so a walk to goal would end at once where it stands. Outputs approach, the goal moved
+  APPROACH_BACK_M behind itself: a look walks there first, then onto goal, so the robot really steps. It reads where
+  the robot stands at the moment it runs, before each look; it fails when no map-to-pelvis transform is there, so the
+  look walks straight to goal
+interface:
+  transport: python
+  name: /tf
+  ros_type: tf2_msgs/msg/TFMessage
+  requires:
+    published: [/tf]
+inputs:
+- {name: goal, type: pose, description: map-frame goal pose}
+outputs:
+- {name: approach, type: pose, description: 'goal moved APPROACH_BACK_M behind itself, same yaw and storey'}
+- {name: distance_m, type: float, description: 'm, from the robot to goal in map x and y'}
+timeout_s: 3
+maturity: untested
+source: g1_skills (this folder); the transform comes from the NUC stack's TF tree
+notes: >-
+  Run 006 of 20261122T202416Z-64ce58: after a reposition, the look's three retries each sent navigate_to to the goal the
+  robot already stood on; each ended in 0.2 to 0.3 s without a step, and the three looks saw the same view. The look
+  now asks this before every walk, not once when manipulation_recovery decides.

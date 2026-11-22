@@ -19,7 +19,7 @@ it needs and its agent prompts. To add or change a skill, you edit one folder. W
 What the team has seen about a skill goes in its contract's `notes`; open problems go in `docs/architecture.md`.
 
 Code that two or more skills share goes in `lib/`: `press.py` (the press offset in force, the last press and its
-images for a call), `tracking.py` (what track_anything publishes), `text.py` (number formatting and the panel type for
+images for a call), `tracking.py` (what track_anything publishes), `walk.py` (the shortest walk with a step, the walk-out behind a nearer goal, `offset_goal`), `text.py` (number formatting and the panel type for
 prompts).
 
 ## Four ways to extend

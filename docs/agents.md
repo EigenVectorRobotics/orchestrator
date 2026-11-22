@@ -20,7 +20,7 @@ The agent bridge on the operator laptop (`mission_control/agent_bridge.py`) answ
 Each panel runs the press slot `press_panel_button` (`skill_registry/trees/subtrees/press.xml`; its states are drawn in [Trees](design/trees.md#the-press-slot)). The elevator subtrees `call_elevator` and `press_floor_button` (`skill_registry/trees/subtrees/elevator.xml`) set the panel first: `button`, `press_panel`, `press_left_arm`, `press_base_offset_{x,y,z}` and `press_ask`, each with its reason in a comment there.
 
 1. **Base offset.** `set_press_offset` with the panel's base offset, so `check_reach` checks the goal the first press aims at. An offset never carries over from one panel to the other.
-2. **Stance check** (`stance_check` subtree), up to 4 rounds. Each round runs `look`: walk to `recovery_goal` (the panel place at first; first to `recovery_approach` when `recovery_walk_in` is `yes`), wait for the robot to settle, then `look_here`. `look_here` runs, once per stance, `prepare_arm` (Idle first when already in HighLevel, then HighLevel and the `visual_servo` profile) and `ekf_hold` (`reset_ekf`), then `reset_filters`, `button_in_view` and `check_reach`. After a walk the body EKF's yaw drifts and drags the target in `foot_world`, so each stance resets it before the checks. `button_in_view` seeds the tracker, checks the box and the 3D pose, and picks the arm: the left arm only when the box centre lies in the left 40% of the image (`left_arm_max_x_frac` in its contract), the right arm otherwise. `check_reach` asks ik_server whether that arm reaches the press goal plus the offset in force, without moving the arm. A failed look calls `manipulation_recovery` (`stance_check`). After 4 failed rounds the slot releases the arms and says `press_ask`.
+2. **Stance check** (`stance_check` subtree), up to 4 rounds. Each round runs `look`: walk to `recovery_goal` (the panel place at first), wait for the robot to settle, then `look_here`. `look_here` runs, once per stance, `prepare_arm` (Idle first when already in HighLevel, then HighLevel and the `visual_servo` profile) and `ekf_hold` (`reset_ekf`), then `reset_filters`, `button_in_view` and `check_reach`. After a walk the body EKF's yaw drifts and drags the target in `foot_world`, so each stance resets it before the checks. `button_in_view` seeds the tracker, checks the box and the 3D pose, and picks the arm: the left arm only when the box centre lies in the left 40% of the image (`left_arm_max_x_frac` in its contract), the right arm otherwise. `check_reach` asks ik_server whether that arm reaches the press goal plus the offset in force, without moving the arm. A failed look calls `manipulation_recovery` (`stance_check`). After 4 failed rounds the slot releases the arms and says `press_ask`.
 3. **Presses** (`press_and_recover`), up to 4. Each runs `set_press_offset`, `reset_filters`, `press_button` and `press_judge`. Nothing between the check and the first press walks, changes the mode or resets the EKF, so the press uses the `foot_world` the check used.
 4. **Before each press after a failed one** `recover_once` calls `manipulation_recovery` (`diagnose`) on that failure, so a slot makes at most 3 diagnoses and none after its fourth failed press. A decision that goes on presses again (a `reposition` first walks and looks, up to 3 times); `ask_help` or a call without a decision stops the presses (`recovery_stop`), and the slot asks a person. A `reposition` whose looks all fail ends the slot without asking (below).
 
@@ -113,7 +113,7 @@ The aim error repeats per panel and arm, so the model corrects a miss with the o
 
 ### What the tree does with each decision
 
-`decision_outputs` (`manipulation_recovery/rules.py`) gives the leaf `decision`, `reason`, `goal` (the base goal, moved for a reposition), `approach`, `walk_in`, `left_arm` and `offset_x/y/z`.
+`decision_outputs` (`manipulation_recovery/rules.py`) gives the leaf `decision`, `reason`, `goal` (the base goal, moved for a reposition), `left_arm` and `offset_x/y/z`.
 
 | Decision | Phase | The tree |
 |---|---|---|
@@ -128,7 +128,7 @@ The aim error repeats per panel and arm, so the model corrects a miss with the o
 
 A call that fails without a decision (a gate, the bridge unreachable or failed, too many refusals, the contract timeout) goes on like `ask_help` in `diagnose` and like a failed look in `stance_check`.
 
-A reposition is the whole stance relative to the base goal, in its frame (x forward, y left), not a step from where the robot stands; it keeps the base goal's z (`offset_goal`). When the new goal is under `WALK_MIN_M` from the robot, `walk_in` is `yes` and the look walks first to `approach`, `APPROACH_BACK_M` behind the goal, then onto it, because `navigate_to` ends a shorter walk without a step. Open-loop local moves on `/local_movement_cmd_vel` covered half to 2.4 times the command, so there is no local-move skill and a small correction walks out and back in.
+A reposition is the whole stance relative to the base goal, in its frame (x forward, y left), not a step from where the robot stands; it keeps the base goal's z (`offset_goal`). Before every walk, a look asks `near_pose` where the robot stands then: when `recovery_goal` is under `WALK_MIN_M` from it, the look walks first to `approach`, `APPROACH_BACK_M` behind the goal, then onto it, because `navigate_to` ends a shorter walk without a step. Asked once, when the decision was made, a look retried on the goal the robot already stood on took no step (run 006 of 20261122T202416Z-64ce58: three looks from one spot). Open-loop local moves on `/local_movement_cmd_vel` covered half to 2.4 times the command, so there is no local-move skill and a small correction walks out and back in.
 
 ### How the model is instructed
 
@@ -186,7 +186,7 @@ The executor publishes one short sentence at a time on `/speak` (`std_msgs/Strin
 | `MAX_PRESS_OFFSET_M` | Per axis | `check`, hard rule 4 |
 | `STANCE_CHANGED_M` | Target movement in `pelvis` that counts as a new stance | `check` (`stance_unchanged`), hard rule 3 |
 | `STANCE_TOLERANCE_M`, `STANCE_TOLERANCE_RAD` | Off the target stance | `rule_stance` |
-| `WALK_MIN_M`, `APPROACH_BACK_M` | The shortest walk with a step; the walk-out behind a nearer goal | `decision_outputs` (`walk_in`, `approach`), hard rule 2, S3 |
+| `WALK_MIN_M`, `APPROACH_BACK_M` | The shortest walk with a step; the walk-out behind a nearer goal | `near_pose` (before each look's walk; `g1_skills/g1_skills/lib/walk.py`), hard rule 2, S3 |
 | `max_rounds` | Contract input | `refuse` |
 
 Elsewhere: the rule counts in `rules.py`, the reach-move and reference constants in `stance.py`, the prompt-only numbers in `prompt.py` (all in `manipulation_recovery/`), the capture settings in `press_button`'s `config.capture` and `CaptureConfig` (`press_button/capture.py`), the link timings in `link.py`, `MODEL_TIMEOUT` and `CONFIRM_S` in `agent_bridge.py`, and the round counts in `press.xml`.

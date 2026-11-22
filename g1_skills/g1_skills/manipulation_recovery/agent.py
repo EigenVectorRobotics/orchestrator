@@ -140,7 +140,7 @@ class ManipulationRecovery(AgentSkill):
         return ''
 
     def outputs(self, decision: dict, call: AgentCall, evidence: dict) -> dict:
-        return decision_outputs(decision, call.inputs, evidence['last_failure'], self._robot())
+        return decision_outputs(decision, call.inputs, evidence['last_failure'])
 
     def record_fields(self, outputs: dict, call: AgentCall) -> dict:
         return {'offset': outputs.get('offset'), 'goal': outputs.get('goal'), 'base_goal': call.inputs.get('base_goal'),
@@ -163,16 +163,6 @@ class ManipulationRecovery(AgentSkill):
                                stance.transform_point(tf('map', PRESS_FRAME, 1.0), goal) if goal else None,
                                (call.get('inputs') or {}).get('left_arm'), button, stance.load_references(),
                                stance.latest_reach(failure, evidence.get('history')), REPOSITION_LIMITS_M)
-
-    def _robot(self) -> dict | None:
-        if self.ctx.tf is None:
-            return None
-
-        try:
-            return stance.pose_2d(frame_pose(self.ctx, 'map', 'pelvis', 1.0))
-        except Exception:                               # no transform: the tree walks straight to the goal
-            return None
-
 
 def frame_pose(ctx, target_frame: str, source_frame: str, timeout_s: float) -> dict:
     """The pose of source_frame in target_frame as plain numbers, as the stance evidence reads it"""

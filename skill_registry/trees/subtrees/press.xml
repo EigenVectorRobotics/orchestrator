@@ -51,7 +51,7 @@
     <BehaviorTree ID="recover_once">   <!-- success: press again; failure: stop pressing, with recovery_stop yes -->
         <Fallback>
             <Sequence>
-                <manipulation_recovery phase="diagnose" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}" approach="{recovery_approach}" walk_in="{recovery_walk_in}" left_arm="{press_left_arm}" offset_x="{press_offset_x}" offset_y="{press_offset_y}" offset_z="{press_offset_z}"/>
+                <manipulation_recovery phase="diagnose" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}" left_arm="{press_left_arm}" offset_x="{press_offset_x}" offset_y="{press_offset_y}" offset_z="{press_offset_z}"/>
                 <Fallback>
                     <Inverter>
                         <decision_is value="{decision}" equals="reposition"/>
@@ -82,13 +82,12 @@
     <BehaviorTree ID="stance_check">
         <Sequence>
             <SetBlackboard output_key="recovery_goal" value="{press_panel}"/>
-            <SetBlackboard output_key="recovery_walk_in" value="no"/>
             <SetBlackboard output_key="stance_reset" value="no"/>
             <RetryUntilSuccessful num_attempts="4">
                 <Fallback>
                     <SubTree ID="look"/>
                     <Sequence>
-                        <manipulation_recovery phase="stance_check" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}" approach="{recovery_approach}" walk_in="{recovery_walk_in}"/>
+                        <manipulation_recovery phase="stance_check" target_description="{button}" base_goal="{press_panel}" decision="{decision}" goal="{recovery_goal}"/>
                         <decision_is value="{decision}" equals="continue"/>
                         <SubTree ID="look_here"/>   <!-- continue presses only after both checks pass from here; a failure counts as a failed look -->
                     </Sequence>
@@ -100,10 +99,10 @@
         <Sequence>
             <SetBlackboard output_key="stance_reset" value="no"/>   <!-- a walk, even a failed one, needs a new EKF reset -->
             <set_autonomy enabled="true"/>
-            <ForceSuccess>              <!-- a short reposition walks out first, so the walk onto the goal takes steps -->
+            <ForceSuccess>              <!-- asked before every walk, from where the robot stands now: a goal under WALK_MIN_M walks out first, so the walk onto it takes steps -->
                 <Fallback>
                     <Inverter>
-                        <decision_is value="{recovery_walk_in}" equals="yes"/>
+                        <near_pose goal="{recovery_goal}" approach="{recovery_approach}"/>
                     </Inverter>
                     <navigate_to goal="{recovery_approach}"/>
                 </Fallback>

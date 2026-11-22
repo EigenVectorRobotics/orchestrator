@@ -59,7 +59,7 @@ A skill is one folder in `g1_skills/g1_skills/`: its `contract.yaml` (schema: `s
 | `topic` | `cancel_nav` | Publishes one message once a subscriber is there; with `success_when`, waits until a topic shows the result |
 | `watch` | `door_open`, `at_floor` | Reads a topic and compares a field; `equals_input` compares with a tree input |
 | `vlm` | `ask_vlm` | Asks the VLM a closed question about the latest camera frame |
-| `python` | `button_in_view`, `check_reach` | Nothing of its own: the skill's `skill.py` runs every call. `interface.requires` names what must be up for it to be live |
+| `python` | `button_in_view`, `check_reach`, `near_pose` | Nothing of its own: the skill's `skill.py` runs every call. `interface.requires` names what must be up for it to be live |
 | `agent` | `press_judge`, `manipulation_recovery`, `operator_confirm` | Opens an agent call (`docs/agents.md`) |
 | `compare`, `alive`, `command` | `decision_is`, `nuc_up`, `launch_nuc_stack` | Runs inside the executor: compare two values, check that topics, services or URLs exist, run a shell command |
 
