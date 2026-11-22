@@ -2,7 +2,8 @@ from orchestrator.agent.api import AgentCall, AgentSkill, CallImage
 
 from ..lib.press import offset_in_force, press_images, press_state
 from . import stance
-from .rules import decision_outputs, missed_from_sound_stance, rule_reach, rule_repress, rule_stance, stance_unchanged
+from .rules import (decision_outputs, missed_from_sound_stance, rule_reach, rule_relook, rule_repress, rule_stance,
+                    small_reach_miss, stance_unchanged)
 from .spec import MAX_PRESS_OFFSET_M, REPOSITION_LIMITS_M
 
 
@@ -11,14 +12,16 @@ RULE_SPEECH = {
     'stance': 'I am not standing where I should. Walking to my spot again.',
     'reach':  'The button is just out of my reach. Stepping closer to it.',
     'repress': 'I am standing in the right place. Pressing again from here.',
+    'relook':  'The button is almost in reach. Looking at it again from here.',
 }
 
 
 class ManipulationRecovery(AgentSkill):
     """Why a press failed and what the tree does next (diagnose), or whether the stance before the first press is fine
     (stance_check). The executor's rules answer first (rules.py): a press missed from a stance check_reach passed is
-    pressed again once from there (rule_repress, never rule_stance), else a plain stance is re-sent; then the model
-    decides, with crops of the press around the button for its offset_retry"""
+    pressed again once from there (rule_repress, never rule_stance); a check_reach that missed by at most SMALL_MISS_M
+    looks again from here once (rule_relook), then steps by the miss (rule_reach); else a plain stance is re-sent; then
+    the model decides, with crops of the press around the button for its offset_retry"""
 
     phase_speech = {
         'diagnose':     'The press did not work. Checking why.',
@@ -66,7 +69,16 @@ class ManipulationRecovery(AgentSkill):
             found = rule_repress(stance_evidence, evidence['history'], evidence['last_failure'])     # never rule_stance here
             return (found, RULE_SPEECH[found['rule_name']]) if found is not None else None
 
-        found = rule_stance(stance_evidence, evidence['history'])
+        found = None
+
+        if call.phase == 'stance_check' and small_reach_miss(stance_evidence, evidence['last_failure']):
+            # a small miss: look again from here, then step by the miss, before the stance rule walks off a near stance
+            # (run 004 of 20261122T220105Z-5b1d9a: a 6.1 mm miss, the stance rule walked 0.11 m, the next miss 155.7 mm)
+            found = (rule_relook(stance_evidence, evidence['history'], evidence['last_failure'])
+                     or rule_reach(stance_evidence, evidence['history'], evidence['last_failure']))
+
+        if found is None:
+            found = rule_stance(stance_evidence, evidence['history'])
 
         if found is None and call.phase == 'stance_check':
             found = rule_reach(stance_evidence, evidence['history'], evidence['last_failure'])

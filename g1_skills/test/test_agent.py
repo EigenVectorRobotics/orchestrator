@@ -16,7 +16,8 @@ from orchestrator.tree.engine import BehaviorTree, BTContext, Status
 from orchestrator.tree.leaf import make_leaf_factory
 
 from g1_skills.manipulation_recovery.agent import RULE_SPEECH, ManipulationRecovery
-from g1_skills.manipulation_recovery.rules import decision_outputs, offset_goal, rule_reach, rule_repress, rule_stance
+from g1_skills.manipulation_recovery.rules import (decision_outputs, offset_goal, rule_reach, rule_relook, rule_repress,
+                                                   rule_stance, small_reach_miss)
 
 from fakes import press_ctx
 
@@ -980,6 +981,55 @@ def test_the_reach_rule_gives_way_to_the_agent_after_two_moves():
 
     assert rule_reach(REACH_MOVE, [moved], REACH_MISS) is not None
     assert rule_reach(REACH_MOVE, [moved, moved], REACH_MISS) is None
+
+
+SMALL      = {'reach': {'reachable': False, 'position_error_m': 0.0061, 'pelvis_error_m': {'x': -0.006, 'y': 0.0011, 'z': 0.0}},
+              'reach_move': {'fixable': True, 'within_limits': True, 'dx': 0.026, 'dy': -0.005, 'dyaw': 0.0, 'step_pelvis_m': [0.026, -0.005]},
+              'stance_from_base_goal': {'forward_m': 0.075, 'left_m': -0.085, 'yaw_rad': 0.106}}     # run 004 of 5b1d9a: 0.113 m off
+RELOOKED   = {'skill': 'manipulation_recovery', 'rule': True, 'rule_name': 'relook', 'decision': 'continue', 'offset': None}
+REACH_STEP = {'skill': 'manipulation_recovery', 'rule': True, 'rule_name': 'reach', 'decision': 'reposition',
+              'offset': {'dx': 0.026, 'dy': -0.005, 'dyaw': 0.0}}
+
+
+def test_a_small_reach_miss_looks_again_from_here_once():
+    rule = rule_relook(SMALL, [], REACH_MISS)
+    assert rule['decision'] == 'continue' and rule['rule_name'] == 'relook'
+
+    pressed = {'skill': 'press_judge', 'decision': 'pressed'}
+    assert rule_relook(SMALL, [RELOOKED], REACH_MISS) is None
+    assert rule_relook(SMALL, [RELOOKED, pressed], REACH_MISS) is not None
+
+
+def test_the_relook_rule_needs_a_failed_reach_check_within_a_centimetre_while_the_goal_is_the_base_goal():
+    large = {**SMALL, 'reach': {**SMALL['reach'], 'position_error_m': 0.0124}}
+    passed = {**SMALL, 'reach': {**SMALL['reach'], 'reachable': True}}
+
+    assert small_reach_miss(SMALL, REACH_MISS) and not small_reach_miss(large, REACH_MISS)
+    assert rule_relook(large, [], REACH_MISS) is None
+    assert rule_relook(passed, [], REACH_MISS) is None
+    assert rule_relook(SMALL, [], {'skill': 'button_in_view'}) is None
+    assert rule_relook({'error': 'no transform'}, [], REACH_MISS) is None
+    assert rule_relook(SMALL, [REACH_STEP], REACH_MISS) is None           # a continue would send the tree back to the base goal
+
+
+def test_a_small_reach_miss_looks_again_then_steps_before_the_stance_rule():
+    skill = Agent(None, press_ctx(None)).skill(Registry.from_directory(CONTRACTS).get('manipulation_recovery'))
+    call  = AgentCall(Registry.from_directory(CONTRACTS).get('manipulation_recovery'), {'base_goal': PANEL}, BTContext(), 'stance_check')
+    rule  = lambda history, stance=SMALL: skill.rule(call, {'stance': stance, 'history': history, 'last_failure': REACH_MISS})
+
+    found, speech = rule([])
+    assert found['rule_name'] == 'relook' and speech == RULE_SPEECH['relook']        # not the stance rule, though 0.113 m off
+    found, speech = rule([RELOOKED])
+    assert found['rule_name'] == 'reach' and speech == RULE_SPEECH['reach']
+    assert rule([RELOOKED, REACH_STEP])[0]['rule_name'] == 'reach'                     # after a step: no relook, a second step
+    assert rule([RELOOKED, REACH_STEP, REACH_STEP])[0]['rule_name'] == 'stance'       # the reach rule spent: as before
+
+    large = {**SMALL, 'reach': {**SMALL['reach'], 'position_error_m': 0.0285}}
+    assert rule([], large)[0]['rule_name'] == 'stance'                                 # a larger miss: the stance rule first
+
+    diagnose = AgentCall(Registry.from_directory(CONTRACTS).get('manipulation_recovery'), {'base_goal': PANEL}, BTContext(), 'diagnose')
+    found, _ = skill.rule(diagnose, {'stance': SMALL, 'history': [], 'last_failure': REACH_MISS})
+    assert found['rule_name'] == 'stance'                                              # stance_check only
 
 
 def test_a_diagnosis_may_not_reposition_from_a_stance_the_reach_check_passed():

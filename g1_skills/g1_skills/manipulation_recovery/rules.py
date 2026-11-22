@@ -5,10 +5,14 @@ from ..lib.walk import offset_goal
 from .spec import STANCE_CHANGED_M, STANCE_TOLERANCE_M, STANCE_TOLERANCE_RAD
 
 
-# The executor's own rules for a plain stance and for a press missed from a sound stance
+# The executor's own rules for a plain stance, for a small reach miss and for a press missed from a sound stance
 STANCE_RULE_MAX     = 2                 # stances re-sent per press before the agent decides
 REACH_RULE_MAX      = 2                 # reach moves per press before the agent decides
 REPRESS_RULE_MAX    = 1                 # in-place re-presses per press before the agent decides
+RELOOK_RULE_MAX     = 1                 # in-place looks again after a small reach miss, per press
+SMALL_MISS_M        = 0.01              # a check_reach miss up to this: look again from here, then step by the miss, before
+                                        # any stance rule. The target alone moves 24 to 29 mm in pelvis between a passed check
+                                        # and its press (rule_repress, 2026-11-22), so a miss this small is often the estimate
 
 
 def _rule_records(history: list[dict], rule_name: str) -> list[dict]:
@@ -16,21 +20,57 @@ def _rule_records(history: list[dict], rule_name: str) -> list[dict]:
             and record.get('rule') and record.get('rule_name') == rule_name]
 
 
-def rule_stance(evidence: dict | None, history: list[dict]) -> dict | None:
-    """reposition onto the target stance without the agent, when the robot stands off it by more than the stance tolerance.
-    The target is the offset of the last reposition since the last press judged pressed, else the base goal. A continue
-    after that reposition sets the tree's goal to the base goal again, so the target is then the base goal too. At most
-    STANCE_RULE_MAX times; then the agent decides"""
-    off   = (evidence or {}).get('stance_from_base_goal')
+def _target_stance(history: list[dict]) -> dict:
+    """The stance the tree walks to now, as an offset from the base goal: the offset of the last reposition since the last
+    press judged pressed, else the base goal. A continue after that reposition sets the tree's goal to the base goal
+    again, so the target is then the base goal too"""
     moved = [record.get('offset') if record.get('decision') == 'reposition' else None for record in since_last_pressed(history)
              if record.get('skill') == 'manipulation_recovery' and (record.get('decision') == 'continue'
              or (record.get('decision') == 'reposition' and isinstance(record.get('offset'), dict)))]
+
+    return {key: float((moved[-1] if moved and moved[-1] else {}).get(key, 0.0)) for key in ('dx', 'dy', 'dyaw')}
+
+
+def small_reach_miss(evidence: dict | None, last_failure: dict | None) -> bool:
+    """The last failure is a check_reach at this stance that missed by at most SMALL_MISS_M"""
+    reach = (evidence or {}).get('reach') or {}
+    error = reach.get('position_error_m')
+
+    return ((last_failure or {}).get('skill') == 'check_reach' and bool(reach) and not reach.get('reachable')
+            and error is not None and error <= SMALL_MISS_M)
+
+
+def rule_relook(evidence: dict | None, history: list[dict], last_failure: dict | None) -> dict | None:
+    """continue without the agent: look again from where the robot stands after a small reach miss (small_reach_miss),
+    before any walk. Only while the tree's goal is the base goal, since a continue sets it back there (_target_stance);
+    after a reposition the reach rule steps instead. At most RELOOK_RULE_MAX times since the last press judged pressed"""
+    if not small_reach_miss(evidence, last_failure) or len(_rule_records(history, 'relook')) >= RELOOK_RULE_MAX:
+        return None
+
+    if any(_target_stance(history).values()):
+        return None
+
+    error = evidence['reach']['position_error_m']
+
+    return {
+        'decision':  'continue',
+        'rule_name': 'relook',
+        'reason':   f'rule: check_reach missed by only {error * 1000:.1f} mm (at most {SMALL_MISS_M * 1000:.0f} mm), '
+                    'within what the target estimate moves by itself: looking again from here before any walk',
+    }
+
+
+def rule_stance(evidence: dict | None, history: list[dict]) -> dict | None:
+    """reposition onto the target stance (_target_stance) without the agent, when the robot stands off it by more than
+    the stance tolerance. At most STANCE_RULE_MAX times; then the agent decides"""
+    off = (evidence or {}).get('stance_from_base_goal')
 
     if off is None or len(_rule_records(history, 'stance')) >= STANCE_RULE_MAX:
         return None
 
     # The agent may have asked to stand off the base goal on purpose (a back-off for the camera): that stance is the target
-    target   = {key: float((moved[-1] if moved and moved[-1] else {}).get(key, 0.0)) for key in ('dx', 'dy', 'dyaw')}
+    target   = _target_stance(history)
+    moved    = any(target.values())
     forward  = off['forward_m'] - target['dx']
     left     = off['left_m'] - target['dy']
     yaw      = math.atan2(math.sin(off['yaw_rad'] - target['dyaw']), math.cos(off['yaw_rad'] - target['dyaw']))
