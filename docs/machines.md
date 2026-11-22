@@ -10,7 +10,8 @@ What runs where: how to reach each machine, the workspace in use, the branch of 
 
 Three kinds of statement, marked as such:
 
-- **Checked (2026-11-19, 21:30):** seen on the machine then, read only. Since the clean rebuild of the workspaces (17:35 to 17:51) the NUC and the Orin rebooted at 19:40, the team restarted the three stacks at 19:42, moved `manipulation_stack` on and rebuilt `move_to_pose` (19:38), and pulled and rebuilt the orchestrator on the NUC (20:51 to 20:52). The NUC `orchestrator` row was checked again later that night, after the edits of 21:35 and 22:02 were committed. This is the only machine state in this part. Everything not marked otherwise is of this kind.
+- **Checked (2026-11-22, 15:10):** the NUC and the Orin, seen on the machine then, read only. Both rebooted at 13:09. The Orin's `~/eigen_vector_ws` was switched to `main` in every repository and rebuilt from clean (15:01 to 15:03); on the NUC, `manipulation_stack` was switched to `main` and its four packages rebuilt (15:05), and the orchestrator was pulled to `main`. No stack ran on the NUC when checked, and none has run on these builds yet (re-check question 3). Everything about the NUC and the Orin not marked otherwise is of this kind.
+- **Checked (2026-11-19, 21:30):** the Thor, seen on the machine then and not looked at since.
 - **Checked (2026-11-08):** seen then and not looked at since; marked where it appears.
 - **GitHub (2026-11-17):** read from the repositories on GitHub, not from a machine.
 
@@ -21,7 +22,7 @@ What to check on the robot is in "Re-check on the robot", as questions.
 | Machine | Runs | Reach it | OS, ROS | Workspace in use |
 |---|---|---|---|---|
 | NUC | robot interface, arm control, body EKF, navigation, `door_state_node`, the orchestrator | `ssh vector@vector-nuc` (tailscale); `192.168.123.5` on the robot wire | Ubuntu 24.04, Jazzy | `~/eigen_vector_ws` (stack), `~/orchestrator_ws` (orchestrator, an overlay on it) |
-| Orin | camera (`realsense2_camera`, apt), `seed_bbox`, `track_3d`, gripper pose estimator | from the NUC: `ssh unitree@192.168.123.164` (the NUC has the key) | Ubuntu 22.04, Humble | `~/eigen_vector_ws` |
+| Orin | camera (`realsense2_camera`, apt), `seed_bbox`, `track_3d`, gripper pose estimator, Dex1 gripper server | from the NUC: `ssh unitree@192.168.123.164` (the NUC has the key) | Ubuntu 22.04, Humble | `~/eigen_vector_ws` (stack), `~/eigen_vector_orch_ws` (only the Dex1 gripper server) |
 | Thor | Cosmos daemon (docker container `edgellm`), `ground_server`, `vlm_server` | from the NUC: `ssh vector@192.168.123.1` (the NUC has the key); `vector-thor` over tailscale | Ubuntu 24.04, Jazzy | `~/eigen_vector_ws_bringup` (stack), `~/orchestrator_ws` (only for `vlm_server`) |
 
 - `env.sh` in each workspace is written by `eigen_vector/scripts/deploy.sh`; source it before any ROS command on that machine. On the NUC, `~/orchestrator_ws/env.sh` sources the stack's environment too.
@@ -41,7 +42,7 @@ What to check on the robot is in "Re-check on the robot", as questions.
 
 ### Repositories on each machine
 
-Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a row holds the local changes the machine had before the branch in the row was checked out; `git stash list` in that checkout shows it.
+Branch @ commit, and local changes, as checked on 2026-11-22 (the NUC and the Orin) and 2026-11-19 (the Thor). A stash named in a row holds the local changes the machine had before the branch in the row was checked out; `git stash list` in that checkout shows it.
 
 **bringup comes from the `eigen_vector` checkout in `src/`.** Since 2026-11-19 the NUC and the Orin have the repository `eigen_vector` cloned as `src/eigen_vector`, and colcon builds the package `bringup` from its `bringup/` directory; there is no copied `src/bringup` any more. The Thor's running workspace `~/eigen_vector_ws_bringup` still has a copied `bringup` (below). The separate repository `EigenVectorRobotics/bringup` stopped at 2026-10-27 (`4c70a72`): its `nuc.launch.py` starts only the arm visual servoing, so `nuc_up` cannot pass with it. Do not deploy from it.
 
@@ -49,11 +50,11 @@ Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `eigen_vector` | `main` @ `9306407` | clean. `bringup/launch/nuc.launch.py` includes `door_state_node.launch.py` and has no `floor_map_selector`; `bringup/config/cyclonedds.xml` has `MaxAutoParticipantIndex` 120 |
-| `manipulation_stack` | `fix/button-press-aim` @ `e710393` (pulled 19:37; `move_to_pose` rebuilt 19:38) | clean. The branch carries the hand-tuned D435 mount (0.068963, 0.023804, 0.418953; `c2e8732`) and publishes the target `move_to_pose` plans for on `~/planning_target` (`e710393`). The stash of the earlier `fix/final-leg-foot-world` worktree was dropped on 2026-11-19: all of it is on the branch |
+| `eigen_vector` | `main` @ `3219b75` (pulled 2026-11-22; the commits since `9306407` change only the Orin) | clean. `bringup/launch/nuc.launch.py` includes `door_state_node.launch.py` and has no `floor_map_selector`; `bringup/config/cyclonedds.xml` has `MaxAutoParticipantIndex` 120 |
+| `manipulation_stack` | `main` @ `96b2ca2` (switched from `fix/button-press-aim` @ `e710393` on 2026-11-22, whose commits are all in `main`; `g1_description`, `humanoid_manipulation_interfaces`, `g1_pilot` and `humanoid_arm_skills` rebuilt 15:05) | clean. `main` carries the hand-tuned D435 mount (0.068963, 0.023804, 0.418953) and publishes the target `move_to_pose` plans for on `~/planning_target` |
 | `navigation_stack` | `main` @ `4cf9d87` | no tracked file changed; 32 untracked backup copies (`*.pre_*` and the like) |
-| `elevator_states` | `main` @ `d71ad3d` | 1 file changed, not committed: `config/elevator_door_state.yaml` `places_file` is `/home/vector/maps/fvd_map.places.yaml` (see "Only on a machine") |
-| `unitree_interface` | `main` @ `599e2ff` | clean |
+| `elevator_states` | `main` @ `f6261be` | **`f6261be` is a local commit, not on GitHub** (2026-11-19 22:45, "door areas of elevator 1"): `config/elevator_door_state.yaml` `places_file` is `/home/vector/maps/fvd_map_clean_elevator1.places.yaml` (see "Only on a machine"). No file changed beyond it |
+| `unitree_interface` | `main` @ `ffb78c3` | clean; matches `origin/main` |
 | `livox_ros_driver2` | `master` @ `7e4114a` | clean |
 | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
 
@@ -61,18 +62,23 @@ Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `orchestrator` | `integration` @ `42c2189` (`36b2a70` pulled and built 21:06 with `--symlink-install`; `5fd0b2f` and `42c2189` committed on the NUC, so its edits of 21:35 and 22:02 are now in `main`) | **behind `origin/main` (which replaces `origin/integration`, deleted on GitHub on 2026-11-19) by `6c60784` and two documentation commits**, which adds `freight_call_elevator_step.xml` and `freight_call_elevator_up_down.xml`: the NUC has them as untracked files at the same paths, so move them aside before the pull (their content is the committed one). No tracked file changed. Two more untracked test trees, not in the repository: `freight_call_panel_up_down_loop.xml`, `freight_call_panel_up_down_recover.xml`. Stash "nuc uncommitted 2026-11-19 18:46": all of it is in `main`, so it can be dropped |
+| `orchestrator` | `main` @ `b5e8cca` (matches `origin/main`; built 2026-11-19 21:06 with `--symlink-install`, so a pull of Python, contracts or trees needs no rebuild) | no tracked file changed, no stash. Three untracked test trees, not in the repository: `freight_call_panel_floor1_up_down_press.xml`, `freight_call_panel_up_down_loop.xml`, `freight_call_panel_up_down_recover.xml` |
 
 #### Orin, `~/eigen_vector_ws/src`
 
 | Repository | Branch @ commit | Local state |
 |---|---|---|
-| `eigen_vector` | `fix/orin-depth-848x480` @ `eb0b6b5` | clean. Two commits not on `main` (`4ec68c5` depth at 848x480, `eb0b6b5` the estimator's wrist pitch); behind `main` by its merges #6 (Dex1 service) and #7. `bringup/launch/orin.launch.py` starts `gripper_pose_estimator` |
-| `manipulation_stack` | `fix/button-press-aim` @ `a4dac89` | clean. Stash "orin: main worktree ... before fix/button-press-aim 2026-11-19", kept on purpose: `main` @ `4f12ae1` with 3 files changed, an alternative wrist-pitch search (`fit_pitch`, a coarse-to-fine search within `pitch_max_deg`, off by default) that the branch does not have; the branch fits the pitch with `lock_rotation` instead. `g1_pilot` is not built: it needs `casadi`, not installed on the Orin, and the Orin runs no `g1_pilot` node. `eigen_vector` `repos/orin.repos` does not list `manipulation_stack` |
-| `track_anything` | `main` @ `4d1c755` | 1 file changed, not committed: `track_anything/track_3d_params.py`, one line added |
+| `eigen_vector` | `main` @ `3219b75` (switched from `fix/orin-depth-848x480` on 2026-11-22; `main` has the FoundationPose changes) | clean. `bringup/launch/orin.launch.py` starts `gripper_pose_estimator`, and puts `src/FoundationPose` on its `PYTHONPATH` |
+| `manipulation_stack` | `main` @ `96b2ca2` | clean. The stash "orin: main worktree ... before fix/button-press-aim 2026-11-19" (an alternative wrist-pitch search, `fit_pitch`) was not looked at again after the switch to `main`. `g1_pilot` is not built: it needs `casadi`, not installed on the Orin, and the Orin runs no `g1_pilot` node |
+| `FoundationPose` | `main` @ `5285bb8` | clean. Not a colcon package: the estimator imports it through `PYTHONPATH`. Its TensorRT plan `models/foundationpose/refine_fp16.plan` was built on the Orin on 2026-11-21 and is not in the repository |
+| `track_anything` | `main` @ `4d1c755` | clean |
 | `vlm` | `main` @ `196d071` | clean |
-| `unitree_interface` | `main` @ `599e2ff` | clean |
+| `unitree_interface` | `main` @ `599e2ff` | clean; 2 commits behind `origin/main` (re-check question 4) |
 | `rmw_cyclonedds` | `humble` @ `e370e09` | clean |
+
+The checkouts match `eigen_vector` `repos/orin.repos`. Rebuilt from clean on 2026-11-22 (15:01 to 15:03, 10 packages, `g1_pilot` skipped) with the Orin command under "Machines".
+
+`~/eigen_vector_orch_ws` holds only `dex1_1_service`: the systemd unit `dex1_gripper` runs `~/eigen_vector_orch_ws/install/dex1_1_service/bin/dex1_1_gripper_server --network enP8p1s0` (active when checked). Nothing else runs from that workspace.
 
 #### Thor
 
@@ -82,7 +88,7 @@ Branch @ commit, and local changes, as checked on 2026-11-19. A stash named in a
 | | `vlm` | `main` @ `3ca4861` (2026-10-29) | clean; `ground_server` runs from here |
 | | `rmw_cyclonedds` | `jazzy` @ `2659b2b` | clean |
 | `~/eigen_vector_ws` | `track_anything` | `main` @ `4d1c755` | clean; updated and rebuilt from clean on 2026-11-19 |
-| | `vlm` | `main` @ `196d071` | clean; updated and rebuilt from clean on 2026-11-19. Nothing runs from this workspace (re-check question 5) |
+| | `vlm` | `main` @ `196d071` | clean; updated and rebuilt from clean on 2026-11-19. Nothing runs from this workspace (re-check question 7) |
 | `~/orchestrator_ws` | `orchestrator` | `ltx-dev` @ `8d8fe7d` (`ltx-dev` is deleted on GitHub; `8d8fe7d` is in `main`) | has no `orchestrator/orchestrator/vlm/server.py`, so `launch_thor_stack` cannot start `vlm_server` from it (item 12) |
 
 Running when checked (2026-11-19, 21:30): the tmux sessions `eigen_vector_bringup` and `cosmos_vlm`, both started at 19:42. Earlier that day the Thor had booted at 15:34 and ran no stack: no `eigen_vector_bringup` session, no `vlm_server` or `cosmos_vlm` session; the container `edgellm` came up with the bringup started by hand at 16:28. The VLM endpoint `http://vector-thor:8090/v1` was not started. The Thor also came back with no stack after it rebooted on its own on 2026-11-08 ([troubleshooting.md](troubleshooting.md), "Machines and processes").
@@ -91,7 +97,7 @@ Running when checked (2026-11-19, 21:30): the tmux sessions `eigen_vector_bringu
 
 | Machine | Path | What | Status |
 |---|---|---|---|
-| NUC | `~/eigen_vector_ws/src/elevator_states/config/elevator_door_state.yaml` | `places_file: /home/vector/maps/fvd_map.places.yaml`, the door areas (`freight elevator cabin`, `freight elevator hall`) of the map in use. Committed on `elevator_states` `main` @ `d71ad3d`: `two_floor_clean_cabin2.places.yaml`; the refactored `elevator_states` has no such file, so the value cannot be committed there | set and built 2026-11-19. Change it with the map ([The map](run.md#the-map)), then build `elevator_states` |
+| NUC | `~/eigen_vector_ws/src/elevator_states/config/elevator_door_state.yaml` | `places_file: /home/vector/maps/fvd_map_clean_elevator1.places.yaml`, the door areas of elevator 1, in the local commit `f6261be` (not on GitHub). On `origin/main` (`d71ad3d`) it is `two_floor_clean_cabin2.places.yaml`. For the freight elevator it must be `fvd_map.places.yaml` (as on 2026-11-19), with the areas `freight elevator cabin` and `freight elevator hall` | set 2026-11-19 22:45 by a teammate. Change it with the map ([The map](run.md#the-map)), then build `elevator_states` |
 | NUC | `~/nuc_manip_only.launch.py`, `~/nuc_nav_only.launch.py` | the NUC stack split in two (what ran on 2026-11-08) | not used on 2026-11-19: the stack ran from one `nuc.launch.py` |
 | NUC | `~/maps/<map>.pcd`, `~/maps/<map>.places.yaml` (backups `*.bak_*`) | the maps and their places files; the one in use: [The map](run.md#the-map). The freight elevator is `fvd_map` (its places come from `two_floor_clean_cabin2`; the executor uses `fvd_map_callpanel_tilt.places.yaml`, item 8); `fvd_map_clean_elevator1` and `fvd_map_clean_elevator2` are two other elevators | the executor, `slam_elevatorlio` and `door_state_node` read the places file at start |
 | NUC | `~/fake_button_pose.py` | fixed button poses for `press_button` with no Thor | still there (2026-11-19), disabled: do not start it |
@@ -117,18 +123,21 @@ Questions the next check must answer. Each is open until someone looks on the ma
 
 1. Orin and NUC: does the press capture now take the gripper estimate on most presses? On 2026-11-19 `gripper_pose_estimator` fitted the right gripper about once a second with it in view (inliers 0.41 to 0.64; few left fits) and `move_to_pose` applied the held median (8 to 18 mm up), but only 4 of 33 judged presses recorded `residual_from` other than `encoders`, all on the down button; `8be696a` makes the capture use the same held median. The operator-marked fingertip still sat about 15 mm above the estimate.
 2. Orin: where do the CycloneDDS errors `invalid data size` and `string data is not null-terminated` (`rmw_cyclonedds_cpp/src/serdata.cpp:384`) come from? `realsense2_camera_node` and `gripper_pose_estimator` print them, 41 to 135 times per launch; a message type that differs between Humble (Orin) and Jazzy (NUC) is suspected.
-3. Orin: is `eigen_vector` `fix/orin-depth-848x480` meant to run there, rather than `main` (which has #6 and #7 and not these two commits)?
-4. NUC and Orin: when `deploy.sh` stops copying `bringup` to `src/bringup` (the note under "Machines"), can `deploy.sh build` be used again?
-5. Thor: should the stack move from `~/eigen_vector_ws_bringup` (copied `bringup`, `vlm` of 2026-10-29) to `~/eigen_vector_ws` with an `eigen_vector` checkout, as on the NUC and the Orin? Should it start on boot, and which `orchestrator` checkout should the Thor have for `vlm_server` (item 12)?
-6. NUC: move the two untracked test trees `freight_call_elevator_step.xml` and `freight_call_elevator_up_down.xml` aside, switch the checkout from `integration` to `main` and pull it (`main` holds everything in `integration`, `6c60784` included), and drop the orchestrator stash "nuc uncommitted 2026-11-19 18:46". The tilt places site file and the baseline-frame fix are already on the NUC (pulled and built at 21:06); the install is a symlink install, so a pull of Python, contracts or trees needs no rebuild. The rebuilt workspaces ran on 2026-11-19 from 17:57: preflight passed in sessions `20261119T230051Z-fa6cae`, `20261119T234750Z-fd820c` and `20261119T235720Z-43f906`.
+3. NUC and Orin: does the first bring-up on the builds of 2026-11-22 (Orin all `main` with FoundationPose; NUC `manipulation_stack` `main`) pass preflight, and does `gripper_pose_estimator` start and fit? Nothing has run on them yet.
+4. Orin: should `unitree_interface` be pulled to `origin/main` (2 commits ahead of `599e2ff`; the NUC has `ffb78c3`), and `eigen_vector` `repos/orin.repos` moved with it?
+5. NUC: `elevator_states` `f6261be` (elevator 1 places) is a local commit: should it go to GitHub, and which places file should `door_state_node` read for the next freight elevator run?
+6. NUC and Orin: when `deploy.sh` stops copying `bringup` to `src/bringup` (the note under "Machines"), can `deploy.sh build` be used again?
+7. Thor: should the stack move from `~/eigen_vector_ws_bringup` (copied `bringup`, `vlm` of 2026-10-29) to `~/eigen_vector_ws` with an `eigen_vector` checkout, as on the NUC and the Orin? Should it start on boot, and which `orchestrator` checkout should the Thor have for `vlm_server` (item 12)?
 
 ### Not in use
 
 Other workspaces on the machines; nothing that runs comes from them (checked 2026-11-08).
 
-- NUC: `eigen_vector_orch_ws`, `eigen_vector_ws_apt`, `eigen_vector_ws_lio`, `fsm_check_ws`, `nav_fix_ws`, `scratch_ekf_tf_ws`, `unitree_test_ws`
+- NUC: `eigen_vector_orch_ws`, `claude_build_ws`, `unitree_interface_ws` (checked 2026-11-22), `eigen_vector_ws_apt`, `eigen_vector_ws_lio`, `fsm_check_ws`, `nav_fix_ws`, `scratch_ekf_tf_ws`, `unitree_test_ws`
 - Orin: `eigen_vector_scratch_ws`, `eigen_vector_ws_nav`, `ev_humble_ws`, `humble_ws`, `thor_aligned_ws`
 - Thor: `eigen_vector_ws`, `scratch_pixi_ws`, `scratch_unitree_ws`
+
+On the NUC, `goal_floor_test_ws` (only `route_planner`, built 2026-11-22 13:47) is a teammate's test workspace; check with the team before you source or delete it.
 
 ### Check it again
 
@@ -152,7 +161,7 @@ The orchestrator on `main` expects some things from the NUC, the Orin and the Th
 
 Status words: **open** (not done), **check** (may already be done; confirm on the machine), **done**. Each item also says whether the repository side (contracts, trees, preflight, and the other repositories on GitHub) is done; that never makes the robot side done.
 
-Repository side checked against `ltx-reorg` (now in `main`) and GitHub on 2026-11-17. Robot side last seen on 2026-11-19 at 21:30 (the snapshot above), by a Claude Code session that operated the first `integration` runs.
+Repository side checked against `ltx-reorg` (now in `main`) and GitHub on 2026-11-17. Robot side last seen on 2026-11-22 at 15:10 for the NUC and the Orin, on 2026-11-19 at 21:30 for the Thor (the snapshot above). The robot-side notes of 2026-11-19 below were not run again on the 2026-11-22 builds.
 
 ### NUC
 
@@ -181,7 +190,7 @@ Repository side checked against `ltx-reorg` (now in `main`) and GitHub on 2026-1
 #### 5. Remove `floor_map_selector`. Status: done (2026-11-19)
 
 - **Why:** `nuc_up` no longer waits for `/prior_map` (`8cbc9be`). Foxglove shows the current floor from `/route_planner/terrain`.
-- **On the NUC:** `bringup` now builds from `src/eigen_vector` (`main` @ `9306407`), which has no `floor_map_selector`; the hand-edited copy in `src/bringup` is gone.
+- **On the NUC:** `bringup` now builds from `src/eigen_vector` (`main` @ `3219b75` since 2026-11-22), which has no `floor_map_selector`; the hand-edited copy in `src/bringup` is gone.
 
 #### 6. Stop the old EKF-reset watcher. Status: open
 
@@ -191,7 +200,7 @@ Repository side checked against `ltx-reorg` (now in `main`) and GitHub on 2026-1
 
 #### 7. `manipulation_stack` must provide what the press flow uses. Status: done, except the fingertip estimate (check)
 
-The NUC runs `fix/button-press-aim` (`e710393` since 19:37), built as `deploy.sh` builds it. Seen on 2026-11-19:
+The NUC runs `main` @ `96b2ca2` since 2026-11-22 (it holds all of `fix/button-press-aim` @ `e710393`, which ran on 2026-11-19), built as `deploy.sh` builds it. Seen on 2026-11-19, on `e710393`:
 
 | Needed by | What | Seen |
 |---|---|---|
@@ -218,14 +227,14 @@ The NUC runs `fix/button-press-aim` (`e710393` since 19:37), built as `deploy.sh
 
 #### 10b. Build the `g1_skills` package. Status: done (2026-11-19)
 
-- **On the NUC:** the three packages are built from `integration` (`36b2a70`, 21:06, `--symlink-install`); on `00a6297` the executor logged `45 skills, 13 places` at start.
+- **On the NUC:** the three packages are built from `36b2a70` (2026-11-19 21:06, `--symlink-install`; the checkout is now `main` @ `b5e8cca`, and a symlink install needs no rebuild for it); on `00a6297` the executor logged `45 skills, 13 places` at start.
 
 ### Orin
 
 #### 11. `orin.launch.py` must start `gripper_pose_estimator`. Status: done, except its output (check)
 
 - **Why:** `orin_up` waits for the estimator's node (`/gripper_estimation/get_parameters`), and `launch_orin_stack` no longer starts a second estimator in tmux. `press_button` takes the fingertip for its residual from the estimate (item 7).
-- **On the Orin:** `orin.launch.py` starts it from `manipulation_stack` `fix/button-press-aim` @ `a4dac89`, and `/gripper_estimation/get_parameters` answers. It publishes the estimate frames while the gripper is in view; how the press capture uses them is re-check question 1, the CycloneDDS errors question 2.
+- **On the Orin:** on 2026-11-19 `orin.launch.py` started it from `manipulation_stack` `fix/button-press-aim` @ `a4dac89`, and `/gripper_estimation/get_parameters` answered. Since 2026-11-22 the Orin has `manipulation_stack` `main` and `eigen_vector` `main` with FoundationPose; that build has not run yet (re-check question 3). On 2026-11-19 it published the estimate frames while the gripper is in view; how the press capture uses them is re-check question 1, the CycloneDDS errors question 2.
 
 ### Thor
 
