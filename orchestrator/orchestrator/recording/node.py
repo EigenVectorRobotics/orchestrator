@@ -34,6 +34,14 @@ BAG_TOPICS = [                                  # the bag_topics parameter's def
     '/track_3d/is_tracking', '/track_3d/selected_target_3d', '/slam_elevatorlio/status',
     '/track_3d/selected_normal_pose',                       # the button pose track_3d fits (raw)
     '/track_3d/selected_normal_pose_filtered/arm_upright',  # the pose the press plans to (filtered)
+    # unitree_interface (names after its launch remaps): the robot's state and the commands sent to it
+    '/feedback',                                            # joint states from rt/lowstate, about 1 kHz
+    '/pelvis_imu', '/torso_imu',
+    '/unitree_interface/current_mode', '/unitree_interface/fsm_id',
+    '/position_control',                                    # joint commands (cmd_arm and cmd_low both map here)
+    '/cmd_vel',                                             # the cmd_vel_mux output unitree_interface sends
+    '/navigation_cmd_vel', '/manual_rotate_cmd_vel', '/local_movement_cmd_vel', '/safety_cmd_vel',
+    '/teleop_cmd_vel',                                      # the cmd_vel_mux inputs (navigation_stack cmd_vel_mux.yaml)
 ]
 
 
