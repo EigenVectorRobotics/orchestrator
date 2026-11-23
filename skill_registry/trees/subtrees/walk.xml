@@ -31,18 +31,24 @@
       <say text="Stopping to relocalize."/>
       <relocalize_here/>
       <SetBlackboard output_key="exiting" value="no"/>
-      <RetryUntilSuccessful num_attempts="3">
-        <Fallback>
-          <navigate_to goal="{goal}"/>
-          <ForceFailure>
-            <Sequence>
-              <say text="My path looks blocked. Clearing my map and trying again."/>
-              <clear_terrain_map/>
-              <Sleep msec="2000"/>
-            </Sequence>
-          </ForceFailure>
-        </Fallback>
-      </RetryUntilSuccessful>
+      <SubTree ID="walk_to_goal"/>
     </Sequence>
+  </BehaviorTree>
+
+  <!-- walk to goal (set by the caller). A walk that finds no free path (latched terrain points): clear the terrain map
+       and walk again -->
+  <BehaviorTree ID="walk_to_goal">
+    <RetryUntilSuccessful num_attempts="3">
+      <Fallback>
+        <navigate_to goal="{goal}"/>
+        <ForceFailure>
+          <Sequence>
+            <say text="My path looks blocked. Clearing my map and trying again."/>
+            <clear_terrain_map/>
+            <Sleep msec="2000"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </RetryUntilSuccessful>
   </BehaviorTree>
 </root>

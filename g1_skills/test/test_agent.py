@@ -574,7 +574,7 @@ def test_a_literal_pose_can_carry_the_storey():
 
 FULL_TREE = TREES / 'freight_elevator_down_floor1_agentic.xml'
 PLACES    = {name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'}
-             for name in ('freight_elevator_call_panel_preapproach', 'freight_elevator_call_panel', 'inside_freight_elevator_button_panel')}
+             for name in ('freight_call_panel_preapproach_floor_2', 'freight_call_panel_floor_2', 'freight_inside_button_panel_floor_2')}
 
 
 def _full_tree(runner: FakeRunner, agent) -> BehaviorTree:
@@ -659,8 +659,8 @@ def test_confirm_phase_relays_the_question():
 # ========== The library ride tree with the press checks ==========
 
 LIBRARY_RIDE  = ROOT / 'skill_registry' / 'trees' / 'freight_elevator_go_to_place.xml'
-LIBRARY_PLACES = ('freight_elevator_call_panel_floor_1', 'inside_freight_elevator_button_panel_floor_1',
-                  'freight_elevator_door_out_floor_2', 'target_floor_2')
+LIBRARY_PLACES = ('elevator1_call_panel_floor_1', 'elevator1_inside_button_panel_floor_1',
+                  'elevator1_door_out_floor_2', 'elevator1_target_floor_2')
 
 
 class LibraryRideRunner(FakeRunner):
@@ -731,7 +731,7 @@ def _library_ride(runner: FakeRunner) -> BehaviorTree:
     now     = [0.0]
     clock   = lambda: now.__setitem__(0, now[0] + 0.5) or now[0]
     places  = {name: {'x': 1.0, 'y': 2.0, 'z': -0.46, 'yaw': 0.0, 'frame': 'map'} for name in LIBRARY_PLACES}
-    places['inside_freight_elevator_button_panel_floor_1']['x'] = 3.0
+    places['elevator1_inside_button_panel_floor_1']['x'] = 3.0
     context = BTContext(blackboard=places, clock=clock)
 
     runner.agent = type('FakeAgent', (), {'start': lambda self, contract, inputs, context, path='': runner.start(contract, inputs)})()

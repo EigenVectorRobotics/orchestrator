@@ -13,11 +13,11 @@
       </Fallback>
       <clear_stop/>
       <set_autonomy enabled="true"/>
-      <navigate_to goal="{freight_elevator_call_panel_preapproach}"/>
+      <navigate_to goal="{freight_call_panel_preapproach_floor_2}"/>
       <Sleep msec="3000"/>
-      <navigate_to goal="{freight_elevator_call_panel}"/>
+      <navigate_to goal="{freight_call_panel_floor_2}"/>
       <set_autonomy enabled="false"/>
-      <SetBlackboard output_key="press_panel" value="{freight_elevator_call_panel}"/>
+      <SetBlackboard output_key="press_panel" value="{freight_call_panel_floor_2}"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>
       <SetBlackboard output_key="press_base_offset_x" value="0.0"/>
       <SetBlackboard output_key="press_base_offset_y" value="0.0"/>

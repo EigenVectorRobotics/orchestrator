@@ -10,6 +10,7 @@
         <set_mode mode="high_level"/>
       </Fallback>
       <clear_stop/>
+      <SetBlackboard output_key="elevator" value="freight"/>
       <SetBlackboard output_key="goal_floor" value="1"/>
       <SubTree ID="floor_settings"/>
       <SubTree ID="call_elevator"/>

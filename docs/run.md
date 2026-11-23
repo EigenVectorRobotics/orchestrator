@@ -17,7 +17,8 @@ A Claude Code session that operates the robot does each step that starts, stops 
 ### The map
 
 - `places_file` in the site file `orchestrator/config/sites/stanley.yaml` names the places file in use (`places_file:=<file>` for one launch). Change the map there only, then rebuild on the NUC (section 2).
-- The places file holds the places, the areas and the `floors` table (the planner takes `goal_floor` from it). Its `map:` is the prior map (.pcd) that preflight's `launch_nuc_stack` starts navigation on; start the NUC by hand on the same map (section 6).
+- The places file holds the places, the areas and the `floors` table (the planner takes `goal_floor` from it). Its `map:` is the prior map (.pcd) that preflight's `launch_nuc_stack` starts navigation on; start the NUC by hand on the same map and places file (section 6).
+- The places of an elevator are named `<elevator>_<position>_floor_<n>` (e.g. `elevator1_call_panel_floor_2`), its areas `<elevator>_cabin` and `<elevator>_hall`; only the elevator name differs between elevators. The trees build the keys from `elevator` and the floors, and `set_elevator` names the elevator to `slam_elevatorlio` (`inside_cabin`) and `door_state_node` (`door_open`) before each ride. `orchestrator/config/places/fvd_map_two_elevators.places.yaml` holds the freight elevator and elevator 1 on `fvd_map.pcd`; the site uses its copy in `~/maps/` on the NUC: copy it there after a change.
 
 ## 2. Deploy on the NUC
 
@@ -74,13 +75,13 @@ The agent bridge on the laptop answers the agent calls, and `planner_cli` (or a 
 3. **Send the task and answer the planner.** From the laptop:
 
    ```bash
-   mission_control/robot/run_task.sh target_floor_1      # floor 2 to floor 1; target_floor_2 for the way back
+   mission_control/robot/run_task.sh elevator1_target_floor_1      # floor 2 to floor 1 by elevator 1; elevator1_target_floor_2 for the way back
    ```
 
    It refuses when the executor does not answer (run `start.sh`) or a tree runs (a new task halts it); `--force` as the second argument sends it anyway. Then it runs, on the NUC:
 
    ```bash
-   ros2 run orchestrator planner_cli run --use-tree freight_elevator_go_to_place --param goal={target_floor_1}
+   ros2 run orchestrator planner_cli run --use-tree freight_elevator_go_to_place --param elevator=elevator1 --param goal={elevator1_target_floor_1}
    ```
 
    This sends the task, waits for the planning call while preflight runs (up to 15 min, `--timeout`), and answers it with the library tree and its parameters. `--task` and `--note` set the task sentence and the answer note; by default they name the tree and its parameters. To plan by hand instead (a new tree, or another choice), send the task yourself and use `planner_cli wait` and `answer` (step 5).
@@ -96,10 +97,10 @@ The agent bridge on the laptop answers the agent calls, and `planner_cli` (or a 
 
    ```bash
    ros2 run orchestrator planner_cli wait          # prints the call; the system prompt goes to ~/.ros/planner_system.md
-   ros2 run orchestrator planner_cli answer --use-tree freight_elevator_go_to_place --param goal={target_floor_1} --note "To floor 1 by the elevator."
+   ros2 run orchestrator planner_cli answer --use-tree freight_elevator_go_to_place --param elevator=elevator1 --param goal={elevator1_target_floor_1} --note "To floor 1 by elevator 1."
    ```
 
-   `--use-tree` reuses a library tree (`--tree <file>` sends a new one); `--param` sets its parameters. `freight_elevator_go_to_place` needs only `goal`, a place on the other floor: the planner fills `goal_floor` from the place's z, and the tree derives the panels, the floor button and the door-out place from it. With no `--param` it rides from floor 1 to `{target_floor_2}`.
+   `--use-tree` reuses a library tree (`--tree <file>` sends a new one); `--param` sets its parameters. `freight_elevator_go_to_place` needs `elevator` and `goal`, a place on the other floor: the planner fills `goal_floor` from the place's z, and the tree derives the panels, the floor button and the door-out place from them (the places `<elevator>_<position>_floor_<n>`). With no `--param` it rides elevator 1 from floor 1 to `{elevator1_target_floor_2}`. `elevator_round_trip` takes `home_floor`, `out_elevator` and `return_elevator`: it rides `out_elevator` to the other floor, walks to `return_elevator` there, and rides it back to `home_floor` (`--param home_floor=2 --param out_elevator=elevator1 --param return_elevator=freight`).
 6. **During the ride** the robot calls the elevator, walks in, presses the floor button, rides, and walks to the goal. The bridge answers each call as it comes; watch the Run Viewer. If the robot asks you to press a button, press it. To stop at any time, cancel (section 7). A connected bridge has up to the call's contract timeout (`timeout_s` in `g1_skills/g1_skills/press_judge/contract.yaml`, `g1_skills/g1_skills/manipulation_recovery/contract.yaml` and `g1_skills/g1_skills/operator_confirm/contract.yaml`). With no word from the bridge, the robot says so at 15 s and the call fails at 60 s (`UNREACHABLE_SAY_S`, `UNREACHABLE_FAIL_S` in `orchestrator/orchestrator/agent/link.py`); later calls fail at once until the bridge is heard from again ([troubleshooting.md](troubleshooting.md)). A failed call fails its agent skill, and the tree goes on as after any failure of that step (in the end, a person is asked to press).
 7. **Results.** The run ends when the viewer shows `freight_elevator_go_to_place: success`. Results are under `~/orch_runs/<session>/runs/<n>-<tree>/` on the NUC: `tree.xml` (what ran), `records.jsonl`, `outcome.json`, the bag, and each agent call in `agent/<call id>/`. The session folder holds `events.jsonl`, the whole trace ([recorder.md](recorder.md)). The raw bag is in `~/bags/`.
 
@@ -131,7 +132,7 @@ Test trees, in `orchestrator/test_trees/`, to run a part of the task:
 | `freight_call_elevator_up_down.xml` | on floor 2 | the main tree's `call_elevator` twice at the floor 2 call panel, first with the up button, then the down button, each through `press_panel_button`; no door wait, no ride |
 | `freight_call_button_press_here.xml` | at the floor 2 call panel | look from where it stands, then the down press with its recovery |
 | `freight_call_button_floor1_press_here_loop.xml` | at the floor 1 call panel | until cancelled: look, one down press at zero offset, judged; no recovery, no walk |
-| `freight_elevator_ride_loop.xml` | on floor 1, localized | until cancelled: `ride_to_goal` to `{target_floor_2}`, then back to `{target_floor_1}` |
+| `freight_elevator_ride_loop.xml` | on floor 1 at elevator 1, localized | until cancelled: `ride_to_goal` in elevator 1 to `{elevator1_target_floor_2}`, then back to `{elevator1_target_floor_1}` |
 
 The trees reset the EKF with `reset_ekf`, check the view after a reposition with `button_in_view`, and set the press offset before their first press: `press_button` refuses to run while no `set_press_offset` has run since the executor started.
 
@@ -148,18 +149,18 @@ Compare the person's labels with the judge's decisions and the `press_judge` rec
 
 ## 6. Bring a machine up by hand
 
-Preflight starts the stacks itself (the `launch_nuc_stack`, `launch_orin_stack` and `launch_thor_stack` contracts in `g1_skills/g1_skills/`); no robot script does. When preflight cannot, start them one at a time and check each before the next. `<map>.pcd` below is the `map:` of the places file in use (The map, section 1).
+Preflight starts the stacks itself (the `launch_nuc_stack`, `launch_orin_stack` and `launch_thor_stack` contracts in `g1_skills/g1_skills/`); no robot script does. When preflight cannot, start them one at a time and check each before the next. `<map>.pcd` below is the `map:` of the places file in use, and `<places>.yaml` that places file (The map, section 1).
 
 **NUC** (robot interface, arm control, body EKF, navigation, `door_state_node`), with `scripts/deploy.sh` of the `eigen_vector` repository, from the laptop's `eigen_vector` checkout:
 
 ```bash
-scripts/deploy.sh launch nuc map:=<map>.pcd localization:=true    # SSH_HOST=192.168.123.5 on the robot wire
+scripts/deploy.sh launch nuc map:=<map>.pcd places_file:=<places>.yaml localization:=true    # SSH_HOST=192.168.123.5 on the robot wire
 ```
 
 It starts `bringup nuc.launch.py` in tmux on the NUC (`tmux -L eigen_vector`) and streams its log; Ctrl-C there stops the launch, so run it in the background. It is ready about 15 to 20 s later. On the NUC itself, `launch_nuc_stack` runs the same launch:
 
 ```bash
-tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 launch bringup nuc.launch.py map:=<map>.pcd localization:=true 2>&1 | tee ~/eigen_vector_ws/launch.log'"
+tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 launch bringup nuc.launch.py map:=<map>.pcd places_file:=<places>.yaml localization:=true 2>&1 | tee ~/eigen_vector_ws/launch.log'"
 ```
 
 On 2026-11-08 the NUC ran two launch files instead, in this order, both only on the NUC ([machines.md](machines.md)): the robot interface and arm control, then navigation and SLAM. `door_state_node` was in neither, so it ran in its own session:

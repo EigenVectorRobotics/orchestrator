@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ElementTree
 
 from dataclasses import dataclass, field
 
+from .blackboard import KEY_PART, key_pattern, value_kind
 from .contract import DEFAULT_ESSENTIAL_DEVICES
 from .registry import Registry
 
@@ -134,10 +135,21 @@ class TreeValidator:
 
         if tag in BUILTIN_LEAVES:
             value = element.get('value', '') if tag == 'SetBlackboard' else ''
+            kind  = value_kind(value)
 
-            if value.startswith('{') and value.endswith('}') and not self._is_known_key(value[1:-1]):
+            if kind == 'copy' and not self._is_known_key(value[1:-1]):
                 # a copy from a key nothing holds fails only at run time (KeyError), so refuse it here
                 issues.append(Issue('error', frame.path, f'SetBlackboard: value={value} reads a key that is not a named place and that the tree never writes'))
+
+            for part in KEY_PART.findall(value[1:-1] if kind == 'built' else value) if kind != 'copy' else []:
+                if not self._is_known_key(part):
+                    issues.append(Issue('error', frame.path, f'SetBlackboard: value={value} reads {part}, a key that is not a named place and that the tree never writes'))
+
+            if kind == 'built' and self.config.known_keys is not None:
+                pattern = key_pattern(value)
+
+                if not any(pattern.fullmatch(key) for key in self.config.known_keys | self._written):
+                    issues.append(Issue('error', frame.path, f'SetBlackboard: value={value} can name no named place and no key the tree writes'))
 
             return issues
 

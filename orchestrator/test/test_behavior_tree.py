@@ -358,3 +358,37 @@ def test_set_blackboard_copies_a_place_into_a_parameter():
     assert _run(tree) == Status.SUCCESS
     assert blackboard['target'] is place
     assert runner.calls[-1][0] == 'navigate_to'
+
+
+def test_set_blackboard_builds_a_place_key_from_entries():
+    runner     = FakeRunner()
+    place      = {'x': 1.0, 'y': 2.0, 'z': 0.0, 'yaw': 0.0}
+    blackboard = {'elevator1_door_out_floor_2': place, 'elevator': 'elevator1', 'floor': '2'}
+    tree       = _tree(
+        '<Sequence>'
+        '<SetBlackboard value="{{elevator}_door_out_floor_{floor}}" output_key="door_out"/>'
+        '<SetBlackboard value="{elevator}_cabin" output_key="area"/>'
+        '</Sequence>',
+        runner,
+        blackboard=blackboard
+    )
+
+    assert _run(tree) == Status.SUCCESS
+    assert blackboard['door_out'] is place
+    assert blackboard['area'] == 'elevator1_cabin'
+
+
+def test_set_blackboard_fails_when_no_entry_has_the_built_key():
+    runner     = FakeRunner()
+    blackboard = {'elevator': 'elevator1', 'floor': '1'}
+    tree       = _tree(
+        '<Fallback>'
+        '<SetBlackboard value="{{elevator}_call_panel_preapproach_floor_{floor}}" output_key="preapproach"/>'
+        '<SetBlackboard value="none" output_key="preapproach"/>'
+        '</Fallback>',
+        runner,
+        blackboard=blackboard
+    )
+
+    assert _run(tree) == Status.SUCCESS
+    assert blackboard['preapproach'] == 'none'

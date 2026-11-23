@@ -1,0 +1,59 @@
+<root BTCPP_format="4">
+  <!-- A round trip by two elevators: from home_floor to the other floor by out_elevator, a walk to return_elevator on
+       that floor, and back to home_floor by return_elevator.
+       PARAMETERS, set by the planner in its answer (use_tree; from a session, planner_cli answer with the use-tree and
+       param options):
+         home_floor       the floor the robot starts and ends on, "1" or "2"
+         out_elevator     the elevator to ride away from home_floor, the prefix of its places and areas, e.g. elevator1
+         return_elevator  the elevator to ride back to home_floor, e.g. freight
+       The rest follows from them: the other floor (away_floor), and for each ride its places <elevator>_<position>_floor_<n>
+       (floor_settings in subtrees/elevator.xml). Each ride is ride_to_goal, the ride of freight_elevator_go_to_place:
+       1. out_elevator to away_floor; the ride ends at the target place of out_elevator on away_floor.
+       2. A walk on away_floor to the target place of return_elevator there, once SLAM is healthy.
+       3. return_elevator to home_floor; the ride ends at the target place of return_elevator on home_floor.
+       Before each ride set_elevator names the elevator to the stack, so inside_cabin and door_open use its areas.
+       Needs the Thor's grounding. Needs slam_elevatorlio and door_state_node that take places_file and /elevator_name. -->
+  <BehaviorTree ID="elevator_round_trip">
+    <Sequence>
+      <Sequence name="parameters">          <!-- the planner fills these three -->
+        <SetBlackboard output_key="home_floor" value="2"/>
+        <SetBlackboard output_key="out_elevator" value="elevator1"/>
+        <SetBlackboard output_key="return_elevator" value="freight"/>
+      </Sequence>
+      <Fallback>                            <!-- the other floor -->
+        <Sequence>
+          <decision_is value="{home_floor}" equals="1"/>
+          <SetBlackboard output_key="away_floor" value="2"/>
+        </Sequence>
+        <Sequence>
+          <decision_is value="{home_floor}" equals="2"/>
+          <SetBlackboard output_key="away_floor" value="1"/>
+        </Sequence>
+        <ForceFailure>
+          <say text="My home floor must be floor 1 or floor 2."/>
+        </ForceFailure>
+      </Fallback>
+      <!-- 1. out_elevator to away_floor -->
+      <SetBlackboard output_key="elevator" value="{out_elevator}"/>
+      <SetBlackboard output_key="goal_floor" value="{away_floor}"/>
+      <SetBlackboard output_key="goal" value="{{out_elevator}_target_floor_{away_floor}}"/>
+      <SubTree ID="ride_to_goal"/>
+      <!-- 2. the walk to return_elevator on away_floor -->
+      <slam_healthy/>
+      <say text="Walking to the other elevator."/>
+      <SetBlackboard output_key="goal" value="{{return_elevator}_target_floor_{away_floor}}"/>
+      <set_autonomy enabled="true"/>
+      <SubTree ID="walk_to_goal"/>
+      <set_autonomy enabled="false"/>
+      <!-- 3. return_elevator back to home_floor -->
+      <SetBlackboard output_key="elevator" value="{return_elevator}"/>
+      <SetBlackboard output_key="goal_floor" value="{home_floor}"/>
+      <SetBlackboard output_key="goal" value="{{return_elevator}_target_floor_{home_floor}}"/>
+      <SubTree ID="ride_to_goal"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <include path="subtrees/elevator.xml"/>
+  <include path="subtrees/press.xml"/>
+  <include path="subtrees/walk.xml"/>
+</root>

@@ -2,33 +2,39 @@
   <!-- Elevator steps of a ride: call the elevator and wait for the door, press the floor button and wait for
        the floor. -->
 
-  <!-- from goal_floor, the places and buttons of the ride; the robot must stand on the other floor (at_floor) -->
+  <!-- from elevator and goal_floor, the places and buttons of the ride: the places <elevator>_<position>_floor_<n> of
+       the places file. The robot must stand on the other floor (at_floor). Last, the elevator is named to the stack
+       (set_elevator), so inside_cabin and door_open use its areas <elevator>_cabin and <elevator>_hall -->
   <BehaviorTree ID="floor_settings">
-    <Fallback>
-      <Sequence>                          <!-- down: floor 2 to floor 1 -->
-        <decision_is value="{goal_floor}" equals="1"/>
-        <at_floor floor="2"/>
-        <SetBlackboard output_key="call_panel_preapproach" value="{freight_elevator_call_panel_preapproach}"/>
-        <SetBlackboard output_key="call_panel"             value="{freight_elevator_call_panel}"/>
-        <SetBlackboard output_key="call_button"            value="down button"/>
-        <SetBlackboard output_key="inside_panel"           value="{inside_freight_elevator_button_panel}"/>
-        <SetBlackboard output_key="floor_button"           value="floor 1"/>
-        <SetBlackboard output_key="door_out"               value="{freight_elevator_door_out_floor_1}"/>
-      </Sequence>
-      <Sequence>                          <!-- up: floor 1 to floor 2 -->
-        <decision_is value="{goal_floor}" equals="2"/>
-        <at_floor floor="1"/>
-        <SetBlackboard output_key="call_panel_preapproach" value="none"/>   <!-- floor 1 has no preapproach place -->
-        <SetBlackboard output_key="call_panel"             value="{freight_elevator_call_panel_floor_1}"/>
-        <SetBlackboard output_key="call_button"            value="down button"/>   <!-- "up button" grounds the light above it -->
-        <SetBlackboard output_key="inside_panel"           value="{inside_freight_elevator_button_panel_floor_1}"/>
-        <SetBlackboard output_key="floor_button"           value="floor 2"/>
-        <SetBlackboard output_key="door_out"               value="{freight_elevator_door_out_floor_2}"/>
-      </Sequence>
-      <ForceFailure>
-        <say text="My goal is not on the other floor from me, so I will not take the elevator."/>
-      </ForceFailure>
-    </Fallback>
+    <Sequence>
+      <Fallback>
+        <Sequence>                          <!-- down: floor 2 to floor 1 -->
+          <decision_is value="{goal_floor}" equals="1"/>
+          <at_floor floor="2"/>
+          <SetBlackboard output_key="start_floor"  value="2"/>
+          <SetBlackboard output_key="call_button"  value="down button"/>
+          <SetBlackboard output_key="floor_button" value="floor 1"/>
+        </Sequence>
+        <Sequence>                          <!-- up: floor 1 to floor 2 -->
+          <decision_is value="{goal_floor}" equals="2"/>
+          <at_floor floor="1"/>
+          <SetBlackboard output_key="start_floor"  value="1"/>
+          <SetBlackboard output_key="call_button"  value="down button"/>   <!-- "up button" grounds the light above it -->
+          <SetBlackboard output_key="floor_button" value="floor 2"/>
+        </Sequence>
+        <ForceFailure>
+          <say text="My goal is not on the other floor from me, so I will not take the elevator."/>
+        </ForceFailure>
+      </Fallback>
+      <Fallback>                            <!-- a floor with no preapproach place -->
+        <SetBlackboard output_key="call_panel_preapproach" value="{{elevator}_call_panel_preapproach_floor_{start_floor}}"/>
+        <SetBlackboard output_key="call_panel_preapproach" value="none"/>
+      </Fallback>
+      <SetBlackboard output_key="call_panel"   value="{{elevator}_call_panel_floor_{start_floor}}"/>
+      <SetBlackboard output_key="inside_panel" value="{{elevator}_inside_button_panel_floor_{start_floor}}"/>
+      <SetBlackboard output_key="door_out"     value="{{elevator}_door_out_floor_{goal_floor}}"/>
+      <set_elevator elevator="{elevator}"/>
+    </Sequence>
   </BehaviorTree>
 
   <!-- walk to the call panel and press the call button; the arms are released at the end -->
@@ -96,11 +102,12 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- the ride to goal on goal_floor (both set by the caller): floor settings, the call, the walk in, the press and the ride,
-       the walk out and on to goal, with the SLAM guard. freight_elevator_go_to_place runs it once; a test can chain rides -->
+  <!-- the ride in elevator to goal on goal_floor (all three set by the caller): floor settings, the call, the walk in,
+       the press and the ride, the walk out and on to goal, with the SLAM guard. freight_elevator_go_to_place runs it
+       once; elevator_round_trip twice, with two elevators -->
   <BehaviorTree ID="ride_to_goal">
     <Sequence>
-      <SubTree ID="floor_settings"/>      <!-- from goal_floor; the robot must stand on the other floor -->
+      <SubTree ID="floor_settings"/>      <!-- from elevator and goal_floor; the robot must stand on the other floor -->
       <SetBlackboard output_key="exiting" value="no"/>
       <Fallback>
         <!-- the SLAM guard: outside the cabin, an unhealthy SLAM (a LIO divergence, lost tracking) halts the task at once;

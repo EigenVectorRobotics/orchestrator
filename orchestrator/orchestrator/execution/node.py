@@ -70,6 +70,7 @@ class ExecutorNode(Node):
         # (1) Skills: the runner owns everything skills share, the agent included
         self.registry, places, self.essential_devices, library = load_skills(self)
         os.environ['MAP'] = load_place_map(self.get_parameter('places_file').value)   # launch_nuc_stack starts nav on it
+        os.environ['PLACES_FILE'] = self.get_parameter('places_file').value          # and gives it the elevator areas
         self.known_keys = set(places)
         self.tracer     = Tracer(self, 'executor')
         speaker         = self.create_publisher(String, SPEAK_TOPIC, 10)              # unitree_interface's TTS (remapped ~/tts)

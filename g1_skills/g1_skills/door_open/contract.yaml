@@ -13,7 +13,8 @@ interface:
 maturity: untested
 source: elevator_states (feat/door_state) door_state_node; started by bringup nuc.launch.py
 notes: >-
-  door_state_node counts lidar points (/registered_scan, map frame) in a rectangle at the freight elevator door and
+  door_state_node counts lidar points (/registered_scan, map frame) in a rectangle at the elevator door and
   publishes OPEN or CLOSED once per scan (about 10 Hz). consecutive 3 removes one-scan errors (about 0.3 s delay).
-  The rectangles are the areas "freight elevator cabin" and "freight elevator hall" of the map's places file (the
-  cabin counted while the robot is out, the hall while it is in); a wrong localization gives a wrong state.
+  The rectangles are the areas <elevator>_cabin and <elevator>_hall of the places file (launch_nuc_stack passes the
+  executor's) for the elevator that set_elevator named (the cabin counted while the robot is out, the hall while it is
+  in). No elevator named yet: no state, so door_open fails. A wrong localization gives a wrong state.

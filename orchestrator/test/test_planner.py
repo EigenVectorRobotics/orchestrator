@@ -186,23 +186,23 @@ RIDE = load_tree(TREES / 'freight_elevator_go_to_place.xml')
 def test_system_prompt_lists_a_tree_with_its_parameters():
     prompt = build_system_prompt(Registry.from_directory(CONTRACTS), {'nuc', 'orin'}, load_tree_library(TREES))
 
-    assert '- freight_elevator_go_to_place(goal="{target_floor_2}", goal_floor="2"): ' in prompt
+    assert '- freight_elevator_go_to_place(elevator="elevator1", goal="{elevator1_target_floor_2}", goal_floor="2"): ' in prompt
 
 
 RIDE_PLACES = {name: {'x': 0.0, 'y': 0.0, 'yaw': 0.0, 'frame': 'map'} for name in (
-    'freight_elevator_call_panel_preapproach', 'freight_elevator_call_panel', 'freight_elevator_call_panel_floor_1',
-    'inside_freight_elevator_button_panel', 'inside_freight_elevator_button_panel_floor_1',
-    'freight_elevator_door_out_floor_1', 'freight_elevator_door_out_floor_2', 'target_floor_1', 'target_floor_2')}
+    'freight_call_panel_preapproach_floor_2', 'freight_call_panel_floor_2', 'freight_call_panel_floor_1',
+    'freight_inside_button_panel_floor_2', 'freight_inside_button_panel_floor_1',
+    'freight_door_out_floor_1', 'freight_door_out_floor_2', 'freight_target_floor_1', 'freight_target_floor_2')}
 
 
 def test_use_tree_overrides_parameters_and_keeps_the_others():
     events     = []
-    planner, _ = _planner(['Floor 1.\n<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}" goal_floor="1"/>'], events, load_tree_library(TREES))
+    planner, _ = _planner(['Floor 1.\n<use_tree id="freight_elevator_go_to_place" goal="{freight_target_floor_1}" goal_floor="1"/>'], events, load_tree_library(TREES))
     result     = planner.plan('go to floor 1', RIDE_PLACES)
 
     assert result.reused == 'freight_elevator_go_to_place'
-    assert tree_parameters(result.tree) == {'goal': '{target_floor_1}', 'goal_floor': '1'}
-    assert result.tree.replace('output_key="goal" value="{target_floor_1}"', 'output_key="goal" value="{target_floor_2}"').replace('output_key="goal_floor" value="1"', 'output_key="goal_floor" value="2"') == RIDE
+    assert tree_parameters(result.tree) == {'elevator': 'elevator1', 'goal': '{freight_target_floor_1}', 'goal_floor': '1'}
+    assert result.tree.replace('output_key="goal" value="{freight_target_floor_1}"', 'output_key="goal" value="{elevator1_target_floor_2}"').replace('output_key="goal_floor" value="1"', 'output_key="goal_floor" value="2"') == RIDE
 
 
 def test_unknown_parameter_goes_back_to_the_model():
@@ -227,7 +227,7 @@ def test_system_prompt_lists_subtrees_with_their_keys():
 
 def test_use_tree_replaces_a_subtree_with_another_tree():
     library    = {**load_tree_library(TREES), 'press_by_hand': ('Ask a person to press the button', BY_HAND)}
-    planner, _ = _planner(['<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}" goal_floor="1"><replace subtree="press_panel_button" with="press_by_hand"/></use_tree>'], library=library)
+    planner, _ = _planner(['<use_tree id="freight_elevator_go_to_place" goal="{freight_target_floor_1}" goal_floor="1"><replace subtree="press_panel_button" with="press_by_hand"/></use_tree>'], library=library)
     result     = planner.plan('go to floor 1', RIDE_PLACES)
 
     assert result.reused == 'freight_elevator_go_to_place'
@@ -312,10 +312,10 @@ def test_planner_cli_run_builds_the_task_and_the_note_from_the_tree():
 
     from orchestrator.planning.cli import answer_text, run_text
 
-    arguments = argparse.Namespace(use_tree='freight_elevator_go_to_place', tree=None, param=['goal={target_floor_1}'],
+    arguments = argparse.Namespace(use_tree='freight_elevator_go_to_place', tree=None, param=['goal={freight_target_floor_1}'],
                                    task=None, note=None)
     task, arguments.note = run_text(arguments)
 
-    assert task == 'Run freight_elevator_go_to_place with goal={target_floor_1}.'
-    assert answer_text(arguments).endswith('<use_tree id="freight_elevator_go_to_place" goal="{target_floor_1}"/>')
+    assert task == 'Run freight_elevator_go_to_place with goal={freight_target_floor_1}.'
+    assert answer_text(arguments).endswith('<use_tree id="freight_elevator_go_to_place" goal="{freight_target_floor_1}"/>')
     assert run_text(argparse.Namespace(use_tree='t', param=[], task='Go.', note='n')) == ('Go.', 'n')

@@ -45,7 +45,7 @@
   <BehaviorTree ID="walk_in">
     <RetryUntilSuccessful num_attempts="3">
       <Fallback>
-        <navigate_to goal="{inside_freight_elevator_button_panel}"/>
+        <navigate_to goal="{freight_inside_button_panel_floor_2}"/>
         <ForceFailure>
           <Sequence>
             <say text="My path looks blocked. Clearing my map and trying again."/>
@@ -95,7 +95,7 @@
 
   <BehaviorTree ID="recover_floor1">
     <Sequence>
-      <manipulation_recovery phase="diagnose" target_description="floor 1" base_goal="{inside_freight_elevator_button_panel}"
+      <manipulation_recovery phase="diagnose" target_description="floor 1" base_goal="{freight_inside_button_panel_floor_2}"
                              decision="{decision}" goal="{recovery_goal}" left_arm="{recovery_left_arm}"
                              offset_x="{offset_x}" offset_y="{offset_y}" offset_z="{offset_z}"/>
       <Fallback>

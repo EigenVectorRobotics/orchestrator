@@ -11,8 +11,8 @@
       <clear_stop/>
       <set_autonomy enabled="false"/>
       <SetBlackboard output_key="button" value="down button"/>
-      <SetBlackboard output_key="press_panel" value="{freight_elevator_call_panel}"/>
-      <SetBlackboard output_key="recovery_goal" value="{freight_elevator_call_panel}"/>
+      <SetBlackboard output_key="press_panel" value="{freight_call_panel_floor_2}"/>
+      <SetBlackboard output_key="recovery_goal" value="{freight_call_panel_floor_2}"/>
       <SetBlackboard output_key="press_left_arm" value="false"/>
       <SetBlackboard output_key="press_base_offset_x" value="0.0"/>
       <SetBlackboard output_key="press_base_offset_y" value="0.0"/>

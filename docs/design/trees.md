@@ -4,12 +4,13 @@ The library trees the planner reuses, the preflight tree, and the state machine 
 
 ## Library tree: subtree calls
 
-One library tree rides the freight elevator. It is built from small subtrees, and `press_panel_button` serves both panels.
+Two library trees ride elevators: `freight_elevator_go_to_place` one ride in the elevator `elevator`, `elevator_round_trip` a ride in `out_elevator`, a walk, and a ride back in `return_elevator`. They are built from small subtrees, and `press_panel_button` serves both panels. `floor_settings` builds the place keys from the elevator name and names the elevator to the stack (`set_elevator`).
 
 ```mermaid
 flowchart LR
   subgraph TRF["trees/"]
     FE["freight_elevator_go_to_place"]
+    RT["elevator_round_trip"]
   end
   subgraph EL["subtrees/elevator.xml"]
     RTG["ride_to_goal"]
@@ -22,6 +23,7 @@ flowchart LR
   subgraph WK["subtrees/walk.xml"]
     WI["walk_in"]
     WO["walk_out"]
+    WG["walk_to_goal"]
   end
   subgraph PR["subtrees/press.xml"]
     PPB["press_panel_button"]
@@ -34,6 +36,9 @@ flowchart LR
     EH["ekf_hold"]
   end
   FE --> RTG
+  RT -->|"out_elevator, then return_elevator"| RTG
+  RT -->|"to return_elevator"| WG
+  WO --> WG
   RTG --> FS
   RTG --> CAW
   RTG --> WI

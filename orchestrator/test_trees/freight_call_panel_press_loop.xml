@@ -11,9 +11,9 @@
         </Fallback>
         <clear_stop/>
         <set_autonomy enabled="true"/>
-        <navigate_to goal="{freight_elevator_call_panel_preapproach}"/>
+        <navigate_to goal="{freight_call_panel_preapproach_floor_2}"/>
         <Sleep msec="3000"/>
-        <navigate_to goal="{freight_elevator_call_panel}"/>
+        <navigate_to goal="{freight_call_panel_floor_2}"/>
         <set_autonomy enabled="false"/>
         <Sleep msec="2500"/>            <!-- the G1 settles up to 2.5 s after it stops -->
         <SubTree ID="ekf_hold"/>

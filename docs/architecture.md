@@ -63,9 +63,10 @@ A skill is one folder in `g1_skills/g1_skills/`: its `contract.yaml` (schema: `s
 | `agent` | `press_judge`, `manipulation_recovery`, `operator_confirm` | Opens an agent call (`docs/agents.md`) |
 | `compare`, `alive`, `command` | `decision_is`, `nuc_up`, `launch_nuc_stack` | Runs inside the executor: compare two values, check that topics, services or URLs exist, run a shell command |
 
-- A pose input takes a place (`{inside_freight_elevator_button_panel}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`. Give z on the two-storey map, or the route planner takes the lowest storey.
+- A pose input takes a place (`{elevator1_inside_button_panel_floor_2}`) or a literal `"x y yaw"` or `"x y z yaw"` in `map`. Give z on the two-storey map, or the route planner takes the lowest storey.
 - Every finished action goes in the history; a condition does only with `record: true` (`check_reach`), and then every answer does, a pass included.
-- A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, and a `floors` table). Names become snake-case keys: "freight elevator call panel" is `{freight_elevator_call_panel}` (`orchestrator/orchestrator/common/config.py`).
+- A places file is this package's format (`name: {x, y, yaw}`) or the team's map format (`places:` with `yaw_deg`, and a `floors` table). Names become snake-case keys: "elevator1 call panel floor 2" is `{elevator1_call_panel_floor_2}` (`orchestrator/orchestrator/common/config.py`). The places of an elevator are named `<elevator>_<position>_floor_<n>` and its areas `<elevator>_cabin` and `<elevator>_hall`, so a tree builds every key of a ride from the elevator name and the floors.
+- `SetBlackboard` builds a key from entries: `value="{{elevator}_door_out_floor_{goal_floor}}"` copies the entry whose key is the text with `{elevator}` and `{goal_floor}` filled in, and fails when no entry has that key (so a Fallback can take another value); `value="{elevator}_cabin"` writes the text filled in (`skill_registry/skill_registry/blackboard.py`). The validator checks that each `{part}` is a place or written by the tree, and that a built key can name some place.
 
 ## Live skills
 
@@ -92,11 +93,17 @@ The preflight tree starts the Run Viewer, starts the NUC, Orin and Thor stacks t
 
 The executor runs a task tree only after a preflight has passed since the launch (`require_preflight`, set by the launch argument `preflight`, default true, false with `fake:=true`). With `preflight` false the launch also gives the planner no preflight tree (`preflight_tree` empty), so no task runs one. A preflight that does not succeed closes the gate again. `send_tree --skip-preflight` runs a tree anyway and leaves a `preflight_skipped` warning in the trace. The executor also refuses a tree while the recorder is not ready (`require_recorder`, set by `record`).
 
+## The elevator in use
+
+The stack knows one elevator at a time. `floor_settings` (`skill_registry/trees/subtrees/elevator.xml`) ends with `set_elevator`, which publishes the elevator name on the latched `/elevator_name`. `slam_elevatorlio` then takes the area `<elevator>_cabin` of its `places_file` for `elevator_side` (`inside_cabin`, LIO's elevator mode), and `door_state_node` the areas `<elevator>_cabin` and `<elevator>_hall` for `/door_state` (`door_open`). Both get the places file from the launch: the executor sets `MAP` (its `map:`) and `PLACES_FILE` from its `places_file`, and `launch_nuc_stack` passes both to `nuc.launch.py`. Before an elevator is named, `door_state_node` publishes nothing and `slam_elevatorlio` no side.
+
+`freight_elevator_go_to_place` rides one elevator (parameter `elevator`). `elevator_round_trip` rides `out_elevator` from `home_floor` to the other floor, walks to `return_elevator` on that floor (`walk_to_goal`), and rides `return_elevator` back to `home_floor`; each ride is `ride_to_goal`, and each names its elevator first.
+
 ## Walking into and out of the cabin
 
-The subtrees `walk_in` and `walk_out` (`skill_registry/trees/subtrees/walk.xml`):
+The subtrees `walk_in`, `walk_out` and `walk_to_goal` (`skill_registry/trees/subtrees/walk.xml`):
 
-- Latched points in `/terrain_map` close ahead can block the walk into the cabin, so a failed walk in, or a failed walk on after the relocalization out of the cabin, says so, clears the terrain map, waits 2 s and walks again, three tries in all.
+- Latched points in `/terrain_map` close ahead can block the walk into the cabin, so a failed walk in, or a failed walk on after the relocalization out of the cabin (`walk_to_goal`), says so, clears the terrain map, waits 2 s and walks again, three tries in all.
 - Tracking alone rejects the larger correction a ride leaves (0.5 m once), so `walk_out` stops at the goal floor's door-out place, about 1 m out of the door, and relocalizes in place (`relocalize_here`) before walking on.
 
 ## Press frames

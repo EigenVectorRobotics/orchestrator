@@ -275,3 +275,15 @@ def test_a_setblackboard_copy_from_a_missing_place_is_refused():
     assert not _errors(copy)                                                # no places given: keys are not checked
     written = '<Sequence><SetBlackboard value="2" output_key="floor"/><SetBlackboard value="{floor}" output_key="goal_floor"/></Sequence>'
     assert not _errors(written, known_keys=set())                           # a key the tree writes itself
+
+
+def test_a_setblackboard_built_key_must_match_a_place():
+    built = ('<Sequence><SetBlackboard value="elevator1" output_key="elevator"/>'
+             '<SetBlackboard value="{{elevator}_door_out_floor_{floor}}" output_key="door_out"/></Sequence>')
+    places = {'elevator1_door_out_floor_2', 'freight_door_out_floor_1'}
+
+    assert any('reads floor, a key that is not a named place' in error for error in _errors(built, known_keys=places))
+    built = built.replace('</Sequence>', '<SetBlackboard value="2" output_key="floor"/></Sequence>')
+    assert not _errors(built, known_keys=places)
+    assert any('can name no named place' in error for error in _errors(built, known_keys={'door_out_floor_2'}))
+    assert not _errors(built)                                               # no places given: keys are not checked

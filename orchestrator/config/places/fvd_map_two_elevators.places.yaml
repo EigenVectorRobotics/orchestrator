@@ -1,0 +1,244 @@
+# fvd_map_two_elevators: the places of two elevators on fvd_map, named <elevator>_<position>_floor_<n>; areas <elevator>_cabin and <elevator>_hall.
+# freight: the elevator near the map origin, from fvd_map_callpanel_tilt.places.yaml (sha256 f9db2a141b899d63, 2026-11-19).
+# elevator1: the elevator at x 66, from fvd_map_clean_elevator1.places.yaml (sha256 88aa7c8394fa9949, 2026-11-17); its map fvd_map_clean_elevator1.pcd is fvd_map.pcd (same md5).
+# Merged 2026-11-22 with the coordinates unchanged; the notes keep the old place names.
+map: /home/vector/maps/fvd_map.pcd
+frame: map
+floors:
+  floor 1:
+    z_min: -10.0
+    z_max: -3.5
+  floor 2:
+    z_min: -3.5
+    z_max: 2.5
+pose_of: base_link
+places:
+  freight_call_panel_floor_1:
+    x: 1.977
+    y: -1.017
+    z: -6.63
+    yaw_deg: -6.8
+    saved: 2026-11-07T20:22:00-0500
+    note: the floor 2 call panel place with z - 6.17 (map floors -0.93 and -7.1); the user said to reuse the floor 2 spots; x y follow the floor 2 place, moved 6 cm forward along yaw 2026-11-08 (arm reach); not checked on the robot ; moved 5 cm back along yaw 2026-11-13, because from the place the floor 1 button sat 0.32 m ahead and 12 cm higher than on floor 2, and presses from 3-6 cm past the place missed by 115-148 mm
+  freight_call_panel_floor_2:
+    x: 1.93
+    y: -0.902
+    z: -0.356
+    yaw_deg: -14.1
+    inliers: 0.985
+    structure_inliers: 0.963
+    saved: 2026-11-19T18:42:14-0500
+    note: robot faces the call panel; the operator stood the robot here after the up/down press test of 2026-11-19 (session 20261119T230051Z-fe5acf), /odom_base_link 3 s mean, 30 samples, 7 mm spread. Was (2.005, -1.036, -0.415, -6.3 deg) in fvd_map.places.yaml
+  freight_call_panel_preapproach_floor_2:
+    x: 0.833
+    y: -0.971
+    z: -0.379
+    yaw_deg: -3.4
+    inliers: 0.991
+    structure_inliers: 0.957
+    saved: 2026-11-02T19:41:17-0500
+    note: about 1.1 m before the call panel, faces it; 2026-11-02 bringup test
+  freight_door_out_floor_1:
+    x: 1.743
+    y: 0.46
+    z: -6.583
+    yaw_deg: 178.5
+    saved: 2026-11-07T22:05:00-0500
+    note: as floor 2, z - 6.17
+  freight_door_out_floor_2:
+    x: 1.759
+    y: 0.439
+    z: -0.376
+    yaw_deg: 179.0
+    saved: 2026-11-07T22:05:00-0500
+    note: 1 m out from the middle of the freight elevator door (edge 3.073,0.571 - 2.662,-1.706), facing away; the robot stops here to relocalize
+  freight_hall_floor_1:
+    x: -0.196
+    y: -1.143
+    z: -6.522
+    yaw_deg: -151.2
+    saved: 2026-11-07T20:10:00-0500
+    note: floor 1, about 3 m out of the freight elevator door, facing away from it; where the robot stood (teleop) in bag elevator_test_20261107_153042 at 215-217 s (/state_estimation, sensor z -6.18 less 0.35 m)
+  freight_inside_button_panel_back_floor_2:
+    x: 3.507
+    y: 0.255
+    z: -0.361
+    yaw_deg: 160.2
+    inliers: 0.989
+    structure_inliers: 0.908
+    saved: 2026-11-09T19:50:10-0500
+    note: '20 cm behind the inside panel place, same heading; button 1 in view (box centre 0.71, 0.70) but 0.59 m ahead of the pelvis: too far for button_in_reach (0.38-0.46). Saved 2026-11-09 by se_7'
+  freight_inside_button_panel_floor_1:
+    x: 3.372
+    y: 0.309
+    z: -6.59
+    yaw_deg: 151.1
+    saved: 2026-11-07T19:40:00-0500
+    note: derived from the floor 2 place (same cabin), z - 6.17 (map floors -0.93 and -7.1); x y follow the floor 2 place, moved 4 cm to the robot left 2026-11-08 (panel reach); not yet checked on the robot
+  freight_inside_button_panel_floor_2:
+    x: 3.389
+    y: 0.303
+    z: -0.371
+    yaw_deg: 151.6
+    inliers: 0.977
+    structure_inliers: 0.911
+    saved: 2026-10-27T19:28:05-0400
+    note: inside the cabin, doors open, robot faces the button panel; 2026-10-27, moved 4 cm to the robot left 2026-11-08 (panel reach)
+  freight_inside_button_panel_preapproach_floor_1:
+    x: 4.104
+    y: -0.266
+    z: -6.605
+    yaw_deg: 148.2
+    saved: 2026-11-10T19:25:00-0500
+    note: derived from the floor 2 preapproach place (same cabin), z - 6.17 (map floors -0.93 and -7.1), as the other floor 1 cabin places; not checked on the robot
+  freight_inside_button_panel_preapproach_floor_2:
+    x: 4.126
+    y: -0.266
+    z: -0.375
+    yaw_deg: 148.8
+    inliers: 0.975
+    structure_inliers: 0.867
+    saved: 2026-11-10T18:41:57-0500
+    note: 'inside the cabin, 0.87 m behind the inside button panel place, faces it; the operator put the robot here 2026-11-10. Written by hand from /odom_base_link (3 s mean, 4 mm spread): map_info save refused it (structure inliers 0.87 < 0.90); scan_fit median 0.028 m, 0.80 within 10 cm, best at 0 deg. z set to -0.435 (the inside button panel place z) on 2026-11-10: at the measured -0.273 route_planner snapped the goal to a surface at z +0.05 with no path, and every walk to it was blocked (session 20261110T235736Z-f35ae3)'
+  freight_target_floor_1:
+    x: -0.667
+    y: -0.153
+    z: -6.501
+    yaw_deg: 178.5
+    saved: 2026-11-07T22:40:00-0500
+    note: picked on the map - open hall floor 1, 2.6 m past the door-out point, 1.29 m from the nearest wall, facing away from the door
+  freight_target_floor_2:
+    x: -0.32
+    y: -0.951
+    z: -0.395
+    yaw_deg: 179.0
+    saved: 2026-11-07T22:40:00-0500
+    note: picked on the map - open hall floor 2, 2.4 m past the door-out point, 0.68 m from the nearest wall, facing away from the door
+  elevator1_call_panel_floor_1:
+    x: 66.359
+    y: -22.722
+    z: -6.506
+    yaw_deg: -26.8
+    inliers: 0.949
+    structure_inliers: 0.916
+    saved: 2026-11-15T19:15:09-0500
+    note: 'ELEVATOR 1, floor 1: faces the call panel; set on the robot 2026-11-15 (replaces the derived 66.335, -22.855, -2.8); /odom_base_link 3 s mean; arm reach not yet checked; 2026-11-17: rotated 15 deg clockwise (from above) about the button assumed at (66.679, -22.948), from (66.323, -22.861, -11.8 deg); 2026-11-17: moved 5 cm left along the wall (wall faced at -1.5 deg), from (66.358, -22.772)'
+  elevator1_call_panel_floor_2:
+    x: 66.32
+    y: -22.771
+    z: -0.346
+    yaw_deg: -17.8
+    inliers: 0.97
+    structure_inliers: 0.971
+    saved: 2026-11-15T18:47:53-0500
+    note: 'ELEVATOR 1, floor 2: faces the call panel; operator placed the robot 2026-11-15, /odom_base_link 3 s mean; arm reach not yet checked; 2026-11-17: rotated 15 deg clockwise (from above) about the down button at (66.660, -22.945), from (66.295, -22.915, -2.8 deg); 2026-11-17: moved 5 cm left along the wall (wall faced at -5.2 deg), from (66.315, -22.821)'
+  elevator1_call_panel_preapproach_floor_2:
+    x: 65.278
+    y: -22.897
+    z: -0.355
+    yaw_deg: -4.9
+    inliers: 0.982
+    structure_inliers: 0.976
+    saved: 2026-11-15T18:46:55-0500
+    note: 'ELEVATOR 1 (next to elevator 2), floor 2: before the call panel, faces it; operator placed the robot 2026-11-15, /odom_base_link 3 s mean'
+  elevator1_door_out_floor_1:
+    x: 66.381
+    y: -22.065
+    z: -6.492
+    yaw_deg: 176.1
+    saved: 2026-11-15T19:01:13-0500
+    note: 'ELEVATOR 1, floor 1: DERIVED from "freight elevator door out floor 2" (floor 2) on 2026-11-15, not checked on the robot: x +0.04, y +0.06 (floor 1 vs floor 2 wall match in fvd_map near the elevators), z -6.15 (elevator 2 measured pairs -6.13..-6.16); no floor-1 map point within 0.3 m'
+  elevator1_door_out_floor_2:
+    x: 66.341
+    y: -22.125
+    z: -0.342
+    yaw_deg: 176.1
+    inliers: 0.915
+    structure_inliers: 0.891
+    saved: 2026-11-15T18:52:12-0500
+    note: 'ELEVATOR 1, floor 2: out of the cabin door, facing away; the robot stops here to relocalize; operator placed the robot 2026-11-15, /odom_base_link 3 s mean'
+  elevator1_inside_button_panel_floor_1:
+    x: 67.716
+    y: -21.718
+    z: -6.512
+    yaw_deg: 155.7
+    inliers: 0.792
+    structure_inliers: 0.623
+    saved: 2026-11-15T19:10:13-0500
+    note: 'ELEVATOR 1, floor 1: inside the cabin, faces the button panel; operator placed the robot 2026-11-15 after the derived place (67.567, -21.537, 157.3) put the buttons below the camera image; /odom_base_link 3 s mean (SLAM match is weak in the cabin)'
+  elevator1_inside_button_panel_floor_2:
+    x: 67.527
+    y: -21.597
+    z: -0.365
+    yaw_deg: 157.3
+    inliers: 0.765
+    structure_inliers: 0.68
+    saved: 2026-11-15T18:50:34-0500
+    note: 'ELEVATOR 1, floor 2: inside the cabin, faces the button panel; operator placed the robot 2026-11-15, /odom_base_link 3 s mean; frame wip/2026-11-15_new_elevator/e1_frame_inside.jpg; arm reach not yet checked'
+  elevator1_target_floor_1:
+    x: 64.342
+    y: -22.896
+    z: -6.518
+    yaw_deg: -0.9
+    inliers: 0.964
+    structure_inliers: 0.933
+    saved: 2026-11-15T19:05:46-0500
+    note: 'ELEVATOR 1, floor 1: the goal place in the hall; operator placed the robot 2026-11-15, relocalized by /initialpose, /odom_base_link 3 s mean'
+  elevator1_target_floor_2:
+    x: 63.069
+    y: -27.732
+    z: -0.379
+    yaw_deg: -128.4
+    inliers: 0.982
+    structure_inliers: 0.97
+    saved: 2026-11-15T18:53:18-0500
+    note: 'ELEVATOR 1, floor 2: the goal place in the hall; the same as target floor 2 of elevator 2 (fvd_map_elevator2.places.yaml, saved 2026-11-15T17:11:46), copied 2026-11-15 on the user''s word'
+areas:
+  freight_cabin:
+    corners:
+    - - 2.969
+      - 1.071
+    - - 2.929
+      - -1.243
+    - - 6.073
+      - -1.295
+    - - 6.112
+      - 1.018
+    door_threshold: 36
+    note: the cabin, same x y on every floor; slam_elevatorlio decides in/out from it, door_state_node counts it while the robot is out
+  freight_hall:
+    corners:
+    - - 2.194
+      - 2.584
+    - - 2.103
+      - -2.729
+    - - -1.897
+      - -2.663
+    - - -1.806
+      - 2.651
+    door_threshold: 30
+    note: in front of the door - the door edge (cabin corners 0-1) moved 0.8 m out of the cabin, 1.5 m wider at each end, 4.0 m deep, so a 0.3 m localization error does not move it onto the doorway; door_state_node counts it while the robot is in the cabin; bag elevator_test_20261107_153042 in-cabin scans give closed <= 9, open p5 >= 68 with +-0.3 m x/y shifts (2026-11-08)
+  elevator1_cabin:
+    corners:
+    - - 67.1
+      - -21.29
+    - - 67.1
+      - -23.58
+    - - 68.92
+      - -23.58
+    - - 68.92
+      - -21.29
+    door_threshold: 36
+    note: 'ELEVATOR 1, from the live lidar inside the cabin with the door open, floor 1, 2026-11-15 (the map has no cabin: its door was closed when mapped): inside walls front x 67.25, back 68.92, north y -21.29, south -23.58; door opening y -21.85..-23.05 (1.20 m), closed door at x 66.95. Corners 0-1 = door side, 15 cm past the closed door. door_threshold is the OLD elevator value: not tested here'
+  elevator1_hall:
+    corners:
+    - - 66.17
+      - -20.35
+    - - 66.17
+      - -24.55
+    - - 62.17
+      - -24.55
+    - - 62.17
+      - -20.35
+    door_threshold: 30
+    note: 'ELEVATOR 1, 2026-11-15: the door line (x 66.97) moved 0.8 m out, 1.5 m wider at each end, 4.0 m deep, as the old hall area. Its south edge touches the front of elevator 2''s door (y -24.45). door_threshold is the OLD elevator value: not tested here'

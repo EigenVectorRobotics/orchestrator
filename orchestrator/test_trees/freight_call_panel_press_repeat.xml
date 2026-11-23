@@ -13,9 +13,9 @@
         </Fallback>
         <clear_stop/>
         <set_autonomy enabled="true"/>
-        <navigate_to goal="{freight_elevator_call_panel_preapproach}"/>
+        <navigate_to goal="{freight_call_panel_preapproach_floor_2}"/>
         <Sleep msec="3000"/>
-        <navigate_to goal="{freight_elevator_call_panel}"/>
+        <navigate_to goal="{freight_call_panel_floor_2}"/>
         <set_autonomy enabled="false"/>
         <SubTree ID="ekf_hold"/>
         <SetBlackboard value="down button" output_key="button"/>

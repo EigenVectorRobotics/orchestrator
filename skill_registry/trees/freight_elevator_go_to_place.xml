@@ -1,13 +1,16 @@
 <root BTCPP_format="4">
-  <!-- Take the freight elevator to a place on the other floor, from floor 2 or floor 1, with door preemption both ways.
+  <!-- Take one elevator to a place on the other floor, from floor 2 or floor 1, with door preemption both ways.
        PARAMETERS, set by the planner in its answer (use_tree with goal="{...}"; from a session, planner_cli answer
        with the use-tree and param options):
-         goal        the place to end at, as a place key, e.g. {target_floor_2} or {freight_elevator_hall_floor_1}
+         elevator    the elevator to ride, the prefix of its places and areas in the places file, e.g. elevator1 or freight
+         goal        the place to end at, as a place key, e.g. {elevator1_target_floor_2} or {freight_hall_floor_1}
          goal_floor  the floor of that place, "1" or "2". Leave it out: the planner sets it from the places file
                      floors table by the place's z (planner.fill_floor_parameters); a value that disagrees is refused
-       The rest follows from goal_floor ("floor settings"): the robot must stand on the other floor (at_floor checks
-       it), the call panel, the inside panel and the floor button of its floor, and the door-out place of the goal floor.
-       1. Walk to the call panel (floor 2: through its preapproach; floor 1 has none) and press the call button (the
+       The rest follows from elevator and goal_floor ("floor settings"): the robot must stand on the other floor
+       (at_floor checks it), the places <elevator>_<position>_floor_<n> of the call panel and the inside panel of its
+       floor, the floor button, and the door-out place of the goal floor. set_elevator then names the elevator to the
+       stack, so inside_cabin and door_open use its areas <elevator>_cabin and <elevator>_hall.
+       1. Walk to the call panel (through its preapproach place when the floor has one) and press the call button (the
           operator may press it too). door_open (lidar) is checked on every tick: once the door opens, the walk or the
           press is halted, the arms are released and, 1 s later, the robot walks straight to the inside panel.
        2. In the cabin: press the goal floor button (each look resets the EKF). Checked on every tick: inside_cabin, at_floor
@@ -16,11 +19,12 @@
           relocalization there, then {goal}.
        Both presses use the press slot press_panel_button (stance_check, press_button, press_judge, recover_once).
        Each press slot starts from its panel's base offset (elevator.xml); an offset_retry sets the next one.
-       Needs the Thor's grounding. Needs navigation_stack jean/elevator-side and elevator_states jean/door-state-in-out. -->
+       Needs the Thor's grounding. Needs slam_elevatorlio and door_state_node that take places_file and /elevator_name. -->
   <BehaviorTree ID="freight_elevator_go_to_place">
     <Sequence>
-      <Sequence name="parameters">          <!-- the planner fills these two -->
-        <SetBlackboard output_key="goal" value="{target_floor_2}"/>
+      <Sequence name="parameters">          <!-- the planner fills these three -->
+        <SetBlackboard output_key="elevator" value="elevator1"/>
+        <SetBlackboard output_key="goal" value="{elevator1_target_floor_2}"/>
         <SetBlackboard output_key="goal_floor" value="2"/>
       </Sequence>
       <SubTree ID="ride_to_goal"/>      <!-- floor settings, the ride and the walk to goal: subtrees/elevator.xml -->

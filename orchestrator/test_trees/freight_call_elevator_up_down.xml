@@ -12,8 +12,8 @@
       </Fallback>
       <clear_stop/>
       <at_floor floor="2"/>
-      <SetBlackboard output_key="call_panel_preapproach" value="{freight_elevator_call_panel_preapproach}"/>
-      <SetBlackboard output_key="call_panel"             value="{freight_elevator_call_panel}"/>
+      <SetBlackboard output_key="call_panel_preapproach" value="{freight_call_panel_preapproach_floor_2}"/>
+      <SetBlackboard output_key="call_panel"             value="{freight_call_panel_floor_2}"/>
       <SetBlackboard output_key="call_button"            value="up button"/>
       <SubTree ID="call_elevator"/>
       <SetBlackboard output_key="call_button"            value="down button"/>

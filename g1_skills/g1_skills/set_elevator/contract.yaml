@@ -1,0 +1,19 @@
+name: set_elevator
+kind: action
+device: nuc
+description: >-
+  Name the elevator in use on the latched /elevator_name, so that slam_elevatorlio (inside_cabin, LIO's elevator mode)
+  and door_state_node (door_open) use its areas <elevator>_cabin and <elevator>_hall of the places file. Run it before
+  each ride, before door_open or inside_cabin is checked.
+interface:
+  transport: python
+  name: /elevator_name
+  ros_type: std_msgs/msg/String
+inputs:
+- {name: elevator, type: string, description: 'the prefix of the elevator places and areas in the places file, e.g. elevator1'}
+timeout_s: 3
+maturity: untested
+source: g1_skills (this folder); read by navigation_stack slam_elevatorlio and elevator_states door_state_node
+notes: >-
+  Latched (transient local), so a stack node that starts later still learns the elevator. The topic transport
+  publishes volatile messages, which a latched subscription does not receive, so this skill publishes itself.

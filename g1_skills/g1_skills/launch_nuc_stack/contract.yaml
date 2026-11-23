@@ -1,12 +1,12 @@
 name: launch_nuc_stack
 kind: action
 device: nuc
-description: Start the NUC stack in tmux (-L eigen_vector), as docs/run.md, section 6, on the map in MAP, which the executor sets from the map key of the places file. Does nothing when it runs.
+description: Start the NUC stack in tmux (-L eigen_vector), as docs/run.md, section 6, on the map in MAP and the places file in PLACES_FILE, which the executor sets from its places_file (MAP is its map key). Does nothing when it runs.
 interface:
   transport: command
   command: |
     tmux -L eigen_vector has-session -t eigen_vector 2>/dev/null && exit 0
-    tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 launch bringup nuc.launch.py map:=${MAP:?no map: in the places file} localization:=true 2>&1 | tee ~/eigen_vector_ws/launch.log'"
+    tmux -L eigen_vector new-session -d -s eigen_vector "bash -lc 'source ~/eigen_vector_ws/env.sh && LD_PRELOAD=\"\$EIGEN_VECTOR_PRELOAD\" ros2 launch bringup nuc.launch.py map:=${MAP:?no map: in the places file} places_file:=${PLACES_FILE:?no places file} localization:=true 2>&1 | tee ~/eigen_vector_ws/launch.log'"
 timeout_s: 30
 maturity: untested
 source: orchestrator/orchestrator/health/checks.py (run_command)

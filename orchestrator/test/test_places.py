@@ -37,16 +37,21 @@ def test_bad_places_are_refused():
         parse_places({'places': {'Call Panel': {'x': 0, 'y': 0}, 'call panel': {'x': 1, 'y': 1}}})
 
 
-def test_the_robot_tree_validates_against_the_team_places():
+def test_the_robot_trees_validate_against_the_team_places():
     from pathlib import Path
-    from skill_registry import Registry, TreeValidator, ValidatorConfig
 
-    root     = Path(__file__).resolve().parents[2]
-    registry = Registry.from_directory(root / 'g1_skills' / 'g1_skills')
-    tree     = (root / 'orchestrator' / 'test_trees' / 'freight_elevator_floor1_press_agentic.xml').read_text()
-    issues   = TreeValidator(registry, ValidatorConfig(known_keys=set(parse_places(TEAM_FILE)))).validate(tree)
+    import yaml
 
-    assert [issue.message for issue in issues if issue.level == 'error'] == []
+    from skill_registry import Registry, TreeValidator, ValidatorConfig, load_tree
+
+    root      = Path(__file__).resolve().parents[2]
+    registry  = Registry.from_directory(root / 'g1_skills' / 'g1_skills')
+    places    = yaml.safe_load((root / 'orchestrator' / 'config' / 'places' / 'fvd_map_two_elevators.places.yaml').read_text())
+    validator = TreeValidator(registry, ValidatorConfig(known_keys=set(parse_places(places))))
+    trees     = [root / 'orchestrator' / 'test_trees' / 'freight_elevator_floor1_press_agentic.xml', *(root / 'skill_registry' / 'trees').glob('*.xml')]
+
+    for tree in trees:
+        assert [issue.message for issue in validator.validate(load_tree(tree)) if issue.level == 'error'] == [], tree.name
 
 
 def test_place_floors_come_from_the_floors_table_by_z():

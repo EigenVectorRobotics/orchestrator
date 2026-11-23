@@ -6,6 +6,8 @@ import xml.etree.ElementTree as ElementTree
 from enum import Enum
 from typing import Callable, Protocol
 
+from skill_registry.blackboard import fill, value_kind
+
 
 class Status(Enum):
     IDLE    = 'idle'
@@ -488,14 +490,28 @@ class Sleep(Timed, TreeNode):
 
 
 class SetBlackboard(TreeNode):
-    """Writes value to output_key; a value {other} copies the blackboard entry other"""
+    """Writes value to output_key. A value {other} copies the blackboard entry other; {{a}_b_{c}} copies the entry
+    whose key is the text with {a} and {c} filled in, and fails when no entry has that key; text with {a} in it is
+    written filled in (skill_registry.blackboard)"""
 
     def _tick(self) -> Status:
         key   = self._attribute('output_key').strip('{}')
         value = self._attribute('value')
+        kind  = value_kind(value)
 
-        if value.startswith('{') and value.endswith('}'):
+        if kind == 'copy':
             value = self.context.blackboard[value[1:-1]]
+        elif kind == 'built':
+            name = fill(value[1:-1], self.context.blackboard)
+
+            if name not in self.context.blackboard:
+                self.message = f'no blackboard entry {name}'
+
+                return Status.FAILURE
+
+            value = self.context.blackboard[name]
+        else:
+            value = fill(value, self.context.blackboard)
 
         self.context.blackboard[key] = value
 

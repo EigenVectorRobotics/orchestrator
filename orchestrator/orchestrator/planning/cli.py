@@ -3,7 +3,7 @@
     planner_cli wait [--timeout S]        block until a planning call is open; print it and save its system prompt
     planner_cli show                      the current call; saves its system prompt
     planner_cli answer --use-tree ID --note TEXT     choose an existing tree
-    planner_cli answer --use-tree ID --param goal={target_floor_2} --note TEXT
+    planner_cli answer --use-tree ID --param goal={elevator1_target_floor_2} --note TEXT
                                                      choose an existing tree with other parameter values
     planner_cli answer --tree FILE --note TEXT       answer with the tree in FILE (BehaviorTree.CPP v4 XML)
     planner_cli run --use-tree ID [--param NAME=VALUE ...] [--task TEXT] [--note TEXT]
@@ -175,7 +175,7 @@ def main() -> None:
     choice.add_argument('--tree', type=Path, metavar='FILE')
     answer.add_argument('--note', required=True, help='a few sentences: what the robot will do, how it handles failures')
     answer.add_argument('--param', action='append', default=[], metavar='NAME=VALUE',
-                        help='with --use-tree: a parameter of the tree, e.g. goal={target_floor_2}; repeat for more')
+                        help='with --use-tree: a parameter of the tree, e.g. goal={elevator1_target_floor_2}; repeat for more')
 
     run = commands.add_parser('run')
     run.add_argument('--use-tree', metavar='ID', required=True)
