@@ -14,6 +14,7 @@
   --in: #2f6f9f; --out: #d9822b; --decide: #b3261e; --ok: #2e8b3e; --err: #d1342f; --run: #c77700;
   --mapbg: #e8ebe7; --route: #2f6fb0; --arm: #8a3fb5;
   --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --move: 0.45s; --ease: cubic-bezier(0.65, 0, 0.35, 1);   /* a tree node moves to its new place in this time, on this curve */
   color-scheme: light;
 }
 * { box-sizing: border-box }
@@ -48,11 +49,12 @@ main { padding: 12px max(16px, env(safe-area-inset-left)) 60px; display: grid; g
 .tools button.on { border-color: var(--in); color: var(--in) }
 .tools button:focus-visible { outline: 2px solid var(--in) }
 .diagram { overflow: auto; min-height: 140px }
-#topdiagram { max-height: 34vh } #diagram { max-height: 52vh; min-height: 260px }
+#topdiagram { max-height: 34vh } #diagram { height: 52vh; min-height: 260px }   /* a fixed height: a tree that folds or opens does not move the panes below */
 .diagram svg { display: block }
 .crumb { font: 11px var(--mono); color: var(--muted); padding: 5px 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere }
-.edge { fill: none; stroke: var(--line); stroke-width: 1.5 } .edge.seen { stroke: var(--muted) }
-.nd rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2 }
+.edge { fill: none; stroke: var(--line); stroke-width: 1.5; transition: d var(--move) var(--ease), opacity var(--move) } .edge.seen { stroke: var(--muted) }
+.nd { transition: transform var(--move) var(--ease), opacity var(--move) }
+.nd rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; transition: fill var(--move), stroke var(--move) }
 .nd text { font: 11.5px var(--mono); fill: var(--fg); dominant-baseline: middle }
 .nd .sym { font-weight: 600; fill: var(--muted) } .nd .ts { font-size: 10px; fill: var(--muted) }
 .nd.ctl rect { fill: var(--bg) }
@@ -151,7 +153,7 @@ a.node { font: 500 12.5px var(--mono); color: var(--in); cursor: pointer; text-d
 
   <section class="pane" id="p-press">
     <h2>press_button level <span class="nm" id="focusname"></span>
-      <span class="tools"><button id="b-follow" class="on" title="Open only the branch that runs now">Follow</button><button id="b-fit">Fit</button><button id="b-active">Active path</button><button id="b-open">Open all</button><button id="b-fold">Fold all</button><button id="b-in">+</button><button id="b-out">−</button></span></h2>
+      <span class="tools"><button id="b-focus" title="Scroll both tree panes to the node that runs now">Focus</button><button id="b-follow" class="on" title="Open only the branch that runs now">Follow</button><button id="b-fit">Fit</button><button id="b-active">Active path</button><button id="b-open">Open all</button><button id="b-fold">Fold all</button><button id="b-in">+</button><button id="b-out">−</button></span></h2>
     <div class="crumb" id="crumb">Click a SubTree in the top level to show it here. The subtree that holds press_button opens by itself.</div>
     <div class="diagram" id="diagram"><div class="empty">No tree yet.</div></div>
   </section>
@@ -222,6 +224,7 @@ const SYM = {Sequence: '→', ReactiveSequence: '⇉', Fallback: '?', ReactiveFa
   RetryUntilSuccessful: '↻', Repeat: '⟳', Sleep: '⏱', SetBlackboard: '=', Timeout: '⌛'};
 const TOP_MIN_SCALE = 0.7;       // Fit never makes the top level smaller than this: it scrolls instead
 let zoom = 1, follow = true, topZoom = 1, topFit = true;
+const MOVE_MS = parseFloat(css('--move')) * 1000;
 
 function newRun(ev) {
   runs.push({ev, root: null, byPath: {}, history: {}, decisions: [], cur: null, lastFail: null, stats: {}, chat: pendingChat.splice(0), end: null,
@@ -330,7 +333,8 @@ function boxText(node, closed) {
   return node.tag + (node.short ? ' ' + node.short : '');
 }
 
-/* Draw the tree under root into box; kidsOf decides what is open; returns the group of the current node */
+/* Draw the tree under root into box; kidsOf decides what is open. A node keeps its element from the last draw and moves to its new place;
+   a new node comes out of its nearest ancestor that was drawn, a node that goes moves into its nearest ancestor that stays. Returns the current node */
 function drawTree(run, root, box, scale, kidsOf, onClick, at) {
   clearSeen(root);
   const state = {row: 0};
@@ -347,30 +351,82 @@ function drawTree(run, root, box, scale, kidsOf, onClick, at) {
   colW.forEach((cw, d) => { colX[d + 1] = colX[d] + cw + GAP });
   (function place(node) { node.x = colX[node.depth]; node.w = colW[node.depth]; kidsOf(node).forEach(place) })(root);
   const w = colX[colW.length - 1] + colW[colW.length - 1] + PAD, h = PAD * 2 + Math.max(state.row - 1, 0) * ROW + BOX_H;
-  const svg = svgEl('svg', {width: w * scale, height: h * scale, viewBox: `0 0 ${w} ${h}`});
-  const edges = svgEl('g', {}, svg), nodes = svgEl('g', {}, svg);
-  let curEl = null;
+  let svg = box.querySelector(':scope > svg');
+  if (!svg) { box.textContent = ''; svg = svgEl('svg', {}, box); svgEl('g', {}, svg); svgEl('g', {}, svg); box.els = new Map(); box.lines = new Map(); box.drawn = [0, 0] }
+  const [edges, nodes] = svg.children, els = box.els, lines = box.lines;
+  const old = new Map([...els].map(([k, g]) => [k, g.at])), goal = new Map(), born = [];
+  const from = node => { for (let n = node.parent; n; n = n.parent) if (old.has(n.path)) return old.get(n.path); return null };
+  const stub = ([x, y, bw]) => `M${x + bw},${y + BOX_H / 2} H${x + bw} V${y + BOX_H / 2} H${x + bw}`;   // an edge of no length at the right side of a box
+  let cur = null;
   (function draw(node) {
-    const st = statusOf(run, node), kids = kidsOf(node), closed = node.children.length && !kids.length;
+    const st = statusOf(run, node), kids = kidsOf(node);
     const path = onPathOf(run, node, at) && node !== run.byPath[at];
     const cls = ['nd', node.kind, seen(run, node) ? 'seen' : '', st ? st.status : '', at === node.path ? 'cur' : '',
       path ? 'onpath' : '', node === run.focus && root !== node ? 'focus' : ''].join(' ');
-    const g = svgEl('g', {class: cls, transform: `translate(${node.x},${node.y})`}, nodes);
-    svgEl('rect', {width: node.w, height: BOX_H, rx: node.kind === 'leaf' ? 4 : 13}, g);
-    const t = svgEl('text', {x: 8, y: st ? 9 : BOX_H / 2}, g);
-    t.textContent = node.label;
-    if (st) { const ts = svgEl('text', {x: 8, y: 20, class: 'ts'}, g); ts.textContent = `${st.status} ${fmt(st.time)}` }
-    const tip = svgEl('title', {}, g); tip.textContent = `${node.tag} ${node.attrs || ''}${st ? `\n${st.status} at ${fmt(st.time)}` : ''}`;
-    if (onClick(node)) { g.style.cursor = 'pointer'; g.addEventListener('click', () => onClick(node)()) }
-    if (at === node.path || (path && !kids.length)) curEl = g;
+    let g = els.get(node.path);
+    if (!g) {
+      g = svgEl('g', {}, nodes); svgEl('rect', {height: BOX_H}, g); svgEl('text', {x: 8}, g); svgEl('text', {x: 8, y: 20, class: 'ts'}, g); svgEl('title', {}, g);
+      const [x, y] = from(node) || [node.x, node.y]; g.style.transform = `translate(${x}px,${y}px)`; g.style.opacity = 0;
+      els.set(node.path, g); born.push(g);
+    }
+    const [rect, t, ts, tip] = g.children, click = onClick(node);
+    g.setAttribute('class', cls); g.node = node; g.at = [node.x, node.y, node.w]; g.onclick = click; g.style.cursor = click ? 'pointer' : '';
+    rect.setAttribute('width', node.w); rect.setAttribute('rx', node.kind === 'leaf' ? 4 : 13);
+    t.setAttribute('y', st ? 9 : BOX_H / 2); t.textContent = node.label;
+    ts.textContent = st ? `${st.status} ${fmt(st.time)}` : '';
+    tip.textContent = `${node.tag} ${node.attrs || ''}${st ? `\n${st.status} at ${fmt(st.time)}` : ''}`;
+    goal.set(g, `translate(${node.x}px,${node.y}px)`);
+    if (at === node.path || (path && !kids.length)) cur = node;
     kids.forEach(c => {
       const x1 = node.x + node.w, y1 = node.y + BOX_H / 2, x2 = c.x, y2 = c.y + BOX_H / 2, mx = x1 + (x2 - x1) / 2;
-      svgEl('path', {class: 'edge' + (seen(run, c) ? ' seen' : ''), d: `M${x1},${y1} H${mx} V${y2} H${x2}`}, edges);
+      const d = `M${x1},${y1} H${mx} V${y2} H${x2}`;
+      let p = lines.get(c.path);
+      if (!p) { p = svgEl('path', {}, edges); setD(p, from(c) ? stub(from(c)) : d); p.style.opacity = 0; lines.set(c.path, p); born.push(p) }
+      p.setAttribute('class', 'edge' + (seen(run, c) ? ' seen' : '')); p.node = c;
+      goal.set(p, d);
       draw(c);
     });
   })(root);
-  box.textContent = ''; box.appendChild(svg);
-  return {svg, curEl, w, h};
+  const into = node => { for (let n = node.parent; n; n = n.parent) if (goal.has(els.get(n.path))) return els.get(n.path).at; return null };
+  els.forEach((g, k) => {
+    if (goal.has(g)) return;
+    const a = into(g.node); if (a) g.style.transform = `translate(${a[0]}px,${a[1]}px)`;
+    g.style.opacity = 0; g.style.pointerEvents = 'none'; els.delete(k); setTimeout(() => g.remove(), MOVE_MS);
+  });
+  lines.forEach((p, k) => {
+    if (goal.has(p)) return;
+    const a = into(p.node); if (a) setD(p, stub(a));
+    p.style.opacity = 0; lines.delete(k); setTimeout(() => p.remove(), MOVE_MS);
+  });
+  if (born.length) svg.getBoundingClientRect();     // the new elements take their start place first, so they move from it
+  goal.forEach((v, el) => { el.tagName === 'path' ? setD(el, v) : el.style.transform = v; el.style.opacity = 1 });
+  box.tree = [w, h]; sizeSvg(box, scale);
+  return {cur, w, h};
+}
+
+/* The d of an edge: as a CSS property it moves smoothly; the attribute is for a browser with no CSS d */
+function setD(p, d) { p.setAttribute('d', d); p.style.d = `path("${d}")` }
+
+/* Size the svg for box.tree at scale: it grows at once and shrinks after the nodes moved, so the pane does not scroll by itself while they move */
+function sizeSvg(box, scale) {
+  const svg = box.querySelector(':scope > svg'), [w, h] = box.tree, [ow, oh] = box.drawn;
+  const set = (sw, sh) => { box.drawn = [sw, sh]; svg.setAttribute('width', sw * scale); svg.setAttribute('height', sh * scale); svg.setAttribute('viewBox', `0 0 ${sw} ${sh}`) };
+  set(Math.max(ow, w), Math.max(oh, h));
+  clearTimeout(box.shrink); box.shrink = setTimeout(() => set(w, h), MOVE_MS);
+}
+
+/* Scroll the pane, not the page, so the node is in the middle of the pane's height and in view across; it moves with the nodes */
+function glideTo(box, node, scale) {
+  const [w, h] = box.tree;
+  const top = Math.max(0, Math.min(h * scale - box.clientHeight, (node.y + BOX_H / 2) * scale - box.clientHeight / 2));
+  const left = Math.max(0, Math.min(w * scale - box.clientWidth, node.x * scale - PAD, Math.max(box.scrollLeft, (node.x + node.w) * scale + PAD - box.clientWidth)));
+  const x0 = box.scrollLeft, y0 = box.scrollTop, t0 = performance.now(), id = box.glide = {};
+  (function frame(t) {
+    if (box.glide !== id) return;                 // a newer glide took over
+    const k = Math.min(1, (t - t0) / MOVE_MS), e = k < 0.5 ? 4 * k ** 3 : 1 - (2 - 2 * k) ** 3 / 2;   // the curve of --ease
+    box.scrollLeft = x0 + (left - x0) * e; box.scrollTop = y0 + (top - y0) * e;
+    if (k < 1) requestAnimationFrame(frame);
+  })(t0);
 }
 
 /* The wrapper SubTrees of the top level (e.g. ride_to_goal): while only one SubTree shows, it only wraps the skills, so open it */
@@ -397,9 +453,9 @@ function renderTop(scroll) {
   const out = drawTree(run, run.root, box, topZoom, kidsOf, onClick, run.cur);
   if (topFit) {                  // the scale changes only the size of the svg, not its layout
     topZoom = Math.max(TOP_MIN_SCALE, Math.min(1.2, (box.clientWidth - 8) / out.w));
-    out.svg.setAttribute('width', out.w * topZoom); out.svg.setAttribute('height', out.h * topZoom);
+    sizeSvg(box, topZoom);
   }
-  if (out.curEl && scroll) out.curEl.scrollIntoView({block: 'nearest', inline: 'nearest'});
+  if (out.cur && scroll) glideTo(box, out.cur, topZoom);
 }
 
 /* press_button level: the focused SubTree (or the whole tree when it has no press_button), with Follow and folding */
@@ -415,7 +471,7 @@ function render(scroll) {
   const kidsOf = node => node.collapsed && node !== root ? [] : node.children;
   const onClick = node => node.children.length && node !== root ? () => { setFollow(false); node.collapsed = !node.collapsed; render(false) } : null;
   const out = drawTree(run, root, box, zoom, kidsOf, onClick, target(run));
-  if (scroll && out.curEl) out.curEl.scrollIntoView({block: 'nearest', inline: 'nearest'});
+  if (scroll && out.cur) glideTo(box, out.cur, zoom);
 }
 
 /* The node the press_button pane follows: the current node when it is inside the pane's root, else the last one that ran there */
@@ -454,12 +510,12 @@ function setFollow(on) { follow = on; $('b-follow').classList.toggle('on', on) }
 
 function fit() {
   const run = runs[shownRun], svg = $('diagram').querySelector('svg'); if (!run || !svg) return;
-  const w = Number(svg.getAttribute('viewBox').split(' ')[2]);
+  const w = $('diagram').tree[0];
   zoom = Math.max(0.3, Math.min(1.5, ($('diagram').clientWidth - 8) / w)); render(true);
 }
 
 let pending = false;
-function scheduleRender() { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; render(true) }) }
+function scheduleRender() { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; render(false) }) }   // a tree event never scrolls: Focus does
 
 /* The node that runs now (or that a person clicked); the press_button pane follows its subtree */
 function setCur(run, path) { run.cur = path; const sub = pressSubOf(run, path); if (sub) { run.focus = sub; run.focusCur = path } }
@@ -469,8 +525,7 @@ function markCur(run, path, scroll) { setCur(run, path); openPath(run, path); re
 function leafEvent(ev) {
   const run = runs[runs.length - 1]; if (!run || !ev.path) return;
   run.history[ev.path] = {status: ev.status, time: ev.time};
-  setCur(run, ev.path);
-  if (!follow) openPath(run, ev.path);
+  if (ev.status === 'running') { setCur(run, ev.path); if (!follow) openPath(run, ev.path) }   // a condition only returns success or failure: a guard that a reactive node checks at each tick does not take the focus
   if (shownRun === runs.length - 1) scheduleRender();
 }
 
@@ -1101,6 +1156,7 @@ fetch('/sessions').then(r => r.json()).then(list => {
 const foldButton = (act, scroll) => () => { setFollow(false); const r = runs[shownRun]; if (r && r.root) { act(r); render(scroll) } };
 function setTopFit(on) { topFit = on; $('t-fit').classList.toggle('on', on) }
 $('b-follow').addEventListener('click', () => { setFollow(!follow); const r = runs[shownRun]; if (follow && r && r.root) { followCur(r); render(true) } });
+$('b-focus').addEventListener('click', () => render(true));
 $('b-fit').addEventListener('click', fit);
 $('b-active').addEventListener('click', foldButton(activeOnly, true));
 $('b-open').addEventListener('click', foldButton(r => setAll(base(r), false), false));
