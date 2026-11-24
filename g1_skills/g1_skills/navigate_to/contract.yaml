@@ -6,7 +6,7 @@ interface:
   transport: action
   name: /route_planner/navigate_to_goal
   ros_type: navigation_interfaces/action/NavigateToGoal
-  failure_when:                 # a route that stays blocked: cancel and fail before the 120 s timeout
+  failure_when:                 # a route that stays blocked: cancel and fail before timeout_s
     field: state
     equals: blocked
     hold_s: 10
@@ -19,7 +19,7 @@ pre:
 - localized
 resources:
 - base
-timeout_s: 120
+timeout_s: 300                  # a walk between the two elevators on one floor takes about 190 s
 fallback:
 - cancel_nav
 maturity: wip
